@@ -1,6 +1,6 @@
 """Scene generation endpoints"""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -87,9 +87,9 @@ async def generate_scene(
 
 @router.get("/", response_model=dict)
 async def list_scenes(
-    manuscript_id: UUID = None,
-    skip: int = 0,
-    limit: int = 20,
+    manuscript_id: UUID | None = None,
+    skip: int = Query(0, ge=0, le=1000),  # P0-7 fix: Validate query params
+    limit: int = Query(20, ge=1, le=100),  # P0-7 fix: Limit max results
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):

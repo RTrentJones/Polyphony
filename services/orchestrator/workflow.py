@@ -12,9 +12,25 @@ import operator
 from uuid import uuid4
 import httpx
 from datetime import datetime
+from groq import AsyncGroq
 
 from services.shared.models import SceneRequest, DialogueRequest
 from services.shared.config import settings
+
+
+# Singleton Groq client (P0-5 fix)
+_groq_client: AsyncGroq | None = None
+
+
+def get_groq_client() -> AsyncGroq:
+    """Get or create singleton Groq client"""
+    global _groq_client
+    if _groq_client is None:
+        _groq_client = AsyncGroq(
+            api_key=settings.GROQ_API_KEY,
+            timeout=httpx.Timeout(60.0, connect=10.0)
+        )
+    return _groq_client
 
 
 class SceneState(TypedDict):
@@ -36,9 +52,8 @@ async def plan_scene_beats(state: SceneState) -> SceneState:
     """
     scene_request = state['scene_request']
 
-    # Use LLM to plan beats
-    from groq import AsyncGroq
-    client = AsyncGroq(api_key=settings.GROQ_API_KEY)
+    # Use LLM to plan beats (P0-5 fix: using singleton client)
+    client = get_groq_client()
 
     characters_str = ", ".join(scene_request['characters'])
 
