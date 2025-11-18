@@ -13,13 +13,36 @@ from uuid import uuid4
 import httpx
 from datetime import datetime
 from groq import AsyncGroq
+import re
+import html
 
 from services.shared.models import SceneRequest, DialogueRequest
 from services.shared.config import settings
+from services.shared.resilience import CircuitBreaker, with_retry, CircuitBreakerError, RetryConfig
+from services.shared.sanitization import sanitize_for_llm
+from services.shared.logging_config import setup_logging, log_error, log_business_event
+
+# Initialize logger for workflow
+workflow_logger = setup_logging("orchestrator.workflow", level=settings.LOG_LEVEL if hasattr(settings, 'LOG_LEVEL') else "INFO")
 
 
 # Singleton Groq client (P0-5 fix)
 _groq_client: AsyncGroq | None = None
+
+# Circuit breakers for external services (P0-4 fix)
+character_agent_breaker = CircuitBreaker(
+    failure_threshold=5,
+    recovery_timeout=60,
+    expected_exception=(httpx.HTTPError, httpx.TimeoutException),
+    name="character_agent"
+)
+
+groq_api_breaker = CircuitBreaker(
+    failure_threshold=3,
+    recovery_timeout=30,
+    expected_exception=Exception,
+    name="groq_api"
+)
 
 
 def get_groq_client() -> AsyncGroq:
@@ -57,11 +80,16 @@ async def plan_scene_beats(state: SceneState) -> SceneState:
 
     characters_str = ", ".join(scene_request['characters'])
 
+    # Sanitize inputs to prevent prompt injection (P2-7 fix)
+    scene_desc = sanitize_for_llm(scene_request['scene_description'], max_length=1000)
+    setting = sanitize_for_llm(scene_request['setting'], max_length=500)
+    emotional_tone = sanitize_for_llm(scene_request['emotional_tone'], max_length=100)
+
     prompt = f"""You are a narrative planner. Break down this scene into 3-5 narrative beats (smaller moments).
 
-Scene Description: {scene_request['scene_description']}
-Setting: {scene_request['setting']}
-Emotional Tone: {scene_request['emotional_tone']}
+Scene Description: {scene_desc}
+Setting: {setting}
+Emotional Tone: {emotional_tone}
 Characters: {characters_str}
 
 For each beat, provide:
@@ -74,12 +102,18 @@ Format your response as a numbered list of beats. Each beat should be on its own
 Beats:"""
 
     try:
-        response = await client.chat.completions.create(
-            model=settings.GROQ_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=500
-        )
+        # Call LLM with retry and circuit breaker (P2-4 fix)
+        @with_retry(max_attempts=3, base_delay=2.0, retryable_exceptions=(Exception,))
+        async def call_groq_with_protection():
+            return await groq_api_breaker.call(
+                client.chat.completions.create,
+                model=settings.GROQ_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+                max_tokens=500
+            )
+
+        response = await call_groq_with_protection()
 
         beats_text = response.choices[0].message.content.strip()
 
@@ -259,11 +293,20 @@ async def assemble_final_scene(state: SceneState) -> SceneState:
 
             await session.commit()
 
-        print(f"✅ Scene {state['scene_id']} saved to database")
+        log_business_event(
+            workflow_logger,
+            "scene_saved_to_database",
+            scene_id=state['scene_id'],
+            beats_count=len(state['completed_beats']),
+            word_count=total_word_count
+        )
 
     except Exception as e:
         state['error'] = f"Error assembling scene: {str(e)}"
-        print(f"❌ Error saving scene: {e}")
+        log_error(workflow_logger, e, context={
+            "scene_id": state['scene_id'],
+            "event": "scene_assembly_failed"
+        })
 
     return state
 
@@ -276,14 +319,17 @@ async def _call_character_agent(
     other_characters: list[str]
 ) -> dict | None:
     """
-    Call a character agent to generate dialogue
+    Call a character agent to generate dialogue with circuit breaker and retry (P0-4 fix)
 
     In a production deployment, this would route to specific character agent instances.
     For now, we'll use the character-agent service directly.
     """
-    try:
-        # TODO: In production, route to specific character agent instance
-        # For now, use a single character-agent service
+    @with_retry(
+        max_attempts=3,
+        base_delay=1.0,
+        retryable_exceptions=(httpx.HTTPError, httpx.TimeoutException)
+    )
+    async def make_request():
         agent_url = f"{settings.CHARACTER_AGENT_URL}/generate-dialogue"
 
         request_data = {
@@ -300,12 +346,37 @@ async def _call_character_agent(
             response.raise_for_status()
             return response.json()
 
-    except Exception as e:
-        print(f"Error calling character agent for {character_name}: {e}")
+    try:
+        # Call with circuit breaker protection
+        return await character_agent_breaker.call(make_request)
+
+    except (httpx.HTTPError, httpx.TimeoutException, CircuitBreakerError) as e:
+        # Log error with context
+        workflow_logger.warning(
+            f"Error calling character agent for {character_name}",
+            extra_fields={
+                "event": "character_agent_error",
+                "character": character_name,
+                "error_type": type(e).__name__,
+                "error": str(e)
+            }
+        )
+
         # Fallback: return simple dialogue
         return {
             'character': character_name,
-            'dialogue': f"[Character {character_name} response]",
+            'dialogue': f"[I need a moment to collect my thoughts...]",
+            'action': f"{character_name} pauses thoughtfully",
+            'confidence_score': 0.0
+        }
+    except Exception as e:
+        log_error(workflow_logger, e, context={
+            "event": "character_agent_unexpected_error",
+            "character": character_name
+        })
+        return {
+            'character': character_name,
+            'dialogue': f"...",
             'action': '',
             'confidence_score': 0.0
         }
