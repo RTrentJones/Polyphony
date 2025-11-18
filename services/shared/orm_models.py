@@ -99,11 +99,18 @@ class Scene(Base):
     __tablename__ = "scenes"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     manuscript_id = Column(UUID(as_uuid=True), ForeignKey("manuscripts.id"))
-    scene_request = Column(JSON, nullable=False)
+    title = Column(String(500))
+    setting = Column(Text)
+    emotional_tone = Column(String(100))
+    characters = Column(ARRAY(String(255)))
+    scene_description = Column(Text)
+    scene_request = Column(JSON)
     generated_content = Column(Text)
-    characters_involved = Column(ARRAY(String(255)))
+    word_count = Column(Integer, default=0)
+    status = Column(String(50), default='processing')  # processing, completed, failed
+    characters_involved = Column(ARRAY(String(255)))  # Legacy field
     generation_time_ms = Column(Integer)
     evaluation_scores = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -117,6 +124,7 @@ class Scene(Base):
     __table_args__ = (
         Index('idx_scenes_user_id', 'user_id'),
         Index('idx_scenes_manuscript_id', 'manuscript_id'),
+        Index('idx_scenes_status', 'status'),
         Index('idx_scenes_created_at', 'created_at', postgresql_ops={'created_at': 'DESC'}),
     )
 
@@ -126,11 +134,15 @@ class SceneBeat(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     scene_id = Column(UUID(as_uuid=True), ForeignKey("scenes.id", ondelete="CASCADE"), nullable=False)
-    beat_index = Column(Integer, nullable=False)
-    beat_description = Column(Text)
+    beat_number = Column(Integer, nullable=False)
+    description = Column(Text)
+    dialogue = Column(JSON)  # Array of dialogue turns
+    beat_index = Column(Integer)  # Legacy field
+    beat_description = Column(Text)  # Legacy field
     characters_involved = Column(ARRAY(String(255)))
     content = Column(Text)
     generation_time_ms = Column(Integer)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
     scene = relationship("Scene", back_populates="beats")
@@ -138,6 +150,7 @@ class SceneBeat(Base):
     # Indexes
     __table_args__ = (
         Index('idx_scene_beats_scene_id', 'scene_id'),
+        Index('idx_scene_beats_beat_number', 'beat_number'),
     )
 
 

@@ -1,6 +1,6 @@
 """Scene generation endpoints"""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -51,11 +51,12 @@ async def generate_scene(
 
     try:
         # Call orchestrator service
+        # The orchestrator creates the scene record and runs the workflow in background
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{settings.ORCHESTRATOR_URL}/orchestrate",
                 json=scene_request.dict(),
-                timeout=120.0  # Scene generation can take time
+                timeout=30.0  # Just starting the workflow, not waiting for completion
             )
 
             if response.status_code != 200:
@@ -66,29 +67,10 @@ async def generate_scene(
 
             orchestration_result = response.json()
 
-        # Save scene to database
-        scene = SceneORM(
-            user_id=current_user.id,
-            manuscript_id=scene_request.manuscript_id,
-            scene_request=scene_request.dict(),
-            generated_content=orchestration_result.get("final_scene", ""),
-            characters_involved=scene_request.characters,
-            generation_time_ms=orchestration_result.get("generation_time_ms", 0),
-            evaluation_scores=orchestration_result.get("evaluation_scores")
-        )
-
-        db.add(scene)
-        await db.commit()
-        await db.refresh(scene)
-
         return {
-            "id": str(scene.id),
-            "content": scene.generated_content,
-            "characters": scene.characters_involved,
-            "generation_time_ms": scene.generation_time_ms,
-            "evaluation_scores": scene.evaluation_scores,
-            "metadata": orchestration_result.get("metadata", {}),
-            "message": "Scene generated successfully"
+            "scene_id": orchestration_result["scene_id"],
+            "status": orchestration_result["status"],
+            "message": "Scene generation started. Use GET /api/v1/scenes/{scene_id} to check status and retrieve the generated scene."
         }
 
     except httpx.HTTPError as e:
@@ -105,9 +87,9 @@ async def generate_scene(
 
 @router.get("/", response_model=dict)
 async def list_scenes(
-    manuscript_id: UUID = None,
-    skip: int = 0,
-    limit: int = 20,
+    manuscript_id: UUID | None = None,
+    skip: int = Query(0, ge=0, le=1000),  # P0-7 fix: Validate query params
+    limit: int = Query(20, ge=1, le=100),  # P0-7 fix: Limit max results
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):

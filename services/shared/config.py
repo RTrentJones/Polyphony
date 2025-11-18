@@ -76,7 +76,8 @@ class Settings(BaseSettings):
     # Service URLs
     API_GATEWAY_URL: str = "http://localhost:8000"
     ORCHESTRATOR_URL: str = "http://localhost:8001"
-    CHARACTER_AGENT_URLS: str = ""  # Comma-separated URLs
+    CHARACTER_AGENT_URL: str = "http://localhost:8002"  # Single character agent service
+    CHARACTER_AGENT_URLS: str = ""  # Comma-separated URLs for multi-agent deployment
 
     # File Storage
     UPLOAD_DIR: str = "/tmp/polyphony/uploads"

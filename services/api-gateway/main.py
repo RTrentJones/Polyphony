@@ -4,6 +4,10 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
 import os
 import time
@@ -41,6 +45,49 @@ app = FastAPI(
     redoc_url="/redoc",
     openapi_url="/openapi.json"
 )
+
+# Rate limiting (P0-6 fix)
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=[f"{settings.RATE_LIMIT_PER_MINUTE}/minute", f"{settings.RATE_LIMIT_PER_HOUR}/hour"],
+    storage_uri=settings.REDIS_URL if settings.REDIS_URL else "memory://"
+)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+# Security headers middleware (SEC-1 fix)
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Content-Security-Policy"] = "default-src 'self'"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+
+# Request size limit middleware (P1-5 fix)
+class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, max_size: int = 10 * 1024 * 1024):  # 10MB default
+        super().__init__(app)
+        self.max_size = max_size
+
+    async def dispatch(self, request, call_next):
+        if request.headers.get("content-length"):
+            content_length = int(request.headers["content-length"])
+            if content_length > self.max_size:
+                return JSONResponse(
+                    {"error": "Request body too large", "max_size": self.max_size},
+                    status_code=413
+                )
+        return await call_next(request)
+
+app.add_middleware(RequestSizeLimitMiddleware, max_size=10 * 1024 * 1024)
 
 # CORS middleware - configurable via environment
 allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://frontend:3000").split(",")

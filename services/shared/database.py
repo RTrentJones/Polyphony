@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from typing import AsyncGenerator
+from contextlib import asynccontextmanager
 import os
 
 from .config import settings
@@ -33,14 +34,19 @@ def get_sync_db_url() -> str:
     return f"postgresql://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
 
 
-# Create async engine
+# Create async engine with improved pooling (P0-1 fix)
 async_engine = create_async_engine(
     get_async_db_url(),
     echo=settings.DEBUG,
-    pool_size=10,
-    max_overflow=20,
+    pool_size=20,  # Increased from 10
+    max_overflow=40,  # Increased from 20
     pool_pre_ping=True,
     pool_recycle=3600,
+    pool_timeout=30,  # Add connection timeout
+    connect_args={
+        "command_timeout": 60,
+        "server_settings": {"jit": "off"}  # Disable JIT for faster queries
+    }
 )
 
 # Create async session factory
@@ -62,6 +68,29 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         @app.get("/users")
         async def get_users(db: AsyncSession = Depends(get_db)):
             ...
+    """
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
+
+
+# Context manager for manual transaction management (P0-3 fix)
+@asynccontextmanager
+async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
+    """
+    Context manager for manual session management outside of FastAPI
+
+    Usage:
+        async with get_async_session() as session:
+            scene = Scene(...)
+            session.add(scene)
+            await session.commit()
     """
     async with AsyncSessionLocal() as session:
         try:

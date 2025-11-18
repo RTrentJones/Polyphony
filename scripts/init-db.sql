@@ -58,9 +58,16 @@ CREATE TABLE IF NOT EXISTS scenes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     manuscript_id UUID REFERENCES manuscripts(id),
-    scene_request JSONB NOT NULL, -- full request payload
+    title VARCHAR(500),
+    setting TEXT,
+    emotional_tone VARCHAR(100),
+    characters VARCHAR(255)[], -- array of character names participating
+    scene_description TEXT,
+    scene_request JSONB, -- full request payload
     generated_content TEXT,
-    characters_involved VARCHAR(255)[], -- array of character names
+    word_count INTEGER DEFAULT 0,
+    status VARCHAR(50) DEFAULT 'processing', -- processing, completed, failed
+    characters_involved VARCHAR(255)[], -- legacy field
     generation_time_ms INTEGER,
     evaluation_scores JSONB, -- voice_consistency, coherence, etc.
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -70,11 +77,15 @@ CREATE TABLE IF NOT EXISTS scenes (
 CREATE TABLE IF NOT EXISTS scene_beats (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     scene_id UUID REFERENCES scenes(id) ON DELETE CASCADE,
-    beat_index INTEGER NOT NULL,
-    beat_description TEXT,
+    beat_number INTEGER NOT NULL,
+    description TEXT,
+    dialogue JSONB, -- array of dialogue turns with character, dialogue, action
+    beat_index INTEGER, -- legacy field
+    beat_description TEXT, -- legacy field
     characters_involved VARCHAR(255)[],
     content TEXT,
-    generation_time_ms INTEGER
+    generation_time_ms INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- API usage tracking
@@ -93,9 +104,11 @@ CREATE INDEX IF NOT EXISTS idx_manuscripts_status ON manuscripts(status);
 CREATE INDEX IF NOT EXISTS idx_characters_manuscript_id ON characters(manuscript_id);
 CREATE INDEX IF NOT EXISTS idx_scenes_user_id ON scenes(user_id);
 CREATE INDEX IF NOT EXISTS idx_scenes_manuscript_id ON scenes(manuscript_id);
+CREATE INDEX IF NOT EXISTS idx_scenes_status ON scenes(status);
 CREATE INDEX IF NOT EXISTS idx_scenes_created_at ON scenes(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_character_chunks_character_id ON character_chunks(character_id);
 CREATE INDEX IF NOT EXISTS idx_scene_beats_scene_id ON scene_beats(scene_id);
+CREATE INDEX IF NOT EXISTS idx_scene_beats_beat_number ON scene_beats(beat_number);
 
 -- Function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
