@@ -1,0 +1,285 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: polyphony-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-polyphony}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - polyphony-network
+
+  # Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:v1.7.4
+    container_name: polyphony-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - polyphony-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: polyphony-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - polyphony-network
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    container_name: polyphony-api-gateway
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      SERVICE_NAME: api-gateway
+      SERVICE_PORT: 8000
+    volumes:
+      - ./services/api-gateway:/app/services/api-gateway
+      - ./services/shared:/app/services/shared
+      - upload_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    command: uvicorn services.api-gateway.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - polyphony-network
+
+  # Orchestrator Service
+  orchestrator:
+    build:
+      context: .
+      dockerfile: services/orchestrator/Dockerfile
+    container_name: polyphony-orchestrator
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    environment:
+      SERVICE_NAME: orchestrator
+      SERVICE_PORT: 8001
+    volumes:
+      - ./services/orchestrator:/app/services/orchestrator
+      - ./services/shared:/app/services/shared
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn services.orchestrator.main:app --host 0.0.0.0 --port 8001 --reload
+    networks:
+      - polyphony-network
+
+  # Document Parser Service
+  document-parser:
+    build:
+      context: .
+      dockerfile: services/document-parser/Dockerfile
+    container_name: polyphony-document-parser
+    ports:
+      - "8005:8005"
+    env_file:
+      - .env
+    environment:
+      SERVICE_NAME: document-parser
+      SERVICE_PORT: 8005
+    volumes:
+      - ./services/document-parser:/app/services/document-parser
+      - ./services/shared:/app/services/shared
+      - upload_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    command: uvicorn services.document-parser.main:app --host 0.0.0.0 --port 8005 --reload
+    networks:
+      - polyphony-network
+
+  # Character Agent - Hermione (example)
+  character-hermione:
+    build:
+      context: .
+      dockerfile: services/character-agent/Dockerfile
+    container_name: polyphony-character-hermione
+    ports:
+      - "8002:8002"
+    env_file:
+      - .env
+    environment:
+      SERVICE_NAME: character-agent
+      SERVICE_PORT: 8002
+      CHARACTER_NAME: Hermione
+      CHARACTER_ID: hermione-001
+    volumes:
+      - ./services/character-agent:/app/services/character-agent
+      - ./services/shared:/app/services/shared
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn services.character-agent.main:app --host 0.0.0.0 --port 8002 --reload
+    networks:
+      - polyphony-network
+
+  # Character Agent - Harry (example)
+  character-harry:
+    build:
+      context: .
+      dockerfile: services/character-agent/Dockerfile
+    container_name: polyphony-character-harry
+    ports:
+      - "8003:8003"
+    env_file:
+      - .env
+    environment:
+      SERVICE_NAME: character-agent
+      SERVICE_PORT: 8003
+      CHARACTER_NAME: Harry
+      CHARACTER_ID: harry-001
+    volumes:
+      - ./services/character-agent:/app/services/character-agent
+      - ./services/shared:/app/services/shared
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn services.character-agent.main:app --host 0.0.0.0 --port 8003 --reload
+    networks:
+      - polyphony-network
+
+  # Character Agent - Ron (example)
+  character-ron:
+    build:
+      context: .
+      dockerfile: services/character-agent/Dockerfile
+    container_name: polyphony-character-ron
+    ports:
+      - "8004:8004"
+    env_file:
+      - .env
+    environment:
+      SERVICE_NAME: character-agent
+      SERVICE_PORT: 8004
+      CHARACTER_NAME: Ron
+      CHARACTER_ID: ron-001
+    volumes:
+      - ./services/character-agent:/app/services/character-agent
+      - ./services/shared:/app/services/shared
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn services.character-agent.main:app --host 0.0.0.0 --port 8004 --reload
+    networks:
+      - polyphony-network
+
+  # Frontend (Next.js)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: polyphony-frontend
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - api-gateway
+    command: npm run dev
+    networks:
+      - polyphony-network
+
+  # Prometheus (Monitoring)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: polyphony-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - polyphony-network
+
+  # Grafana (Dashboards)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: polyphony-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana-dashboards:/etc/grafana/provisioning/dashboards
+    depends_on:
+      - prometheus
+    networks:
+      - polyphony-network
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  redis_data:
+  upload_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  polyphony-network:
+    driver: bridge
