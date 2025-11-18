@@ -1,0 +1,61 @@
+# Prometheus Configuration for Polyphony
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'polyphony'
+    environment: 'development'
+
+# Scrape configurations
+scrape_configs:
+  # API Gateway
+  - job_name: 'api-gateway'
+    static_configs:
+      - targets: ['api-gateway:8000']
+    metrics_path: '/metrics'
+
+  # Orchestrator
+  - job_name: 'orchestrator'
+    static_configs:
+      - targets: ['orchestrator:8001']
+    metrics_path: '/metrics'
+
+  # Character Agents
+  - job_name: 'character-hermione'
+    static_configs:
+      - targets: ['character-hermione:8002']
+    metrics_path: '/metrics'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: character
+        replacement: 'Hermione'
+
+  - job_name: 'character-harry'
+    static_configs:
+      - targets: ['character-harry:8003']
+    metrics_path: '/metrics'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: character
+        replacement: 'Harry'
+
+  - job_name: 'character-ron'
+    static_configs:
+      - targets: ['character-ron:8004']
+    metrics_path: '/metrics'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: character
+        replacement: 'Ron'
+
+  # Document Parser
+  - job_name: 'document-parser'
+    static_configs:
+      - targets: ['document-parser:8005']
+    metrics_path: '/metrics'
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
