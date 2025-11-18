@@ -7,6 +7,7 @@ import hashlib
 from datetime import datetime
 from uuid import UUID, uuid4
 import aiofiles
+import magic
 
 from services.shared.config import settings
 from services.shared.models import ManuscriptStatus
@@ -51,6 +52,9 @@ async def parse_document(
     Returns:
         Parsed text and metadata
     """
+    # Initialize file_path for error handling
+    file_path = None
+
     # Validate file extension
     file_ext = os.path.splitext(file.filename)[1].lower()
     if file_ext not in settings.ALLOWED_EXTENSIONS:
@@ -60,6 +64,34 @@ async def parse_document(
         )
 
     try:
+        # Read file content
+        content = await file.read()
+
+        # Check file size
+        if len(content) > settings.MAX_UPLOAD_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large. Maximum size: {settings.MAX_UPLOAD_SIZE} bytes"
+            )
+
+        # Validate file content type using magic bytes
+        mime_type = magic.from_buffer(content, mime=True)
+
+        # Define allowed MIME types
+        ALLOWED_MIME_TYPES = {
+            'text/plain',
+            'text/html',
+            'application/pdf',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/msword',
+        }
+
+        if mime_type not in ALLOWED_MIME_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid file content. Detected type: {mime_type}. File extension may not match content."
+            )
+
         # Create upload directory if it doesn't exist
         os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 
@@ -69,7 +101,6 @@ async def parse_document(
 
         # Save file
         async with aiofiles.open(file_path, 'wb') as f:
-            content = await file.read()
             await f.write(content)
 
         # Calculate content hash

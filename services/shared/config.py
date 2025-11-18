@@ -1,8 +1,10 @@
 """Configuration management for Polyphony services"""
 
+from pydantic import field_validator, ValidationError
 from pydantic_settings import BaseSettings
 from typing import Optional, List
 import os
+import sys
 
 
 class Settings(BaseSettings):
@@ -12,13 +14,14 @@ class Settings(BaseSettings):
     APP_NAME: str = "Polyphony"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
+    ENVIRONMENT: str = "development"  # development, staging, production
 
-    # Database - PostgreSQL
+    # Database - PostgreSQL (REQUIRED in production)
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
     POSTGRES_DB: str = "polyphony"
     POSTGRES_USER: str = "postgres"
-    POSTGRES_PASSWORD: str = "password"
+    POSTGRES_PASSWORD: str  # No default - must be set via environment!
 
     # Vector Database - Qdrant
     QDRANT_URL: str = "http://localhost:6333"
@@ -28,8 +31,8 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379"
     REDIS_PASSWORD: Optional[str] = None
 
-    # LLM APIs
-    GROQ_API_KEY: str = ""
+    # LLM APIs (REQUIRED)
+    GROQ_API_KEY: str  # No default - must be set via environment!
     GROQ_MODEL: str = "llama-3.1-70b-versatile"
     GROQ_MODEL_FAST: str = "llama-3.1-8b-instant"
 
@@ -37,10 +40,38 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
     EMBEDDING_DIMENSION: int = 384
 
-    # Authentication/Security
-    SECRET_KEY: str = "your-secret-key-change-this-in-production-min-32-chars"
+    # Authentication/Security (REQUIRED in production)
+    SECRET_KEY: str  # No default - must be set via environment!
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+
+    @field_validator('SECRET_KEY')
+    @classmethod
+    def validate_secret_key(cls, v: str) -> str:
+        """Ensure SECRET_KEY is strong enough"""
+        if len(v) < 32:
+            raise ValueError('SECRET_KEY must be at least 32 characters long')
+        if v == "your-secret-key-change-this-in-production-min-32-chars":
+            raise ValueError('SECRET_KEY must be changed from default value')
+        return v
+
+    @field_validator('GROQ_API_KEY')
+    @classmethod
+    def validate_groq_key(cls, v: str) -> str:
+        """Ensure GROQ_API_KEY is set"""
+        if not v or v == "":
+            raise ValueError('GROQ_API_KEY is required')
+        return v
+
+    @field_validator('POSTGRES_PASSWORD')
+    @classmethod
+    def validate_postgres_password(cls, v: str) -> str:
+        """Ensure database password is secure"""
+        if v == "password" or v == "postgres":
+            raise ValueError('POSTGRES_PASSWORD must not be a default/weak password')
+        if len(v) < 8:
+            raise ValueError('POSTGRES_PASSWORD must be at least 8 characters long')
+        return v
 
     # Service URLs
     API_GATEWAY_URL: str = "http://localhost:8000"

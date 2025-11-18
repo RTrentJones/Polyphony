@@ -39,10 +39,12 @@ python-docx==1.1.0
 PyPDF2==3.0.1
 beautifulsoup4==4.12.2
 lxml==4.9.3
+python-magic==0.4.27
 
 # HTTP Client
 httpx==0.25.2
 aiofiles==23.2.1
+tenacity==8.2.3
 
 # Monitoring
 prometheus-client==0.19.0
@@ -54,7 +56,6 @@ python-dotenv==1.0.0
 pytest==7.4.3
 pytest-asyncio==0.21.1
 pytest-cov==4.1.0
-httpx==0.25.2
 
 # Code Quality
 black==23.12.0

@@ -1,6 +1,6 @@
 """Database utilities for Polyphony"""
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -12,6 +12,14 @@ from .config import settings
 
 # SQLAlchemy Base
 Base = declarative_base()
+
+# Import all ORM models to register them with Base
+# This must be done before create_tables() is called
+try:
+    from . import orm_models
+except ImportError:
+    # ORM models not yet created
+    pass
 
 
 # Async engine for PostgreSQL
@@ -84,7 +92,7 @@ async def check_db_connection() -> bool:
     """Check if database is accessible"""
     try:
         async with async_engine.connect() as conn:
-            await conn.execute("SELECT 1")
+            await conn.execute(text("SELECT 1"))
         return True
     except Exception as e:
         print(f"Database connection failed: {e}")
