@@ -36,15 +36,19 @@ def sanitize_for_llm(text: str, max_length: int = 2000) -> str:
     # Remove potentially malicious patterns
     # Remove things that look like they're trying to break out of prompts
     dangerous_patterns = [
-        r'```\s*\n\s*ignore\s+previous',
-        r'system:\s*',
+        r'ignore\s+previous\s+(instructions?|commands?)',  # Prompt injection attempts
+        r'disregard\s+(previous|above)',  # Alternative injection phrases
+        r'system:\s*',  # System role injection
         r'<\|.*?\|>',  # Special tokens
         r'\[INST\]|\[\/INST\]',  # Instruction tokens
         r'<s>|</s>',  # Special tokens
+        r'```[^`]*ignore[^`]*```',  # Code block injection
+        r'--',  # SQL comment markers (defense in depth)
+        r'/\*.*?\*/',  # C-style comments
     ]
 
     for pattern in dangerous_patterns:
-        text = re.sub(pattern, '', text, flags=re.IGNORECASE)
+        text = re.sub(pattern, '[FILTERED]', text, flags=re.IGNORECASE)
 
     # Limit consecutive newlines
     text = re.sub(r'\n{4,}', '\n\n\n', text)
@@ -54,10 +58,8 @@ def sanitize_for_llm(text: str, max_length: int = 2000) -> str:
         text = text[:max_length]
 
     # Escape HTML to prevent XSS if output is displayed
+    # This converts < > & " ' to HTML entities
     text = html.escape(text)
-
-    # Unescape common punctuation for readability
-    text = html.unescape(text)
 
     return text.strip()
 
@@ -106,6 +108,16 @@ def sanitize_html(text: str, allowed_tags: list = None) -> str:
     if not text:
         return ""
 
+    # Remove script tags FIRST (before parsing) - defense in depth
+    text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.IGNORECASE | re.DOTALL)
+
+    # Remove javascript: and data: URLs
+    text = re.sub(r'javascript:', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'data:', '', text, flags=re.IGNORECASE)
+
+    # Remove event handlers
+    text = re.sub(r'on\w+\s*=', '', text, flags=re.IGNORECASE)
+
     if allowed_tags is None:
         # No tags allowed - escape everything
         text = html.escape(text)
@@ -120,16 +132,29 @@ def sanitize_html(text: str, allowed_tags: list = None) -> str:
                 super().__init__()
                 self.allowed_tags = set(allowed)
                 self.result = []
+                self.skip_tag = None
 
             def handle_starttag(self, tag, attrs):
+                # Skip dangerous tags
+                if tag.lower() in ('script', 'style', 'iframe', 'object', 'embed'):
+                    self.skip_tag = tag.lower()
+                    return
+
                 if tag in self.allowed_tags:
                     self.result.append(f'<{tag}>')
 
             def handle_endtag(self, tag):
+                if self.skip_tag == tag.lower():
+                    self.skip_tag = None
+                    return
+
                 if tag in self.allowed_tags:
                     self.result.append(f'</{tag}>')
 
             def handle_data(self, data):
+                # Skip data inside dangerous tags
+                if self.skip_tag:
+                    return
                 self.result.append(html.escape(data))
 
         parser = AllowedHTMLParser(allowed_tags)
@@ -139,16 +164,6 @@ def sanitize_html(text: str, allowed_tags: list = None) -> str:
         except:
             # If parsing fails, escape everything
             text = html.escape(text)
-
-    # Remove any remaining script tags (defense in depth)
-    text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.IGNORECASE | re.DOTALL)
-
-    # Remove javascript: and data: URLs
-    text = re.sub(r'javascript:', '', text, flags=re.IGNORECASE)
-    text = re.sub(r'data:', '', text, flags=re.IGNORECASE)
-
-    # Remove event handlers
-    text = re.sub(r'on\w+\s*=', '', text, flags=re.IGNORECASE)
 
     return text
 
@@ -284,6 +299,24 @@ def sanitize_sql_string(text: str) -> str:
     # Remove semicolons (statement terminators)
     text = text.replace(';', '')
 
+    # Filter dangerous SQL keywords (case-insensitive)
+    dangerous_keywords = [
+        'DROP TABLE', 'DROP DATABASE', 'DELETE FROM', 'TRUNCATE',
+        'ALTER TABLE', 'CREATE TABLE', 'INSERT INTO', 'UPDATE ',
+        'EXEC', 'EXECUTE', 'UNION SELECT', 'UNION ALL'
+    ]
+
+    text_upper = text.upper()
+    for keyword in dangerous_keywords:
+        if keyword in text_upper:
+            # Replace with filtered marker
+            # Find actual position in original text (case-insensitive)
+            start = text_upper.find(keyword)
+            while start != -1:
+                text = text[:start] + '[FILTERED]' + text[start + len(keyword):]
+                text_upper = text.upper()
+                start = text_upper.find(keyword)
+
     return text
 
 
@@ -374,10 +407,13 @@ def is_safe_redirect_url(url: str, allowed_domains: list = None) -> bool:
     if not url:
         return False
 
-    # Allow relative URLs (starting with /)
-    if url.startswith('/') and not url.startswith('//'):
-        # But not // which could be a protocol-relative URL to external site
-        return True
+    # Block URLs with backslashes FIRST (often used in bypass attempts like /\evil.com)
+    if '\\' in url:
+        return False
+
+    # Block URLs starting with // (protocol-relative)
+    if url.startswith('//'):
+        return False
 
     # Block dangerous protocols
     dangerous_protocols = [
@@ -392,13 +428,9 @@ def is_safe_redirect_url(url: str, allowed_domains: list = None) -> bool:
         if url_lower.startswith(protocol):
             return False
 
-    # Block URLs starting with // (protocol-relative)
-    if url.startswith('//'):
-        return False
-
-    # Block URLs with backslashes (often used in bypass attempts)
-    if '\\' in url:
-        return False
+    # Allow relative URLs (starting with /) - checked AFTER backslash and // checks
+    if url.startswith('/'):
+        return True
 
     # If allowed domains specified, check against them
     if allowed_domains:

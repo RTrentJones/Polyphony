@@ -16,7 +16,6 @@ os.environ["SECRET_KEY"] = "test_secret_key_minimum_32_characters_long_12345"
 from services.shared.database import Base, get_db
 from services.shared.config import settings
 from services.shared.orm_models import User, Manuscript, Character, Scene
-from services.api_gateway.main import app
 
 
 # Test database URL
@@ -65,21 +64,6 @@ async def async_session(async_engine) -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:
         yield session
         await session.rollback()
-
-
-@pytest.fixture(scope="function")
-def client(async_session):
-    """Create test client with database override"""
-
-    async def override_get_db():
-        yield async_session
-
-    app.dependency_overrides[get_db] = override_get_db
-
-    with TestClient(app) as test_client:
-        yield test_client
-
-    app.dependency_overrides.clear()
 
 
 @pytest.fixture

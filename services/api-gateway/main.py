@@ -28,7 +28,15 @@ from services.shared.logging_config import (
     log_request_end,
     log_error
 )
-from .routers import auth, manuscripts, scenes
+
+# Import routers - use sys.path manipulation for hyphenated directory
+import sys
+import os
+_api_gateway_dir = os.path.dirname(__file__)
+if _api_gateway_dir not in sys.path:
+    sys.path.insert(0, _api_gateway_dir)
+
+from routers import auth, manuscripts, scenes
 
 # Initialize structured logging
 logger = setup_logging("api-gateway", level=settings.LOG_LEVEL if hasattr(settings, 'LOG_LEVEL') else "INFO")
