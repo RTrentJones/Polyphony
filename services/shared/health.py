@@ -42,6 +42,16 @@ class HealthCheck:
         """
         self.checks[name] = check_func
 
+    def add_check(self, name: str, check_func: Callable):
+        """
+        Alias for register_check for compatibility with tests
+
+        Args:
+            name: Name of the dependency (e.g., "database", "redis")
+            check_func: Async function that returns True if healthy, False otherwise
+        """
+        self.register_check(name, check_func)
+
     async def liveness(self) -> dict:
         """
         Liveness probe - is the service running?
@@ -200,5 +210,73 @@ async def check_qdrant(qdrant_client) -> bool:
             # This depends on qdrant client API
             return True
         return False
+    except Exception:
+        return False
+
+
+# Additional helper functions expected by tests
+
+async def check_database_health(session) -> bool:
+    """
+    Check database health by executing a simple query
+
+    Args:
+        session: Database session
+
+    Returns:
+        True if database is healthy, False otherwise
+    """
+    try:
+        # Execute a simple query to verify connection
+        from sqlalchemy import text
+        await session.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        return False
+
+
+async def check_cache_health(redis_client) -> bool:
+    """
+    Check cache (Redis) health
+
+    Args:
+        redis_client: Redis client instance
+
+    Returns:
+        True if cache is healthy, False otherwise
+    """
+    try:
+        if redis_client:
+            # Ping Redis to check connectivity
+            result = await redis_client.ping()
+            return result is True or result == b'PONG' or result == 'PONG'
+        return False
+    except Exception:
+        return False
+
+
+async def check_external_service_health(url: str, client=None) -> bool:
+    """
+    Check external service health via HTTP
+
+    Args:
+        url: URL of the service health endpoint
+        client: Optional HTTP client to use
+
+    Returns:
+        True if service is healthy, False otherwise
+    """
+    try:
+        import httpx
+
+        if client:
+            # Use provided client
+            response = await client.get(url, timeout=5.0)
+        else:
+            # Create new client
+            async with httpx.AsyncClient(timeout=5.0) as http_client:
+                response = await http_client.get(url)
+
+        return 200 <= response.status_code < 300
     except Exception:
         return False

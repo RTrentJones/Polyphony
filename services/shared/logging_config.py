@@ -179,3 +179,67 @@ def log_business_event(logger: ContextLogger, event_name: str, **kwargs):
             **kwargs
         }
     )
+
+
+def redact_sensitive_data(data: Any) -> Any:
+    """
+    Redact sensitive information from data before logging
+
+    Args:
+        data: Data that may contain sensitive information
+
+    Returns:
+        Data with sensitive fields redacted
+    """
+    if data is None:
+        return None
+
+    # List of sensitive field names to redact
+    sensitive_fields = {
+        'password', 'passwd', 'pwd',
+        'secret', 'api_key', 'apikey', 'api-key',
+        'token', 'access_token', 'refresh_token', 'auth_token',
+        'private_key', 'privatekey',
+        'credit_card', 'creditcard', 'card_number', 'cvv', 'cvc',
+        'ssn', 'social_security',
+        'authorization', 'auth'
+    }
+
+    if isinstance(data, dict):
+        # Recursively redact dictionary
+        redacted = {}
+        for key, value in data.items():
+            key_lower = str(key).lower()
+
+            # Check if key matches any sensitive field
+            if any(sensitive in key_lower for sensitive in sensitive_fields):
+                redacted[key] = "[REDACTED]"
+            elif isinstance(value, (dict, list)):
+                # Recursively redact nested structures
+                redacted[key] = redact_sensitive_data(value)
+            else:
+                redacted[key] = value
+
+        return redacted
+
+    elif isinstance(data, list):
+        # Recursively redact list
+        return [redact_sensitive_data(item) for item in data]
+
+    elif isinstance(data, str):
+        # Redact strings that look like tokens or keys
+        # Check if it looks like a JWT (three base64 segments)
+        if data.count('.') == 2 and len(data) > 20:
+            return "[REDACTED]"
+
+        # Check if it looks like an API key (long alphanumeric string)
+        if len(data) > 20 and data.replace('-', '').replace('_', '').isalnum():
+            # Could be an API key
+            if any(prefix in data.lower() for prefix in ['sk-', 'pk-', 'key_', 'token_']):
+                return "[REDACTED]"
+
+        return data
+
+    else:
+        # Return other types as-is
+        return data
