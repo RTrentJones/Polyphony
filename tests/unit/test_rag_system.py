@@ -5,7 +5,7 @@ import os
 import sys
 
 # Fix import path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 from services.character_agent.rag_system import CharacterRAG
 
@@ -19,7 +19,7 @@ class TestCharacterRAG:
         rag = CharacterRAG(
             character_id="test-001",
             character_name="TestChar",
-            qdrant_url="http://localhost:6333"
+            qdrant_url="http://localhost:6333",
         )
 
         assert rag is not None
@@ -32,7 +32,7 @@ class TestCharacterRAG:
         rag = CharacterRAG(
             character_id="char-123-456",
             character_name="TestChar",
-            qdrant_url="http://localhost:6333"
+            qdrant_url="http://localhost:6333",
         )
 
         # Hyphens should be replaced with underscores
@@ -43,7 +43,7 @@ class TestCharacterRAG:
         rag = CharacterRAG(
             character_id="test-001",
             character_name="TestChar",
-            qdrant_url="http://localhost:6333"
+            qdrant_url="http://localhost:6333",
         )
 
         assert rag.embedding_model is not None

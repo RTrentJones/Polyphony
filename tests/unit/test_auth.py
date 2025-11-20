@@ -8,7 +8,7 @@ from services.shared.auth import (
     verify_password,
     get_password_hash,
     create_access_token,
-    decode_access_token
+    decode_access_token,
 )
 from services.shared.config import settings
 
@@ -87,16 +87,11 @@ class TestJWTTokens:
         user_id = "test-user-123"
         expires_delta = timedelta(minutes=30)
 
-        token = create_access_token(
-            data={"sub": user_id},
-            expires_delta=expires_delta
-        )
+        token = create_access_token(data={"sub": user_id}, expires_delta=expires_delta)
 
         # Decode manually to check expiration
         payload = jwt.decode(
-            token,
-            settings.SECRET_KEY,
-            algorithms=[settings.ALGORITHM]
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
         )
 
         assert "exp" in payload
@@ -108,9 +103,7 @@ class TestJWTTokens:
         token = create_access_token(data={"sub": user_id})
 
         payload = jwt.decode(
-            token,
-            settings.SECRET_KEY,
-            algorithms=[settings.ALGORITHM]
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
         )
 
         assert payload["sub"] == user_id

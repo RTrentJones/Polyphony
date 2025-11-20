@@ -8,13 +8,19 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 # Import from the actual path (api-gateway with hyphen)
 import importlib.util
+
 spec = importlib.util.spec_from_file_location(
     "api_gateway_main",
-    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "services", "api-gateway", "main.py")
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+        "services",
+        "api-gateway",
+        "main.py",
+    ),
 )
 api_gateway_main = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(api_gateway_main)
@@ -65,10 +71,13 @@ class TestSecurityHeaders:
 
     def test_cors_headers(self, api_client):
         """Test CORS headers configuration"""
-        response = api_client.options("/health", headers={
-            "Origin": "http://localhost:3000",
-            "Access-Control-Request-Method": "GET"
-        })
+        response = api_client.options(
+            "/health",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
 
         # CORS should be configured
         assert response.status_code in [200, 204]
@@ -95,7 +104,7 @@ class TestRequestSizeLimits:
         response = api_client.post(
             "/api/auth/register",
             json=large_data,
-            headers={"Content-Length": str(11 * 1024 * 1024)}
+            headers={"Content-Length": str(11 * 1024 * 1024)},
         )
 
         # Should be rejected
@@ -116,6 +125,7 @@ class TestRateLimiting:
     def test_rate_limit_headers(self, api_client):
         """Test rate limit headers are present"""
         response = api_client.get("/health")
+        assert response.status_code == 200
 
         # Rate limit headers may be present
         # (depends on slowapi configuration)
@@ -180,9 +190,9 @@ class TestRequestLogging:
         """Test provided correlation ID is propagated"""
         correlation_id = "test-corr-123"
 
-        response = api_client.get("/health", headers={
-            "X-Correlation-ID": correlation_id
-        })
+        response = api_client.get(
+            "/health", headers={"X-Correlation-ID": correlation_id}
+        )
 
         assert response.headers["X-Correlation-ID"] == correlation_id
 
@@ -194,9 +204,7 @@ class TestErrorHandling:
     def test_validation_error_handling(self, api_client):
         """Test validation errors return proper format"""
         # Send invalid data to an endpoint
-        response = api_client.post("/api/auth/register", json={
-            "invalid": "data"
-        })
+        response = api_client.post("/api/auth/register", json={"invalid": "data"})
 
         # Should return validation error
         assert response.status_code == 422
@@ -214,9 +222,9 @@ class TestErrorHandling:
 class TestAuthenticationEndpoints:
     """Test authentication endpoints"""
 
-    @patch('services.shared.database.get_db')
-    @patch('services.shared.auth.get_password_hash')
-    @patch('services.shared.auth.create_access_token')
+    @patch("services.shared.database.get_db")
+    @patch("services.shared.auth.get_password_hash")
+    @patch("services.shared.auth.create_access_token")
     def test_register_endpoint(self, mock_token, mock_hash, mock_db, api_client):
         """Test user registration endpoint"""
         # Mock dependencies
@@ -226,11 +234,14 @@ class TestAuthenticationEndpoints:
         mock_session = AsyncMock()
         mock_db.return_value.__aenter__.return_value = mock_session
 
-        response = api_client.post("/api/auth/register", json={
-            "email": "test@example.com",
-            "password": "StrongPass123!",
-            "full_name": "Test User"
-        })
+        response = api_client.post(
+            "/api/auth/register",
+            json={
+                "email": "test@example.com",
+                "password": "StrongPass123!",
+                "full_name": "Test User",
+            },
+        )
 
         # May require database setup, so just verify endpoint exists
         # Actual response depends on database state
@@ -238,10 +249,10 @@ class TestAuthenticationEndpoints:
 
     def test_login_endpoint_exists(self, api_client):
         """Test login endpoint exists"""
-        response = api_client.post("/api/auth/login", json={
-            "email": "test@example.com",
-            "password": "password"
-        })
+        response = api_client.post(
+            "/api/auth/login",
+            json={"email": "test@example.com", "password": "password"},
+        )
 
         # Endpoint should exist (even if login fails)
         assert response.status_code in [200, 401, 422]
@@ -260,10 +271,10 @@ class TestManuscriptEndpoints:
 
     def test_create_manuscript_requires_auth(self, api_client):
         """Test creating manuscript requires authentication"""
-        response = api_client.post("/api/manuscripts/", json={
-            "title": "Test Manuscript",
-            "description": "A test"
-        })
+        response = api_client.post(
+            "/api/manuscripts/",
+            json={"title": "Test Manuscript", "description": "A test"},
+        )
 
         # Should require authentication
         assert response.status_code in [401, 403, 422]
@@ -282,10 +293,10 @@ class TestSceneEndpoints:
 
     def test_generate_scene_requires_auth(self, api_client):
         """Test scene generation requires authentication"""
-        response = api_client.post("/api/scenes/generate", json={
-            "manuscript_id": "123",
-            "scene_description": "A test scene"
-        })
+        response = api_client.post(
+            "/api/scenes/generate",
+            json={"manuscript_id": "123", "scene_description": "A test scene"},
+        )
 
         # Should require authentication
         assert response.status_code in [401, 403, 422]

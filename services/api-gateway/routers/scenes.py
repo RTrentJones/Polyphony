@@ -3,13 +3,16 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List
 import httpx
 from uuid import UUID
 
 from services.shared.database import get_db
-from services.shared.models import SceneRequest, StreamEvent
-from services.shared.orm_models import User as UserORM, Scene as SceneORM, Manuscript as ManuscriptORM
+from services.shared.models import SceneRequest
+from services.shared.orm_models import (
+    User as UserORM,
+    Scene as SceneORM,
+    Manuscript as ManuscriptORM,
+)
 from services.shared.auth import get_current_active_user
 from services.shared.config import settings
 
@@ -21,7 +24,7 @@ router = APIRouter()
 async def generate_scene(
     scene_request: SceneRequest,
     current_user: UserORM = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Generate a scene using multi-agent orchestration
@@ -38,7 +41,7 @@ async def generate_scene(
     manuscript_result = await db.execute(
         select(ManuscriptORM).where(
             ManuscriptORM.id == scene_request.manuscript_id,
-            ManuscriptORM.user_id == current_user.id
+            ManuscriptORM.user_id == current_user.id,
         )
     )
     manuscript = manuscript_result.scalar_one_or_none()
@@ -46,7 +49,7 @@ async def generate_scene(
     if not manuscript:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Manuscript not found or access denied"
+            detail="Manuscript not found or access denied",
         )
 
     try:
@@ -56,13 +59,13 @@ async def generate_scene(
             response = await client.post(
                 f"{settings.ORCHESTRATOR_URL}/orchestrate",
                 json=scene_request.dict(),
-                timeout=30.0  # Just starting the workflow, not waiting for completion
+                timeout=30.0,  # Just starting the workflow, not waiting for completion
             )
 
             if response.status_code != 200:
                 raise HTTPException(
                     status_code=response.status_code,
-                    detail=f"Orchestrator error: {response.text}"
+                    detail=f"Orchestrator error: {response.text}",
                 )
 
             orchestration_result = response.json()
@@ -70,18 +73,18 @@ async def generate_scene(
         return {
             "scene_id": orchestration_result["scene_id"],
             "status": orchestration_result["status"],
-            "message": "Scene generation started. Use GET /api/v1/scenes/{scene_id} to check status and retrieve the generated scene."
+            "message": "Scene generation started. Use GET /api/v1/scenes/{scene_id} to check status and retrieve the generated scene.",
         }
 
     except httpx.HTTPError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error communicating with orchestrator: {str(e)}"
+            detail=f"Error communicating with orchestrator: {str(e)}",
         )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error generating scene: {str(e)}"
+            detail=f"Error generating scene: {str(e)}",
         )
 
 
@@ -91,7 +94,7 @@ async def list_scenes(
     skip: int = Query(0, ge=0, le=1000),  # P0-7 fix: Validate query params
     limit: int = Query(20, ge=1, le=100),  # P0-7 fix: Limit max results
     current_user: UserORM = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """
     List user's generated scenes
@@ -132,15 +135,19 @@ async def list_scenes(
                 "id": str(s.id),
                 "manuscript_id": str(s.manuscript_id) if s.manuscript_id else None,
                 "characters": s.characters_involved,
-                "preview": s.generated_content[:200] + "..." if len(s.generated_content) > 200 else s.generated_content,
+                "preview": (
+                    s.generated_content[:200] + "..."
+                    if len(s.generated_content) > 200
+                    else s.generated_content
+                ),
                 "generation_time_ms": s.generation_time_ms,
-                "created_at": s.created_at.isoformat() if s.created_at else None
+                "created_at": s.created_at.isoformat() if s.created_at else None,
             }
             for s in scenes
         ],
         "total": total,
         "skip": skip,
-        "limit": limit
+        "limit": limit,
     }
 
 
@@ -148,7 +155,7 @@ async def list_scenes(
 async def get_scene(
     scene_id: UUID,
     current_user: UserORM = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Get full scene details
@@ -163,16 +170,14 @@ async def get_scene(
     """
     result = await db.execute(
         select(SceneORM).where(
-            SceneORM.id == scene_id,
-            SceneORM.user_id == current_user.id
+            SceneORM.id == scene_id, SceneORM.user_id == current_user.id
         )
     )
     scene = result.scalar_one_or_none()
 
     if not scene:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Scene not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Scene not found"
         )
 
     return {
@@ -183,7 +188,7 @@ async def get_scene(
         "scene_request": scene.scene_request,
         "generation_time_ms": scene.generation_time_ms,
         "evaluation_scores": scene.evaluation_scores,
-        "created_at": scene.created_at.isoformat() if scene.created_at else None
+        "created_at": scene.created_at.isoformat() if scene.created_at else None,
     }
 
 
@@ -191,7 +196,7 @@ async def get_scene(
 async def delete_scene(
     scene_id: UUID,
     current_user: UserORM = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Delete a scene
@@ -203,16 +208,14 @@ async def delete_scene(
     """
     result = await db.execute(
         select(SceneORM).where(
-            SceneORM.id == scene_id,
-            SceneORM.user_id == current_user.id
+            SceneORM.id == scene_id, SceneORM.user_id == current_user.id
         )
     )
     scene = result.scalar_one_or_none()
 
     if not scene:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Scene not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Scene not found"
         )
 
     await db.delete(scene)

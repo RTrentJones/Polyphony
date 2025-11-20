@@ -3,7 +3,7 @@
 import pytest
 import asyncio
 import json
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock
 from services.shared.caching import CacheClient, cache_result
 
 
@@ -109,14 +109,8 @@ class TestCacheClient:
         cache = CacheClient(mock_redis, namespace="test")
 
         complex_obj = {
-            "users": [
-                {"id": 1, "name": "Alice"},
-                {"id": 2, "name": "Bob"}
-            ],
-            "metadata": {
-                "total": 2,
-                "timestamp": "2025-01-01"
-            }
+            "users": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}],
+            "metadata": {"total": 2, "timestamp": "2025-01-01"},
         }
 
         mock_redis.setex = AsyncMock(return_value=True)
@@ -328,7 +322,9 @@ class TestCacheIntegration:
         cache = CacheClient(mock_redis, namespace="test")
 
         # Simulate multiple concurrent requests
-        mock_redis.exists = AsyncMock(side_effect=[0, 1, 1])  # First missing, then exists
+        mock_redis.exists = AsyncMock(
+            side_effect=[0, 1, 1]
+        )  # First missing, then exists
         mock_redis.setex = AsyncMock(return_value=True)
         mock_redis.get = AsyncMock(return_value=json.dumps({"data": "cached"}))
 
@@ -389,9 +385,7 @@ class TestCacheIntegration:
                 return l1_cache[key]
 
             # Check L2
-            mock_redis.get = AsyncMock(
-                return_value=json.dumps({"data": "from_redis"})
-            )
+            mock_redis.get = AsyncMock(return_value=json.dumps({"data": "from_redis"}))
             value = await l2_cache.get(key)
 
             if value:

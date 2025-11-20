@@ -20,7 +20,9 @@ class CharacterExtractor:
         """
         self.llm = AsyncGroq(api_key=groq_api_key)
 
-    async def extract_characters(self, text: str, max_characters: int = 10) -> List[str]:
+    async def extract_characters(
+        self, text: str, max_characters: int = 10
+    ) -> List[str]:
         """
         Use LLM to identify main characters in text
 
@@ -55,14 +57,14 @@ JSON array:"""
                 model="llama-3.1-70b-versatile",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
-                max_tokens=200
+                max_tokens=200,
             )
 
             content = response.choices[0].message.content.strip()
 
             # Extract JSON array from response
             # Sometimes LLM wraps it in markdown code blocks
-            content = content.replace('```json', '').replace('```', '').strip()
+            content = content.replace("```json", "").replace("```", "").strip()
 
             characters = json.loads(content)
 
@@ -80,9 +82,7 @@ JSON array:"""
             return []
 
     def extract_character_content(
-        self,
-        text: str,
-        character_name: str
+        self, text: str, character_name: str
     ) -> List[Dict[str, str]]:
         """
         Extract all content related to specific character
@@ -103,7 +103,7 @@ JSON array:"""
         chunks = []
 
         # Split into paragraphs
-        paragraphs = text.split('\n\n')
+        paragraphs = text.split("\n\n")
 
         for i, para in enumerate(paragraphs):
             para = para.strip()
@@ -114,20 +114,18 @@ JSON array:"""
             if self._character_in_paragraph(character_name, para):
                 chunk_type = self._classify_chunk(para, character_name)
 
-                chunks.append({
-                    'text': para,
-                    'chunk_type': chunk_type,
-                    'source_location': f'paragraph_{i}',
-                    'character_name': character_name
-                })
+                chunks.append(
+                    {
+                        "text": para,
+                        "chunk_type": chunk_type,
+                        "source_location": f"paragraph_{i}",
+                        "character_name": character_name,
+                    }
+                )
 
         return chunks
 
-    def extract_dialogue_only(
-        self,
-        text: str,
-        character_name: str
-    ) -> List[str]:
+    def extract_dialogue_only(self, text: str, character_name: str) -> List[str]:
         """
         Extract only dialogue lines for this character
 
@@ -176,7 +174,7 @@ JSON array:"""
         Uses word boundary matching to avoid false positives
         """
         # Create pattern with word boundaries
-        pattern = rf'\b{re.escape(character_name)}\b'
+        pattern = rf"\b{re.escape(character_name)}\b"
         return bool(re.search(pattern, paragraph, re.IGNORECASE))
 
     def _classify_chunk(self, text: str, character_name: str) -> str:
@@ -194,26 +192,48 @@ JSON array:"""
         if '"' in text or "'" in text or '"' in text:
             # Check if it's actually dialogue involving the character
             dialogue_patterns = [
-                rf'{character_name}\s+(?:said|asked|replied)',
+                rf"{character_name}\s+(?:said|asked|replied)",
                 rf'"\s+(?:said|asked|replied)\s+{character_name}',
-                rf'{character_name}:\s*["\']'
+                rf'{character_name}:\s*["\']',
             ]
             if any(re.search(p, text, re.IGNORECASE) for p in dialogue_patterns):
                 return ChunkType.DIALOGUE.value
 
         # Check for thought indicators
         thought_keywords = [
-            'thought', 'wondered', 'pondered', 'realized', 'remembered',
-            'considered', 'imagined', 'knew', 'believed', 'felt that'
+            "thought",
+            "wondered",
+            "pondered",
+            "realized",
+            "remembered",
+            "considered",
+            "imagined",
+            "knew",
+            "believed",
+            "felt that",
         ]
         if any(keyword in text.lower() for keyword in thought_keywords):
             return ChunkType.THOUGHT.value
 
         # Check for action verbs
         action_verbs = [
-            'walked', 'ran', 'jumped', 'grabbed', 'took', 'held',
-            'moved', 'turned', 'looked', 'went', 'came', 'stood',
-            'sat', 'opened', 'closed', 'pulled', 'pushed'
+            "walked",
+            "ran",
+            "jumped",
+            "grabbed",
+            "took",
+            "held",
+            "moved",
+            "turned",
+            "looked",
+            "went",
+            "came",
+            "stood",
+            "sat",
+            "opened",
+            "closed",
+            "pulled",
+            "pushed",
         ]
         if any(verb in text.lower() for verb in action_verbs):
             return ChunkType.ACTION.value
@@ -233,21 +253,29 @@ JSON array:"""
         """
         if not chunks:
             return {
-                'total_chunks': 0,
-                'dialogue_count': 0,
-                'action_count': 0,
-                'thought_count': 0,
-                'description_count': 0,
-                'total_words': 0
+                "total_chunks": 0,
+                "dialogue_count": 0,
+                "action_count": 0,
+                "thought_count": 0,
+                "description_count": 0,
+                "total_words": 0,
             }
 
         stats = {
-            'total_chunks': len(chunks),
-            'dialogue_count': sum(1 for c in chunks if c['chunk_type'] == ChunkType.DIALOGUE.value),
-            'action_count': sum(1 for c in chunks if c['chunk_type'] == ChunkType.ACTION.value),
-            'thought_count': sum(1 for c in chunks if c['chunk_type'] == ChunkType.THOUGHT.value),
-            'description_count': sum(1 for c in chunks if c['chunk_type'] == ChunkType.DESCRIPTION.value),
-            'total_words': sum(len(c['text'].split()) for c in chunks)
+            "total_chunks": len(chunks),
+            "dialogue_count": sum(
+                1 for c in chunks if c["chunk_type"] == ChunkType.DIALOGUE.value
+            ),
+            "action_count": sum(
+                1 for c in chunks if c["chunk_type"] == ChunkType.ACTION.value
+            ),
+            "thought_count": sum(
+                1 for c in chunks if c["chunk_type"] == ChunkType.THOUGHT.value
+            ),
+            "description_count": sum(
+                1 for c in chunks if c["chunk_type"] == ChunkType.DESCRIPTION.value
+            ),
+            "total_words": sum(len(c["text"].split()) for c in chunks),
         }
 
         return stats

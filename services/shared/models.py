@@ -101,6 +101,7 @@ class SceneBeat(BaseModel):
 
 class SceneGenerationState(BaseModel):
     """State for LangGraph orchestrator"""
+
     scene_request: SceneRequest
     scene_beats: List[SceneBeat] = []
     current_beat_index: int = 0
@@ -148,7 +149,9 @@ class SceneEvaluation(BaseModel):
 
 # Streaming response models
 class StreamEvent(BaseModel):
-    event_type: str  # beat_start, character_generating, dialogue_complete, scene_complete
+    event_type: (
+        str  # beat_start, character_generating, dialogue_complete, scene_complete
+    )
     data: Dict[str, Any]
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 

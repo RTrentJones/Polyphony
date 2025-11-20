@@ -6,13 +6,14 @@ used by Kubernetes and load balancers.
 """
 
 from enum import Enum
-from typing import Dict, Callable, Any
+from typing import Dict, Callable
 from datetime import datetime
 import asyncio
 
 
 class HealthStatus(str, Enum):
     """Health check status values"""
+
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     UNHEALTHY = "unhealthy"
@@ -64,7 +65,7 @@ class HealthCheck:
             "service": self.service_name,
             "version": self.version,
             "timestamp": datetime.utcnow().isoformat(),
-            "uptime_seconds": (datetime.utcnow() - self.startup_time).total_seconds()
+            "uptime_seconds": (datetime.utcnow() - self.startup_time).total_seconds(),
         }
 
     async def readiness(self) -> tuple[dict, int]:
@@ -82,10 +83,7 @@ class HealthCheck:
         any_unhealthy = False
 
         # Run all health checks concurrently
-        check_tasks = {
-            name: check_func()
-            for name, check_func in self.checks.items()
-        }
+        check_tasks = {name: check_func() for name, check_func in self.checks.items()}
 
         results = await asyncio.gather(*check_tasks.values(), return_exceptions=True)
 
@@ -93,7 +91,7 @@ class HealthCheck:
             if isinstance(result, Exception):
                 check_results[name] = {
                     "status": HealthStatus.UNHEALTHY,
-                    "error": str(result)
+                    "error": str(result),
                 }
                 any_unhealthy = True
                 all_healthy = False
@@ -120,7 +118,7 @@ class HealthCheck:
             "service": self.service_name,
             "version": self.version,
             "timestamp": datetime.utcnow().isoformat(),
-            "checks": check_results
+            "checks": check_results,
         }
 
         return health_data, status_code
@@ -138,6 +136,7 @@ class HealthCheck:
 
 
 # Helper functions for common health checks
+
 
 async def check_database(check_db_func: Callable) -> bool:
     """
@@ -187,6 +186,7 @@ async def check_http_endpoint(url: str, timeout: float = 5.0) -> bool:
     """
     try:
         import httpx
+
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.get(url)
             return response.status_code == 200
@@ -216,6 +216,7 @@ async def check_qdrant(qdrant_client) -> bool:
 
 # Additional helper functions expected by tests
 
+
 async def check_database_health(session) -> bool:
     """
     Check database health by executing a simple query
@@ -229,6 +230,7 @@ async def check_database_health(session) -> bool:
     try:
         # Execute a simple query to verify connection
         from sqlalchemy import text
+
         await session.execute(text("SELECT 1"))
         return True
     except Exception:
@@ -249,7 +251,7 @@ async def check_cache_health(redis_client) -> bool:
         if redis_client:
             # Ping Redis to check connectivity
             result = await redis_client.ping()
-            return result is True or result == b'PONG' or result == 'PONG'
+            return result is True or result == b"PONG" or result == "PONG"
         return False
     except Exception:
         return False

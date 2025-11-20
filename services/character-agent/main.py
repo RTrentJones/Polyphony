@@ -1,7 +1,6 @@
 """Character Agent Service - Main API"""
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from prometheus_client import REGISTRY
 import os
@@ -23,7 +22,7 @@ CHARACTER_ID = os.getenv("CHARACTER_ID", "unknown")
 app = FastAPI(
     title=f"Polyphony Character Agent - {CHARACTER_NAME}",
     version="1.0.0",
-    description=f"Character-specific dialogue generation for {CHARACTER_NAME}"
+    description=f"Character-specific dialogue generation for {CHARACTER_NAME}",
 )
 
 # Initialize clients
@@ -33,24 +32,20 @@ rag_system = CharacterRAG(
     character_id=CHARACTER_ID,
     character_name=CHARACTER_NAME,
     qdrant_url=settings.QDRANT_URL,
-    embedding_model_name=settings.EMBEDDING_MODEL
+    embedding_model_name=settings.EMBEDDING_MODEL,
 )
 
 # Prometheus metrics
 dialogue_requests = Counter(
-    'dialogue_requests_total',
-    'Total dialogue generation requests',
-    ['character', 'status']
+    "dialogue_requests_total",
+    "Total dialogue generation requests",
+    ["character", "status"],
 )
 dialogue_duration = Histogram(
-    'dialogue_generation_duration_seconds',
-    'Time to generate dialogue',
-    ['character']
+    "dialogue_generation_duration_seconds", "Time to generate dialogue", ["character"]
 )
 rag_retrieval_duration = Histogram(
-    'rag_retrieval_duration_seconds',
-    'Time to retrieve from RAG',
-    ['character']
+    "rag_retrieval_duration_seconds", "Time to retrieve from RAG", ["character"]
 )
 
 
@@ -93,8 +88,8 @@ async def health_check():
         "service": "character-agent",
         "character": CHARACTER_NAME,
         "character_id": CHARACTER_ID,
-        "collection_size": stats.get('total_chunks', 0),
-        "rag_ready": stats.get('total_chunks', 0) > 0
+        "collection_size": stats.get("total_chunks", 0),
+        "rag_ready": stats.get("total_chunks", 0) > 0,
     }
 
 
@@ -120,8 +115,7 @@ async def generate_dialogue(request: DialogueRequest):
                 cached = await redis_client.get(cache_key)
                 if cached:
                     dialogue_requests.labels(
-                        character=CHARACTER_NAME,
-                        status='cache_hit'
+                        character=CHARACTER_NAME, status="cache_hit"
                     ).inc()
                     return DialogueResponse(**json.loads(cached))
             except Exception as e:
@@ -130,19 +124,21 @@ async def generate_dialogue(request: DialogueRequest):
         # 2. Retrieve similar past dialogue from RAG
         retrieval_start = time.time()
         similar_examples = await rag_system.retrieve_similar_dialogue(
-            query=request.scene_context.get('description', request.beat_description),
+            query=request.scene_context.get("description", request.beat_description),
             k=settings.RAG_TOP_K,
-            chunk_type='dialogue',
-            score_threshold=settings.RAG_SCORE_THRESHOLD
+            chunk_type="dialogue",
+            score_threshold=settings.RAG_SCORE_THRESHOLD,
         )
         rag_retrieval_duration.labels(character=CHARACTER_NAME).observe(
             time.time() - retrieval_start
         )
 
         # 3. Build prompt with retrieved examples
-        examples_text = "\n".join([
-            f"- \"{ex['text'][:200]}\"" for ex in similar_examples[:3]
-        ]) if similar_examples else "No previous examples available."
+        examples_text = (
+            "\n".join([f"- \"{ex['text'][:200]}\"" for ex in similar_examples[:3]])
+            if similar_examples
+            else "No previous examples available."
+        )
 
         previous_dialogue_text = _format_previous_dialogue(request.previous_dialogue)
 
@@ -175,7 +171,7 @@ Important:
             model=settings.GROQ_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.9,
-            max_tokens=200
+            max_tokens=200,
         )
 
         dialogue = response.choices[0].message.content.strip()
@@ -185,16 +181,17 @@ Important:
 
         # 5. Generate accompanying action
         action = await _generate_action(
-            request.scene_context,
-            dialogue,
-            request.emotional_state
+            request.scene_context, dialogue, request.emotional_state
         )
 
         # 6. Calculate voice consistency
-        confidence = _calculate_voice_consistency(
-            dialogue,
-            [ex['text'] for ex in similar_examples]
-        ) if similar_examples else 0.5
+        confidence = (
+            _calculate_voice_consistency(
+                dialogue, [ex["text"] for ex in similar_examples]
+            )
+            if similar_examples
+            else 0.5
+        )
 
         # 7. Create response
         result = DialogueResponse(
@@ -202,34 +199,28 @@ Important:
             dialogue=dialogue,
             action=action,
             confidence_score=confidence,
-            retrieved_examples=[ex['text'][:100] for ex in similar_examples[:3]]
+            retrieved_examples=[ex["text"][:100] for ex in similar_examples[:3]],
         )
 
         # 8. Cache result
         if redis_client and settings.CACHE_DIALOGUE:
             try:
                 await redis_client.set(
-                    cache_key,
-                    result.json(),
-                    ex=settings.CACHE_TTL_SECONDS
+                    cache_key, result.json(), ex=settings.CACHE_TTL_SECONDS
                 )
             except Exception as e:
                 print(f"Cache write error: {e}")
 
         # 9. Metrics
-        dialogue_requests.labels(
-            character=CHARACTER_NAME,
-            status='success'
-        ).inc()
+        dialogue_requests.labels(character=CHARACTER_NAME, status="success").inc()
 
         return result
 
     except Exception as e:
-        dialogue_requests.labels(
-            character=CHARACTER_NAME,
-            status='error'
-        ).inc()
-        raise HTTPException(status_code=500, detail=f"Error generating dialogue: {str(e)}")
+        dialogue_requests.labels(character=CHARACTER_NAME, status="error").inc()
+        raise HTTPException(
+            status_code=500, detail=f"Error generating dialogue: {str(e)}"
+        )
 
     finally:
         dialogue_duration.labels(character=CHARACTER_NAME).observe(
@@ -238,9 +229,7 @@ Important:
 
 
 async def _generate_action(
-    scene_context: dict,
-    dialogue: str,
-    emotional_state: str
+    scene_context: dict, dialogue: str, emotional_state: str
 ) -> str:
     """Generate action to accompany dialogue"""
     try:
@@ -257,7 +246,7 @@ Action:"""
             model=settings.GROQ_MODEL_FAST,  # Use faster model for actions
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
-            max_tokens=50
+            max_tokens=50,
         )
 
         return response.choices[0].message.content.strip()
@@ -267,10 +256,7 @@ Action:"""
         return ""
 
 
-def _calculate_voice_consistency(
-    generated: str,
-    examples: list[str]
-) -> float:
+def _calculate_voice_consistency(generated: str, examples: list[str]) -> float:
     """
     Calculate how well generated dialogue matches character voice
 
@@ -302,7 +288,9 @@ def _format_previous_dialogue(dialogue_list: list[dict[str, str]]) -> str:
 
     formatted = []
     for turn in dialogue_list[-5:]:  # Last 5 turns
-        formatted.append(f"{turn.get('character', 'Unknown')}: \"{turn.get('dialogue', '')}\"")
+        formatted.append(
+            f"{turn.get('character', 'Unknown')}: \"{turn.get('dialogue', '')}\""
+        )
 
     return "\n".join(formatted)
 
@@ -322,14 +310,11 @@ async def index_content(chunks: list[dict]):
             "status": "success",
             "character": CHARACTER_NAME,
             "indexed_count": indexed_count,
-            "total_chunks": len(chunks)
+            "total_chunks": len(chunks),
         }
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error indexing content: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error indexing content: {str(e)}")
 
 
 @app.get("/statistics")
@@ -343,13 +328,12 @@ async def get_statistics():
 async def metrics():
     """Prometheus metrics endpoint"""
     from fastapi import Response
-    return Response(
-        content=generate_latest(REGISTRY),
-        media_type=CONTENT_TYPE_LATEST
-    )
+
+    return Response(content=generate_latest(REGISTRY), media_type=CONTENT_TYPE_LATEST)
 
 
 if __name__ == "__main__":
     import uvicorn
+
     port = int(os.getenv("SERVICE_PORT", "8002"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=port)  # nosec B104

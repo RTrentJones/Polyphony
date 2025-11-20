@@ -7,7 +7,7 @@ from services.shared.sanitization import (
     sanitize_sql_string,
     sanitize_file_path,
     validate_file_upload,
-    is_safe_redirect_url
+    is_safe_redirect_url,
 )
 
 
@@ -43,7 +43,9 @@ class TestLLMSanitization:
         for dangerous in dangerous_inputs:
             result = sanitize_for_llm(dangerous)
             # Should remove or neutralize dangerous patterns
-            assert "ignore previous" not in result.lower() or len(result) < len(dangerous)
+            assert "ignore previous" not in result.lower() or len(result) < len(
+                dangerous
+            )
 
     def test_sanitize_length_limit(self):
         """Test length limiting"""
@@ -53,7 +55,9 @@ class TestLLMSanitization:
 
     def test_sanitize_preserves_safe_content(self):
         """Test that safe content is preserved"""
-        text = "A mysterious figure enters the tavern. \"Who goes there?\" shouts the guard."
+        text = (
+            'A mysterious figure enters the tavern. "Who goes there?" shouts the guard.'
+        )
         result = sanitize_for_llm(text, max_length=200)
         assert "mysterious figure" in result
         assert "tavern" in result
@@ -90,35 +94,35 @@ class TestHTMLSanitization:
     def test_sanitize_html_basic(self):
         """Test basic HTML sanitization"""
         html = "<p>Safe paragraph</p>"
-        result = sanitize_html(html, allowed_tags=['p'])
+        result = sanitize_html(html, allowed_tags=["p"])
         assert "<p>" in result
         assert "Safe paragraph" in result
 
     def test_sanitize_html_removes_script_tags(self):
         """Test removal of script tags"""
         html = "<div>Content<script>alert('xss')</script></div>"
-        result = sanitize_html(html, allowed_tags=['div'])
+        result = sanitize_html(html, allowed_tags=["div"])
         assert "<script>" not in result
         assert "alert" not in result
         assert "Content" in result
 
     def test_sanitize_html_removes_event_handlers(self):
         """Test removal of JavaScript event handlers"""
-        html = '<div onclick="alert(\'xss\')">Click me</div>'
-        result = sanitize_html(html, allowed_tags=['div'])
+        html = "<div onclick=\"alert('xss')\">Click me</div>"
+        result = sanitize_html(html, allowed_tags=["div"])
         assert "onclick" not in result.lower()
         assert "alert" not in result
 
     def test_sanitize_html_removes_dangerous_protocols(self):
         """Test removal of dangerous URL protocols"""
-        html = '<a href="javascript:alert(\'xss\')">Link</a>'
-        result = sanitize_html(html, allowed_tags=['a'])
+        html = "<a href=\"javascript:alert('xss')\">Link</a>"
+        result = sanitize_html(html, allowed_tags=["a"])
         assert "javascript:" not in result.lower()
 
     def test_sanitize_html_allows_safe_tags(self):
         """Test that safe tags are preserved"""
         html = "<strong>Bold</strong> and <em>italic</em> text"
-        result = sanitize_html(html, allowed_tags=['strong', 'em'])
+        result = sanitize_html(html, allowed_tags=["strong", "em"])
         assert "<strong>" in result
         assert "<em>" in result
         assert "Bold" in result
@@ -194,7 +198,7 @@ class TestFilePathSanitization:
 
     def test_sanitize_special_characters(self):
         """Test handling of special characters"""
-        filename = "file<>:\"|?*.txt"
+        filename = 'file<>:"|?*.txt'
         result = sanitize_file_path(filename)
         # Should remove or replace dangerous characters
         for char in '<>:"|?*':
@@ -207,7 +211,7 @@ class TestFileUploadValidation:
 
     def test_validate_safe_file_type(self):
         """Test validating safe file types"""
-        allowed_types = ['pdf', 'docx', 'txt']
+        allowed_types = ["pdf", "docx", "txt"]
 
         assert validate_file_upload("document.pdf", allowed_types) is True
         assert validate_file_upload("manuscript.docx", allowed_types) is True
@@ -215,7 +219,7 @@ class TestFileUploadValidation:
 
     def test_validate_dangerous_file_type(self):
         """Test rejecting dangerous file types"""
-        allowed_types = ['pdf', 'docx']
+        allowed_types = ["pdf", "docx"]
 
         dangerous_files = [
             "malware.exe",
@@ -229,27 +233,27 @@ class TestFileUploadValidation:
 
     def test_validate_case_insensitive(self):
         """Test case-insensitive file type checking"""
-        allowed_types = ['pdf', 'docx']
+        allowed_types = ["pdf", "docx"]
 
         assert validate_file_upload("document.PDF", allowed_types) is True
         assert validate_file_upload("file.DocX", allowed_types) is True
 
     def test_validate_double_extension(self):
         """Test handling of double extensions"""
-        allowed_types = ['pdf']
+        allowed_types = ["pdf"]
 
         # Should reject even if final extension is safe
         assert validate_file_upload("malware.exe.pdf", allowed_types) is False
 
     def test_validate_no_extension(self):
         """Test handling files without extension"""
-        allowed_types = ['pdf']
+        allowed_types = ["pdf"]
 
         assert validate_file_upload("filenoext", allowed_types) is False
 
     def test_validate_empty_filename(self):
         """Test handling empty filename"""
-        allowed_types = ['pdf']
+        allowed_types = ["pdf"]
 
         assert validate_file_upload("", allowed_types) is False
 
@@ -272,9 +276,10 @@ class TestRedirectURLValidation:
     def test_safe_same_domain_url(self):
         """Test safe same-domain URLs"""
         # Would need base domain configuration
-        url = "https://polyphony.app/dashboard"
+        # url = "https://polyphony.app/dashboard"
         # Implementation depends on domain checking
         # This is a placeholder for the test structure
+        pass
 
     def test_dangerous_external_redirects(self):
         """Test blocking dangerous external redirects"""
@@ -307,7 +312,9 @@ class TestSanitizationIntegration:
 
     def test_user_input_pipeline(self):
         """Test full user input sanitization pipeline"""
-        user_input = "A dark & mysterious <script>alert('xss')</script> character appears..."
+        user_input = (
+            "A dark & mysterious <script>alert('xss')</script> character appears..."
+        )
 
         # Sanitize for LLM
         llm_safe = sanitize_for_llm(user_input, max_length=500)

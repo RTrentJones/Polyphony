@@ -1,6 +1,5 @@
 """Unit tests for Document Parser"""
 
-import pytest
 from services.document_parser.parser import DocumentParser
 
 
@@ -8,7 +7,7 @@ def test_document_parser_initialization():
     """Test that DocumentParser can be initialized"""
     parser = DocumentParser()
     assert parser is not None
-    assert parser.SUPPORTED_FORMATS == ['.txt', '.docx', '.pdf', '.html', '.htm']
+    assert parser.SUPPORTED_FORMATS == [".txt", ".docx", ".pdf", ".html", ".htm"]
 
 
 def test_word_count():

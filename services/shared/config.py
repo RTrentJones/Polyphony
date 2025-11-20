@@ -1,10 +1,8 @@
 """Configuration management for Polyphony services"""
 
-from pydantic import field_validator, ValidationError
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from typing import Optional, List
-import os
-import sys
 
 
 class Settings(BaseSettings):
@@ -45,32 +43,32 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
-    @field_validator('SECRET_KEY')
+    @field_validator("SECRET_KEY")
     @classmethod
     def validate_secret_key(cls, v: str) -> str:
         """Ensure SECRET_KEY is strong enough"""
         if len(v) < 32:
-            raise ValueError('SECRET_KEY must be at least 32 characters long')
+            raise ValueError("SECRET_KEY must be at least 32 characters long")
         if v == "your-secret-key-change-this-in-production-min-32-chars":
-            raise ValueError('SECRET_KEY must be changed from default value')
+            raise ValueError("SECRET_KEY must be changed from default value")
         return v
 
-    @field_validator('GROQ_API_KEY')
+    @field_validator("GROQ_API_KEY")
     @classmethod
     def validate_groq_key(cls, v: str) -> str:
         """Ensure GROQ_API_KEY is set"""
         if not v or v == "":
-            raise ValueError('GROQ_API_KEY is required')
+            raise ValueError("GROQ_API_KEY is required")
         return v
 
-    @field_validator('POSTGRES_PASSWORD')
+    @field_validator("POSTGRES_PASSWORD")
     @classmethod
     def validate_postgres_password(cls, v: str) -> str:
         """Ensure database password is secure"""
         if v == "password" or v == "postgres":
-            raise ValueError('POSTGRES_PASSWORD must not be a default/weak password')
+            raise ValueError("POSTGRES_PASSWORD must not be a default/weak password")
         if len(v) < 8:
-            raise ValueError('POSTGRES_PASSWORD must be at least 8 characters long')
+            raise ValueError("POSTGRES_PASSWORD must be at least 8 characters long")
         return v
 
     # Service URLs
@@ -80,7 +78,7 @@ class Settings(BaseSettings):
     CHARACTER_AGENT_URLS: str = ""  # Comma-separated URLs for multi-agent deployment
 
     # File Storage
-    UPLOAD_DIR: str = "/tmp/polyphony/uploads"
+    UPLOAD_DIR: str = "/tmp/polyphony/uploads"  # nosec B108 - Configurable via env var
     MAX_UPLOAD_SIZE: int = 50 * 1024 * 1024  # 50MB
     ALLOWED_EXTENSIONS: List[str] = [".txt", ".docx", ".pdf", ".html", ".htm"]
 

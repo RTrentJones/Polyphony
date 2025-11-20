@@ -2,14 +2,13 @@
 
 import pytest
 import asyncio
-from unittest.mock import AsyncMock, Mock
 from services.shared.resilience import (
     CircuitBreaker,
     CircuitBreakerState,
     CircuitBreakerError,
     with_retry,
     retry_with_backoff,
-    RetryConfig
+    RetryConfig,
 )
 
 
@@ -105,10 +104,7 @@ class TestCircuitBreaker:
     @pytest.mark.asyncio
     async def test_circuit_breaker_expected_exceptions(self):
         """Test circuit breaker only counts expected exceptions"""
-        breaker = CircuitBreaker(
-            failure_threshold=2,
-            expected_exception=ValueError
-        )
+        breaker = CircuitBreaker(failure_threshold=2, expected_exception=ValueError)
 
         async def value_error_func():
             raise ValueError("Expected error")
@@ -206,9 +202,7 @@ class TestRetryLogic:
         # TypeError is not in default retryable_exceptions
         with pytest.raises(TypeError):
             await retry_with_backoff(
-                raises_unexpected,
-                config=config,
-                retryable_exceptions=(ValueError,)
+                raises_unexpected, config=config, retryable_exceptions=(ValueError,)
             )
 
         # Should fail immediately, not retry
@@ -230,10 +224,7 @@ class TestRetryLogic:
             return "success"
 
         config = RetryConfig(
-            max_attempts=5,
-            base_delay=0.01,
-            max_delay=0.02,
-            exponential_base=2.0
+            max_attempts=5, base_delay=0.01, max_delay=0.02, exponential_base=2.0
         )
 
         result = await retry_with_backoff(track_delays, config=config)
@@ -248,17 +239,14 @@ class TestRetryLogic:
         async def track_timing():
             nonlocal call_count
             import time
+
             start_times.append(time.time())
             call_count += 1
             if call_count < 3:
                 raise ValueError("Retry")
             return "success"
 
-        config = RetryConfig(
-            max_attempts=4,
-            base_delay=0.01,
-            jitter=True
-        )
+        config = RetryConfig(max_attempts=4, base_delay=0.01, jitter=True)
 
         await retry_with_backoff(track_timing, config=config)
 
@@ -290,6 +278,7 @@ class TestWithRetryDecorator:
     @pytest.mark.asyncio
     async def test_decorator_with_args(self):
         """Test decorator with function arguments"""
+
         @with_retry(max_attempts=3, base_delay=0.01)
         async def add_numbers(a, b, c=0):
             return a + b + c
@@ -302,11 +291,7 @@ class TestWithRetryDecorator:
         """Test decorator with specific retryable exceptions"""
         call_count = 0
 
-        @with_retry(
-            max_attempts=3,
-            base_delay=0.01,
-            retryable_exceptions=(ValueError,)
-        )
+        @with_retry(max_attempts=3, base_delay=0.01, retryable_exceptions=(ValueError,))
         async def may_fail():
             nonlocal call_count
             call_count += 1

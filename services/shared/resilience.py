@@ -8,23 +8,25 @@ for handling failures in distributed systems.
 import asyncio
 from typing import Callable, Any, TypeVar, Optional
 from functools import wraps
-from datetime import datetime, timedelta
+from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class CircuitBreakerError(Exception):
     """Raised when circuit breaker is open"""
+
     pass
 
 
 class CircuitBreakerState:
     """States for circuit breaker pattern"""
+
     CLOSED = "closed"  # Normal operation
-    OPEN = "open"      # Failing, reject requests
+    OPEN = "open"  # Failing, reject requests
     HALF_OPEN = "half_open"  # Testing if recovered
 
 
@@ -41,7 +43,7 @@ class CircuitBreaker:
         failure_threshold: int = 5,
         recovery_timeout: int = 60,
         expected_exception: type = Exception,
-        name: str = "circuit_breaker"
+        name: str = "circuit_breaker",
     ):
         """
         Args:
@@ -61,16 +63,20 @@ class CircuitBreaker:
 
     def __call__(self, func: Callable[..., Any]) -> Callable[..., Any]:
         """Decorator to wrap function with circuit breaker"""
+
         @wraps(func)
         async def wrapper(*args, **kwargs):
             return await self.call(func, *args, **kwargs)
+
         return wrapper
 
     async def call(self, func: Callable[..., T], *args, **kwargs) -> T:
         """Execute function with circuit breaker protection"""
         if self.state == CircuitBreakerState.OPEN:
             if self._should_attempt_reset():
-                logger.info(f"Circuit breaker {self.name}: Attempting reset (half-open)")
+                logger.info(
+                    f"Circuit breaker {self.name}: Attempting reset (half-open)"
+                )
                 self.state = CircuitBreakerState.HALF_OPEN
             else:
                 logger.warning(f"Circuit breaker {self.name}: OPEN - rejecting request")
@@ -83,7 +89,7 @@ class CircuitBreaker:
             result = await func(*args, **kwargs)
             self._on_success()
             return result
-        except self.expected_exception as e:
+        except self.expected_exception:
             self._on_failure()
             raise
 
@@ -91,7 +97,9 @@ class CircuitBreaker:
         """Check if enough time has passed to attempt recovery"""
         if self.last_failure_time is None:
             return True
-        return (datetime.utcnow() - self.last_failure_time).total_seconds() >= self.recovery_timeout
+        return (
+            datetime.utcnow() - self.last_failure_time
+        ).total_seconds() >= self.recovery_timeout
 
     def _on_success(self):
         """Handle successful call"""
@@ -134,7 +142,7 @@ class RetryConfig:
         base_delay: float = 1.0,
         max_delay: float = 60.0,
         exponential_base: float = 2.0,
-        jitter: bool = True
+        jitter: bool = True,
     ):
         self.max_attempts = max_attempts
         self.base_delay = base_delay
@@ -148,7 +156,7 @@ async def retry_with_backoff(
     *args,
     config: Optional[RetryConfig] = None,
     retryable_exceptions: tuple = (Exception,),
-    **kwargs
+    **kwargs,
 ) -> T:
     """
     Retry function with exponential backoff
@@ -180,20 +188,20 @@ async def retry_with_backoff(
                 # Last attempt failed
                 logger.error(
                     f"All {config.max_attempts} retry attempts failed for {func.__name__}",
-                    exc_info=True
+                    exc_info=True,
                 )
                 raise
 
             # Calculate delay with exponential backoff
             delay = min(
-                config.base_delay * (config.exponential_base ** attempt),
-                config.max_delay
+                config.base_delay * (config.exponential_base**attempt), config.max_delay
             )
 
             # Add jitter to prevent thundering herd
             if config.jitter:
                 import random
-                delay = delay * (0.5 + random.random())
+
+                delay = delay * (0.5 + random.random())  # nosec B311
 
             logger.warning(
                 f"Retry attempt {attempt + 1}/{config.max_attempts} "
@@ -209,7 +217,7 @@ async def retry_with_backoff(
 def with_retry(
     max_attempts: int = 3,
     base_delay: float = 1.0,
-    retryable_exceptions: tuple = (Exception,)
+    retryable_exceptions: tuple = (Exception,),
 ):
     """
     Decorator to add retry logic to async functions
@@ -220,6 +228,7 @@ def with_retry(
             # Will retry up to 3 times with exponential backoff
             return await client.get("/data")
     """
+
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -229,15 +238,18 @@ def with_retry(
                 *args,
                 config=config,
                 retryable_exceptions=retryable_exceptions,
-                **kwargs
+                **kwargs,
             )
+
         return wrapper
+
     return decorator
 
 
 # Timeout utilities
 class TimeoutError(Exception):
     """Raised when operation exceeds timeout"""
+
     pass
 
 
@@ -256,9 +268,7 @@ async def with_timeout(coro, timeout: float, operation_name: str = "operation"):
     try:
         return await asyncio.wait_for(coro, timeout=timeout)
     except asyncio.TimeoutError:
-        raise TimeoutError(
-            f"{operation_name} exceeded timeout of {timeout}s"
-        )
+        raise TimeoutError(f"{operation_name} exceeded timeout of {timeout}s")
 
 
 # Fallback utilities
@@ -272,6 +282,7 @@ def fallback_on_error(fallback_value: Any, exceptions: tuple = (Exception,)):
             # Returns [] if ValueError is raised
             return await fetch_data()
     """
+
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -282,5 +293,7 @@ def fallback_on_error(fallback_value: Any, exceptions: tuple = (Exception,)):
                     f"Function {func.__name__} failed, using fallback value. Error: {str(e)}"
                 )
                 return fallback_value
+
         return wrapper
+
     return decorator

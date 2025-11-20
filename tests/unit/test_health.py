@@ -133,6 +133,7 @@ class TestHealthCheck:
 
         async def slow_check(delay):
             import time
+
             start = time.time()
             await asyncio.sleep(delay)
             call_times.append(time.time() - start)
@@ -143,6 +144,7 @@ class TestHealthCheck:
         health.add_check("check3", lambda: slow_check(0.1))
 
         import time
+
         start = time.time()
         await health.readiness()
         total_time = time.time() - start
@@ -239,24 +241,21 @@ class TestHealthCheckHelpers:
         mock_client.get = AsyncMock(return_value=mock_response)
 
         result = await check_external_service_health(
-            "http://example.com/health",
-            client=mock_client
+            "http://example.com/health", client=mock_client
         )
         assert result is True
 
         # Service unhealthy
         mock_response.status_code = 500
         result = await check_external_service_health(
-            "http://example.com/health",
-            client=mock_client
+            "http://example.com/health", client=mock_client
         )
         assert result is False
 
         # Service unreachable
         mock_client.get.side_effect = httpx.HTTPError("Connection failed")
         result = await check_external_service_health(
-            "http://example.com/health",
-            client=mock_client
+            "http://example.com/health", client=mock_client
         )
         assert result is False
 
@@ -322,6 +321,7 @@ class TestHealthCheckIntegration:
         # Should have a timeout mechanism
         # This test assumes implementation adds timeout handling
         import time
+
         start = time.time()
 
         try:
