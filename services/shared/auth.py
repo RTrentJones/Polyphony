@@ -15,8 +15,13 @@ from .orm_models import User as UserORM
 from .database import get_db
 
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Password hashing with strong configuration (P1-4 fix)
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__rounds=14,  # Increased from default 12 for better security
+    bcrypt__ident="2b"  # Use 2b variant for better compatibility
+)
 
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
