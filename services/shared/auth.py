@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from .config import settings
-from .models import User as UserModel
 from .orm_models import User as UserORM
 from .database import get_db
 
@@ -20,7 +19,7 @@ pwd_context = CryptContext(
     schemes=["bcrypt"],
     deprecated="auto",
     bcrypt__rounds=14,  # Increased from default 12 for better security
-    bcrypt__ident="2b"  # Use 2b variant for better compatibility
+    bcrypt__ident="2b",  # Use 2b variant for better compatibility
 )
 
 # OAuth2 scheme
@@ -53,14 +52,14 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.utcnow() + timedelta(
+            minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
+        )
 
     to_encode.update({"exp": expire})
 
     encoded_jwt = jwt.encode(
-        to_encode,
-        settings.SECRET_KEY,
-        algorithm=settings.ALGORITHM
+        to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM
     )
 
     return encoded_jwt
@@ -78,9 +77,7 @@ def decode_access_token(token: str) -> Optional[str]:
     """
     try:
         payload = jwt.decode(
-            token,
-            settings.SECRET_KEY,
-            algorithms=[settings.ALGORITHM]
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
         )
         user_id: str = payload.get("sub")
 
@@ -94,8 +91,7 @@ def decode_access_token(token: str) -> Optional[str]:
 
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: AsyncSession = Depends(get_db)
+    token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)
 ) -> UserORM:
     """
     Dependency to get the current authenticated user
@@ -123,9 +119,7 @@ async def get_current_user(
 
     # Get user from database
     try:
-        result = await db.execute(
-            select(UserORM).where(UserORM.id == user_id)
-        )
+        result = await db.execute(select(UserORM).where(UserORM.id == user_id))
         user = result.scalar_one_or_none()
 
         if user is None:
@@ -139,7 +133,7 @@ async def get_current_user(
 
 
 async def get_current_active_user(
-    current_user: UserORM = Depends(get_current_user)
+    current_user: UserORM = Depends(get_current_user),
 ) -> UserORM:
     """
     Dependency to get the current active user
@@ -158,9 +152,7 @@ async def get_current_active_user(
 
 
 async def authenticate_user(
-    db: AsyncSession,
-    email: str,
-    password: str
+    db: AsyncSession, email: str, password: str
 ) -> Optional[UserORM]:
     """
     Authenticate a user by email and password
@@ -175,9 +167,7 @@ async def authenticate_user(
     """
     try:
         # Get user by email
-        result = await db.execute(
-            select(UserORM).where(UserORM.email == email)
-        )
+        result = await db.execute(select(UserORM).where(UserORM.email == email))
         user = result.scalar_one_or_none()
 
         if user is None:

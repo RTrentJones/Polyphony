@@ -51,12 +51,7 @@ class CacheClient:
             print(f"Cache get error: {e}")
             return None
 
-    async def set(
-        self,
-        key: str,
-        value: Any,
-        ttl: int = 3600
-    ) -> bool:
+    async def set(self, key: str, value: Any, ttl: int = 3600) -> bool:
         """
         Set value in cache with TTL
 
@@ -70,11 +65,7 @@ class CacheClient:
         """
         try:
             serialized = json.dumps(value)
-            await self.redis.setex(
-                self._make_key(key),
-                ttl,
-                serialized
-            )
+            await self.redis.setex(self._make_key(key), ttl, serialized)
             return True
         except Exception as e:
             print(f"Cache set error: {e}")
@@ -149,12 +140,7 @@ class CacheClient:
             print(f"Cache increment error: {e}")
             return None
 
-    async def set_if_not_exists(
-        self,
-        key: str,
-        value: Any,
-        ttl: int = 3600
-    ) -> bool:
+    async def set_if_not_exists(self, key: str, value: Any, ttl: int = 3600) -> bool:
         """
         Set value only if key doesn't exist
 
@@ -172,7 +158,7 @@ class CacheClient:
                 self._make_key(key),
                 serialized,
                 ex=ttl,
-                nx=True  # Only set if not exists
+                nx=True,  # Only set if not exists
             )
             return result is not None
         except Exception as e:
@@ -181,9 +167,7 @@ class CacheClient:
 
 
 def cache_result(
-    ttl: int = 3600,
-    key_prefix: str = "",
-    skip_cache_on_error: bool = True
+    ttl: int = 3600, key_prefix: str = "", skip_cache_on_error: bool = True
 ):
     """
     Decorator to cache function results
@@ -198,6 +182,7 @@ def cache_result(
         async def get_user(user_id: str):
             return await db.get_user(user_id)
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         async def wrapper(*args, cache_client: Optional[CacheClient] = None, **kwargs):
@@ -208,7 +193,9 @@ def cache_result(
             # Generate cache key from function name and arguments
             prefix = key_prefix or func.__name__
             args_str = json.dumps({"args": args, "kwargs": kwargs}, sort_keys=True)
-            args_hash = hashlib.md5(args_str.encode(), usedforsecurity=False).hexdigest()  # nosec B324
+            args_hash = hashlib.md5(
+                args_str.encode(), usedforsecurity=False
+            ).hexdigest()  # nosec B324
             cache_key = f"{prefix}:{args_hash}"
 
             # Try to get from cache
@@ -224,13 +211,14 @@ def cache_result(
                 await cache_client.set(cache_key, result, ttl=ttl)
 
                 return result
-            except Exception as e:
+            except Exception:
                 # Don't cache errors unless explicitly configured
                 if not skip_cache_on_error:
                     raise
                 raise
 
         return wrapper
+
     return decorator
 
 
@@ -240,7 +228,7 @@ async def get_cached_or_compute(
     compute_func: Callable,
     ttl: int = 3600,
     *args,
-    **kwargs
+    **kwargs,
 ) -> Any:
     """
     Get value from cache or compute it

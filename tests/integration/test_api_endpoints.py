@@ -1,7 +1,6 @@
 """Integration tests for API endpoints"""
 
 import pytest
-from httpx import AsyncClient
 from uuid import uuid4
 
 
@@ -17,8 +16,8 @@ class TestAuthEndpoints:
             json={
                 "email": "newuser@example.com",
                 "password": "securepassword123",
-                "full_name": "New User"
-            }
+                "full_name": "New User",
+            },
         )
 
         assert response.status_code == 200
@@ -36,8 +35,8 @@ class TestAuthEndpoints:
             json={
                 "email": test_user.email,
                 "password": "anotherpassword",
-                "full_name": "Duplicate User"
-            }
+                "full_name": "Duplicate User",
+            },
         )
 
         assert response.status_code == 400
@@ -50,8 +49,8 @@ class TestAuthEndpoints:
             "/api/v1/auth/login",
             data={
                 "username": test_user.email,  # OAuth2 uses 'username'
-                "password": "testpassword123"
-            }
+                "password": "testpassword123",
+            },
         )
 
         assert response.status_code == 200
@@ -65,10 +64,7 @@ class TestAuthEndpoints:
         """Test login with invalid credentials"""
         response = client.post(
             "/api/v1/auth/login",
-            data={
-                "username": test_user.email,
-                "password": "wrongpassword"
-            }
+            data={"username": test_user.email, "password": "wrongpassword"},
         )
 
         assert response.status_code == 401
@@ -76,10 +72,7 @@ class TestAuthEndpoints:
     @pytest.mark.asyncio
     async def test_get_current_user(self, client, auth_headers):
         """Test getting current user info"""
-        response = client.get(
-            "/api/v1/auth/me",
-            headers=auth_headers
-        )
+        response = client.get("/api/v1/auth/me", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -102,10 +95,7 @@ class TestManuscriptEndpoints:
     @pytest.mark.asyncio
     async def test_list_manuscripts_empty(self, client, auth_headers):
         """Test listing manuscripts when user has none"""
-        response = client.get(
-            "/api/v1/manuscripts/",
-            headers=auth_headers
-        )
+        response = client.get("/api/v1/manuscripts/", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -116,10 +106,7 @@ class TestManuscriptEndpoints:
     @pytest.mark.asyncio
     async def test_list_manuscripts(self, client, auth_headers, test_manuscript):
         """Test listing manuscripts"""
-        response = client.get(
-            "/api/v1/manuscripts/",
-            headers=auth_headers
-        )
+        response = client.get("/api/v1/manuscripts/", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -132,8 +119,7 @@ class TestManuscriptEndpoints:
     async def test_get_manuscript(self, client, auth_headers, test_manuscript):
         """Test getting specific manuscript"""
         response = client.get(
-            f"/api/v1/manuscripts/{test_manuscript.id}",
-            headers=auth_headers
+            f"/api/v1/manuscripts/{test_manuscript.id}", headers=auth_headers
         )
 
         assert response.status_code == 200
@@ -146,10 +132,7 @@ class TestManuscriptEndpoints:
     async def test_get_nonexistent_manuscript(self, client, auth_headers):
         """Test getting non-existent manuscript"""
         fake_id = uuid4()
-        response = client.get(
-            f"/api/v1/manuscripts/{fake_id}",
-            headers=auth_headers
-        )
+        response = client.get(f"/api/v1/manuscripts/{fake_id}", headers=auth_headers)
 
         assert response.status_code == 404
 
@@ -161,11 +144,12 @@ class TestManuscriptEndpoints:
         assert response.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_get_manuscript_characters(self, client, auth_headers, test_manuscript, test_character):
+    async def test_get_manuscript_characters(
+        self, client, auth_headers, test_manuscript, test_character
+    ):
         """Test getting manuscript characters"""
         response = client.get(
-            f"/api/v1/manuscripts/{test_manuscript.id}/characters",
-            headers=auth_headers
+            f"/api/v1/manuscripts/{test_manuscript.id}/characters", headers=auth_headers
         )
 
         assert response.status_code == 200
@@ -183,10 +167,7 @@ class TestSceneEndpoints:
     @pytest.mark.asyncio
     async def test_list_scenes_empty(self, client, auth_headers):
         """Test listing scenes when user has none"""
-        response = client.get(
-            "/api/v1/scenes/",
-            headers=auth_headers
-        )
+        response = client.get("/api/v1/scenes/", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -256,8 +237,8 @@ class TestErrorHandling:
             "/api/v1/auth/register",
             json={
                 "email": "invalid-email",  # Invalid email format
-                "password": "password"
-            }
+                "password": "password",
+            },
         )
 
         assert response.status_code == 422  # Validation error

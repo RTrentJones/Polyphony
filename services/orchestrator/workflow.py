@@ -5,25 +5,28 @@ This module implements the multi-agent orchestration workflow using LangGraph.
 It coordinates multiple character agents to generate coherent, character-driven scenes.
 """
 
-from typing import TypedDict, Annotated, Sequence
+from typing import TypedDict
 from langgraph.graph import StateGraph, END
-from langchain_core.messages import BaseMessage, HumanMessage
-import operator
 from uuid import uuid4
 import httpx
 from datetime import datetime
 from groq import AsyncGroq
-import re
-import html
 
-from services.shared.models import SceneRequest, DialogueRequest
+from services.shared.models import SceneRequest
 from services.shared.config import settings
-from services.shared.resilience import CircuitBreaker, with_retry, CircuitBreakerError, RetryConfig
+from services.shared.resilience import (
+    CircuitBreaker,
+    with_retry,
+    CircuitBreakerError,
+)
 from services.shared.sanitization import sanitize_for_llm
 from services.shared.logging_config import setup_logging, log_error, log_business_event
 
 # Initialize logger for workflow
-workflow_logger = setup_logging("orchestrator.workflow", level=settings.LOG_LEVEL if hasattr(settings, 'LOG_LEVEL') else "INFO")
+workflow_logger = setup_logging(
+    "orchestrator.workflow",
+    level=settings.LOG_LEVEL if hasattr(settings, "LOG_LEVEL") else "INFO",
+)
 
 
 # Singleton Groq client (P0-5 fix)
@@ -34,14 +37,14 @@ character_agent_breaker = CircuitBreaker(
     failure_threshold=5,
     recovery_timeout=60,
     expected_exception=(httpx.HTTPError, httpx.TimeoutException),
-    name="character_agent"
+    name="character_agent",
 )
 
 groq_api_breaker = CircuitBreaker(
     failure_threshold=3,
     recovery_timeout=30,
     expected_exception=Exception,
-    name="groq_api"
+    name="groq_api",
 )
 
 
@@ -50,14 +53,14 @@ def get_groq_client() -> AsyncGroq:
     global _groq_client
     if _groq_client is None:
         _groq_client = AsyncGroq(
-            api_key=settings.GROQ_API_KEY,
-            timeout=httpx.Timeout(60.0, connect=10.0)
+            api_key=settings.GROQ_API_KEY, timeout=httpx.Timeout(60.0, connect=10.0)
         )
     return _groq_client
 
 
 class SceneState(TypedDict):
     """State for scene generation workflow"""
+
     scene_request: dict
     beats: list[dict]  # Scene beats (sub-moments)
     current_beat_index: int
@@ -73,17 +76,17 @@ async def plan_scene_beats(state: SceneState) -> SceneState:
 
     A beat is a single moment or exchange in the scene
     """
-    scene_request = state['scene_request']
+    scene_request = state["scene_request"]
 
     # Use LLM to plan beats (P0-5 fix: using singleton client)
     client = get_groq_client()
 
-    characters_str = ", ".join(scene_request['characters'])
+    characters_str = ", ".join(scene_request["characters"])
 
     # Sanitize inputs to prevent prompt injection (P2-7 fix)
-    scene_desc = sanitize_for_llm(scene_request['scene_description'], max_length=1000)
-    setting = sanitize_for_llm(scene_request['setting'], max_length=500)
-    emotional_tone = sanitize_for_llm(scene_request['emotional_tone'], max_length=100)
+    scene_desc = sanitize_for_llm(scene_request["scene_description"], max_length=1000)
+    setting = sanitize_for_llm(scene_request["setting"], max_length=500)
+    emotional_tone = sanitize_for_llm(scene_request["emotional_tone"], max_length=100)
 
     prompt = f"""You are a narrative planner. Break down this scene into 3-5 narrative beats (smaller moments).
 
@@ -110,7 +113,7 @@ Beats:"""
                 model=settings.GROQ_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
-                max_tokens=500
+                max_tokens=500,
             )
 
         response = await call_groq_with_protection()
@@ -119,35 +122,39 @@ Beats:"""
 
         # Parse beats (simple parsing - could be improved)
         beats = []
-        for line in beats_text.split('\n'):
+        for line in beats_text.split("\n"):
             line = line.strip()
-            if line and (line[0].isdigit() or line.startswith('-')):
+            if line and (line[0].isdigit() or line.startswith("-")):
                 # Remove number/bullet
-                beat_desc = line.split('.', 1)[-1].strip()
+                beat_desc = line.split(".", 1)[-1].strip()
                 if beat_desc:
-                    beats.append({
-                        'description': beat_desc,
-                        'characters': scene_request['characters'],  # All characters for now
-                        'dialogue': []
-                    })
+                    beats.append(
+                        {
+                            "description": beat_desc,
+                            "characters": scene_request[
+                                "characters"
+                            ],  # All characters for now
+                            "dialogue": [],
+                        }
+                    )
 
         # If parsing failed, create default beats
         if not beats:
             beats = [
                 {
-                    'description': scene_request['scene_description'],
-                    'characters': scene_request['characters'],
-                    'dialogue': []
+                    "description": scene_request["scene_description"],
+                    "characters": scene_request["characters"],
+                    "dialogue": [],
                 }
             ]
 
-        state['beats'] = beats
-        state['current_beat_index'] = 0
-        state['completed_beats'] = []
+        state["beats"] = beats
+        state["current_beat_index"] = 0
+        state["completed_beats"] = []
 
     except Exception as e:
-        state['error'] = f"Error planning beats: {str(e)}"
-        state['beats'] = []
+        state["error"] = f"Error planning beats: {str(e)}"
+        state["beats"] = []
 
     return state
 
@@ -159,67 +166,69 @@ async def generate_beat_dialogue(state: SceneState) -> SceneState:
     This implements a turn-based dialogue generation where characters
     respond to each other in sequence
     """
-    beat_index = state['current_beat_index']
+    beat_index = state["current_beat_index"]
 
-    if beat_index >= len(state['beats']):
+    if beat_index >= len(state["beats"]):
         return state
 
-    beat = state['beats'][beat_index]
-    scene_request = state['scene_request']
+    beat = state["beats"][beat_index]
+    scene_request = state["scene_request"]
 
     # Number of dialogue turns to generate for this beat
-    max_turns = min(len(beat['characters']) * 2, 8)  # 2 turns per character, max 8
+    max_turns = min(len(beat["characters"]) * 2, 8)  # 2 turns per character, max 8
 
     dialogue_history = []
 
     try:
         for turn in range(max_turns):
             # Determine which character speaks next (rotate through characters)
-            char_index = turn % len(beat['characters'])
-            current_character = beat['characters'][char_index]
-            other_characters = [c for c in beat['characters'] if c != current_character]
+            char_index = turn % len(beat["characters"])
+            current_character = beat["characters"][char_index]
+            other_characters = [c for c in beat["characters"] if c != current_character]
 
             # Call character agent to generate dialogue
             dialogue_response = await _call_character_agent(
                 character_name=current_character,
-                beat_description=beat['description'],
+                beat_description=beat["description"],
                 scene_context={
-                    'description': scene_request['scene_description'],
-                    'setting': scene_request['setting'],
-                    'emotional_tone': scene_request['emotional_tone']
+                    "description": scene_request["scene_description"],
+                    "setting": scene_request["setting"],
+                    "emotional_tone": scene_request["emotional_tone"],
                 },
                 previous_dialogue=dialogue_history,
-                other_characters=other_characters
+                other_characters=other_characters,
             )
 
             if dialogue_response:
-                dialogue_history.append({
-                    'character': current_character,
-                    'dialogue': dialogue_response['dialogue'],
-                    'action': dialogue_response.get('action', ''),
-                    'turn': turn
-                })
+                dialogue_history.append(
+                    {
+                        "character": current_character,
+                        "dialogue": dialogue_response["dialogue"],
+                        "action": dialogue_response.get("action", ""),
+                        "turn": turn,
+                    }
+                )
 
         # Save completed beat
-        beat['dialogue'] = dialogue_history
-        state['completed_beats'].append(beat)
-        state['current_beat_index'] += 1
+        beat["dialogue"] = dialogue_history
+        state["completed_beats"].append(beat)
+        state["current_beat_index"] += 1
 
     except Exception as e:
-        state['error'] = f"Error generating dialogue: {str(e)}"
+        state["error"] = f"Error generating dialogue: {str(e)}"
 
     return state
 
 
 def should_continue_beats(state: SceneState) -> str:
     """Determine if we should generate more beats or finish"""
-    if state.get('error'):
-        return 'finish'
+    if state.get("error"):
+        return "finish"
 
-    if state['current_beat_index'] < len(state['beats']):
-        return 'continue'
+    if state["current_beat_index"] < len(state["beats"]):
+        return "continue"
 
-    return 'finish'
+    return "finish"
 
 
 async def assemble_final_scene(state: SceneState) -> SceneState:
@@ -230,10 +239,9 @@ async def assemble_final_scene(state: SceneState) -> SceneState:
     """
     from services.shared.database import get_async_session
     from services.shared.orm_models import Scene, SceneBeat
-    from sqlalchemy import select
     from uuid import UUID
 
-    scene_request = state['scene_request']
+    scene_request = state["scene_request"]
 
     try:
         # Format the complete scene
@@ -244,13 +252,13 @@ async def assemble_final_scene(state: SceneState) -> SceneState:
 
         total_word_count = 0
 
-        for beat_idx, beat in enumerate(state['completed_beats']):
+        for beat_idx, beat in enumerate(state["completed_beats"]):
             scene_text += f"## Beat {beat_idx + 1}\n\n"
 
-            for dialogue_turn in beat['dialogue']:
-                char_name = dialogue_turn['character']
-                dialogue = dialogue_turn['dialogue']
-                action = dialogue_turn.get('action', '')
+            for dialogue_turn in beat["dialogue"]:
+                char_name = dialogue_turn["character"]
+                dialogue = dialogue_turn["dialogue"]
+                action = dialogue_turn.get("action", "")
 
                 if action:
                     scene_text += f"*{action}*\n\n"
@@ -266,28 +274,28 @@ async def assemble_final_scene(state: SceneState) -> SceneState:
         async with get_async_session() as session:
             # Create Scene record
             scene = Scene(
-                id=UUID(state['scene_id']),
-                manuscript_id=UUID(scene_request['manuscript_id']),
-                title=scene_request.get('title', 'Generated Scene'),
-                setting=scene_request['setting'],
-                emotional_tone=scene_request['emotional_tone'],
-                characters=scene_request['characters'],
-                scene_description=scene_request['scene_description'],
+                id=UUID(state["scene_id"]),
+                manuscript_id=UUID(scene_request["manuscript_id"]),
+                title=scene_request.get("title", "Generated Scene"),
+                setting=scene_request["setting"],
+                emotional_tone=scene_request["emotional_tone"],
+                characters=scene_request["characters"],
+                scene_description=scene_request["scene_description"],
                 generated_content=scene_text,
                 word_count=total_word_count,
-                status='completed',
-                created_at=datetime.utcnow()
+                status="completed",
+                created_at=datetime.utcnow(),
             )
             session.add(scene)
 
             # Create SceneBeat records
-            for beat_idx, beat in enumerate(state['completed_beats']):
+            for beat_idx, beat in enumerate(state["completed_beats"]):
                 scene_beat = SceneBeat(
                     scene_id=scene.id,
                     beat_number=beat_idx,
-                    description=beat['description'],
-                    dialogue=beat['dialogue'],
-                    created_at=datetime.utcnow()
+                    description=beat["description"],
+                    dialogue=beat["dialogue"],
+                    created_at=datetime.utcnow(),
                 )
                 session.add(scene_beat)
 
@@ -296,17 +304,18 @@ async def assemble_final_scene(state: SceneState) -> SceneState:
         log_business_event(
             workflow_logger,
             "scene_saved_to_database",
-            scene_id=state['scene_id'],
-            beats_count=len(state['completed_beats']),
-            word_count=total_word_count
+            scene_id=state["scene_id"],
+            beats_count=len(state["completed_beats"]),
+            word_count=total_word_count,
         )
 
     except Exception as e:
-        state['error'] = f"Error assembling scene: {str(e)}"
-        log_error(workflow_logger, e, context={
-            "scene_id": state['scene_id'],
-            "event": "scene_assembly_failed"
-        })
+        state["error"] = f"Error assembling scene: {str(e)}"
+        log_error(
+            workflow_logger,
+            e,
+            context={"scene_id": state["scene_id"], "event": "scene_assembly_failed"},
+        )
 
     return state
 
@@ -316,7 +325,7 @@ async def _call_character_agent(
     beat_description: str,
     scene_context: dict,
     previous_dialogue: list[dict],
-    other_characters: list[str]
+    other_characters: list[str],
 ) -> dict | None:
     """
     Call a character agent to generate dialogue with circuit breaker and retry (P0-4 fix)
@@ -324,21 +333,22 @@ async def _call_character_agent(
     In a production deployment, this would route to specific character agent instances.
     For now, we'll use the character-agent service directly.
     """
+
     @with_retry(
         max_attempts=3,
         base_delay=1.0,
-        retryable_exceptions=(httpx.HTTPError, httpx.TimeoutException)
+        retryable_exceptions=(httpx.HTTPError, httpx.TimeoutException),
     )
     async def make_request():
         agent_url = f"{settings.CHARACTER_AGENT_URL}/generate-dialogue"
 
         request_data = {
-            'character': character_name,
-            'beat_description': beat_description,
-            'scene_context': scene_context,
-            'previous_dialogue': previous_dialogue,
-            'other_characters': other_characters,
-            'emotional_state': scene_context.get('emotional_tone', 'neutral')
+            "character": character_name,
+            "beat_description": beat_description,
+            "scene_context": scene_context,
+            "previous_dialogue": previous_dialogue,
+            "other_characters": other_characters,
+            "emotional_state": scene_context.get("emotional_tone", "neutral"),
         }
 
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -358,27 +368,31 @@ async def _call_character_agent(
                 "event": "character_agent_error",
                 "character": character_name,
                 "error_type": type(e).__name__,
-                "error": str(e)
-            }
+                "error": str(e),
+            },
         )
 
         # Fallback: return simple dialogue
         return {
-            'character': character_name,
-            'dialogue': f"[I need a moment to collect my thoughts...]",
-            'action': f"{character_name} pauses thoughtfully",
-            'confidence_score': 0.0
+            "character": character_name,
+            "dialogue": "[I need a moment to collect my thoughts...]",
+            "action": f"{character_name} pauses thoughtfully",
+            "confidence_score": 0.0,
         }
     except Exception as e:
-        log_error(workflow_logger, e, context={
-            "event": "character_agent_unexpected_error",
-            "character": character_name
-        })
+        log_error(
+            workflow_logger,
+            e,
+            context={
+                "event": "character_agent_unexpected_error",
+                "character": character_name,
+            },
+        )
         return {
-            'character': character_name,
-            'dialogue': f"...",
-            'action': '',
-            'confidence_score': 0.0
+            "character": character_name,
+            "dialogue": "...",
+            "action": "",
+            "confidence_score": 0.0,
         }
 
 
@@ -408,8 +422,8 @@ def create_scene_workflow() -> StateGraph:
         should_continue_beats,
         {
             "continue": "generate_dialogue",  # Loop back for next beat
-            "finish": "assemble_scene"
-        }
+            "finish": "assemble_scene",
+        },
     )
 
     workflow.add_edge("assemble_scene", END)
@@ -417,7 +431,9 @@ def create_scene_workflow() -> StateGraph:
     return workflow.compile()
 
 
-async def generate_scene(scene_request: SceneRequest, scene_id: str | None = None) -> dict:
+async def generate_scene(
+    scene_request: SceneRequest, scene_id: str | None = None
+) -> dict:
     """
     Main entry point for scene generation
 
@@ -439,7 +455,7 @@ async def generate_scene(scene_request: SceneRequest, scene_id: str | None = Non
         current_dialogue=[],
         completed_beats=[],
         error=None,
-        scene_id=scene_id
+        scene_id=scene_id,
     )
 
     # Run workflow
@@ -448,25 +464,21 @@ async def generate_scene(scene_request: SceneRequest, scene_id: str | None = Non
     try:
         final_state = await workflow.ainvoke(initial_state)
 
-        if final_state.get('error'):
+        if final_state.get("error"):
             return {
-                'scene_id': scene_id,
-                'status': 'failed',
-                'error': final_state['error']
+                "scene_id": scene_id,
+                "status": "failed",
+                "error": final_state["error"],
             }
 
         return {
-            'scene_id': scene_id,
-            'status': 'completed',
-            'beats_count': len(final_state['completed_beats']),
-            'total_dialogue_turns': sum(
-                len(beat['dialogue']) for beat in final_state['completed_beats']
-            )
+            "scene_id": scene_id,
+            "status": "completed",
+            "beats_count": len(final_state["completed_beats"]),
+            "total_dialogue_turns": sum(
+                len(beat["dialogue"]) for beat in final_state["completed_beats"]
+            ),
         }
 
     except Exception as e:
-        return {
-            'scene_id': scene_id,
-            'status': 'failed',
-            'error': str(e)
-        }
+        return {"scene_id": scene_id, "status": "failed", "error": str(e)}

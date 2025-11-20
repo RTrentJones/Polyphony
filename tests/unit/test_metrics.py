@@ -2,7 +2,6 @@
 
 import pytest
 import time
-from unittest.mock import AsyncMock
 from prometheus_client import REGISTRY
 from services.shared.metrics import (
     http_requests_total,
@@ -16,8 +15,7 @@ from services.shared.metrics import (
     db_queries_total,
     track_llm_request,
     track_db_query,
-    track_cache_operation,
-    initialize_service_metrics
+    initialize_service_metrics,
 )
 
 
@@ -28,24 +26,15 @@ class TestHTTPMetrics:
     def test_http_requests_counter(self):
         """Test HTTP request counter increments"""
         initial_value = http_requests_total.labels(
-            method="GET",
-            endpoint="/test",
-            status_code=200,
-            service="test-service"
+            method="GET", endpoint="/test", status_code=200, service="test-service"
         )._value.get()
 
         http_requests_total.labels(
-            method="GET",
-            endpoint="/test",
-            status_code=200,
-            service="test-service"
+            method="GET", endpoint="/test", status_code=200, service="test-service"
         ).inc()
 
         new_value = http_requests_total.labels(
-            method="GET",
-            endpoint="/test",
-            status_code=200,
-            service="test-service"
+            method="GET", endpoint="/test", status_code=200, service="test-service"
         )._value.get()
 
         assert new_value == initial_value + 1
@@ -53,33 +42,23 @@ class TestHTTPMetrics:
     def test_http_request_duration_histogram(self):
         """Test HTTP request duration histogram"""
         http_request_duration_seconds.labels(
-            method="POST",
-            endpoint="/api/scenes",
-            service="api-gateway"
+            method="POST", endpoint="/api/scenes", service="api-gateway"
         ).observe(0.542)
 
         # Verify metric exists (detailed verification would require accessing histogram internals)
         metric = http_request_duration_seconds.labels(
-            method="POST",
-            endpoint="/api/scenes",
-            service="api-gateway"
+            method="POST", endpoint="/api/scenes", service="api-gateway"
         )
         assert metric is not None
 
     def test_http_metrics_different_endpoints(self):
         """Test metrics differentiate endpoints"""
         http_requests_total.labels(
-            method="GET",
-            endpoint="/health",
-            status_code=200,
-            service="test"
+            method="GET", endpoint="/health", status_code=200, service="test"
         ).inc()
 
         http_requests_total.labels(
-            method="GET",
-            endpoint="/metrics",
-            status_code=200,
-            service="test"
+            method="GET", endpoint="/metrics", status_code=200, service="test"
         ).inc()
 
         # Metrics should be tracked separately
@@ -93,21 +72,15 @@ class TestLLMMetrics:
     def test_llm_requests_counter(self):
         """Test LLM request counter"""
         initial = llm_requests_total.labels(
-            service="orchestrator",
-            model="llama-3.1-70b",
-            status="success"
+            service="orchestrator", model="llama-3.1-70b", status="success"
         )._value.get()
 
         llm_requests_total.labels(
-            service="orchestrator",
-            model="llama-3.1-70b",
-            status="success"
+            service="orchestrator", model="llama-3.1-70b", status="success"
         ).inc()
 
         new_value = llm_requests_total.labels(
-            service="orchestrator",
-            model="llama-3.1-70b",
-            status="success"
+            service="orchestrator", model="llama-3.1-70b", status="success"
         )._value.get()
 
         assert new_value == initial + 1
@@ -115,40 +88,28 @@ class TestLLMMetrics:
     def test_llm_tokens_counter(self):
         """Test LLM token usage tracking"""
         initial_prompt = llm_tokens_used_total.labels(
-            service="orchestrator",
-            model="llama-3.1-70b",
-            token_type="prompt"
+            service="orchestrator", model="llama-3.1-70b", token_type="prompt"
         )._value.get()
 
         initial_completion = llm_tokens_used_total.labels(
-            service="orchestrator",
-            model="llama-3.1-70b",
-            token_type="completion"
+            service="orchestrator", model="llama-3.1-70b", token_type="completion"
         )._value.get()
 
         # Simulate token usage
         llm_tokens_used_total.labels(
-            service="orchestrator",
-            model="llama-3.1-70b",
-            token_type="prompt"
+            service="orchestrator", model="llama-3.1-70b", token_type="prompt"
         ).inc(500)
 
         llm_tokens_used_total.labels(
-            service="orchestrator",
-            model="llama-3.1-70b",
-            token_type="completion"
+            service="orchestrator", model="llama-3.1-70b", token_type="completion"
         ).inc(300)
 
         new_prompt = llm_tokens_used_total.labels(
-            service="orchestrator",
-            model="llama-3.1-70b",
-            token_type="prompt"
+            service="orchestrator", model="llama-3.1-70b", token_type="prompt"
         )._value.get()
 
         new_completion = llm_tokens_used_total.labels(
-            service="orchestrator",
-            model="llama-3.1-70b",
-            token_type="completion"
+            service="orchestrator", model="llama-3.1-70b", token_type="completion"
         )._value.get()
 
         assert new_prompt == initial_prompt + 500
@@ -157,6 +118,7 @@ class TestLLMMetrics:
     @pytest.mark.asyncio
     async def test_track_llm_request_decorator(self):
         """Test LLM request tracking decorator"""
+
         class MockLLMResponse:
             def __init__(self):
                 self.usage = MockUsage()
@@ -172,18 +134,15 @@ class TestLLMMetrics:
             return MockLLMResponse()
 
         import asyncio
+
         initial_requests = llm_requests_total.labels(
-            service="test-service",
-            model="test-model",
-            status="success"
+            service="test-service", model="test-model", status="success"
         )._value.get()
 
-        result = await mock_llm_call()
+        _ = await mock_llm_call()
 
         new_requests = llm_requests_total.labels(
-            service="test-service",
-            model="test-model",
-            status="success"
+            service="test-service", model="test-model", status="success"
         )._value.get()
 
         assert new_requests == initial_requests + 1
@@ -196,18 +155,13 @@ class TestBusinessMetrics:
     def test_scenes_generated_counter(self):
         """Test scene generation counter"""
         initial = scenes_generated_total.labels(
-            service="orchestrator",
-            status="completed"
+            service="orchestrator", status="completed"
         )._value.get()
 
-        scenes_generated_total.labels(
-            service="orchestrator",
-            status="completed"
-        ).inc()
+        scenes_generated_total.labels(service="orchestrator", status="completed").inc()
 
         new_value = scenes_generated_total.labels(
-            service="orchestrator",
-            status="completed"
+            service="orchestrator", status="completed"
         )._value.get()
 
         assert new_value == initial + 1
@@ -215,18 +169,13 @@ class TestBusinessMetrics:
     def test_scenes_failed_counter(self):
         """Test failed scene generation tracking"""
         initial = scenes_generated_total.labels(
-            service="orchestrator",
-            status="failed"
+            service="orchestrator", status="failed"
         )._value.get()
 
-        scenes_generated_total.labels(
-            service="orchestrator",
-            status="failed"
-        ).inc()
+        scenes_generated_total.labels(service="orchestrator", status="failed").inc()
 
         new_value = scenes_generated_total.labels(
-            service="orchestrator",
-            status="failed"
+            service="orchestrator", status="failed"
         )._value.get()
 
         assert new_value == initial + 1
@@ -240,26 +189,24 @@ class TestCircuitBreakerMetrics:
         """Test circuit breaker state tracking"""
         # State: 0=closed, 1=open, 2=half-open
         circuit_breaker_state.labels(
-            service="orchestrator",
-            circuit_breaker_name="groq_api"
-        ).set(0)  # Closed
+            service="orchestrator", circuit_breaker_name="groq_api"
+        ).set(
+            0
+        )  # Closed
 
         value = circuit_breaker_state.labels(
-            service="orchestrator",
-            circuit_breaker_name="groq_api"
+            service="orchestrator", circuit_breaker_name="groq_api"
         )._value.get()
 
         assert value == 0
 
         # Open the circuit breaker
         circuit_breaker_state.labels(
-            service="orchestrator",
-            circuit_breaker_name="groq_api"
+            service="orchestrator", circuit_breaker_name="groq_api"
         ).set(1)
 
         value = circuit_breaker_state.labels(
-            service="orchestrator",
-            circuit_breaker_name="groq_api"
+            service="orchestrator", circuit_breaker_name="groq_api"
         )._value.get()
 
         assert value == 1
@@ -272,18 +219,13 @@ class TestCacheMetrics:
     def test_cache_hits_counter(self):
         """Test cache hit counter"""
         initial = cache_hits_total.labels(
-            service="api-gateway",
-            cache_key_prefix="user"
+            service="api-gateway", cache_key_prefix="user"
         )._value.get()
 
-        cache_hits_total.labels(
-            service="api-gateway",
-            cache_key_prefix="user"
-        ).inc()
+        cache_hits_total.labels(service="api-gateway", cache_key_prefix="user").inc()
 
         new_value = cache_hits_total.labels(
-            service="api-gateway",
-            cache_key_prefix="user"
+            service="api-gateway", cache_key_prefix="user"
         )._value.get()
 
         assert new_value == initial + 1
@@ -291,18 +233,13 @@ class TestCacheMetrics:
     def test_cache_misses_counter(self):
         """Test cache miss counter"""
         initial = cache_misses_total.labels(
-            service="api-gateway",
-            cache_key_prefix="scene"
+            service="api-gateway", cache_key_prefix="scene"
         )._value.get()
 
-        cache_misses_total.labels(
-            service="api-gateway",
-            cache_key_prefix="scene"
-        ).inc()
+        cache_misses_total.labels(service="api-gateway", cache_key_prefix="scene").inc()
 
         new_value = cache_misses_total.labels(
-            service="api-gateway",
-            cache_key_prefix="scene"
+            service="api-gateway", cache_key_prefix="scene"
         )._value.get()
 
         assert new_value == initial + 1
@@ -310,24 +247,16 @@ class TestCacheMetrics:
     def test_cache_hit_ratio_calculation(self):
         """Test calculating cache hit ratio"""
         # Record some hits and misses
-        cache_hits_total.labels(
-            service="test",
-            cache_key_prefix="test"
-        ).inc(80)
+        cache_hits_total.labels(service="test", cache_key_prefix="test").inc(80)
 
-        cache_misses_total.labels(
-            service="test",
-            cache_key_prefix="test"
-        ).inc(20)
+        cache_misses_total.labels(service="test", cache_key_prefix="test").inc(20)
 
         hits = cache_hits_total.labels(
-            service="test",
-            cache_key_prefix="test"
+            service="test", cache_key_prefix="test"
         )._value.get()
 
         misses = cache_misses_total.labels(
-            service="test",
-            cache_key_prefix="test"
+            service="test", cache_key_prefix="test"
         )._value.get()
 
         # Hit ratio = hits / (hits + misses)
@@ -344,24 +273,22 @@ class TestDatabaseMetrics:
     @pytest.mark.asyncio
     async def test_track_db_query_decorator(self):
         """Test database query tracking decorator"""
+
         @track_db_query("api-gateway", "select_user")
         async def mock_db_query():
             await asyncio.sleep(0.01)
             return {"id": "123", "name": "Test"}
 
         import asyncio
+
         initial = db_queries_total.labels(
-            service="api-gateway",
-            operation="select_user",
-            status="success"
+            service="api-gateway", operation="select_user", status="success"
         )._value.get()
 
         result = await mock_db_query()
 
         new_value = db_queries_total.labels(
-            service="api-gateway",
-            operation="select_user",
-            status="success"
+            service="api-gateway", operation="select_user", status="success"
         )._value.get()
 
         assert new_value == initial + 1
@@ -370,24 +297,20 @@ class TestDatabaseMetrics:
     @pytest.mark.asyncio
     async def test_track_db_query_failure(self):
         """Test tracking failed database queries"""
+
         @track_db_query("api-gateway", "insert_user")
         async def failing_query():
             raise Exception("DB connection failed")
 
-        import asyncio
         initial = db_queries_total.labels(
-            service="api-gateway",
-            operation="insert_user",
-            status="failed"
+            service="api-gateway", operation="insert_user", status="failed"
         )._value.get()
 
         with pytest.raises(Exception):
             await failing_query()
 
         new_value = db_queries_total.labels(
-            service="api-gateway",
-            operation="insert_user",
-            status="failed"
+            service="api-gateway", operation="insert_user", status="failed"
         )._value.get()
 
         assert new_value == initial + 1
@@ -417,32 +340,20 @@ class TestMetricsIntegration:
     def test_multiple_services_tracked_separately(self):
         """Test that different services are tracked separately"""
         http_requests_total.labels(
-            method="GET",
-            endpoint="/health",
-            status_code=200,
-            service="api-gateway"
+            method="GET", endpoint="/health", status_code=200, service="api-gateway"
         ).inc()
 
         http_requests_total.labels(
-            method="GET",
-            endpoint="/health",
-            status_code=200,
-            service="orchestrator"
+            method="GET", endpoint="/health", status_code=200, service="orchestrator"
         ).inc()
 
         # Metrics should be separate per service
         gateway_value = http_requests_total.labels(
-            method="GET",
-            endpoint="/health",
-            status_code=200,
-            service="api-gateway"
+            method="GET", endpoint="/health", status_code=200, service="api-gateway"
         )._value.get()
 
         orchestrator_value = http_requests_total.labels(
-            method="GET",
-            endpoint="/health",
-            status_code=200,
-            service="orchestrator"
+            method="GET", endpoint="/health", status_code=200, service="orchestrator"
         )._value.get()
 
         # Values should be tracked independently

@@ -9,7 +9,7 @@ from services.shared.models import (
     ManuscriptCreate,
     SceneRequest,
     DialogueRequest,
-    ChunkType
+    ChunkType,
 )
 
 
@@ -20,9 +20,7 @@ class TestUserModels:
     def test_user_create_valid(self):
         """Test creating valid user"""
         user = UserCreate(
-            email="test@example.com",
-            password="securepassword",
-            full_name="Test User"
+            email="test@example.com", password="securepassword", full_name="Test User"
         )
 
         assert user.email == "test@example.com"
@@ -31,10 +29,7 @@ class TestUserModels:
 
     def test_user_create_without_full_name(self):
         """Test creating user without full name"""
-        user = UserCreate(
-            email="test@example.com",
-            password="securepassword"
-        )
+        user = UserCreate(email="test@example.com", password="securepassword")
 
         assert user.email == "test@example.com"
         assert user.full_name is None
@@ -42,10 +37,7 @@ class TestUserModels:
     def test_user_create_invalid_email(self):
         """Test that invalid email raises error"""
         with pytest.raises(ValidationError):
-            UserCreate(
-                email="notanemail",
-                password="securepassword"
-            )
+            UserCreate(email="notanemail", password="securepassword")
 
     def test_user_create_missing_password(self):
         """Test that missing password raises error"""
@@ -59,10 +51,7 @@ class TestManuscriptModels:
 
     def test_manuscript_create_valid(self):
         """Test creating valid manuscript"""
-        manuscript = ManuscriptCreate(
-            title="Test Manuscript",
-            author="Test Author"
-        )
+        manuscript = ManuscriptCreate(title="Test Manuscript", author="Test Author")
 
         assert manuscript.title == "Test Manuscript"
         assert manuscript.author == "Test Author"
@@ -86,7 +75,7 @@ class TestSceneModels:
             characters=["Alice", "Bob"],
             scene_description="A tense confrontation",
             setting="Dark alley",
-            emotional_tone="tense"
+            emotional_tone="tense",
         )
 
         assert len(scene.characters) == 2
@@ -101,7 +90,7 @@ class TestSceneModels:
             characters=["Alice"],
             scene_description="Test scene",
             setting="Test setting",
-            emotional_tone="neutral"
+            emotional_tone="neutral",
         )
 
         assert scene.target_word_count == 500
@@ -114,7 +103,7 @@ class TestSceneModels:
             scene_description="Test scene",
             setting="Test setting",
             emotional_tone="neutral",
-            target_word_count=1000
+            target_word_count=1000,
         )
 
         assert scene.target_word_count == 1000
@@ -129,7 +118,7 @@ class TestSceneModels:
                 scene_description="Test scene",
                 setting="Test setting",
                 emotional_tone="neutral",
-                target_word_count=50  # Below minimum of 100
+                target_word_count=50,  # Below minimum of 100
             )
 
         # Too high
@@ -140,7 +129,7 @@ class TestSceneModels:
                 scene_description="Test scene",
                 setting="Test setting",
                 emotional_tone="neutral",
-                target_word_count=5000  # Above maximum of 3000
+                target_word_count=5000,  # Above maximum of 3000
             )
 
     def test_scene_request_requires_characters(self):
@@ -151,7 +140,7 @@ class TestSceneModels:
                 characters=[],  # Empty list
                 scene_description="Test scene",
                 setting="Test setting",
-                emotional_tone="neutral"
+                emotional_tone="neutral",
             )
 
     def test_scene_request_short_description(self):
@@ -162,7 +151,7 @@ class TestSceneModels:
                 characters=["Alice"],
                 scene_description="Short",  # Less than 10 characters
                 setting="Test setting",
-                emotional_tone="neutral"
+                emotional_tone="neutral",
             )
 
 
@@ -177,7 +166,7 @@ class TestDialogueModels:
             scene_context={"setting": "library"},
             emotional_state="curious",
             other_characters=["Bob"],
-            beat_description="Alice asks a question"
+            beat_description="Alice asks a question",
         )
 
         assert request.character_name == "Alice"
@@ -193,9 +182,7 @@ class TestDialogueModels:
             emotional_state="curious",
             other_characters=["Bob"],
             beat_description="Alice responds",
-            previous_dialogue=[
-                {"character": "Bob", "dialogue": "Hello"}
-            ]
+            previous_dialogue=[{"character": "Bob", "dialogue": "Hello"}],
         )
 
         assert len(request.previous_dialogue) == 1

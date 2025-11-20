@@ -3,7 +3,7 @@
 import pytest
 import json
 import logging
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 from services.shared.logging_config import (
     JSONFormatter,
     ContextLogger,
@@ -12,7 +12,7 @@ from services.shared.logging_config import (
     log_request_end,
     log_error,
     log_business_event,
-    redact_sensitive_data
+    redact_sensitive_data,
 )
 
 
@@ -30,7 +30,7 @@ class TestJSONFormatter:
             lineno=10,
             msg="Test message",
             args=(),
-            exc_info=None
+            exc_info=None,
         )
 
         formatted = formatter.format(record)
@@ -51,7 +51,7 @@ class TestJSONFormatter:
             lineno=10,
             msg="Test message",
             args=(),
-            exc_info=None
+            exc_info=None,
         )
         record.correlation_id = "test-correlation-123"
 
@@ -70,7 +70,7 @@ class TestJSONFormatter:
             lineno=10,
             msg="Test message",
             args=(),
-            exc_info=None
+            exc_info=None,
         )
         record.user_id = "user-456"
         record.request_id = "req-789"
@@ -89,6 +89,7 @@ class TestJSONFormatter:
             raise ValueError("Test error")
         except ValueError:
             import sys
+
             exc_info = sys.exc_info()
 
             record = logging.LogRecord(
@@ -98,7 +99,7 @@ class TestJSONFormatter:
                 lineno=10,
                 msg="Error occurred",
                 args=(),
-                exc_info=exc_info
+                exc_info=exc_info,
             )
 
             formatted = formatter.format(record)
@@ -228,7 +229,7 @@ class TestLoggingHelpers:
             "scene_generation_completed",
             scene_id="scene-123",
             duration=45.2,
-            word_count=1500
+            word_count=1500,
         )
 
         logger.info.assert_called_once()
@@ -247,7 +248,7 @@ class TestSensitiveDataRedaction:
         data = {
             "username": "john",
             "password": "secretpass123",
-            "email": "john@example.com"
+            "email": "john@example.com",
         }
 
         redacted = redact_sensitive_data(data)
@@ -261,7 +262,7 @@ class TestSensitiveDataRedaction:
         data = {
             "service": "groq",
             "api_key": "sk-1234567890abcdef",
-            "model": "llama-3.1-70b"
+            "model": "llama-3.1-70b",
         }
 
         redacted = redact_sensitive_data(data)
@@ -275,7 +276,7 @@ class TestSensitiveDataRedaction:
         data = {
             "user_id": "123",
             "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-            "refresh_token": "refresh_abc123"
+            "refresh_token": "refresh_abc123",
         }
 
         redacted = redact_sensitive_data(data)
@@ -290,10 +291,7 @@ class TestSensitiveDataRedaction:
             "user": {
                 "id": "123",
                 "name": "John",
-                "credentials": {
-                    "password": "secret",
-                    "api_key": "key123"
-                }
+                "credentials": {"password": "secret", "api_key": "key123"},
             }
         }
 
@@ -305,11 +303,7 @@ class TestSensitiveDataRedaction:
 
     def test_redact_credit_card(self):
         """Test credit card number redaction"""
-        data = {
-            "name": "John Doe",
-            "credit_card": "4532-1234-5678-9010",
-            "cvv": "123"
-        }
+        data = {"name": "John Doe", "credit_card": "4532-1234-5678-9010", "cvv": "123"}
 
         redacted = redact_sensitive_data(data)
 
@@ -324,7 +318,7 @@ class TestSensitiveDataRedaction:
             "dict": {"key": "value"},
             "string": "text",
             "number": 42,
-            "password": "secret"
+            "password": "secret",
         }
 
         redacted = redact_sensitive_data(data)
@@ -378,10 +372,11 @@ class TestLoggingIntegration:
         try:
             raise ValueError("Test exception")
         except ValueError as e:
-            log_error(logger, e, context={
-                "user_id": "user-123",
-                "operation": "test_operation"
-            })
+            log_error(
+                logger,
+                e,
+                context={"user_id": "user-123", "operation": "test_operation"},
+            )
 
         assert len(captured_records) > 0
         record = captured_records[0]

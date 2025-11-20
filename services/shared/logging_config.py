@@ -7,7 +7,6 @@ and proper context management across the application.
 
 import logging
 import sys
-import uuid
 from typing import Any, Dict
 from datetime import datetime
 import json
@@ -118,8 +117,14 @@ def sanitize_log_message(message: str) -> str:
     import re
 
     patterns = [
-        (r"(password|passwd|pwd)['\"]?\s*[:=]\s*['\"]?([^'\"\s]+)", r"\1=***REDACTED***"),
-        (r"(api_key|apikey|token|secret)['\"]?\s*[:=]\s*['\"]?([^'\"\s]+)", r"\1=***REDACTED***"),
+        (
+            r"(password|passwd|pwd)['\"]?\s*[:=]\s*['\"]?([^'\"\s]+)",
+            r"\1=***REDACTED***",
+        ),
+        (
+            r"(api_key|apikey|token|secret)['\"]?\s*[:=]\s*['\"]?([^'\"\s]+)",
+            r"\1=***REDACTED***",
+        ),
         (r"(authorization:\s*bearer\s+)(\S+)", r"\1***REDACTED***"),
     ]
 
@@ -138,12 +143,14 @@ def log_request_start(logger: ContextLogger, method: str, path: str, **kwargs):
             "event": "request_start",
             "method": method,
             "path": path,
-            **kwargs
-        }
+            **kwargs,
+        },
     )
 
 
-def log_request_end(logger: ContextLogger, method: str, path: str, status_code: int, duration_ms: float):
+def log_request_end(
+    logger: ContextLogger, method: str, path: str, status_code: int, duration_ms: float
+):
     """Log the end of an HTTP request"""
     logger.info(
         f"Request completed: {method} {path} - {status_code}",
@@ -152,8 +159,8 @@ def log_request_end(logger: ContextLogger, method: str, path: str, status_code: 
             "method": method,
             "path": path,
             "status_code": status_code,
-            "duration_ms": duration_ms
-        }
+            "duration_ms": duration_ms,
+        },
     )
 
 
@@ -165,19 +172,15 @@ def log_error(logger: ContextLogger, error: Exception, context: Dict[str, Any] =
         extra_fields={
             "event": "error",
             "error_type": type(error).__name__,
-            **(context or {})
-        }
+            **(context or {}),
+        },
     )
 
 
 def log_business_event(logger: ContextLogger, event_name: str, **kwargs):
     """Log a business/domain event"""
     logger.info(
-        f"Business event: {event_name}",
-        extra_fields={
-            "event": event_name,
-            **kwargs
-        }
+        f"Business event: {event_name}", extra_fields={"event": event_name, **kwargs}
     )
 
 
@@ -196,13 +199,28 @@ def redact_sensitive_data(data: Any) -> Any:
 
     # List of sensitive field names to redact
     sensitive_fields = {
-        'password', 'passwd', 'pwd',
-        'secret', 'api_key', 'apikey', 'api-key',
-        'token', 'access_token', 'refresh_token', 'auth_token',
-        'private_key', 'privatekey',
-        'credit_card', 'creditcard', 'card_number', 'cvv', 'cvc',
-        'ssn', 'social_security',
-        'authorization', 'auth'
+        "password",
+        "passwd",
+        "pwd",
+        "secret",
+        "api_key",
+        "apikey",
+        "api-key",
+        "token",
+        "access_token",
+        "refresh_token",
+        "auth_token",
+        "private_key",
+        "privatekey",
+        "credit_card",
+        "creditcard",
+        "card_number",
+        "cvv",
+        "cvc",
+        "ssn",
+        "social_security",
+        "authorization",
+        "auth",
     }
 
     if isinstance(data, dict):
@@ -229,13 +247,15 @@ def redact_sensitive_data(data: Any) -> Any:
     elif isinstance(data, str):
         # Redact strings that look like tokens or keys
         # Check if it looks like a JWT (three base64 segments)
-        if data.count('.') == 2 and len(data) > 20:
+        if data.count(".") == 2 and len(data) > 20:
             return "[REDACTED]"
 
         # Check if it looks like an API key (long alphanumeric string)
-        if len(data) > 20 and data.replace('-', '').replace('_', '').isalnum():
+        if len(data) > 20 and data.replace("-", "").replace("_", "").isalnum():
             # Could be an API key
-            if any(prefix in data.lower() for prefix in ['sk-', 'pk-', 'key_', 'token_']):
+            if any(
+                prefix in data.lower() for prefix in ["sk-", "pk-", "key_", "token_"]
+            ):
                 return "[REDACTED]"
 
         return data

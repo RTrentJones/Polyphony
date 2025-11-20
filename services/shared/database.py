@@ -1,12 +1,10 @@
 """Database utilities for Polyphony"""
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
 from typing import AsyncGenerator
 from contextlib import asynccontextmanager
-import os
 
 from .config import settings
 
@@ -17,7 +15,7 @@ Base = declarative_base()
 # Import all ORM models to register them with Base
 # This must be done before create_tables() is called
 try:
-    from . import orm_models
+    from . import orm_models  # noqa: F401
 except ImportError:
     # ORM models not yet created
     pass
@@ -45,8 +43,8 @@ async_engine = create_async_engine(
     pool_timeout=30,  # Add connection timeout
     connect_args={
         "command_timeout": 60,
-        "server_settings": {"jit": "off"}  # Disable JIT for faster queries
-    }
+        "server_settings": {"jit": "off"},  # Disable JIT for faster queries
+    },
 )
 
 # Create async session factory

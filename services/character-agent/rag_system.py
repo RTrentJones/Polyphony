@@ -8,13 +8,11 @@ from qdrant_client.models import (
     Filter,
     FieldCondition,
     MatchValue,
-    CollectionStatus
 )
 from sentence_transformers import SentenceTransformer
 from typing import List, Dict, Optional
 import uuid
 from datetime import datetime
-import asyncio
 
 
 class CharacterRAG:
@@ -25,7 +23,7 @@ class CharacterRAG:
         character_id: str,
         character_name: str,
         qdrant_url: str,
-        embedding_model_name: str = "all-MiniLM-L6-v2"
+        embedding_model_name: str = "all-MiniLM-L6-v2",
     ):
         """
         Initialize Character RAG system
@@ -66,9 +64,8 @@ class CharacterRAG:
             await self.qdrant.create_collection(
                 collection_name=self.collection_name,
                 vectors_config=VectorParams(
-                    size=self.vector_size,
-                    distance=Distance.COSINE
-                )
+                    size=self.vector_size, distance=Distance.COSINE
+                ),
             )
 
             print(f"Created collection: {self.collection_name}")
@@ -79,9 +76,7 @@ class CharacterRAG:
             return False
 
     async def index_character_content(
-        self,
-        chunks: List[Dict[str, str]],
-        batch_size: int = 100
+        self, chunks: List[Dict[str, str]], batch_size: int = 100
     ) -> int:
         """
         Index character content chunks into vector database
@@ -104,37 +99,38 @@ class CharacterRAG:
             total_indexed = 0
 
             for i in range(0, len(chunks), batch_size):
-                batch = chunks[i:i + batch_size]
+                batch = chunks[i : i + batch_size]
                 points = []
 
                 for chunk in batch:
                     # Generate embedding
-                    embedding = self.embedding_model.encode(chunk['text'])
+                    embedding = self.embedding_model.encode(chunk["text"])
 
                     # Create point with metadata
                     point = PointStruct(
                         id=str(uuid.uuid4()),
                         vector=embedding.tolist(),
                         payload={
-                            'character_id': self.character_id,
-                            'character_name': self.character_name,
-                            'chunk_type': chunk.get('chunk_type', 'unknown'),
-                            'text': chunk['text'],
-                            'source_location': chunk.get('source_location', ''),
-                            'word_count': len(chunk['text'].split()),
-                            'timestamp': datetime.utcnow().timestamp()
-                        }
+                            "character_id": self.character_id,
+                            "character_name": self.character_name,
+                            "chunk_type": chunk.get("chunk_type", "unknown"),
+                            "text": chunk["text"],
+                            "source_location": chunk.get("source_location", ""),
+                            "word_count": len(chunk["text"].split()),
+                            "timestamp": datetime.utcnow().timestamp(),
+                        },
                     )
                     points.append(point)
 
                 # Batch upload
                 await self.qdrant.upsert(
-                    collection_name=self.collection_name,
-                    points=points
+                    collection_name=self.collection_name, points=points
                 )
 
                 total_indexed += len(points)
-                print(f"Indexed {total_indexed}/{len(chunks)} chunks for {self.character_name}")
+                print(
+                    f"Indexed {total_indexed}/{len(chunks)} chunks for {self.character_name}"
+                )
 
             return total_indexed
 
@@ -147,7 +143,7 @@ class CharacterRAG:
         query: str,
         k: int = 5,
         chunk_type: Optional[str] = None,
-        score_threshold: float = 0.0
+        score_threshold: float = 0.0,
     ) -> List[Dict]:
         """
         Retrieve similar past content for voice consistency
@@ -171,8 +167,7 @@ class CharacterRAG:
                 query_filter = Filter(
                     must=[
                         FieldCondition(
-                            key="chunk_type",
-                            match=MatchValue(value=chunk_type)
+                            key="chunk_type", match=MatchValue(value=chunk_type)
                         )
                     ]
                 )
@@ -183,17 +178,17 @@ class CharacterRAG:
                 query_vector=query_vector,
                 limit=k,
                 query_filter=query_filter,
-                score_threshold=score_threshold
+                score_threshold=score_threshold,
             )
 
             # Format results
             similar_chunks = [
                 {
-                    'text': hit.payload['text'],
-                    'score': hit.score,
-                    'chunk_type': hit.payload.get('chunk_type', 'unknown'),
-                    'source': hit.payload.get('source_location', ''),
-                    'word_count': hit.payload.get('word_count', 0)
+                    "text": hit.payload["text"],
+                    "score": hit.score,
+                    "chunk_type": hit.payload.get("chunk_type", "unknown"),
+                    "source": hit.payload.get("source_location", ""),
+                    "word_count": hit.payload.get("word_count", 0),
                 }
                 for hit in results
             ]
@@ -221,7 +216,7 @@ class CharacterRAG:
                 collection_name=self.collection_name,
                 limit=1000,
                 with_payload=True,
-                with_vectors=False
+                with_vectors=False,
             )
 
             points = scroll_result[0]
@@ -231,29 +226,29 @@ class CharacterRAG:
             total_words = 0
 
             for point in points:
-                chunk_type = point.payload.get('chunk_type', 'unknown')
+                chunk_type = point.payload.get("chunk_type", "unknown")
                 type_counts[chunk_type] = type_counts.get(chunk_type, 0) + 1
-                total_words += point.payload.get('word_count', 0)
+                total_words += point.payload.get("word_count", 0)
 
             return {
-                'character_id': self.character_id,
-                'character_name': self.character_name,
-                'collection_name': self.collection_name,
-                'total_chunks': collection_info.points_count,
-                'vector_size': collection_info.config.params.vectors.size,
-                'type_distribution': type_counts,
-                'total_words': total_words,
-                'status': collection_info.status
+                "character_id": self.character_id,
+                "character_name": self.character_name,
+                "collection_name": self.collection_name,
+                "total_chunks": collection_info.points_count,
+                "vector_size": collection_info.config.params.vectors.size,
+                "type_distribution": type_counts,
+                "total_words": total_words,
+                "status": collection_info.status,
             }
 
         except Exception as e:
             print(f"Error getting statistics: {e}")
             return {
-                'character_id': self.character_id,
-                'character_name': self.character_name,
-                'collection_name': self.collection_name,
-                'total_chunks': 0,
-                'error': str(e)
+                "character_id": self.character_id,
+                "character_name": self.character_name,
+                "collection_name": self.collection_name,
+                "total_chunks": 0,
+                "error": str(e),
             }
 
     async def delete_collection(self) -> bool:
@@ -264,9 +259,7 @@ class CharacterRAG:
             True if deleted successfully
         """
         try:
-            await self.qdrant.delete_collection(
-                collection_name=self.collection_name
-            )
+            await self.qdrant.delete_collection(collection_name=self.collection_name)
             print(f"Deleted collection: {self.collection_name}")
             return True
         except Exception as e:

@@ -8,9 +8,8 @@ from services.orchestrator.workflow import (
     generate_dialogue_for_beat,
     assemble_scene,
     _call_character_agent,
-    get_groq_client
+    get_groq_client,
 )
-from services.shared.models import SceneRequest
 
 
 @pytest.mark.unit
@@ -36,13 +35,17 @@ class TestWorkflowStateFunctions:
     """Test workflow state management"""
 
     @pytest.mark.asyncio
-    @patch('services.orchestrator.workflow.get_groq_client')
+    @patch("services.orchestrator.workflow.get_groq_client")
     async def test_plan_scene_beats(self, mock_groq):
         """Test planning scene beats"""
         # Mock LLM response
         mock_response = MagicMock()
         mock_response.choices = [
-            MagicMock(message=MagicMock(content='["Beat 1: Opening", "Beat 2: Conflict", "Beat 3: Resolution"]'))
+            MagicMock(
+                message=MagicMock(
+                    content='["Beat 1: Opening", "Beat 2: Conflict", "Beat 3: Resolution"]'
+                )
+            )
         ]
 
         mock_client = AsyncMock()
@@ -54,10 +57,10 @@ class TestWorkflowStateFunctions:
                 "scene_description": "A tense negotiation",
                 "setting": "Dark alley",
                 "emotional_tone": "suspenseful",
-                "characters": ["Alice", "Bob"]
+                "characters": ["Alice", "Bob"],
             },
             "beats": [],
-            "scene_id": "test-scene-123"
+            "scene_id": "test-scene-123",
         }
 
         result = await plan_scene_beats(state)
@@ -75,7 +78,7 @@ class TestWorkflowStateFunctions:
                 "scene_description": "A test scene",
                 "setting": "Test location",
                 "emotional_tone": "neutral",
-                "characters": ["Alice"]
+                "characters": ["Alice"],
             },
             "beats": ["Beat 1", "Beat 2"],
             "completed_beats": [
@@ -83,18 +86,22 @@ class TestWorkflowStateFunctions:
                     "beat": "Beat 1",
                     "dialogue_turns": [
                         {"character": "Alice", "dialogue": "Hello", "action": "waves"}
-                    ]
+                    ],
                 },
                 {
                     "beat": "Beat 2",
                     "dialogue_turns": [
-                        {"character": "Alice", "dialogue": "Goodbye", "action": "leaves"}
-                    ]
-                }
-            ]
+                        {
+                            "character": "Alice",
+                            "dialogue": "Goodbye",
+                            "action": "leaves",
+                        }
+                    ],
+                },
+            ],
         }
 
-        with patch('services.orchestrator.workflow.get_async_session'):
+        with patch("services.orchestrator.workflow.get_async_session"):
             result = await assemble_scene(state)
 
             assert "final_scene" in result
@@ -109,16 +116,18 @@ class TestCharacterAgentCalls:
     @pytest.mark.asyncio
     async def test_call_character_agent_success(self):
         """Test successful character agent call"""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_response = AsyncMock()
             mock_response.raise_for_status = MagicMock()
-            mock_response.json = AsyncMock(return_value={
-                "character": "Alice",
-                "dialogue": "I understand.",
-                "action": "nods thoughtfully",
-                "confidence_score": 0.95
-            })
+            mock_response.json = AsyncMock(
+                return_value={
+                    "character": "Alice",
+                    "dialogue": "I understand.",
+                    "action": "nods thoughtfully",
+                    "confidence_score": 0.95,
+                }
+            )
 
             mock_client.post = AsyncMock(return_value=mock_response)
             mock_client_class.return_value.__aenter__.return_value = mock_client
@@ -127,7 +136,7 @@ class TestCharacterAgentCalls:
                 character_name="Alice",
                 beat="Opening scene",
                 previous_context=[],
-                scene_context={"setting": "Office"}
+                scene_context={"setting": "Office"},
             )
 
             assert result["character"] == "Alice"
@@ -137,7 +146,7 @@ class TestCharacterAgentCalls:
     @pytest.mark.asyncio
     async def test_call_character_agent_failure_fallback(self):
         """Test character agent fallback on failure"""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.post = AsyncMock(side_effect=Exception("Connection failed"))
             mock_client_class.return_value.__aenter__.return_value = mock_client
@@ -146,7 +155,7 @@ class TestCharacterAgentCalls:
                 character_name="Bob",
                 beat="Test beat",
                 previous_context=[],
-                scene_context={}
+                scene_context={},
             )
 
             # Should return fallback dialogue
@@ -157,29 +166,29 @@ class TestCharacterAgentCalls:
     @pytest.mark.asyncio
     async def test_call_character_agent_with_context(self):
         """Test character agent with previous context"""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_response = AsyncMock()
             mock_response.raise_for_status = MagicMock()
-            mock_response.json = AsyncMock(return_value={
-                "character": "Alice",
-                "dialogue": "I remember what you said.",
-                "action": "recalls",
-                "confidence_score": 0.9
-            })
+            mock_response.json = AsyncMock(
+                return_value={
+                    "character": "Alice",
+                    "dialogue": "I remember what you said.",
+                    "action": "recalls",
+                    "confidence_score": 0.9,
+                }
+            )
 
             mock_client.post = AsyncMock(return_value=mock_response)
             mock_client_class.return_value.__aenter__.return_value = mock_client
 
-            previous_context = [
-                {"character": "Bob", "dialogue": "Remember this."}
-            ]
+            previous_context = [{"character": "Bob", "dialogue": "Remember this."}]
 
             result = await _call_character_agent(
                 character_name="Alice",
                 beat="Continuation",
                 previous_context=previous_context,
-                scene_context={}
+                scene_context={},
             )
 
             assert result is not None
@@ -194,24 +203,24 @@ class TestDialogueGeneration:
     """Test dialogue generation for beats"""
 
     @pytest.mark.asyncio
-    @patch('services.orchestrator.workflow._call_character_agent')
+    @patch("services.orchestrator.workflow._call_character_agent")
     async def test_generate_dialogue_for_beat(self, mock_agent_call):
         """Test generating dialogue for a beat"""
         mock_agent_call.return_value = {
             "character": "Alice",
             "dialogue": "Test dialogue",
             "action": "Test action",
-            "confidence_score": 0.9
+            "confidence_score": 0.9,
         }
 
         state = {
             "scene_request": {
                 "characters": ["Alice", "Bob"],
                 "setting": "Test setting",
-                "emotional_tone": "neutral"
+                "emotional_tone": "neutral",
             },
             "current_beat": "Test beat",
-            "completed_beats": []
+            "completed_beats": [],
         }
 
         result = await generate_dialogue_for_beat(state)
@@ -221,13 +230,23 @@ class TestDialogueGeneration:
         assert "dialogue_turns" in result["completed_beats"][0]
 
     @pytest.mark.asyncio
-    @patch('services.orchestrator.workflow._call_character_agent')
+    @patch("services.orchestrator.workflow._call_character_agent")
     async def test_generate_dialogue_multiple_characters(self, mock_agent_call):
         """Test dialogue generation with multiple characters"""
         # Mock responses for different characters
         responses = [
-            {"character": "Alice", "dialogue": "Hello", "action": "greets", "confidence_score": 0.9},
-            {"character": "Bob", "dialogue": "Hi there", "action": "responds", "confidence_score": 0.85}
+            {
+                "character": "Alice",
+                "dialogue": "Hello",
+                "action": "greets",
+                "confidence_score": 0.9,
+            },
+            {
+                "character": "Bob",
+                "dialogue": "Hi there",
+                "action": "responds",
+                "confidence_score": 0.85,
+            },
         ]
         mock_agent_call.side_effect = responses
 
@@ -235,10 +254,10 @@ class TestDialogueGeneration:
             "scene_request": {
                 "characters": ["Alice", "Bob"],
                 "setting": "Park",
-                "emotional_tone": "friendly"
+                "emotional_tone": "friendly",
             },
             "current_beat": "Opening",
-            "completed_beats": []
+            "completed_beats": [],
         }
 
         result = await generate_dialogue_for_beat(state)
@@ -262,9 +281,9 @@ class TestWorkflowIntegration:
         assert workflow is not None
 
     @pytest.mark.asyncio
-    @patch('services.orchestrator.workflow.get_groq_client')
-    @patch('services.orchestrator.workflow._call_character_agent')
-    @patch('services.orchestrator.workflow.get_async_session')
+    @patch("services.orchestrator.workflow.get_groq_client")
+    @patch("services.orchestrator.workflow._call_character_agent")
+    @patch("services.orchestrator.workflow.get_async_session")
     async def test_full_workflow_execution(self, mock_session, mock_agent, mock_groq):
         """Test full workflow execution"""
         # Mock Groq responses
@@ -274,7 +293,9 @@ class TestWorkflowIntegration:
         ]
 
         mock_groq_client = AsyncMock()
-        mock_groq_client.chat.completions.create = AsyncMock(return_value=mock_groq_response)
+        mock_groq_client.chat.completions.create = AsyncMock(
+            return_value=mock_groq_response
+        )
         mock_groq.return_value = mock_groq_client
 
         # Mock character agent
@@ -282,7 +303,7 @@ class TestWorkflowIntegration:
             "character": "Alice",
             "dialogue": "Test dialogue",
             "action": "Test action",
-            "confidence_score": 0.9
+            "confidence_score": 0.9,
         }
 
         # Mock database session
@@ -290,21 +311,21 @@ class TestWorkflowIntegration:
         mock_session.return_value.__aenter__.return_value = mock_db_session
 
         # Create workflow
-        workflow = create_scene_workflow()
+        _ = create_scene_workflow()
 
-        # Initial state
-        initial_state = {
-            "scene_id": "test-123",
-            "scene_request": {
-                "manuscript_id": "ms-456",
-                "scene_description": "A meeting",
-                "setting": "Office",
-                "emotional_tone": "professional",
-                "characters": ["Alice"]
-            },
-            "beats": [],
-            "completed_beats": []
-        }
+        # Initial state - placeholder for future workflow testing
+        # initial_state = {
+        #     "scene_id": "test-123",
+        #     "scene_request": {
+        #         "manuscript_id": "ms-456",
+        #         "scene_description": "A meeting",
+        #         "setting": "Office",
+        #         "emotional_tone": "professional",
+        #         "characters": ["Alice"],
+        #     },
+        #     "beats": [],
+        #     "completed_beats": [],
+        # }
 
         # This would execute the full workflow
         # Actual execution requires LangGraph runtime
@@ -315,16 +336,14 @@ class TestInputSanitization:
     """Test input sanitization in workflow"""
 
     @pytest.mark.asyncio
-    @patch('services.orchestrator.workflow.get_groq_client')
-    @patch('services.orchestrator.workflow.sanitize_for_llm')
+    @patch("services.orchestrator.workflow.get_groq_client")
+    @patch("services.orchestrator.workflow.sanitize_for_llm")
     async def test_scene_description_sanitization(self, mock_sanitize, mock_groq):
         """Test scene description is sanitized"""
         mock_sanitize.return_value = "Safe description"
 
         mock_response = MagicMock()
-        mock_response.choices = [
-            MagicMock(message=MagicMock(content='["Beat 1"]'))
-        ]
+        mock_response.choices = [MagicMock(message=MagicMock(content='["Beat 1"]'))]
 
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
@@ -335,10 +354,10 @@ class TestInputSanitization:
                 "scene_description": "Dangerous <script>alert('xss')</script> input",
                 "setting": "Test",
                 "emotional_tone": "neutral",
-                "characters": ["Alice"]
+                "characters": ["Alice"],
             },
             "beats": [],
-            "scene_id": "test-123"
+            "scene_id": "test-123",
         }
 
         await plan_scene_beats(state)
@@ -365,7 +384,7 @@ class TestCircuitBreakerIntegration:
         for _ in range(3):
             try:
                 await breaker.call(failing_service)
-            except:
+            except Exception:
                 pass
 
         assert breaker.state == CircuitBreakerState.OPEN
@@ -374,7 +393,7 @@ class TestCircuitBreakerIntegration:
     async def test_workflow_handles_circuit_breaker_open(self):
         """Test workflow handles open circuit breaker gracefully"""
         # Character agent call should return fallback when circuit is open
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             # Simulate connection failures
             mock_client = AsyncMock()
             mock_client.post = AsyncMock(side_effect=Exception("Service unavailable"))
@@ -387,7 +406,7 @@ class TestCircuitBreakerIntegration:
                     character_name="Alice",
                     beat="Test",
                     previous_context=[],
-                    scene_context={}
+                    scene_context={},
                 )
                 results.append(result)
 
@@ -409,7 +428,7 @@ class TestRetryLogic:
     @pytest.mark.asyncio
     async def test_character_agent_retries(self):
         """Test character agent calls retry"""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
 
             # Fail twice, then succeed
@@ -423,12 +442,14 @@ class TestRetryLogic:
 
                 mock_response = AsyncMock()
                 mock_response.raise_for_status = MagicMock()
-                mock_response.json = AsyncMock(return_value={
-                    "character": "Alice",
-                    "dialogue": "Success",
-                    "action": "speaks",
-                    "confidence_score": 0.9
-                })
+                mock_response.json = AsyncMock(
+                    return_value={
+                        "character": "Alice",
+                        "dialogue": "Success",
+                        "action": "speaks",
+                        "confidence_score": 0.9,
+                    }
+                )
                 return mock_response
 
             mock_client.post = mock_post
@@ -438,11 +459,12 @@ class TestRetryLogic:
                 character_name="Alice",
                 beat="Test",
                 previous_context=[],
-                scene_context={}
+                scene_context={},
             )
 
             # Should eventually succeed after retries
             # Or return fallback if retries exhausted
+            assert result is not None
 
 
 @pytest.mark.integration
