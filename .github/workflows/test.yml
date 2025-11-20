@@ -49,6 +49,15 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
+      - name: Free up disk space
+        run: |
+          # Remove unnecessary software to free up disk space
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          df -h
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -57,7 +66,11 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install -r requirements.txt
+          # Install PyTorch CPU-only version first to avoid CUDA dependencies
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          # Install other requirements, using extra index to prefer CPU versions
+          PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu pip install -r requirements.txt
+          df -h
 
       - name: Set up environment
         run: |
@@ -122,10 +135,23 @@ jobs:
           python-version: "3.11"
           cache: 'pip'
 
+      - name: Free up disk space
+        run: |
+          # Remove unnecessary software to free up disk space
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          df -h
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install -r requirements.txt
+          # Install PyTorch CPU-only version first to avoid CUDA dependencies
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          # Install other requirements, using extra index to prefer CPU versions
+          PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu pip install -r requirements.txt
+          df -h
 
       - name: Run Black formatter check
         run: |
@@ -159,6 +185,15 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Free up disk space
+        run: |
+          # Remove unnecessary software to free up disk space
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          df -h
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
@@ -166,7 +201,9 @@ jobs:
 
       - name: Check for security vulnerabilities in dependencies
         run: |
-          safety check --json
+          # Use new safety scan command (check is deprecated)
+          # Only scan requirements.txt, not system packages
+          safety scan --target requirements.txt || true
         continue-on-error: true
 
       - name: Run Bandit security linter
