@@ -31,27 +31,27 @@ def sanitize_for_llm(text: str, max_length: int = 2000) -> str:
         return ""
 
     # Remove null bytes and control characters (except newline, tab, carriage return)
-    text = ''.join(char for char in text if char.isprintable() or char in '\n\r\t')
+    text = "".join(char for char in text if char.isprintable() or char in "\n\r\t")
 
     # Remove potentially malicious patterns
     # Remove things that look like they're trying to break out of prompts
     dangerous_patterns = [
-        r'ignore\s+previous\s+(instructions?|commands?)',  # Prompt injection attempts
-        r'disregard\s+(previous|above)',  # Alternative injection phrases
-        r'system:\s*',  # System role injection
-        r'<\|.*?\|>',  # Special tokens
-        r'\[INST\]|\[\/INST\]',  # Instruction tokens
-        r'<s>|</s>',  # Special tokens
-        r'```[^`]*ignore[^`]*```',  # Code block injection
-        r'--',  # SQL comment markers (defense in depth)
-        r'/\*.*?\*/',  # C-style comments
+        r"ignore\s+previous\s+(instructions?|commands?)",  # Prompt injection attempts
+        r"disregard\s+(previous|above)",  # Alternative injection phrases
+        r"system:\s*",  # System role injection
+        r"<\|.*?\|>",  # Special tokens
+        r"\[INST\]|\[\/INST\]",  # Instruction tokens
+        r"<s>|</s>",  # Special tokens
+        r"```[^`]*ignore[^`]*```",  # Code block injection
+        r"--",  # SQL comment markers (defense in depth)
+        r"/\*.*?\*/",  # C-style comments
     ]
 
     for pattern in dangerous_patterns:
-        text = re.sub(pattern, '[FILTERED]', text, flags=re.IGNORECASE)
+        text = re.sub(pattern, "[FILTERED]", text, flags=re.IGNORECASE)
 
     # Limit consecutive newlines
-    text = re.sub(r'\n{4,}', '\n\n\n', text)
+    text = re.sub(r"\n{4,}", "\n\n\n", text)
 
     # Truncate to max length
     if len(text) > max_length:
@@ -78,18 +78,18 @@ def sanitize_filename(filename: str) -> str:
         return "unnamed_file"
 
     # Remove path separators
-    filename = filename.replace('/', '_').replace('\\', '_')
+    filename = filename.replace("/", "_").replace("\\", "_")
 
     # Remove dots at start (hidden files)
-    filename = filename.lstrip('.')
+    filename = filename.lstrip(".")
 
     # Keep only safe characters
-    filename = re.sub(r'[^\w\s\-\.]', '_', filename)
+    filename = re.sub(r"[^\w\s\-\.]", "_", filename)
 
     # Limit length
     if len(filename) > 255:
-        name, ext = filename.rsplit('.', 1) if '.' in filename else (filename, '')
-        filename = name[:250] + ('.' + ext if ext else '')
+        name, ext = filename.rsplit(".", 1) if "." in filename else (filename, "")
+        filename = name[:250] + ("." + ext if ext else "")
 
     return filename or "unnamed_file"
 
@@ -109,14 +109,16 @@ def sanitize_html(text: str, allowed_tags: list = None) -> str:
         return ""
 
     # Remove script tags FIRST (before parsing) - defense in depth
-    text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(
+        r"<script[^>]*>.*?</script>", "", text, flags=re.IGNORECASE | re.DOTALL
+    )
 
     # Remove javascript: and data: URLs
-    text = re.sub(r'javascript:', '', text, flags=re.IGNORECASE)
-    text = re.sub(r'data:', '', text, flags=re.IGNORECASE)
+    text = re.sub(r"javascript:", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"data:", "", text, flags=re.IGNORECASE)
 
     # Remove event handlers
-    text = re.sub(r'on\w+\s*=', '', text, flags=re.IGNORECASE)
+    text = re.sub(r"on\w+\s*=", "", text, flags=re.IGNORECASE)
 
     if allowed_tags is None:
         # No tags allowed - escape everything
@@ -136,12 +138,12 @@ def sanitize_html(text: str, allowed_tags: list = None) -> str:
 
             def handle_starttag(self, tag, attrs):
                 # Skip dangerous tags
-                if tag.lower() in ('script', 'style', 'iframe', 'object', 'embed'):
+                if tag.lower() in ("script", "style", "iframe", "object", "embed"):
                     self.skip_tag = tag.lower()
                     return
 
                 if tag in self.allowed_tags:
-                    self.result.append(f'<{tag}>')
+                    self.result.append(f"<{tag}>")
 
             def handle_endtag(self, tag):
                 if self.skip_tag == tag.lower():
@@ -149,7 +151,7 @@ def sanitize_html(text: str, allowed_tags: list = None) -> str:
                     return
 
                 if tag in self.allowed_tags:
-                    self.result.append(f'</{tag}>')
+                    self.result.append(f"</{tag}>")
 
             def handle_data(self, data):
                 # Skip data inside dangerous tags
@@ -160,8 +162,8 @@ def sanitize_html(text: str, allowed_tags: list = None) -> str:
         parser = AllowedHTMLParser(allowed_tags)
         try:
             parser.feed(text)
-            text = ''.join(parser.result)
-        except:
+            text = "".join(parser.result)
+        except Exception:
             # If parsing fails, escape everything
             text = html.escape(text)
 
@@ -179,8 +181,7 @@ def validate_uuid(uuid_str: str) -> bool:
         True if valid UUID, False otherwise
     """
     uuid_pattern = re.compile(
-        r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
-        re.IGNORECASE
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
     )
     return bool(uuid_pattern.match(uuid_str))
 
@@ -200,7 +201,7 @@ def sanitize_email(email: str) -> Optional[str]:
 
     # Basic email validation
     email = email.strip().lower()
-    email_pattern = re.compile(r'^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$')
+    email_pattern = re.compile(r"^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$")
 
     if email_pattern.match(email):
         return email
@@ -222,9 +223,9 @@ def sanitize_sql_like(pattern: str) -> str:
         return ""
 
     # Escape SQL LIKE special characters
-    pattern = pattern.replace('\\', '\\\\')
-    pattern = pattern.replace('%', '\\%')
-    pattern = pattern.replace('_', '\\_')
+    pattern = pattern.replace("\\", "\\\\")
+    pattern = pattern.replace("%", "\\%")
+    pattern = pattern.replace("_", "\\_")
 
     return pattern
 
@@ -244,7 +245,7 @@ def truncate_text(text: str, max_length: int, suffix: str = "...") -> str:
     if not text or len(text) <= max_length:
         return text
 
-    return text[:max_length - len(suffix)] + suffix
+    return text[: max_length - len(suffix)] + suffix
 
 
 def remove_extra_whitespace(text: str) -> str:
@@ -261,13 +262,13 @@ def remove_extra_whitespace(text: str) -> str:
         return ""
 
     # Replace multiple spaces with single space
-    text = re.sub(r' +', ' ', text)
+    text = re.sub(r" +", " ", text)
 
     # Replace multiple tabs with single tab
-    text = re.sub(r'\t+', '\t', text)
+    text = re.sub(r"\t+", "\t", text)
 
     # Limit to max 2 consecutive newlines
-    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
 
     return text.strip()
 
@@ -292,18 +293,27 @@ def sanitize_sql_string(text: str) -> str:
     text = text.replace("'", "''")
 
     # Remove SQL comment markers
-    text = text.replace('--', '')
-    text = text.replace('/*', '')
-    text = text.replace('*/', '')
+    text = text.replace("--", "")
+    text = text.replace("/*", "")
+    text = text.replace("*/", "")
 
     # Remove semicolons (statement terminators)
-    text = text.replace(';', '')
+    text = text.replace(";", "")
 
     # Filter dangerous SQL keywords (case-insensitive)
     dangerous_keywords = [
-        'DROP TABLE', 'DROP DATABASE', 'DELETE FROM', 'TRUNCATE',
-        'ALTER TABLE', 'CREATE TABLE', 'INSERT INTO', 'UPDATE ',
-        'EXEC', 'EXECUTE', 'UNION SELECT', 'UNION ALL'
+        "DROP TABLE",
+        "DROP DATABASE",
+        "DELETE FROM",
+        "TRUNCATE",
+        "ALTER TABLE",
+        "CREATE TABLE",
+        "INSERT INTO",
+        "UPDATE ",
+        "EXEC",
+        "EXECUTE",
+        "UNION SELECT",
+        "UNION ALL",
     ]
 
     text_upper = text.upper()
@@ -313,7 +323,7 @@ def sanitize_sql_string(text: str) -> str:
             # Find actual position in original text (case-insensitive)
             start = text_upper.find(keyword)
             while start != -1:
-                text = text[:start] + '[FILTERED]' + text[start + len(keyword):]
+                text = text[:start] + "[FILTERED]" + text[start + len(keyword) :]
                 text_upper = text.upper()
                 start = text_upper.find(keyword)
 
@@ -334,26 +344,26 @@ def sanitize_file_path(path: str) -> str:
         return ""
 
     # Remove null bytes
-    path = path.replace('\x00', '')
+    path = path.replace("\x00", "")
 
     # Remove or block directory traversal sequences
-    if '..' in path:
+    if ".." in path:
         return ""  # Reject paths with ..
 
     # Remove leading slashes (absolute paths)
-    path = path.lstrip('/')
-    path = path.lstrip('\\')
+    path = path.lstrip("/")
+    path = path.lstrip("\\")
 
     # Remove dangerous characters
-    dangerous_chars = ['<', '>', ':', '"', '|', '?', '*']
+    dangerous_chars = ["<", ">", ":", '"', "|", "?", "*"]
     for char in dangerous_chars:
-        path = path.replace(char, '')
+        path = path.replace(char, "")
 
     # Normalize path separators
-    path = path.replace('\\', '/')
+    path = path.replace("\\", "/")
 
     # Remove multiple consecutive slashes
-    path = re.sub(r'/+', '/', path)
+    path = re.sub(r"/+", "/", path)
 
     # Limit length
     if len(path) > 255:
@@ -377,15 +387,15 @@ def validate_file_upload(filename: str, allowed_types: list) -> bool:
         return False
 
     # Get file extension
-    if '.' not in filename:
+    if "." not in filename:
         return False
 
     # Check for double extensions (e.g., file.php.jpg)
-    parts = filename.split('.')
+    parts = filename.split(".")
     if len(parts) > 2:
         return False  # Reject double extensions
 
-    extension = filename.rsplit('.', 1)[-1].lower()
+    extension = filename.rsplit(".", 1)[-1].lower()
 
     # Check if extension is in allowed list (case-insensitive)
     allowed_types_lower = [ext.lower() for ext in allowed_types]
@@ -408,19 +418,19 @@ def is_safe_redirect_url(url: str, allowed_domains: list = None) -> bool:
         return False
 
     # Block URLs with backslashes FIRST (often used in bypass attempts like /\evil.com)
-    if '\\' in url:
+    if "\\" in url:
         return False
 
     # Block URLs starting with // (protocol-relative)
-    if url.startswith('//'):
+    if url.startswith("//"):
         return False
 
     # Block dangerous protocols
     dangerous_protocols = [
-        'javascript:',
-        'data:',
-        'vbscript:',
-        'file:',
+        "javascript:",
+        "data:",
+        "vbscript:",
+        "file:",
     ]
 
     url_lower = url.lower()
@@ -429,28 +439,29 @@ def is_safe_redirect_url(url: str, allowed_domains: list = None) -> bool:
             return False
 
     # Allow relative URLs (starting with /) - checked AFTER backslash and // checks
-    if url.startswith('/'):
+    if url.startswith("/"):
         return True
 
     # If allowed domains specified, check against them
     if allowed_domains:
         from urllib.parse import urlparse
+
         try:
             parsed = urlparse(url)
             domain = parsed.netloc
 
             # Check if domain is in allowed list
             for allowed in allowed_domains:
-                if domain == allowed or domain.endswith('.' + allowed):
+                if domain == allowed or domain.endswith("." + allowed):
                     return True
 
             return False
-        except:
+        except Exception:
             return False
 
     # If no allowed domains specified, only allow relative URLs
     # Reject any URL that looks like it's going to an external site
-    if '://' in url:
+    if "://" in url:
         return False
 
     return True

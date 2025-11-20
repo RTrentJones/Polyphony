@@ -5,7 +5,6 @@ import asyncio
 from typing import AsyncGenerator, Generator
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import NullPool
-from fastapi.testclient import TestClient
 import os
 
 # Set test environment before importing settings
@@ -13,9 +12,8 @@ os.environ["POSTGRES_PASSWORD"] = "test_password_12345"
 os.environ["GROQ_API_KEY"] = "test_key_for_testing"
 os.environ["SECRET_KEY"] = "test_secret_key_minimum_32_characters_long_12345"
 
-from services.shared.database import Base, get_db
-from services.shared.config import settings
-from services.shared.orm_models import User, Manuscript, Character, Scene
+from services.shared.database import Base
+from services.shared.orm_models import User, Manuscript, Character
 
 
 # Test database URL
@@ -74,7 +72,7 @@ async def test_user(async_session: AsyncSession) -> User:
     user = User(
         email="test@example.com",
         hashed_password=get_password_hash("testpassword123"),
-        full_name="Test User"
+        full_name="Test User",
     )
 
     async_session.add(user)
@@ -102,7 +100,7 @@ async def test_manuscript(async_session: AsyncSession, test_user: User) -> Manus
         title="Test Manuscript",
         author="Test Author",
         word_count=1000,
-        status="completed"
+        status="completed",
     )
 
     async_session.add(manuscript)
@@ -113,13 +111,15 @@ async def test_manuscript(async_session: AsyncSession, test_user: User) -> Manus
 
 
 @pytest.fixture
-async def test_character(async_session: AsyncSession, test_manuscript: Manuscript) -> Character:
+async def test_character(
+    async_session: AsyncSession, test_manuscript: Manuscript
+) -> Character:
     """Create a test character"""
     character = Character(
         manuscript_id=test_manuscript.id,
         name="Test Character",
         description="A test character",
-        dialogue_count=10
+        dialogue_count=10,
     )
 
     async_session.add(character)
@@ -133,11 +133,7 @@ async def test_character(async_session: AsyncSession, test_manuscript: Manuscrip
 def mock_groq_response():
     """Mock Groq API response"""
     return {
-        "choices": [{
-            "message": {
-                "content": "This is a test response from the LLM."
-            }
-        }]
+        "choices": [{"message": {"content": "This is a test response from the LLM."}}]
     }
 
 
@@ -150,5 +146,5 @@ def sample_scene_request(test_manuscript: Manuscript):
         "scene_description": "Study session in library",
         "setting": "Hogwarts library",
         "emotional_tone": "focused",
-        "target_word_count": 500
+        "target_word_count": 500,
     }
