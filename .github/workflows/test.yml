@@ -49,6 +49,15 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
+      - name: Free up disk space
+        run: |
+          # Remove unnecessary software to free up disk space
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          df -h
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -57,7 +66,9 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install -r requirements.txt
+          # Use CI-specific requirements with CPU-only PyTorch
+          pip install -r requirements-ci.txt
+          df -h
 
       - name: Set up environment
         run: |
@@ -122,10 +133,21 @@ jobs:
           python-version: "3.11"
           cache: 'pip'
 
+      - name: Free up disk space
+        run: |
+          # Remove unnecessary software to free up disk space
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          df -h
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install -r requirements.txt
+          # Use CI-specific requirements with CPU-only PyTorch
+          pip install -r requirements-ci.txt
+          df -h
 
       - name: Run Black formatter check
         run: |
@@ -158,6 +180,15 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: "3.11"
+
+      - name: Free up disk space
+        run: |
+          # Remove unnecessary software to free up disk space
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          df -h
 
       - name: Install dependencies
         run: |
