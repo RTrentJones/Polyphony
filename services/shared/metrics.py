@@ -340,19 +340,19 @@ def track_llm_request(service_name: str, model: str):
                 # Extract token usage if available
                 if hasattr(result, 'usage'):
                     usage = result.usage
-                    llm_tokens_used_total.labels(
+                    llm_tokens_used_total.labels(  # nosec B106 - token_type is a metric label, not a password
                         service=service_name,
                         model=model,
                         token_type="prompt"
                     ).inc(getattr(usage, 'prompt_tokens', 0))
 
-                    llm_tokens_used_total.labels(
+                    llm_tokens_used_total.labels(  # nosec B106 - token_type is a metric label, not a password
                         service=service_name,
                         model=model,
                         token_type="completion"
                     ).inc(getattr(usage, 'completion_tokens', 0))
 
-                    llm_tokens_used_total.labels(
+                    llm_tokens_used_total.labels(  # nosec B106 - token_type is a metric label, not a password
                         service=service_name,
                         model=model,
                         token_type="total"

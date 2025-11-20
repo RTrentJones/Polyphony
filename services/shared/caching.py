@@ -208,7 +208,7 @@ def cache_result(
             # Generate cache key from function name and arguments
             prefix = key_prefix or func.__name__
             args_str = json.dumps({"args": args, "kwargs": kwargs}, sort_keys=True)
-            args_hash = hashlib.md5(args_str.encode()).hexdigest()
+            args_hash = hashlib.md5(args_str.encode(), usedforsecurity=False).hexdigest()  # nosec B324
             cache_key = f"{prefix}:{args_hash}"
 
             # Try to get from cache

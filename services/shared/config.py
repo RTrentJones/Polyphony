@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     CHARACTER_AGENT_URLS: str = ""  # Comma-separated URLs for multi-agent deployment
 
     # File Storage
-    UPLOAD_DIR: str = "/tmp/polyphony/uploads"
+    UPLOAD_DIR: str = "/tmp/polyphony/uploads"  # nosec B108 - Configurable via env var
     MAX_UPLOAD_SIZE: int = 50 * 1024 * 1024  # 50MB
     ALLOWED_EXTENSIONS: List[str] = [".txt", ".docx", ".pdf", ".html", ".htm"]
 

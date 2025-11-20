@@ -352,4 +352,4 @@ async def metrics():
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("SERVICE_PORT", "8002"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=port)  # nosec B104 - Intentional for Docker containers

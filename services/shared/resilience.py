@@ -193,7 +193,7 @@ async def retry_with_backoff(
             # Add jitter to prevent thundering herd
             if config.jitter:
                 import random
-                delay = delay * (0.5 + random.random())
+                delay = delay * (0.5 + random.random())  # nosec B311 - Using random for jitter, not security
 
             logger.warning(
                 f"Retry attempt {attempt + 1}/{config.max_attempts} "
