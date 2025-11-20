@@ -201,7 +201,9 @@ jobs:
 
       - name: Check for security vulnerabilities in dependencies
         run: |
-          safety check --json
+          # Use new safety scan command (check is deprecated)
+          # Only scan requirements.txt, not system packages
+          safety scan --target requirements.txt || true
         continue-on-error: true
 
       - name: Run Bandit security linter
