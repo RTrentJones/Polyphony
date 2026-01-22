@@ -42,7 +42,6 @@ def event_loop() -> Generator:
 async def async_engine():
     """Create async test database engine"""
     # Import ORM models to register them
-    from services.shared.orm_models import User, Manuscript, Character, CharacterChunk, Scene, SceneBeat, APIUsage
 
     # Update Base metadata with the ORM models' Base
     from services.shared.database import Base as ORMBase
@@ -173,11 +172,12 @@ def sample_scene_request(test_manuscript):
 def client():
     """Create a test client for the FastAPI app"""
     from fastapi.testclient import TestClient
-    from unittest.mock import patch, MagicMock, AsyncMock
+    from unittest.mock import patch, AsyncMock
 
     # Mock external dependencies
-    with patch("services.shared.database.get_db") as mock_db, \
-         patch("services.shared.caching.CacheLayer") as mock_cache:
+    with patch("services.shared.database.get_db"), patch(
+        "services.shared.caching.CacheLayer"
+    ) as mock_cache:
 
         mock_cache_instance = AsyncMock()
         mock_cache_instance.get.return_value = None
@@ -193,7 +193,7 @@ def client():
 @pytest.fixture
 def sample_manuscript_text():
     """Sample manuscript text for testing"""
-    return '''
+    return """
 Chapter 1: The Beginning
 
 "Hello, my dear friend," said Elizabeth warmly, extending her hand.
@@ -217,7 +217,7 @@ Thomas, the butler, entered quietly with a tea service. He noticed the tension i
 "Shall I pour, Miss Elizabeth?" Thomas asked.
 
 "Yes, please," Elizabeth responded, grateful for the distraction.
-'''
+"""
 
 
 @pytest.fixture

@@ -28,8 +28,11 @@ def mock_embedding_model():
 @pytest.fixture
 def rag_system(mock_embedding_model):
     """Create CharacterRAG instance with mocked dependencies"""
-    with patch("services.character_agent.rag_system.AsyncQdrantClient") as mock_qdrant, \
-         patch("services.character_agent.rag_system.SentenceTransformer") as mock_st:
+    with patch(
+        "services.character_agent.rag_system.AsyncQdrantClient"
+    ) as mock_qdrant, patch(
+        "services.character_agent.rag_system.SentenceTransformer"
+    ) as mock_st:
         mock_st.return_value = mock_embedding_model
         mock_client = AsyncMock()
         mock_qdrant.return_value = mock_client
@@ -51,8 +54,9 @@ class TestCharacterRAGInitialization:
 
     def test_character_rag_initialization(self):
         """Test that CharacterRAG can be initialized"""
-        with patch("services.character_agent.rag_system.AsyncQdrantClient"), \
-             patch("services.character_agent.rag_system.SentenceTransformer") as mock_st:
+        with patch("services.character_agent.rag_system.AsyncQdrantClient"), patch(
+            "services.character_agent.rag_system.SentenceTransformer"
+        ) as mock_st:
             mock_model = MagicMock()
             mock_model.get_sentence_embedding_dimension.return_value = 384
             mock_st.return_value = mock_model
@@ -72,8 +76,9 @@ class TestCharacterRAGInitialization:
 
     def test_collection_name_format(self):
         """Test collection name formatting"""
-        with patch("services.character_agent.rag_system.AsyncQdrantClient"), \
-             patch("services.character_agent.rag_system.SentenceTransformer") as mock_st:
+        with patch("services.character_agent.rag_system.AsyncQdrantClient"), patch(
+            "services.character_agent.rag_system.SentenceTransformer"
+        ) as mock_st:
             mock_model = MagicMock()
             mock_model.get_sentence_embedding_dimension.return_value = 384
             mock_st.return_value = mock_model
@@ -91,8 +96,9 @@ class TestCharacterRAGInitialization:
 
     def test_embedding_model_loaded(self):
         """Test that embedding model is loaded"""
-        with patch("services.character_agent.rag_system.AsyncQdrantClient"), \
-             patch("services.character_agent.rag_system.SentenceTransformer") as mock_st:
+        with patch("services.character_agent.rag_system.AsyncQdrantClient"), patch(
+            "services.character_agent.rag_system.SentenceTransformer"
+        ) as mock_st:
             mock_model = MagicMock()
             mock_model.get_sentence_embedding_dimension.return_value = 384
             mock_st.return_value = mock_model
@@ -110,8 +116,9 @@ class TestCharacterRAGInitialization:
 
     def test_custom_embedding_model(self):
         """Test using custom embedding model"""
-        with patch("services.character_agent.rag_system.AsyncQdrantClient"), \
-             patch("services.character_agent.rag_system.SentenceTransformer") as mock_st:
+        with patch("services.character_agent.rag_system.AsyncQdrantClient"), patch(
+            "services.character_agent.rag_system.SentenceTransformer"
+        ) as mock_st:
             mock_model = MagicMock()
             mock_model.get_sentence_embedding_dimension.return_value = 768
             mock_st.return_value = mock_model
@@ -373,7 +380,7 @@ class TestRetrieveSimilarDialogue:
         """Test retrieval with score threshold"""
         rag_system.qdrant.search.return_value = []
 
-        results = await rag_system.retrieve_similar_dialogue(
+        await rag_system.retrieve_similar_dialogue(
             query="Test",
             k=5,
             score_threshold=0.8,
@@ -581,8 +588,9 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_special_characters_in_character_id(self):
         """Test handling of special characters in character ID"""
-        with patch("services.character_agent.rag_system.AsyncQdrantClient"), \
-             patch("services.character_agent.rag_system.SentenceTransformer") as mock_st:
+        with patch("services.character_agent.rag_system.AsyncQdrantClient"), patch(
+            "services.character_agent.rag_system.SentenceTransformer"
+        ) as mock_st:
             mock_model = MagicMock()
             mock_model.get_sentence_embedding_dimension.return_value = 384
             mock_st.return_value = mock_model
@@ -649,7 +657,7 @@ class TestEdgeCases:
         """Test retrieval with empty query"""
         rag_system.qdrant.search.return_value = []
 
-        results = await rag_system.retrieve_similar_dialogue(query="", k=5)
+        await rag_system.retrieve_similar_dialogue(query="", k=5)
 
         # Should still attempt search
         rag_system.qdrant.search.assert_called_once()
@@ -702,7 +710,11 @@ class TestCharacterRAGIntegration:
         # Index content
         chunks = [
             {"text": "Hello there!", "chunk_type": "dialogue", "source_location": "p1"},
-            {"text": "She walked away.", "chunk_type": "action", "source_location": "p2"},
+            {
+                "text": "She walked away.",
+                "chunk_type": "action",
+                "source_location": "p2",
+            },
         ]
         indexed = await rag_system.index_character_content(chunks)
         assert indexed == 2
@@ -730,8 +742,11 @@ class TestCharacterRAGIntegration:
     @pytest.mark.asyncio
     async def test_multiple_character_collections(self):
         """Test managing multiple character collections"""
-        with patch("services.character_agent.rag_system.AsyncQdrantClient") as mock_qdrant, \
-             patch("services.character_agent.rag_system.SentenceTransformer") as mock_st:
+        with patch(
+            "services.character_agent.rag_system.AsyncQdrantClient"
+        ) as mock_qdrant, patch(
+            "services.character_agent.rag_system.SentenceTransformer"
+        ) as mock_st:
             mock_model = MagicMock()
             mock_model.get_sentence_embedding_dimension.return_value = 384
             mock_st.return_value = mock_model

@@ -26,7 +26,10 @@ class TestDocumentProcessingPipeline:
         try:
             # Step 1: Parse document
             sys.path.insert(
-                0, os.path.join(os.path.dirname(__file__), "..", "..", "services", "document-parser")
+                0,
+                os.path.join(
+                    os.path.dirname(__file__), "..", "..", "services", "document-parser"
+                ),
             )
             from parser import DocumentParser
 
@@ -54,13 +57,18 @@ class TestDocumentProcessingPipeline:
             mock_client = AsyncMock()
             mock_response = MagicMock()
             mock_response.choices = [
-                MagicMock(message=MagicMock(content='["Elizabeth", "William", "Thomas"]'))
+                MagicMock(
+                    message=MagicMock(content='["Elizabeth", "William", "Thomas"]')
+                )
             ]
             mock_client.chat.completions.create.return_value = mock_response
             mock_groq.return_value = mock_client
 
             sys.path.insert(
-                0, os.path.join(os.path.dirname(__file__), "..", "..", "services", "document-parser")
+                0,
+                os.path.join(
+                    os.path.dirname(__file__), "..", "..", "services", "document-parser"
+                ),
             )
             from character_extractor import CharacterExtractor
 
@@ -73,7 +81,9 @@ class TestDocumentProcessingPipeline:
 
             # Extract content for each character
             for char in ["Elizabeth", "William"]:
-                chunks = extractor.extract_character_content(sample_manuscript_text, char)
+                chunks = extractor.extract_character_content(
+                    sample_manuscript_text, char
+                )
                 assert len(chunks) > 0
 
                 # Verify chunk structure
@@ -102,8 +112,11 @@ class TestRAGPipeline:
     @pytest.mark.asyncio
     async def test_character_rag_full_cycle(self):
         """Test full RAG cycle: create collection, index, retrieve"""
-        with patch("services.character_agent.rag_system.AsyncQdrantClient") as mock_qdrant, \
-             patch("services.character_agent.rag_system.SentenceTransformer") as mock_st:
+        with patch(
+            "services.character_agent.rag_system.AsyncQdrantClient"
+        ) as mock_qdrant, patch(
+            "services.character_agent.rag_system.SentenceTransformer"
+        ) as mock_st:
             # Setup mocks
             mock_model = MagicMock()
             mock_model.get_sentence_embedding_dimension.return_value = 384
@@ -385,9 +398,8 @@ class TestInputSanitization:
         ]
 
         for attempt in injection_attempts:
-            sanitized = sanitize_for_llm(attempt)
-            # Should either be cleaned or flagged
-            # The exact behavior depends on implementation
+            # Just verify sanitization doesn't crash
+            sanitize_for_llm(attempt)
 
     def test_html_xss_prevention(self):
         """Test HTML/XSS content is handled"""

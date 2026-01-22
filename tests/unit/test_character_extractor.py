@@ -7,7 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 # Add services to path
 sys.path.insert(
-    0, os.path.join(os.path.dirname(__file__), "..", "..", "services", "document-parser")
+    0,
+    os.path.join(os.path.dirname(__file__), "..", "..", "services", "document-parser"),
 )
 
 from character_extractor import CharacterExtractor
@@ -34,7 +35,7 @@ def extractor():
 @pytest.fixture
 def sample_manuscript():
     """Sample manuscript text for testing"""
-    return '''
+    return """
 The morning sun broke through the curtains as Elizabeth awoke.
 
 "Good morning, darling," said Elizabeth, stretching lazily.
@@ -56,13 +57,13 @@ Elizabeth watched Thomas from the window. She thought about how peaceful the est
 "William, look at how beautifully the roses have bloomed," she remarked.
 
 William joined her at the window. "Thomas has done excellent work this season."
-'''
+"""
 
 
 @pytest.fixture
 def dialogue_rich_text():
     """Text with various dialogue patterns"""
-    return '''
+    return """
 "Hello there," said Sarah.
 
 John replied, "Nice to meet you."
@@ -78,7 +79,7 @@ John nodded and said, "Thank you very much."
 "You're welcome," Sarah whispered.
 
 Then Sarah shouted, "Don't forget to return the books on time!"
-'''
+"""
 
 
 @pytest.mark.unit
@@ -93,7 +94,7 @@ class TestCharacterExtractorInitialization:
     @patch("character_extractor.AsyncGroq")
     def test_extractor_uses_provided_api_key(self, mock_groq):
         """Test that the API key is passed to Groq client"""
-        extractor = CharacterExtractor(groq_api_key="my_test_key")
+        _extractor = CharacterExtractor(groq_api_key="my_test_key")  # noqa: F841
         mock_groq.assert_called_once_with(api_key="my_test_key")
 
 
@@ -123,11 +124,7 @@ class TestExtractCharacters:
         """Test extraction when LLM wraps response in markdown"""
         mock_response = MagicMock()
         mock_response.choices = [
-            MagicMock(
-                message=MagicMock(
-                    content='```json\n["Alice", "Bob"]\n```'
-                )
-            )
+            MagicMock(message=MagicMock(content='```json\n["Alice", "Bob"]\n```'))
         ]
         extractor.llm.chat.completions.create = AsyncMock(return_value=mock_response)
 
@@ -212,7 +209,9 @@ class TestExtractCharacters:
 class TestExtractCharacterContent:
     """Test character-specific content extraction"""
 
-    def test_extract_content_finds_character_mentions(self, extractor, sample_manuscript):
+    def test_extract_content_finds_character_mentions(
+        self, extractor, sample_manuscript
+    ):
         """Test that content with character mentions is extracted"""
         chunks = extractor.extract_character_content(sample_manuscript, "Elizabeth")
 
@@ -313,11 +312,11 @@ class TestExtractDialogueOnly:
 
     def test_extract_dialogue_removes_duplicates(self, extractor):
         """Test that duplicate dialogues are removed"""
-        text = '''
+        text = """
 "Hello," said Alice.
 "Hello," said Alice.
 "Hello," Alice replied.
-'''
+"""
         dialogues = extractor.extract_dialogue_only(text, "Alice")
 
         # Should only have one "Hello" since duplicates are removed
@@ -563,12 +562,12 @@ class TestDialoguePatternVariations:
 
     def test_mixed_dialogue_patterns(self, extractor):
         """Test multiple dialogue patterns in same text"""
-        text = '''
+        text = """
 "First line," said Alice.
 Alice replied, "Second line."
 Alice: "Third line."
 Then Alice said, "Fourth line."
-'''
+"""
         dialogues = extractor.extract_dialogue_only(text, "Alice")
 
         # Should capture multiple patterns
@@ -585,9 +584,7 @@ class TestCharacterExtractorIntegration:
         # Mock character extraction
         mock_response = MagicMock()
         mock_response.choices = [
-            MagicMock(
-                message=MagicMock(content='["Elizabeth", "William", "Thomas"]')
-            )
+            MagicMock(message=MagicMock(content='["Elizabeth", "William", "Thomas"]'))
         ]
         extractor.llm.chat.completions.create = AsyncMock(return_value=mock_response)
 

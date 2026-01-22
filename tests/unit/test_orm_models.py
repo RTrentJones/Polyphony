@@ -1,9 +1,6 @@
 """Comprehensive unit tests for ORM models"""
 
 import pytest
-from datetime import datetime
-from uuid import uuid4
-from decimal import Decimal
 from sqlalchemy import inspect
 
 from services.shared.orm_models import (
@@ -457,7 +454,15 @@ class TestBaseModel:
 
     def test_all_models_inherit_base(self):
         """Test all models inherit from Base"""
-        models = [User, Manuscript, Character, CharacterChunk, Scene, SceneBeat, APIUsage]
+        models = [
+            User,
+            Manuscript,
+            Character,
+            CharacterChunk,
+            Scene,
+            SceneBeat,
+            APIUsage,
+        ]
 
         for model in models:
             assert issubclass(model, Base)
@@ -525,7 +530,9 @@ class TestORMModelCreation:
         assert character.personality_traits == {"trait": "curious"}
 
     @pytest.mark.asyncio
-    async def test_create_scene_instance(self, async_session, test_user, test_manuscript):
+    async def test_create_scene_instance(
+        self, async_session, test_user, test_manuscript
+    ):
         """Test creating a Scene instance"""
         scene = Scene(
             user_id=test_user.id,
@@ -547,7 +554,9 @@ class TestORMModelCreation:
         assert scene.status == "processing"
 
     @pytest.mark.asyncio
-    async def test_relationship_navigation(self, async_session, test_user, test_manuscript, test_character):
+    async def test_relationship_navigation(
+        self, async_session, test_user, test_manuscript, test_character
+    ):
         """Test navigating relationships"""
         # Navigate from user to manuscripts
         assert test_manuscript.user_id == test_user.id

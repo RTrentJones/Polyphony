@@ -8,7 +8,8 @@ import sys
 
 # Add services to path
 sys.path.insert(
-    0, os.path.join(os.path.dirname(__file__), "..", "..", "services", "document-parser")
+    0,
+    os.path.join(os.path.dirname(__file__), "..", "..", "services", "document-parser"),
 )
 
 from parser import DocumentParser
@@ -27,7 +28,9 @@ def temp_txt_file():
         mode="w", suffix=".txt", delete=False, encoding="utf-8"
     ) as f:
         f.write("This is the first paragraph with some text.\n\n")
-        f.write("This is the second paragraph. It has multiple sentences. Each one matters.\n\n")
+        f.write(
+            "This is the second paragraph. It has multiple sentences. Each one matters.\n\n"
+        )
         f.write("And this is the third paragraph for testing.\n")
         temp_path = f.name
     yield temp_path
@@ -133,7 +136,7 @@ class TestTextParsing:
 
     def test_parse_txt_with_special_characters(self, parser):
         """Test parsing text with special characters"""
-        special_content = 'He said, "Hello!" then added: \'quotes within quotes\'.\n\n'
+        special_content = "He said, \"Hello!\" then added: 'quotes within quotes'.\n\n"
         special_content += "Special chars: @#$%^&*()_+-=[]{}|;:,.<>?/~`\n"
 
         with tempfile.NamedTemporaryFile(
@@ -502,9 +505,7 @@ class TestEncodingHandling:
     def test_fallback_to_latin1(self, parser):
         """Test fallback to latin-1 encoding"""
         # Create a file with latin-1 encoding
-        with tempfile.NamedTemporaryFile(
-            mode="wb", suffix=".txt", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=".txt", delete=False) as f:
             # Write some latin-1 specific characters
             f.write("Test with latin-1: é è ê ë".encode("latin-1"))
             temp_path = f.name
@@ -594,7 +595,7 @@ class TestDialoguePatterns:
 
     def test_mixed_quote_styles(self, parser):
         """Test handling of different quote styles"""
-        text = 'He said "hello" and she said \'goodbye\'.\n\n'
+        text = "He said \"hello\" and she said 'goodbye'.\n\n"
         text += '"This is speech," he noted.\n\n'
         text += "'Single quotes work too,' she added."
 
@@ -607,6 +608,6 @@ class TestDialoguePatterns:
         try:
             content = parser.parse_document(temp_path)
             assert '"hello"' in content
-            assert "\'goodbye\'" in content
+            assert "'goodbye'" in content
         finally:
             os.unlink(temp_path)
