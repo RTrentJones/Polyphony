@@ -61,11 +61,13 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libmagic1
+          sudo apt-get install -y libmagic1 libffi-dev
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
+          # Install cffi first to ensure cryptography builds properly
+          pip install cffi
           # Install PyTorch CPU-only version first to avoid CUDA dependencies
           pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
           # Install other requirements, using extra index to prefer CPU versions
@@ -148,6 +150,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
+          # Install cffi first to ensure cryptography builds properly
+          pip install cffi
           # Install PyTorch CPU-only version first to avoid CUDA dependencies
           pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
           # Install other requirements, using extra index to prefer CPU versions
