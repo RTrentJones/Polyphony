@@ -146,21 +146,21 @@ class TestCacheClient:
         mock_redis = AsyncMock()
         cache = CacheClient(mock_redis, namespace="test")
 
-        mock_redis.incr = AsyncMock(return_value=5)
+        mock_redis.incrby = AsyncMock(return_value=5)
 
         result = await cache.increment("counter")
         assert result == 5
 
     @pytest.mark.asyncio
-    async def test_cache_decrement(self):
-        """Test cache counter decrement"""
+    async def test_cache_increment_with_amount(self):
+        """Test cache counter increment with specific amount"""
         mock_redis = AsyncMock()
         cache = CacheClient(mock_redis, namespace="test")
 
-        mock_redis.decr = AsyncMock(return_value=3)
+        mock_redis.incrby = AsyncMock(return_value=10)
 
-        result = await cache.decrement("counter")
-        assert result == 3
+        result = await cache.increment("counter", amount=5)
+        assert result == 10
 
     @pytest.mark.asyncio
     async def test_cache_exists(self):
@@ -322,9 +322,10 @@ class TestCacheIntegration:
         cache = CacheClient(mock_redis, namespace="test")
 
         # Simulate multiple concurrent requests
+        # First call returns 0 (not exists), subsequent calls return 1 (exists)
         mock_redis.exists = AsyncMock(
-            side_effect=[0, 1, 1]
-        )  # First missing, then exists
+            side_effect=[0, 1, 1, 1, 1, 1]
+        )  # First missing, then exists for all 5 loop iterations
         mock_redis.setex = AsyncMock(return_value=True)
         mock_redis.get = AsyncMock(return_value=json.dumps({"data": "cached"}))
 
@@ -333,7 +334,7 @@ class TestCacheIntegration:
         async def expensive_operation():
             nonlocal call_count
             call_count += 1
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.01)  # Reduced sleep for faster tests
             return {"data": "computed"}
 
         # First request - sets cache

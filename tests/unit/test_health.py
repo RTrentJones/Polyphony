@@ -60,8 +60,8 @@ class TestHealthCheck:
 
         assert result["status"] == HealthStatus.HEALTHY
         assert status_code == 200
-        assert result["checks"]["database"] is True
-        assert result["checks"]["cache"] is True
+        assert result["checks"]["database"]["status"] == HealthStatus.HEALTHY
+        assert result["checks"]["cache"]["status"] == HealthStatus.HEALTHY
 
     @pytest.mark.asyncio
     async def test_readiness_probe_unhealthy_dependency(self):
@@ -81,8 +81,8 @@ class TestHealthCheck:
 
         assert result["status"] == HealthStatus.UNHEALTHY
         assert status_code == 503  # Service Unavailable
-        assert result["checks"]["database"] is True
-        assert result["checks"]["cache"] is False
+        assert result["checks"]["database"]["status"] == HealthStatus.HEALTHY
+        assert result["checks"]["cache"]["status"] == HealthStatus.UNHEALTHY
 
     @pytest.mark.asyncio
     async def test_readiness_probe_check_exception(self):
@@ -98,8 +98,8 @@ class TestHealthCheck:
 
         assert result["status"] == HealthStatus.UNHEALTHY
         assert status_code == 503
-        assert isinstance(result["checks"]["failing"], str)  # Error message
-        assert "Check failed" in result["checks"]["failing"]
+        assert result["checks"]["failing"]["status"] == HealthStatus.UNHEALTHY
+        assert "Check failed" in result["checks"]["failing"]["error"]
 
     @pytest.mark.asyncio
     async def test_add_multiple_checks(self):

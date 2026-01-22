@@ -72,8 +72,8 @@ class TestJSONFormatter:
             args=(),
             exc_info=None,
         )
-        record.user_id = "user-456"
-        record.request_id = "req-789"
+        # Use extra_fields dict as expected by the implementation
+        record.extra_fields = {"user_id": "user-456", "request_id": "req-789"}
 
         formatted = formatter.format(record)
         log_data = json.loads(formatted)
@@ -107,7 +107,9 @@ class TestJSONFormatter:
 
             assert log_data["level"] == "ERROR"
             assert "exception" in log_data
-            assert "ValueError" in log_data["exception"]
+            # Exception is a dict with type, message, traceback
+            assert log_data["exception"]["type"] == "ValueError"
+            assert "Test error" in log_data["exception"]["message"]
 
 
 @pytest.mark.unit
@@ -117,14 +119,14 @@ class TestContextLogger:
     def test_context_logger_initialization(self):
         """Test context logger initialization"""
         base_logger = logging.getLogger("test")
-        context_logger = ContextLogger(base_logger, {"service": "test-service"})
+        context_logger = ContextLogger(base_logger, "test-service")
 
-        assert context_logger.service == "test-service"
+        assert context_logger.service_name == "test-service"
 
     def test_context_logger_correlation_id(self):
         """Test setting correlation ID"""
         base_logger = logging.getLogger("test")
-        context_logger = ContextLogger(base_logger, {"service": "test-service"})
+        context_logger = ContextLogger(base_logger, "test-service")
 
         context_logger.set_correlation_id("corr-123")
 
@@ -162,7 +164,7 @@ class TestSetupLogging:
         logger = setup_logging("test-service", level="INFO")
 
         assert isinstance(logger, ContextLogger)
-        assert logger.service == "test-service"
+        assert logger.service_name == "test-service"
 
     def test_setup_logging_with_debug_level(self):
         """Test setup with DEBUG level"""
@@ -176,7 +178,7 @@ class TestSetupLogging:
         logger1 = setup_logging("service1", level="INFO")
         logger2 = setup_logging("service2", level="INFO")
 
-        assert logger1.service != logger2.service
+        assert logger1.service_name != logger2.service_name
 
 
 @pytest.mark.unit
