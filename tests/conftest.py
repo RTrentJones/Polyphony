@@ -6,14 +6,24 @@ from typing import AsyncGenerator, Generator
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import NullPool
 import os
+import sys
 
 # Set test environment before importing settings
 os.environ["POSTGRES_PASSWORD"] = "test_password_12345"
 os.environ["GROQ_API_KEY"] = "test_key_for_testing"
 os.environ["SECRET_KEY"] = "test_secret_key_minimum_32_characters_long_12345"
+os.environ["POSTGRES_HOST"] = "localhost"
+os.environ["POSTGRES_PORT"] = "5432"
+os.environ["POSTGRES_DB"] = "test_db"
+os.environ["POSTGRES_USER"] = "test_user"
 
-from services.shared.database import Base
-from services.shared.orm_models import User, Manuscript, Character
+# Add services path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+# Create a minimal Base for testing without full database import
+from sqlalchemy.orm import declarative_base
+
+Base = declarative_base()
 
 
 # Test database URL
@@ -31,21 +41,27 @@ def event_loop() -> Generator:
 @pytest.fixture(scope="function")
 async def async_engine():
     """Create async test database engine"""
+    # Import ORM models to register them
+    from services.shared.orm_models import User, Manuscript, Character, CharacterChunk, Scene, SceneBeat, APIUsage
+
+    # Update Base metadata with the ORM models' Base
+    from services.shared.database import Base as ORMBase
+
     engine = create_async_engine(
         TEST_DATABASE_URL,
         echo=False,
         poolclass=NullPool,
     )
 
-    # Create all tables
+    # Create all tables using the ORM Base
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(ORMBase.metadata.create_all)
 
     yield engine
 
     # Drop all tables
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(ORMBase.metadata.drop_all)
 
     await engine.dispose()
 
@@ -65,9 +81,10 @@ async def async_session(async_engine) -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest.fixture
-async def test_user(async_session: AsyncSession) -> User:
+async def test_user(async_session: AsyncSession):
     """Create a test user"""
     from services.shared.auth import get_password_hash
+    from services.shared.orm_models import User
 
     user = User(
         email="test@example.com",
@@ -83,7 +100,7 @@ async def test_user(async_session: AsyncSession) -> User:
 
 
 @pytest.fixture
-async def auth_headers(test_user: User) -> dict:
+async def auth_headers(test_user) -> dict:
     """Get authentication headers for test user"""
     from services.shared.auth import create_access_token
 
@@ -93,8 +110,10 @@ async def auth_headers(test_user: User) -> dict:
 
 
 @pytest.fixture
-async def test_manuscript(async_session: AsyncSession, test_user: User) -> Manuscript:
+async def test_manuscript(async_session: AsyncSession, test_user):
     """Create a test manuscript"""
+    from services.shared.orm_models import Manuscript
+
     manuscript = Manuscript(
         user_id=test_user.id,
         title="Test Manuscript",
@@ -111,10 +130,10 @@ async def test_manuscript(async_session: AsyncSession, test_user: User) -> Manus
 
 
 @pytest.fixture
-async def test_character(
-    async_session: AsyncSession, test_manuscript: Manuscript
-) -> Character:
+async def test_character(async_session: AsyncSession, test_manuscript):
     """Create a test character"""
+    from services.shared.orm_models import Character
+
     character = Character(
         manuscript_id=test_manuscript.id,
         name="Test Character",
@@ -138,7 +157,7 @@ def mock_groq_response():
 
 
 @pytest.fixture
-def sample_scene_request(test_manuscript: Manuscript):
+def sample_scene_request(test_manuscript):
     """Sample scene generation request"""
     return {
         "manuscript_id": str(test_manuscript.id),
@@ -148,3 +167,84 @@ def sample_scene_request(test_manuscript: Manuscript):
         "emotional_tone": "focused",
         "target_word_count": 500,
     }
+
+
+@pytest.fixture
+def client():
+    """Create a test client for the FastAPI app"""
+    from fastapi.testclient import TestClient
+    from unittest.mock import patch, MagicMock, AsyncMock
+
+    # Mock external dependencies
+    with patch("services.shared.database.get_db") as mock_db, \
+         patch("services.shared.caching.CacheLayer") as mock_cache:
+
+        mock_cache_instance = AsyncMock()
+        mock_cache_instance.get.return_value = None
+        mock_cache_instance.set.return_value = True
+        mock_cache.return_value = mock_cache_instance
+
+        from services.api_gateway.main import app
+
+        with TestClient(app) as test_client:
+            yield test_client
+
+
+@pytest.fixture
+def sample_manuscript_text():
+    """Sample manuscript text for testing"""
+    return '''
+Chapter 1: The Beginning
+
+"Hello, my dear friend," said Elizabeth warmly, extending her hand.
+
+William smiled back at her. "It's wonderful to see you again," he replied.
+
+Elizabeth walked slowly across the ornate parlor, admiring the paintings. She thought about their last meeting and wondered what news William might bring.
+
+"I have something important to tell you," William said, his expression growing serious.
+
+"What is it?" Elizabeth asked, concern evident in her voice.
+
+William took a deep breath. "The estate has been sold," he explained carefully.
+
+Elizabeth gasped. "But how can that be? Father would never—"
+
+"I'm afraid it's true," William interrupted gently.
+
+Thomas, the butler, entered quietly with a tea service. He noticed the tension in the room immediately.
+
+"Shall I pour, Miss Elizabeth?" Thomas asked.
+
+"Yes, please," Elizabeth responded, grateful for the distraction.
+'''
+
+
+@pytest.fixture
+def multiple_test_characters(async_session, test_manuscript):
+    """Create multiple test characters"""
+    from services.shared.orm_models import Character
+
+    async def _create_characters():
+        characters = []
+        names = ["Elizabeth", "William", "Thomas"]
+
+        for name in names:
+            character = Character(
+                manuscript_id=test_manuscript.id,
+                name=name,
+                description=f"Character named {name}",
+                dialogue_count=5,
+                personality_traits={"trait": "kind"},
+                voice_characteristics={"style": "formal"},
+            )
+            async_session.add(character)
+            characters.append(character)
+
+        await async_session.commit()
+        for char in characters:
+            await async_session.refresh(char)
+
+        return characters
+
+    return _create_characters

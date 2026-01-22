@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from services.orchestrator.workflow import (
     create_scene_workflow,
     plan_scene_beats,
-    generate_dialogue_for_beat,
-    assemble_scene,
+    generate_beat_dialogue,
+    assemble_final_scene,
     _call_character_agent,
     get_groq_client,
 )
@@ -69,7 +69,7 @@ class TestWorkflowStateFunctions:
         assert len(result["beats"]) > 0
 
     @pytest.mark.asyncio
-    async def test_assemble_scene(self):
+    async def test_assemble_final_scene(self):
         """Test scene assembly"""
         state = {
             "scene_id": "test-scene-123",
@@ -102,7 +102,7 @@ class TestWorkflowStateFunctions:
         }
 
         with patch("services.orchestrator.workflow.get_async_session"):
-            result = await assemble_scene(state)
+            result = await assemble_final_scene(state)
 
             assert "final_scene" in result
             assert len(result["final_scene"]) > 0
@@ -204,7 +204,7 @@ class TestDialogueGeneration:
 
     @pytest.mark.asyncio
     @patch("services.orchestrator.workflow._call_character_agent")
-    async def test_generate_dialogue_for_beat(self, mock_agent_call):
+    async def test_generate_beat_dialogue(self, mock_agent_call):
         """Test generating dialogue for a beat"""
         mock_agent_call.return_value = {
             "character": "Alice",
@@ -223,7 +223,7 @@ class TestDialogueGeneration:
             "completed_beats": [],
         }
 
-        result = await generate_dialogue_for_beat(state)
+        result = await generate_beat_dialogue(state)
 
         assert "completed_beats" in result
         assert len(result["completed_beats"]) > 0
@@ -260,7 +260,7 @@ class TestDialogueGeneration:
             "completed_beats": [],
         }
 
-        result = await generate_dialogue_for_beat(state)
+        result = await generate_beat_dialogue(state)
 
         assert len(result["completed_beats"]) > 0
         dialogue_turns = result["completed_beats"][0]["dialogue_turns"]
