@@ -188,7 +188,9 @@ def client():
         from unittest.mock import patch, AsyncMock
 
         # Dynamically load the api-gateway module
-        spec = importlib.util.spec_from_file_location("api_gateway_main", api_gateway_path)
+        spec = importlib.util.spec_from_file_location(
+            "api_gateway_main", api_gateway_path
+        )
         api_gateway_main = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(api_gateway_main)
         app = api_gateway_main.app
