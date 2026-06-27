@@ -1,8 +1,7 @@
 """Pytest configuration and fixtures for Polyphony tests"""
 
 import pytest
-import asyncio
-from typing import AsyncGenerator, Generator
+from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import NullPool
 import os
