@@ -1,12 +1,13 @@
 """Pytest configuration and fixtures for Polyphony tests"""
 
-import pytest
 import importlib.util
-from typing import AsyncGenerator
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.pool import NullPool
 import os
 import sys
+from typing import AsyncGenerator
+
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.pool import NullPool
 
 # Set test environment before importing settings
 os.environ["POSTGRES_PASSWORD"] = "test_password_12345"
