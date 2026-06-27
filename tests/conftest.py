@@ -176,8 +176,6 @@ def sample_scene_request(test_manuscript):
 @pytest.fixture
 def client():
     """Create a test client for the FastAPI app"""
-    import importlib.util
-
     # Skip if api-gateway module can't be loaded (hyphenated directory name)
     api_gateway_path = os.path.join(
         os.path.dirname(__file__), "..", "services", "api-gateway", "main.py"
