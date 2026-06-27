@@ -7,6 +7,7 @@ from typing import AsyncGenerator
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.pool import NullPool
 
 # Set test environment before importing settings
@@ -22,8 +23,6 @@ os.environ["POSTGRES_USER"] = "test_user"
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 # Create a minimal Base for testing without full database import
-from sqlalchemy.orm import declarative_base
-
 Base = declarative_base()
 
 
