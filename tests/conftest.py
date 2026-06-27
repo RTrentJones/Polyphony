@@ -30,12 +30,9 @@ Base = declarative_base()
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 
-@pytest.fixture(scope="session")
-def event_loop() -> Generator:
-    """Create an instance of the default event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+# Note: With pytest-asyncio in auto mode, the event_loop fixture is handled
+# automatically. Custom event_loop fixtures with session scope can cause
+# issues in Python 3.12+. If needed, configure loop_scope in pytest.ini.
 
 
 @pytest.fixture(scope="function")
