@@ -110,6 +110,9 @@ export interface Character {
   id: string
   name: string
   description?: string | null
+  role?: string | null
+  manuscript_id?: string | null
+  book_id?: string | null
   dialogue_count?: number
   indexed_at?: string | null
   /** Optional enrichments some views render when present. */

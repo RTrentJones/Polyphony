@@ -7,7 +7,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { BookMarked, BookOpen, FileText, Wand2, LogOut, Menu, X, User } from 'lucide-react'
+import { BookMarked, BookOpen, FileText, Wand2, LogOut, Menu, X, User, Users } from 'lucide-react'
 import Button from './Button'
 import { useAuthStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
@@ -21,6 +21,7 @@ export default function Navbar() {
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: BookOpen },
     { name: 'Manuscripts', href: '/manuscripts', icon: FileText },
+    { name: 'Characters', href: '/characters', icon: Users },
     { name: 'Books', href: '/books', icon: BookMarked },
     { name: 'Generate Scene', href: '/generate', icon: Wand2 },
   ]
@@ -46,7 +47,7 @@ export default function Navbar() {
             <div className="hidden sm:ml-8 sm:flex sm:space-x-4">
               {navigation.map((item) => {
                 const Icon = item.icon
-                const isActive = pathname === item.href
+                const isActive = pathname?.replace(/\/$/, '') === item.href
                 return (
                   <Link
                     key={item.name}
@@ -104,7 +105,7 @@ export default function Navbar() {
           <div className="pt-2 pb-3 space-y-1">
             {navigation.map((item) => {
               const Icon = item.icon
-              const isActive = pathname === item.href
+              const isActive = pathname?.replace(/\/$/, '') === item.href
               return (
                 <Link
                   key={item.name}

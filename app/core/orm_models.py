@@ -188,7 +188,7 @@ class Character(Base):
     manuscript_id = Column(
         UUID(as_uuid=True),
         ForeignKey("manuscripts.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     book_id = Column(
         UUID(as_uuid=True), ForeignKey("books.id", ondelete="SET NULL"), nullable=True
