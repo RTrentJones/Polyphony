@@ -6,6 +6,9 @@ const isDev = process.env.NODE_ENV === 'development'
 
 const nextConfig = {
   output: 'export',
+  // Export each page as <route>/index.html so StaticFiles(html=True) resolves
+  // deep links (/auth/login) on hard reload — bare .html files 404 there.
+  trailingSlash: true,
   ...(isDev
     ? {
         async rewrites() {
