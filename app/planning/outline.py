@@ -59,9 +59,18 @@ Premise/synopsis: {safe_synopsis}
 
 {f"Character bible: {character_bible[:2000]}" if character_bible else ""}
 
+Shape the arc so the through-line is unmistakable and causally ordered:
+- open with an inciting incident that sets the premise in motion,
+- build rising complications with escalating stakes,
+- turn on a midpoint reversal or revelation,
+- drive to a climax that pays off the central conflict,
+- close with a resolution / new equilibrium.
+Each node's summary must say what CHANGES (a decision, reversal, or consequence),
+not just what happens. Order nodes so each follows causally from the last.
+
 Return ONLY valid JSON — an array of nodes:
 [
-  {{"title": "Chapter/beat title", "summary": "1-3 sentences of what happens",
+  {{"title": "Chapter/beat title", "summary": "1-3 sentences of what changes",
     "children": [{{"title": "scene beat", "summary": "...", "children": []}}]}}
 ]
 

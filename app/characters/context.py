@@ -52,7 +52,7 @@ async def build_character_context(
     character: Optional[Character],
     name: str,
     beat_description: str,
-    max_samples: int = 3,
+    max_samples: int = 5,
 ) -> str:
     """One character's context block: bible summary + retrieved voice samples."""
     lines = [f"### {name}"]
@@ -65,15 +65,19 @@ async def build_character_context(
             lines.append(f"Goals: {character.goals[:200]}")
         if character.arc:
             lines.append(f"Arc: {character.arc[:200]}")
+        # Retrieve across ALL chunk types, not just "dialogue": the ingest-time
+        # dialogue/action/thought classifier is heuristic and under-labels, so a
+        # dialogue-only filter can starve voice grounding to nothing. Rank
+        # dialogue first for display so spoken voice still leads.
         samples = await get_chunk_store().retrieve_similar(
             character_id=str(character.id),
             query=beat_description,
             k=max_samples,
-            chunk_type="dialogue",
             user_id=str(character.user_id) if character.user_id else None,
         )
+        samples.sort(key=lambda s: s.get("chunk_type") != "dialogue")
         if samples:
-            lines.append("Voice samples (match this voice):")
+            lines.append("Voice samples (match this voice — cadence, diction, syntax):")
             # Retrieved text is user content — sanitize before it enters the prompt.
             lines.extend(
                 f'- "{sanitize_for_llm(s["text"], max_length=200)}"' for s in samples

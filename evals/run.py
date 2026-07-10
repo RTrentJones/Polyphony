@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 
 import httpx
 
@@ -48,6 +49,11 @@ async def run(book: str, step_names: list[str], out: str) -> dict:
     result = {
         "book": book,
         "app_sha": app_sha,
+        # Label of the model under test — what Tracer trends. The app's own
+        # LLM_MODEL if set, else the provider's flash default.
+        "model": os.getenv("EVAL_MODEL_LABEL")
+        or os.getenv("LLM_MODEL")
+        or "gemini-2.5-flash",
         "judge": {
             "provider": cfg.judge_provider,
             "model": cfg.judge_model,
@@ -82,12 +88,31 @@ async def run(book: str, step_names: list[str], out: str) -> dict:
     return result
 
 
+async def ingest_to_tracer(result: dict, url: str, token: str, env: str) -> None:
+    """POST the run to Tracer's /api/ingest (bearer-authed) so the score trend
+    shows release-over-release. Best-effort: a failed ingest never fails a run."""
+    payload = report.tracer_export(result, model=result["model"], env=env)
+    async with httpx.AsyncClient(timeout=30) as h:
+        r = await h.post(
+            f"{url.rstrip('/')}/api/ingest",
+            json=payload,
+            headers={"authorization": f"Bearer {token}"},
+        )
+        r.raise_for_status()
+        print(f"tracer ingest -> {r.status_code} {r.json()}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--book", default="dracula")
     ap.add_argument("--steps", default="all", help="comma list or 'all'")
     ap.add_argument("--out", default="eval-report.json")
     ap.add_argument("--export", help="also write the greenlight eval-export JSON here")
+    ap.add_argument(
+        "--tracer",
+        action="store_true",
+        help="POST the run to Tracer (EVAL_TRACER_URL + TRACER_INGEST_TOKEN)",
+    )
     args = ap.parse_args()
 
     step_names = (
@@ -104,6 +129,15 @@ def main() -> None:
         with open(args.export, "w") as f:
             json.dump(report.greenlight_export(result), f, indent=2)
         print(f"greenlight export -> {args.export}")
+
+    if args.tracer:
+        url = os.getenv("EVAL_TRACER_URL", "https://tracer.rtrentjones.dev")
+        token = os.getenv("TRACER_INGEST_TOKEN", "")
+        if not token:
+            print("tracer ingest skipped: TRACER_INGEST_TOKEN unset")
+        else:
+            env_label = os.getenv("EVAL_ENV_LABEL", "prod")
+            asyncio.run(ingest_to_tracer(result, url, token, env_label))
 
 
 if __name__ == "__main__":
