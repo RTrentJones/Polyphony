@@ -91,3 +91,8 @@ Thumbs.db
 # Sandbox-only build artifacts (TLS-intercepting CI sandbox; never shipped)
 .sandbox-ca.crt
 Dockerfile.sandbox
+
+# Eval run artifacts (corpora + code ARE committed; these are outputs)
+.eval-cache/
+eval-report.json
+gl-export.json
