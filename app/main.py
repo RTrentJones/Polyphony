@@ -281,8 +281,10 @@ async def metrics():
 
 # API routers
 from app.api import auth as auth_router  # noqa: E402
+from app.api import books as books_router  # noqa: E402
 from app.api import characters as characters_router  # noqa: E402
 from app.api import manuscripts as manuscripts_router  # noqa: E402
+from app.api import plans as plans_router  # noqa: E402
 from app.api import scenes as scenes_router  # noqa: E402
 
 app.include_router(
@@ -307,6 +309,18 @@ app.include_router(
     characters_router.router,
     prefix="/api/v1/characters",
     tags=["Characters"],
+    responses={401: {"description": "Unauthorized"}},
+)
+app.include_router(
+    books_router.router,
+    prefix="/api/v1/books",
+    tags=["Books"],
+    responses={401: {"description": "Unauthorized"}},
+)
+app.include_router(
+    plans_router.router,
+    prefix="/api/v1",
+    tags=["Planning"],
     responses={401: {"description": "Unauthorized"}},
 )
 

@@ -184,7 +184,7 @@ export default function DashboardPage() {
             {manuscripts.slice(0, 5).map((manuscript) => (
               <div
                 key={manuscript.id}
-                onClick={() => router.push(`/manuscripts/${manuscript.id}`)}
+                onClick={() => router.push(`/manuscripts/detail?id=${manuscript.id}`)}
                 className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-colors cursor-pointer"
               >
                 <div className="flex items-center space-x-4">

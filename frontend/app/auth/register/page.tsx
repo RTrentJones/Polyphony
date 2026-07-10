@@ -22,6 +22,7 @@ export default function RegisterPage() {
     password: '',
     confirmPassword: '',
     fullName: '',
+    inviteCode: '',
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
 
@@ -44,6 +45,10 @@ export default function RegisterPage() {
       newErrors.confirmPassword = 'Passwords do not match'
     }
 
+    if (!formData.inviteCode) {
+      newErrors.inviteCode = 'Invite code is required'
+    }
+
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -60,6 +65,7 @@ export default function RegisterPage() {
         email: formData.email,
         password: formData.password,
         full_name: formData.fullName || undefined,
+        invite_code: formData.inviteCode,
       })
       router.push('/dashboard')
     } catch (err) {
@@ -150,11 +156,22 @@ export default function RegisterPage() {
             autoComplete="new-password"
           />
 
+          <Input
+            label="Invite code"
+            type="text"
+            name="inviteCode"
+            value={formData.inviteCode}
+            onChange={handleChange}
+            placeholder="Enter your invite code"
+            error={errors.inviteCode}
+            required
+          />
+
           <Button
             type="submit"
             fullWidth
             isLoading={isLoading}
-            disabled={!formData.email || !formData.password || !formData.confirmPassword}
+            disabled={!formData.email || !formData.password || !formData.confirmPassword || !formData.inviteCode}
           >
             Create Account
           </Button>

@@ -18,8 +18,30 @@ _scene_semaphore = asyncio.Semaphore(1)
 async def run_scene_in_background(
     scene_id: UUID, scene_request: dict, user_id: UUID
 ) -> dict:
-    """Entry point used by FastAPI BackgroundTasks."""
+    """Turn-based workflow entry point (standalone scenes)."""
     from .workflow import run_scene_workflow
 
     async with _scene_semaphore:
         return await run_scene_workflow(scene_id, scene_request, user_id)
+
+
+async def run_prose_scene_in_background(
+    scene_id: UUID,
+    scene_request: dict,
+    user_id: UUID,
+    chapter_summary: str = "",
+    prior_scene_tail: str = "",
+    book_id: UUID | None = None,
+) -> dict:
+    """Prose-mode workflow entry point (generate-into-chapter)."""
+    from .prose import run_prose_scene_workflow
+
+    async with _scene_semaphore:
+        return await run_prose_scene_workflow(
+            scene_id,
+            scene_request,
+            user_id,
+            chapter_summary=chapter_summary,
+            prior_scene_tail=prior_scene_tail,
+            book_id=book_id,
+        )
