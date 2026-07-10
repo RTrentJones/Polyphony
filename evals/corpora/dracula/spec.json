@@ -1,0 +1,33 @@
+{
+  "_comment": "Data-only book spec consumed by evals/tools/build_gt.py. Adding a book = a new corpora/<book>/{aliases.json,spec.json}, no code change. voice_sources kinds: {\"chapters\":[...]} (whole disjoint single-narrator chapters) or {\"blocks\":\"regex\"} (letter/diary block headers).",
+  "author": "Bram Stoker",
+  "year": 1897,
+  "source": "Standard Ebooks / Project Gutenberg (public domain, US)",
+  "cast": [
+    "Aldous Kerr",
+    "Count Vasska",
+    "Nora Vance",
+    "Cora Ellis",
+    "Elias Ward",
+    "Verhoeven",
+    "Cassidy Boone"
+  ],
+  "voice_sources": {
+    "Aldous Kerr": { "chapters": ["CHAPTER II"] },
+    "Nora Vance": { "chapters": ["CHAPTER VIII"] },
+    "Elias Ward": { "chapters": ["CHAPTER X"] }
+  },
+  "synopsis": "A young solicitor, Aldous Kerr, travels to a remote castle to close a property sale for the mysterious Count Vasska, and slowly realizes he is a prisoner and his host is no living man. Back home, his fiancee Nora and her friend Cora are drawn into a spreading horror as Vasska arrives by sea. The physician Elias Ward and the learned Professor Verhoeven recognize the mark of the undead, and a small band must destroy Vasska before he claims them all.",
+  "canonical_beats": [
+    { "title": "The prisoner in the castle", "kind": "inciting" },
+    { "title": "Vasska arrives by sea; a friend sickens", "kind": "rising" },
+    { "title": "Verhoeven names the undead", "kind": "midpoint" },
+    { "title": "The band hunts Vasska's resting places", "kind": "rising" },
+    { "title": "Nora is attacked and marked", "kind": "crisis" },
+    { "title": "Pursuit back to the castle and Vasska's destruction", "kind": "climax" }
+  ],
+  "continuity_injections": [
+    { "id": "name-misspell", "locate": "Aldous Kerr", "replace": "Aldous Karr", "expect_type": "character", "note": "surname respelled mid-text" },
+    { "id": "date-flip", "locate": "_5 May._", "replace": "_5 August._", "expect_type": "timeline", "note": "journal date jumps backwards out of sequence" }
+  ]
+}

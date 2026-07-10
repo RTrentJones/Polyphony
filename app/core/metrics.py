@@ -250,10 +250,13 @@ background_tasks_completed_total = Counter(
 # Rate Limiting Metrics
 # ============================================================================
 
+# endpoint is a route TEMPLATE, not a raw path — and NO user_id label: per-user
+# series are unbounded cardinality. Attribute per-user usage via the api_usage
+# table, not Prometheus labels.
 rate_limit_exceeded_total = Counter(
     "rate_limit_exceeded_total",
     "Total rate limit exceeded events",
-    ["service", "endpoint", "user_id"],
+    ["service", "endpoint"],
 )
 
 

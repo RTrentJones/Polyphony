@@ -12,6 +12,41 @@ from evals.graders import attribution, continuity, extraction, retrieval
 pytestmark = pytest.mark.unit
 
 
+class TestVecMath:
+    def test_cosine_and_centroid(self):
+        from evals.harness.vecmath import centroid, cosine
+
+        assert cosine([1.0, 0.0], [1.0, 0.0]) == pytest.approx(1.0)
+        assert cosine([1.0, 0.0], [0.0, 1.0]) == pytest.approx(0.0)
+        assert cosine([0.0, 0.0], [1.0, 1.0]) == 0.0  # zero-norm safe
+        assert centroid([[0.0, 2.0], [2.0, 0.0]]) == [1.0, 1.0]
+        assert centroid([]) == []
+
+
+class TestStepRegistry:
+    def test_all_six_steps_registered_in_order(self):
+        from evals.steps import pipeline  # noqa: F401 — registers steps
+        from evals.steps.base import all_steps, get_step
+
+        assert all_steps() == [
+            "extraction",
+            "retrieval",
+            "attribution",
+            "outline",
+            "continuity",
+            "prose",
+        ]
+        # embedding-only steps must not require the API (so they run keyless)
+        assert get_step("retrieval").needs_api is False
+        assert get_step("extraction").needs_api is True
+
+    def test_unknown_step_raises(self):
+        from evals.steps.base import get_step
+
+        with pytest.raises(KeyError):
+            get_step("nope")
+
+
 class TestExtraction:
     def test_perfect(self):
         s = extraction.grade_extraction(

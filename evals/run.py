@@ -3,8 +3,9 @@
     python -m evals.run --book dracula --steps all --out report.json
 
 Drives a RUNNING Polyphony (EVAL_BASE_URL, default http://localhost:8000) as a
-throwaway invite-registered user. Steps that only need embeddings (retrieval,
-and the reference side of attribution) run in-process and need no LLM key.
+throwaway invite-registered user. Steps declare `needs_api`; API steps are
+skipped (not failed) when there's no server + admin creds. Adding a step is a
+`@step(...)` decorator in evals/steps/pipeline.py — this runner needs no change.
 """
 
 from __future__ import annotations
@@ -19,11 +20,8 @@ from evals.harness.cache import Cache
 from evals.harness.client import PolyphonyClient
 from evals.harness.config import load as load_config
 from evals.harness.judge import Judge
-from evals.steps import pipeline
-
-ALL_STEPS = ["extraction", "retrieval", "attribution", "outline", "continuity", "prose"]
-# steps that spend LLM quota / need the API + admin creds
-LLM_STEPS = {"extraction", "attribution", "outline", "continuity", "prose"}
+from evals.steps import pipeline  # noqa: F401 — registers the steps
+from evals.steps.base import StepContext, all_steps, get_step
 
 
 async def _app_sha(base_url: str) -> str:
@@ -35,12 +33,17 @@ async def _app_sha(base_url: str) -> str:
         return "unknown"
 
 
-async def run(book: str, steps: list[str], out: str) -> dict:
+async def run(book: str, step_names: list[str], out: str) -> dict:
     cfg = load_config()
     text, gt = pipeline.load_corpus(book)
     app_sha = await _app_sha(cfg.base_url)
-    cache = Cache(cfg.cache_dir, app_sha)
-    judge = Judge(cfg)
+    ctx = StepContext(
+        book=book,
+        corpus_text=text,
+        ground_truth=gt,
+        cache=Cache(cfg.cache_dir, app_sha),
+        judge=Judge(cfg),
+    )
 
     result = {
         "book": book,
@@ -53,51 +56,27 @@ async def run(book: str, steps: list[str], out: str) -> dict:
         "steps": {},
     }
 
-    needs_api = any(s in LLM_STEPS for s in steps)
-    client = None
-    if needs_api:
-        if not (cfg.admin_email and cfg.admin_password):
-            for s in steps:
-                if s in LLM_STEPS:
-                    result["steps"][s] = {
-                        "skipped": True,
-                        "reason": "no EVAL_ADMIN_EMAIL/PASSWORD",
-                    }
-            steps = [s for s in steps if s not in LLM_STEPS]
-        else:
-            client = PolyphonyClient(cfg.base_url)
-            await client.bootstrap_eval_user(cfg.admin_email, cfg.admin_password)
+    steps = [get_step(n) for n in step_names]
+    have_creds = bool(cfg.admin_email and cfg.admin_password)
+    if any(s.needs_api for s in steps) and have_creds:
+        ctx.client = PolyphonyClient(cfg.base_url)
+        await ctx.client.bootstrap_eval_user(cfg.admin_email, cfg.admin_password)
 
     try:
         for s in steps:
+            if s.needs_api and ctx.client is None:
+                result["steps"][s.name] = {
+                    "skipped": True,
+                    "reason": "no EVAL_ADMIN_EMAIL/PASSWORD",
+                }
+                continue
             try:
-                if s == "extraction":
-                    result["steps"][s] = await pipeline.step_extraction(
-                        client, book, gt, text
-                    )
-                elif s == "retrieval":
-                    result["steps"][s] = await pipeline.step_retrieval(gt)
-                elif s == "attribution":
-                    result["steps"][s] = await pipeline.step_attribution(
-                        client, gt, cache
-                    )
-                elif s == "outline":
-                    result["steps"][s] = await pipeline.step_outline(
-                        client, gt, judge, cache
-                    )
-                elif s == "continuity":
-                    result["steps"][s] = await pipeline.step_continuity(
-                        client, gt, text, cache
-                    )
-                elif s == "prose":
-                    result["steps"][s] = await pipeline.step_prose(
-                        client, gt, judge, cache
-                    )
+                result["steps"][s.name] = await s.run(ctx)
             except Exception as e:  # a failing step never aborts the suite
-                result["steps"][s] = {"error": f"{type(e).__name__}: {e}"}
+                result["steps"][s.name] = {"error": f"{type(e).__name__}: {e}"}
     finally:
-        if client:
-            await client.aclose()
+        if ctx.client:
+            await ctx.client.aclose()
 
     report.write(result, out)
     return result
@@ -111,10 +90,12 @@ def main() -> None:
     ap.add_argument("--export", help="also write the greenlight eval-export JSON here")
     args = ap.parse_args()
 
-    steps = (
-        ALL_STEPS if args.steps == "all" else [s.strip() for s in args.steps.split(",")]
+    step_names = (
+        all_steps()
+        if args.steps == "all"
+        else [s.strip() for s in args.steps.split(",")]
     )
-    result = asyncio.run(run(args.book, steps, args.out))
+    result = asyncio.run(run(args.book, step_names, args.out))
     print(report.scorecard(result))
     print(f"\nfull report -> {args.out}")
     if args.export:

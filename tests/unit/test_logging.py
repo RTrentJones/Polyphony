@@ -129,6 +129,27 @@ class TestContextLogger:
 
         assert context_logger.correlation_id == "corr-123"
 
+    async def test_correlation_id_isolated_across_concurrent_tasks(self):
+        """The core fix: two interleaved requests must not bleed correlation ids.
+
+        Before the ContextVar refactor the id was logger-instance state shared by
+        the module singleton, so task B's set() clobbered task A's across awaits."""
+        import asyncio
+
+        base_logger = logging.getLogger("test-concurrency")
+        context_logger = ContextLogger(base_logger, "svc")
+        seen: dict[str, str | None] = {}
+
+        async def request(cid: str):
+            context_logger.set_correlation_id(cid)
+            await asyncio.sleep(0)  # yield — another task runs and sets its own id
+            await asyncio.sleep(0)
+            seen[cid] = context_logger.correlation_id
+
+        await asyncio.gather(request("A"), request("B"), request("C"))
+        # each task must still see ITS OWN id, not whichever ran last.
+        assert seen == {"A": "A", "B": "B", "C": "C"}
+
     def test_context_logger_adds_context_to_logs(self):
         """Test context is added to log records"""
         base_logger = logging.getLogger("test")
