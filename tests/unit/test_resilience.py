@@ -2,7 +2,7 @@
 
 import pytest
 import asyncio
-from services.shared.resilience import (
+from app.core.resilience import (
     CircuitBreaker,
     CircuitBreakerState,
     CircuitBreakerError,

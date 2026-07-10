@@ -2,219 +2,58 @@ name: Test Suite
 
 on:
   push:
-    branches: [ main, develop, claude/** ]
+    branches: [main, develop, claude/**]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
+  workflow_dispatch:
 
 jobs:
   test:
+    name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
-
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.11", "3.12"]
 
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: polyphony
-          POSTGRES_PASSWORD: testpassword
-          POSTGRES_DB: polyphony_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip'
+          cache: pip
 
-      - name: Free up disk space
-        run: |
-          # Remove unnecessary software to free up disk space
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          df -h
+      - name: Install system deps (libmagic for upload sniffing)
+        run: sudo apt-get update && sudo apt-get install -y libmagic1
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libmagic1
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          # Install PyTorch CPU-only version first to avoid CUDA dependencies
-          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-          # Install other requirements, using extra index to prefer CPU versions
-          PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu pip install -r requirements.txt
-          df -h
-
-      - name: Set up environment
-        run: |
-          cp .env.example .env || echo "No .env.example found"
-          echo "DATABASE_URL=postgresql+asyncpg://polyphony:testpassword@localhost:5432/polyphony_test" >> .env
-          echo "REDIS_URL=redis://localhost:6379" >> .env
-          echo "SECRET_KEY=test-secret-key-for-ci" >> .env
-          echo "GROQ_API_KEY=test-api-key" >> .env
-
-      - name: Run database migrations
-        run: |
-          # Run Alembic migrations when available
-          # alembic upgrade head
-          echo "Migrations will be run when Alembic is configured"
-
-      - name: Run unit tests
-        run: |
-          pytest tests/unit -v --cov=services --cov-report=xml --cov-report=term-missing -m "unit and not llm"
-
-      - name: Run integration tests
-        run: |
-          pytest tests/integration -v --cov=services --cov-append --cov-report=xml --cov-report=term-missing -m "integration and not llm"
-        continue-on-error: true
-
-      - name: Check test coverage
-        run: |
-          coverage report --fail-under=60 || true  # Allow lower coverage initially
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
-        with:
-          file: ./coverage.xml
-          flags: unittests
-          name: codecov-umbrella
-          fail_ci_if_error: false
-
-      - name: Generate coverage badge
-        run: |
-          coverage-badge -o coverage.svg -f
-        continue-on-error: true
-
-      - name: Archive test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results-${{ matrix.python-version }}
-          path: |
-            htmlcov/
-            coverage.xml
-            .coverage
+      # Tests are BLOCKING: the same suite gates the container build in
+      # greenlight-build.yml, so a red test means no image ships.
+      - name: Run tests
+        env:
+          SECRET_KEY: ci_secret_key_minimum_32_characters_long
+          POSTGRES_PASSWORD: ci_password_12345
+        run: python -m pytest tests -q --no-cov
 
   lint:
+    name: Lint
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-          cache: 'pip'
+          python-version: "3.12"
+          cache: pip
 
-      - name: Free up disk space
-        run: |
-          # Remove unnecessary software to free up disk space
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          df -h
+      - name: Install lint tools
+        run: pip install black ruff
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          # Install PyTorch CPU-only version first to avoid CUDA dependencies
-          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-          # Install other requirements, using extra index to prefer CPU versions
-          PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu pip install -r requirements.txt
-          df -h
+      - name: Black
+        run: black --check app tests alembic
 
-      - name: Run Black formatter check
-        run: |
-          black --check services/ tests/
-        continue-on-error: false
-
-      - name: Run Ruff linter
-        run: |
-          ruff check services/ tests/
-
-      - name: Run MyPy type checking
-        run: |
-          # Check each service directory individually to handle hyphenated names
-          for dir in services/*/; do
-            if [ -d "$dir" ]; then
-              echo "Checking $dir..."
-              mypy --ignore-missing-imports --follow-imports=skip "$dir"*.py 2>&1 || true
-            fi
-          done
-        continue-on-error: true
-
-  security:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
-
-      - name: Free up disk space
-        run: |
-          # Remove unnecessary software to free up disk space
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          df -h
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install safety bandit || pip install bandit  # Fallback if safety has issues
-
-      - name: Check for security vulnerabilities in dependencies
-        run: |
-          # Use new safety scan command (check is deprecated)
-          # Only scan requirements.txt, not system packages
-          safety scan --target requirements.txt || true
-        continue-on-error: true
-
-      - name: Run Bandit security linter
-        run: |
-          bandit -r services/ -f json -o bandit-report.json
-        continue-on-error: true
-
-      - name: Upload security reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: security-reports
-          path: |
-            bandit-report.json
+      - name: Ruff
+        run: ruff check app tests alembic

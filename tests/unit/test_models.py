@@ -4,7 +4,7 @@ import pytest
 from uuid import uuid4
 from pydantic import ValidationError
 
-from services.shared.models import (
+from app.core.models import (
     UserCreate,
     ManuscriptCreate,
     SceneRequest,

@@ -1,31 +1,20 @@
 """Pytest configuration and fixtures for Polyphony tests"""
 
 import pytest
-import asyncio
-from typing import AsyncGenerator, Generator
+from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import StaticPool
 import os
 
 # Set test environment before importing settings
 os.environ["POSTGRES_PASSWORD"] = "test_password_12345"
-os.environ["GROQ_API_KEY"] = "test_key_for_testing"
 os.environ["SECRET_KEY"] = "test_secret_key_minimum_32_characters_long_12345"
 
-from services.shared.database import Base
-from services.shared.orm_models import User, Manuscript, Character
-
+from app.core.database import Base
+from app.core.orm_models import User, Manuscript, Character
 
 # Test database URL
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
-
-
-@pytest.fixture(scope="session")
-def event_loop() -> Generator:
-    """Create an instance of the default event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
 
 
 @pytest.fixture(scope="function")
@@ -34,7 +23,8 @@ async def async_engine():
     engine = create_async_engine(
         TEST_DATABASE_URL,
         echo=False,
-        poolclass=NullPool,
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
     )
 
     # Create all tables
@@ -67,7 +57,7 @@ async def async_session(async_engine) -> AsyncGenerator[AsyncSession, None]:
 @pytest.fixture
 async def test_user(async_session: AsyncSession) -> User:
     """Create a test user"""
-    from services.shared.auth import get_password_hash
+    from app.core.security import get_password_hash
 
     user = User(
         email="test@example.com",
@@ -85,7 +75,7 @@ async def test_user(async_session: AsyncSession) -> User:
 @pytest.fixture
 async def auth_headers(test_user: User) -> dict:
     """Get authentication headers for test user"""
-    from services.shared.auth import create_access_token
+    from app.core.security import create_access_token
 
     access_token = create_access_token(data={"sub": str(test_user.id)})
 
@@ -148,3 +138,42 @@ def sample_scene_request(test_manuscript: Manuscript):
         "emotional_tone": "focused",
         "target_word_count": 500,
     }
+
+
+@pytest.fixture
+async def client(async_session: AsyncSession):
+    """In-loop ASGI test client with the DB dependency bound to the sqlite session.
+
+    httpx.ASGITransport (not TestClient) so the app coroutines run on the SAME
+    event loop as the sqlite session fixture.
+    """
+    import httpx
+
+    from app.core.database import get_db
+    from app.main import app
+
+    async def override_get_db():
+        yield async_session
+        await async_session.commit()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as test_client:
+            yield test_client
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture
+async def test_invite(async_session: AsyncSession):
+    """A valid invite code for registration tests."""
+    from app.core.orm_models import InviteCode
+
+    invite = InviteCode(code="conftest-invite", max_uses=10)
+    async_session.add(invite)
+    await async_session.commit()
+    await async_session.refresh(invite)
+    return invite

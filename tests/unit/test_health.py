@@ -3,7 +3,7 @@
 import pytest
 import asyncio
 from datetime import datetime
-from services.shared.health import HealthCheck, HealthStatus
+from app.core.health import HealthCheck, HealthStatus
 
 
 @pytest.mark.unit
@@ -60,8 +60,8 @@ class TestHealthCheck:
 
         assert result["status"] == HealthStatus.HEALTHY
         assert status_code == 200
-        assert result["checks"]["database"] is True
-        assert result["checks"]["cache"] is True
+        assert result["checks"]["database"]["status"] == HealthStatus.HEALTHY
+        assert result["checks"]["cache"]["status"] == HealthStatus.HEALTHY
 
     @pytest.mark.asyncio
     async def test_readiness_probe_unhealthy_dependency(self):
@@ -81,8 +81,8 @@ class TestHealthCheck:
 
         assert result["status"] == HealthStatus.UNHEALTHY
         assert status_code == 503  # Service Unavailable
-        assert result["checks"]["database"] is True
-        assert result["checks"]["cache"] is False
+        assert result["checks"]["database"]["status"] == HealthStatus.HEALTHY
+        assert result["checks"]["cache"]["status"] == HealthStatus.UNHEALTHY
 
     @pytest.mark.asyncio
     async def test_readiness_probe_check_exception(self):
@@ -98,8 +98,8 @@ class TestHealthCheck:
 
         assert result["status"] == HealthStatus.UNHEALTHY
         assert status_code == 503
-        assert isinstance(result["checks"]["failing"], str)  # Error message
-        assert "Check failed" in result["checks"]["failing"]
+        assert result["checks"]["failing"]["status"] == HealthStatus.UNHEALTHY
+        assert "Check failed" in result["checks"]["failing"]["error"]
 
     @pytest.mark.asyncio
     async def test_add_multiple_checks(self):
@@ -191,7 +191,7 @@ class TestHealthCheckHelpers:
     @pytest.mark.asyncio
     async def test_database_health_check(self):
         """Test database health check helper"""
-        from services.shared.health import check_database_health
+        from app.core.health import check_database_health
         from unittest.mock import AsyncMock
 
         # Mock database session
@@ -210,7 +210,7 @@ class TestHealthCheckHelpers:
     @pytest.mark.asyncio
     async def test_cache_health_check(self):
         """Test cache health check helper"""
-        from services.shared.health import check_cache_health
+        from app.core.health import check_cache_health
         from unittest.mock import AsyncMock
 
         # Mock Redis client
@@ -229,7 +229,7 @@ class TestHealthCheckHelpers:
     @pytest.mark.asyncio
     async def test_external_service_health_check(self):
         """Test external service health check"""
-        from services.shared.health import check_external_service_health
+        from app.core.health import check_external_service_health
         from unittest.mock import AsyncMock
         import httpx
 

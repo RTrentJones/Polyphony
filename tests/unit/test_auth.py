@@ -4,13 +4,13 @@ import pytest
 from datetime import timedelta
 from jose import jwt
 
-from services.shared.auth import (
+from app.core.security import (
     verify_password,
     get_password_hash,
     create_access_token,
     decode_access_token,
 )
-from services.shared.config import settings
+from app.core.config import settings
 
 
 @pytest.mark.unit
