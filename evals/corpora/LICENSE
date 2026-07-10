@@ -1,0 +1,20 @@
+Eval corpora — public domain
+=============================
+
+All texts under evals/corpora/ are RENAMED DERIVATIVES of works that are in the
+public domain in the United States (each first published before 1929). See each
+book's PROVENANCE.md for the source work, author, and year.
+
+The underlying source texts are used either from Standard Ebooks (dedicated to
+the public domain via the CC0 1.0 Universal Public Domain Dedication) or from
+Project Gutenberg with the Project Gutenberg header, license, and trademark
+references stripped (per the Project Gutenberg License, the remaining text is
+"unrestricted by U.S. intellectual property law").
+
+To the extent this project holds any rights in the renaming/derivation, they are
+dedicated to the public domain under CC0 1.0:
+https://creativecommons.org/publicdomain/zero/1.0/
+
+The character/place renaming exists solely to prevent train-set memorization from
+contaminating the evaluation; provenance of every source work is documented, not
+obscured.

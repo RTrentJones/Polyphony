@@ -50,10 +50,13 @@ jobs:
         run: |
           pip install -r requirements.txt
           make test
-      - name: Postgres integration tests (migrations, pgvector, ingestion FK)
+      - name: Integration tests (pgvector FK + eval corpus voice-separability)
         env:
           SECRET_KEY: ci_secret_key_minimum_32_characters_long
           RUN_PG_TESTS: '1'
+          # Guards the renamed eval corpus: the gold voices must stay separable
+          # (fastembed over Dracula) or the voice/attribution evals go meaningless.
+          RUN_EMBED_TESTS: '1'
           DATABASE_URL: postgresql+asyncpg://postgres:ci_password_12345@localhost:5432/polyphony_test
         run: pytest tests/integration -m integration -o addopts="" -q
 
