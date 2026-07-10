@@ -13,6 +13,31 @@ from app.llm.json_utils import extract_json_array
 logger = setup_logging("parsing.character_extractor")
 
 
+def stratified_sample(text: str, budget: int = 14000, windows: int = 4) -> str:
+    """Evenly-spaced windows across the WHOLE manuscript, not just the head.
+
+    Character identification off `text[:10000]` misses anyone introduced later
+    (a POV/narrator who first appears in a late chapter is invisible). Sampling
+    a few windows spread across the text surfaces the full cast while keeping
+    the prompt within a fixed character budget.
+    """
+    if len(text) <= budget:
+        return text
+    win = max(1, budget // windows)
+    # Anchor the first window at the start; distribute the rest across the span
+    # so the final window ends at the text's tail.
+    span = len(text) - win
+    starts = [round(i * span / (windows - 1)) for i in range(windows)]
+    parts, seen_end = [], 0
+    for s in starts:
+        s = max(s, seen_end)  # never overlap the previous window
+        if s >= len(text):
+            break
+        parts.append(text[s : s + win])
+        seen_end = s + win
+    return "\n\n[...]\n\n".join(parts)
+
+
 class CharacterExtractor:
     """Extract character-specific content from manuscript"""
 
@@ -32,22 +57,25 @@ class CharacterExtractor:
         Returns:
             List of character names
         """
-        # Use first 10k characters for character identification
-        sample_text = text[:10000]
+        # Sample across the whole manuscript so late-introduced characters
+        # (and epistolary narrators) are seen, not just those in the opening.
+        sample_text = stratified_sample(text)
 
-        prompt = f"""Analyze this manuscript excerpt and identify the main speaking characters.
+        prompt = f"""Analyze this manuscript and identify the main characters.
 
 Return ONLY a JSON array of character names (limit to top {max_characters} by importance).
-Do not include narrators, minor characters mentioned only in passing, or groups.
 
-Text excerpt:
+Text (sampled across the whole manuscript, windows separated by [...]):
 {sample_text}
 
 Important:
-- Only include characters who speak or take actions in the story
-- Use their most common name (e.g., "Harry" not "Harry Potter")
-- Return valid JSON format
-- No additional text or explanations
+- Include first-person narrators, diarists, and letter-writers — in epistolary
+  or multi-POV works THEY are the main characters, even if rarely named in
+  third person.
+- Include anyone who speaks or drives action; exclude groups and figures
+  mentioned only once in passing.
+- Use each character's most common name (e.g., "Harry" not "Harry Potter").
+- Return valid JSON only — no prose, no explanation.
 
 JSON array:"""
 

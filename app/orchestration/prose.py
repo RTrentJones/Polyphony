@@ -67,8 +67,11 @@ matching the voice samples exactly:
 BEAT TO WRITE: {beat_desc}
 
 Write approximately {target_words} words of polished narrative prose with
-interwoven dialogue. Do NOT use headings, beat labels, or stage directions —
-just the prose. Do NOT repeat the scene so far.
+interwoven dialogue. Give each character a DISTINCT voice — their diction,
+cadence, and syntax should differ enough that a reader could tell who is
+speaking without the dialogue tags, grounded in the voice samples above. Do NOT
+use headings, beat labels, or stage directions — just the prose. Do NOT repeat
+the scene so far.
 
 Prose:"""
 

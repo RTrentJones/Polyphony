@@ -1,0 +1,111 @@
+name: evals
+
+# Runs the renamed-public-domain eval suite against a freshly-booted app and
+# ingests the scores into Tracer, so voice/plot/continuity quality is trended
+# release-over-release (not eyeballed). Manually dispatched (it spends shared
+# Gemini free-tier quota) + a weekly baseline.
+#
+# Secrets this needs on the Polyphony repo (Settings → Secrets and variables →
+# Actions):
+#   GEMINI_API_KEY      — the model under test boots with it (fail-fast without).
+#   TRACER_INGEST_TOKEN — bearer for Tracer /api/ingest; if unset, the run still
+#                         produces a report artifact, it just doesn't ingest.
+# ADMIN_* / SECRET_KEY below are throwaway CI values (ephemeral DB), not secrets.
+
+on:
+  workflow_dispatch:
+    inputs:
+      book:
+        description: corpus to grade
+        default: dracula
+      steps:
+        description: comma list of steps or 'all'
+        default: all
+      env_label:
+        description: env tag stored on the Tracer run
+        default: ci
+  schedule:
+    - cron: '17 6 * * 1' # Mondays 06:17 UTC — a weekly trend point
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: ci_password_12345
+          POSTGRES_DB: polyphony_eval
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      SECRET_KEY: ci_secret_key_minimum_32_characters_long
+      DATABASE_URL: postgresql+asyncpg://postgres:ci_password_12345@localhost:5432/polyphony_eval
+      LLM_PROVIDER: gemini
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      # First-boot admin (empty DB) → the eval client logs in as this admin,
+      # mints an invite, and registers a throwaway user for the run.
+      ADMIN_EMAIL: eval-admin@example.com
+      ADMIN_PASSWORD: eval_admin_pw_ci_only_12345
+      EVAL_ADMIN_EMAIL: eval-admin@example.com
+      EVAL_ADMIN_PASSWORD: eval_admin_pw_ci_only_12345
+      EVAL_BASE_URL: http://localhost:8000
+      EVAL_ENV_LABEL: ${{ github.event.inputs.env_label || 'ci' }}
+      EVAL_TRACER_URL: https://tracer.rtrentjones.dev
+      TRACER_INGEST_TOKEN: ${{ secrets.TRACER_INGEST_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: System deps (libmagic for upload sniffing)
+        run: sudo apt-get update && sudo apt-get install -y libmagic1
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Preflight — Gemini key present
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "::error::GEMINI_API_KEY is not set on this repo — the app can't boot for the eval. Add it in repo Actions secrets."
+            exit 1
+          fi
+      - name: Migrate
+        run: python -m alembic upgrade head
+      - name: Boot app + wait for health
+        run: |
+          python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          echo $! > /tmp/app.pid
+          for i in $(seq 1 40); do
+            if curl -fsS http://localhost:8000/health >/dev/null 2>&1; then
+              echo "app healthy after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::app did not become healthy"; exit 1
+      - name: Run evals + ingest to Tracer
+        run: |
+          python -m evals.run \
+            --book "${{ github.event.inputs.book || 'dracula' }}" \
+            --steps "${{ github.event.inputs.steps || 'all' }}" \
+            --out eval-report.json \
+            --export gl-export.json \
+            --tracer
+      - name: Stop app
+        if: always()
+        run: kill "$(cat /tmp/app.pid)" 2>/dev/null || true
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report-${{ github.run_id }}
+          path: |
+            eval-report.json
+            gl-export.json
+          if-no-files-found: warn

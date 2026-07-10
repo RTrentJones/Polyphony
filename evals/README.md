@@ -46,6 +46,28 @@ The runner registers a **throwaway invite user** and does all work as them — i
 never touches other users' data. Generations are cached under `EVAL_CACHE_DIR`
 keyed by the app's `/__version` sha, so re-grading never re-generates.
 
+## Trending in Tracer
+
+Pass `--tracer` to POST the run to [Tracer](https://tracer.rtrentjones.dev)'s
+`/api/ingest` as one `eval_run` (one case per scored step, `score` in `0..1`),
+so voice/plot/continuity quality trends release-over-release instead of being
+eyeballed:
+
+```bash
+export EVAL_TRACER_URL=https://tracer.rtrentjones.dev
+export TRACER_INGEST_TOKEN=...        # bearer; unset → run still scores, just doesn't ingest
+python -m evals.run --book dracula --steps all --tracer --out report.json
+```
+
+The mapping (`report.tracer_export`) trends the model **under test** (`EVAL_MODEL_LABEL`
+/ `LLM_MODEL`, default `gemini-2.5-flash`), keyed by the app's `/__version` sha,
+so a prompt/architecture change shows as a step-score delta on the dashboard.
+
+**CI:** `.github/workflows/evals.yml` boots a fresh app (pgvector service +
+`GEMINI_API_KEY`), runs the suite, and ingests to Tracer — dispatchable on demand
+(before/after a change) and weekly for a baseline. It needs `GEMINI_API_KEY` and
+`TRACER_INGEST_TOKEN` as repo Actions secrets.
+
 ## Judge
 
 Rubric-scored steps (`outline`, `prose`) use a pluggable LLM judge — default

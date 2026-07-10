@@ -47,6 +47,64 @@ class TestStepRegistry:
             get_step("nope")
 
 
+class TestTracerExport:
+    def _run(self):
+        return {
+            "book": "dracula",
+            "app_sha": "abc123",
+            "model": "gemini-2.5-flash",
+            "steps": {
+                "extraction": {
+                    "score": 0.8,
+                    "f1": 0.8,
+                    "precision": 1.0,
+                    "recall": 0.67,
+                },
+                "retrieval": {"score": 0.4, "precision_at_k": 0.4, "mrr": 0.5},
+                "outline": {"score": 0.9, "judge_explanation": "recovers the arc"},
+                "skipped_step": {"skipped": True, "reason": "no creds"},
+                "errored_step": {"error": "boom"},
+            },
+        }
+
+    def test_maps_to_tracer_run_input(self):
+        from evals.harness import report
+
+        out = report.tracer_export(self._run(), model="gemini-2.5-flash", env="prod")
+        assert out["tool"] == "polyphony"
+        assert out["model"] == "gemini-2.5-flash"
+        assert out["mode"] == "eval" and out["env"] == "prod"
+        assert out["git_sha"] == "abc123"
+        # skipped + errored steps are dropped; 3 scored steps remain.
+        names = {c["name"] for c in out["cases"]}
+        assert names == {"eval:extraction", "eval:retrieval", "eval:outline"}
+        # pass/fail per the 0.5 floor: extraction(.8)✓ outline(.9)✓ retrieval(.4)✗
+        by = {c["name"]: c for c in out["cases"]}
+        assert by["eval:extraction"]["passed"] and by["eval:outline"]["passed"]
+        assert not by["eval:retrieval"]["passed"]
+        assert out["pass_rate"] == pytest.approx(2 / 3, abs=1e-3)
+        assert out["passed"] is False  # not all cases passed
+        # judge rationale rides through on the case that has one.
+        assert by["eval:outline"]["judge_rationale"] == "recovers the arc"
+
+    def test_all_pass_sets_run_passed_true(self):
+        from evals.harness import report
+
+        run = {
+            "app_sha": "s",
+            "steps": {"outline": {"score": 0.9}, "prose": {"score": 0.7, "words": 400}},
+        }
+        out = report.tracer_export(run, model="m")
+        assert out["passed"] is True and out["pass_rate"] == 1.0
+
+    def test_scores_bounded_0_1_for_zod(self):
+        # Tracer's zod caps case.score at [0,1]; the export must never exceed it.
+        from evals.harness import report
+
+        out = report.tracer_export({"steps": {"x": {"score": 1.0}}}, model="m")
+        assert all(0.0 <= c["score"] <= 1.0 for c in out["cases"])
+
+
 class TestExtraction:
     def test_perfect(self):
         s = extraction.grade_extraction(
