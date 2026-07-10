@@ -73,7 +73,6 @@ class Character(CharacterProfile):
     manuscript_id: UUID
     dialogue_count: int = 0
     indexed_at: Optional[datetime]
-    qdrant_collection_name: Optional[str]
 
     class Config:
         from_attributes = True
@@ -156,7 +155,7 @@ class StreamEvent(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 
-# Qdrant models
+# Vector-store chunk metadata
 class CharacterChunkMetadata(BaseModel):
     character_id: str
     character_name: str

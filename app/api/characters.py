@@ -9,7 +9,6 @@ from uuid import UUID
 from datetime import datetime, timezone
 
 from app.characters.dialogue import generate_dialogue
-from app.core.config import settings
 from app.core.database import get_db
 from app.core.orm_models import (
     Character as CharacterORM,
@@ -94,7 +93,6 @@ async def create_character(
         description=payload.description,
         personality_traits=payload.personality_traits,
         voice_characteristics=payload.voice_characteristics,
-        qdrant_collection_name=settings.QDRANT_COLLECTION,
     )
     db.add(character)
     await db.commit()

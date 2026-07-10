@@ -16,8 +16,8 @@ email-validator>=2.1.0,<3.0.0
 # (parameterized by base_url; see app/llm/providers.py)
 openai>=1.40.0,<2.0.0
 
-# Vector Database + embeddings (ONNX, no torch)
-qdrant-client>=1.7.0,<2.0.0
+# Embeddings (ONNX, no torch). Vector search is pgvector in the SAME Postgres
+# (see app/rag/store.py + the Alembic baseline) — no separate vector database.
 fastembed>=0.3.6,<0.5.0
 
 # Database

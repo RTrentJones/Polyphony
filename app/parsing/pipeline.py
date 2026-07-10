@@ -3,7 +3,7 @@
 Was the document-parser service + the TODO stub in the gateway's background
 task. Now one in-process pipeline: validate/save the upload, parse it, extract
 characters via the LLM, persist Character + CharacterChunk rows, and index the
-chunks into the shared Qdrant collection.
+chunks into the pgvector store (same database).
 """
 
 import hashlib
@@ -109,7 +109,6 @@ async def process_manuscript(
                     manuscript_id=manuscript_id,
                     name=name,
                     dialogue_count=stats["dialogue_count"],
-                    qdrant_collection_name=settings.QDRANT_COLLECTION,
                 )
                 session.add(character)
                 await session.flush()  # assign character.id

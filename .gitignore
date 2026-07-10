@@ -86,3 +86,7 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Sandbox-only build artifacts (TLS-intercepting CI sandbox; never shipped)
+.sandbox-ca.crt
+Dockerfile.sandbox

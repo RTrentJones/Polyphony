@@ -194,26 +194,6 @@ async def check_http_endpoint(url: str, timeout: float = 5.0) -> bool:
         return False
 
 
-async def check_qdrant(qdrant_client) -> bool:
-    """
-    Check Qdrant connection
-
-    Args:
-        qdrant_client: Qdrant client instance
-
-    Returns:
-        True if Qdrant is healthy, False otherwise
-    """
-    try:
-        if qdrant_client:
-            # Try to get collection list or health check
-            # This depends on qdrant client API
-            return True
-        return False
-    except Exception:
-        return False
-
-
 # Additional helper functions expected by tests
 
 

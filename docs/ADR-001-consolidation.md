@@ -79,3 +79,19 @@ and Qdrant Cloud (1 GB free). Alembic owns the schema from migration 0001;
   defect source, not a scaling asset, at this size.
 - **Keeping LangGraph for the orchestration graph**: contained swap either
   way; removed for image size and dependency surface.
+
+## Amendment (2026-07-10): pgvector replaces Qdrant Cloud (§6, §7)
+
+Decision 6's shared-collection layout survives, but the store is now a
+`voice_chunks` table (`vector(384)`, HNSW, cosine) in the SAME Neon Postgres
+via the `pgvector` extension — not a Qdrant Cloud cluster. Rationale: Neon is
+already provisioned by the wrapper's Terraform and its connection string
+already reaches the container; Qdrant Cloud added a hand-provisioned account
+and two secrets for no capability we need at this scale (384-dim, ≲500k
+chunks). The table lives only in the Alembic baseline (postgres-only guard)
+so sqlite test databases never see a vector column; `app/rag/store.py` keeps
+the same ChunkStore interface over raw SQL.
+
+If scale ever warrants a dedicated vector store, the path is upstreaming
+`data: 'qdrant'` as a first-class Greenlight data source (schema matrix +
+provider pack + Terraform module) — never hand-wiring it in this consumer.
