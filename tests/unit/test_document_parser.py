@@ -1,6 +1,6 @@
 """Unit tests for Document Parser"""
 
-from services.document_parser.parser import DocumentParser
+from app.parsing.parser import DocumentParser
 
 
 def test_document_parser_initialization():

@@ -1,7 +1,7 @@
 """Unit tests for input sanitization and security utilities"""
 
 import pytest
-from services.shared.sanitization import (
+from app.core.sanitization import (
     sanitize_for_llm,
     sanitize_html,
     sanitize_sql_string,

@@ -3,7 +3,7 @@
 import pytest
 import time
 from prometheus_client import REGISTRY
-from services.shared.metrics import (
+from app.core.metrics import (
     http_requests_total,
     http_request_duration_seconds,
     llm_requests_total,

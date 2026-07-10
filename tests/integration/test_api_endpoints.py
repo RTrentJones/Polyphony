@@ -9,14 +9,15 @@ class TestAuthEndpoints:
     """Test authentication endpoints"""
 
     @pytest.mark.asyncio
-    async def test_register_user(self, client):
-        """Test user registration"""
-        response = client.post(
+    async def test_register_user(self, client, test_invite):
+        """Test user registration (invite-gated)"""
+        response = await client.post(
             "/api/v1/auth/register",
             json={
                 "email": "newuser@example.com",
                 "password": "securepassword123",
                 "full_name": "New User",
+                "invite_code": test_invite.code,
             },
         )
 
@@ -28,14 +29,15 @@ class TestAuthEndpoints:
         assert data["user"]["email"] == "newuser@example.com"
 
     @pytest.mark.asyncio
-    async def test_register_duplicate_email(self, client, test_user):
+    async def test_register_duplicate_email(self, client, test_user, test_invite):
         """Test registering with duplicate email fails"""
-        response = client.post(
+        response = await client.post(
             "/api/v1/auth/register",
             json={
                 "email": test_user.email,
                 "password": "anotherpassword",
                 "full_name": "Duplicate User",
+                "invite_code": test_invite.code,
             },
         )
 
@@ -45,7 +47,7 @@ class TestAuthEndpoints:
     @pytest.mark.asyncio
     async def test_login_success(self, client, test_user):
         """Test successful login"""
-        response = client.post(
+        response = await client.post(
             "/api/v1/auth/login",
             data={
                 "username": test_user.email,  # OAuth2 uses 'username'
@@ -62,7 +64,7 @@ class TestAuthEndpoints:
     @pytest.mark.asyncio
     async def test_login_invalid_credentials(self, client, test_user):
         """Test login with invalid credentials"""
-        response = client.post(
+        response = await client.post(
             "/api/v1/auth/login",
             data={"username": test_user.email, "password": "wrongpassword"},
         )
@@ -72,7 +74,7 @@ class TestAuthEndpoints:
     @pytest.mark.asyncio
     async def test_get_current_user(self, client, auth_headers):
         """Test getting current user info"""
-        response = client.get("/api/v1/auth/me", headers=auth_headers)
+        response = await client.get("/api/v1/auth/me", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -83,7 +85,7 @@ class TestAuthEndpoints:
     @pytest.mark.asyncio
     async def test_get_current_user_no_token(self, client):
         """Test getting current user without token fails"""
-        response = client.get("/api/v1/auth/me")
+        response = await client.get("/api/v1/auth/me")
 
         assert response.status_code == 401
 
@@ -95,7 +97,7 @@ class TestManuscriptEndpoints:
     @pytest.mark.asyncio
     async def test_list_manuscripts_empty(self, client, auth_headers):
         """Test listing manuscripts when user has none"""
-        response = client.get("/api/v1/manuscripts/", headers=auth_headers)
+        response = await client.get("/api/v1/manuscripts/", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -106,7 +108,7 @@ class TestManuscriptEndpoints:
     @pytest.mark.asyncio
     async def test_list_manuscripts(self, client, auth_headers, test_manuscript):
         """Test listing manuscripts"""
-        response = client.get("/api/v1/manuscripts/", headers=auth_headers)
+        response = await client.get("/api/v1/manuscripts/", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -118,7 +120,7 @@ class TestManuscriptEndpoints:
     @pytest.mark.asyncio
     async def test_get_manuscript(self, client, auth_headers, test_manuscript):
         """Test getting specific manuscript"""
-        response = client.get(
+        response = await client.get(
             f"/api/v1/manuscripts/{test_manuscript.id}", headers=auth_headers
         )
 
@@ -132,14 +134,16 @@ class TestManuscriptEndpoints:
     async def test_get_nonexistent_manuscript(self, client, auth_headers):
         """Test getting non-existent manuscript"""
         fake_id = uuid4()
-        response = client.get(f"/api/v1/manuscripts/{fake_id}", headers=auth_headers)
+        response = await client.get(
+            f"/api/v1/manuscripts/{fake_id}", headers=auth_headers
+        )
 
         assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_get_manuscript_no_auth(self, client, test_manuscript):
         """Test getting manuscript without authentication"""
-        response = client.get(f"/api/v1/manuscripts/{test_manuscript.id}")
+        response = await client.get(f"/api/v1/manuscripts/{test_manuscript.id}")
 
         assert response.status_code == 401
 
@@ -148,7 +152,7 @@ class TestManuscriptEndpoints:
         self, client, auth_headers, test_manuscript, test_character
     ):
         """Test getting manuscript characters"""
-        response = client.get(
+        response = await client.get(
             f"/api/v1/manuscripts/{test_manuscript.id}/characters", headers=auth_headers
         )
 
@@ -167,7 +171,7 @@ class TestSceneEndpoints:
     @pytest.mark.asyncio
     async def test_list_scenes_empty(self, client, auth_headers):
         """Test listing scenes when user has none"""
-        response = client.get("/api/v1/scenes/", headers=auth_headers)
+        response = await client.get("/api/v1/scenes/", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -178,7 +182,7 @@ class TestSceneEndpoints:
     @pytest.mark.asyncio
     async def test_list_scenes_no_auth(self, client):
         """Test listing scenes without authentication"""
-        response = client.get("/api/v1/scenes/")
+        response = await client.get("/api/v1/scenes/")
 
         assert response.status_code == 401
 
@@ -190,20 +194,22 @@ class TestSceneEndpoints:
 class TestHealthEndpoints:
     """Test health and metrics endpoints"""
 
-    def test_root_endpoint(self, client):
+    @pytest.mark.asyncio
+    async def test_root_endpoint(self, client):
         """Test root endpoint"""
-        response = client.get("/")
+        response = await client.get("/")
 
         assert response.status_code == 200
         data = response.json()
 
-        assert data["service"] == "Polyphony API Gateway"
+        assert data["service"] == "Polyphony"
         assert "version" in data
-        assert "endpoints" in data
+        assert data["status"] == "running"
 
-    def test_health_endpoint(self, client):
+    @pytest.mark.asyncio
+    async def test_health_endpoint(self, client):
         """Test health check endpoint"""
-        response = client.get("/health")
+        response = await client.get("/health")
 
         assert response.status_code == 200
         data = response.json()
@@ -211,9 +217,10 @@ class TestHealthEndpoints:
         assert "status" in data
         assert "checks" in data
 
-    def test_metrics_endpoint(self, client):
+    @pytest.mark.asyncio
+    async def test_metrics_endpoint(self, client):
         """Test Prometheus metrics endpoint"""
-        response = client.get("/metrics")
+        response = await client.get("/metrics")
 
         assert response.status_code == 200
         # Prometheus metrics are in text format
@@ -224,16 +231,17 @@ class TestHealthEndpoints:
 class TestErrorHandling:
     """Test error handling"""
 
-    def test_404_error(self, client):
+    @pytest.mark.asyncio
+    async def test_404_error(self, client):
         """Test 404 on non-existent endpoint"""
-        response = client.get("/nonexistent/endpoint")
+        response = await client.get("/nonexistent/endpoint")
 
         assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_validation_error(self, client, auth_headers):
         """Test validation error response"""
-        response = client.post(
+        response = await client.post(
             "/api/v1/auth/register",
             json={
                 "email": "invalid-email",  # Invalid email format
