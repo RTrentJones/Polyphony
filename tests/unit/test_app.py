@@ -27,6 +27,11 @@ class TestAppSurface:
         response = api_client.get("/openapi.json")
         assert response.status_code == 200
 
+    def test_mcp_alias_surface(self, api_client):
+        """Greenlight's mcp lane probes <host>/mcp and /mcp/__version."""
+        assert api_client.get("/mcp").status_code == 200
+        assert "sha" in api_client.get("/mcp/__version").json()
+
 
 @pytest.mark.unit
 class TestSecurityHeaders:

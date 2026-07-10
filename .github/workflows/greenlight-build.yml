@@ -1,0 +1,76 @@
+name: greenlight-build
+
+# Provider-agnostic: TEST -> build the container -> push to GHCR -> notify the wrapper to deploy.
+# The ship is GATED on the tool's own tests (build `needs: [test]`). The wrapper owns the OCI infra
+# + creds; this repo only needs GREENLIGHT_DISPATCH_TOKEN (a fine-grained PAT with "Contents: write"
+# on RTrentJones/RTrentJones.dev) to fire the dispatch.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # Ship-gate: the tool's own tests must pass before anything is built or deployed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install system deps (libmagic for upload sniffing)
+        run: sudo apt-get update && sudo apt-get install -y libmagic1
+      - name: Install + test
+        env:
+          SECRET_KEY: ci_secret_key_minimum_32_characters_long
+          POSTGRES_PASSWORD: ci_password_12345
+        run: |
+          pip install -r requirements.txt
+          make test
+
+  build:
+    needs: [test]
+    # Native arm64 runner — builds the arm64 image directly (no QEMU emulation, much faster).
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Resolve image ref (GHCR namespaces are lowercase)
+        id: img
+        run: echo "base=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/polyphony" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f7ce87c1d6bead3e36075b2ce75da1f6cc28aaca # v3.9.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 # v6.9.0
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          # :prod is the moving deploy tag; :<sha> is immutable (rollback + deploy-identity).
+          tags: |
+            ${{ steps.img.outputs.base }}:prod
+            ${{ steps.img.outputs.base }}:${{ github.sha }}
+          # GREENLIGHT_SHA bakes artifact identity into /__version for the SHA-gated verify.
+          build-args: |
+            GREENLIGHT_SHA=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Notify wrapper to deploy
+        env:
+          GH_TOKEN: ${{ secrets.GREENLIGHT_DISPATCH_TOKEN }}
+        if: ${{ env.GH_TOKEN != '' }}
+        run: |
+          gh api repos/RTrentJones/RTrentJones.dev/dispatches \
+            -f event_type=deploy-polyphony \
+            -F client_payload[sha]=${{ github.sha }}
