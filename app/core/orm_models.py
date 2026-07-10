@@ -11,6 +11,7 @@ from sqlalchemy import (
     JSON,
     DECIMAL,
     Index,
+    UniqueConstraint,
 )
 
 # Generic Uuid type (native uuid on Postgres, CHAR on sqlite test databases)
@@ -94,7 +95,12 @@ class Manuscript(Base):
     )
     title = Column(String(500), nullable=False)
     author = Column(String(255))
-    content_hash = Column(String(64), unique=True)
+    # content_hash is unique PER USER, not globally — a global unique both leaks
+    # a cross-tenant existence oracle and blocks two users holding the same file.
+    content_hash = Column(String(64))
+    # The parsed manuscript text is stored here so (re)processing is driven from
+    # the DB, not a container-local file that dies on restart/idle-reclaim.
+    content_text = Column(Text)
     file_path = Column(String(1000))
     word_count = Column(Integer)
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -114,6 +120,7 @@ class Manuscript(Base):
     __table_args__ = (
         Index("idx_manuscripts_user_id", "user_id"),
         Index("idx_manuscripts_status", "status"),
+        UniqueConstraint("user_id", "content_hash", name="uq_manuscripts_user_content"),
     )
 
 

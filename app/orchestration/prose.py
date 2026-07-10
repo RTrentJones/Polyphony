@@ -106,6 +106,7 @@ async def run_prose_scene_workflow(
             cast_context = await build_cast_context(
                 beat["characters"],
                 beat["description"],
+                user_id=user_id,
                 manuscript_id=UUID(str(manuscript_id)) if manuscript_id else None,
                 book_id=book_id,
             )

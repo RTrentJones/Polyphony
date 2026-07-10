@@ -21,6 +21,20 @@ jobs:
   test:
     # Ship-gate: the tool's own tests must pass before anything is built or deployed.
     runs-on: ubuntu-latest
+    # A real pgvector Postgres so the Postgres-only paths (migrations, the
+    # voice_chunks FK, pgvector round-trip) are exercised in CI — the sqlite
+    # unit suite structurally can't see them.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: ci_password_12345
+          POSTGRES_DB: polyphony_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
@@ -29,13 +43,19 @@ jobs:
           cache: pip
       - name: Install system deps (libmagic for upload sniffing)
         run: sudo apt-get update && sudo apt-get install -y libmagic1
-      - name: Install + test
+      - name: Install + unit tests (sqlite)
         env:
           SECRET_KEY: ci_secret_key_minimum_32_characters_long
           POSTGRES_PASSWORD: ci_password_12345
         run: |
           pip install -r requirements.txt
           make test
+      - name: Postgres integration tests (migrations, pgvector, ingestion FK)
+        env:
+          SECRET_KEY: ci_secret_key_minimum_32_characters_long
+          RUN_PG_TESTS: '1'
+          DATABASE_URL: postgresql+asyncpg://postgres:ci_password_12345@localhost:5432/polyphony_test
+        run: pytest tests/integration -m integration -o addopts="" -q
 
   build:
     needs: [test]
