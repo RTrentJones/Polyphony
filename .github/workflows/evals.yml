@@ -24,6 +24,12 @@ on:
       env_label:
         description: env tag stored on the Tracer run
         default: ci
+      base_url:
+        description: >-
+          grade an EXTERNAL running app (e.g. https://polyphony.rtrentjones.dev
+          for a deployed-prompts baseline) instead of booting one here. Leave
+          blank to boot this ref's app. External mode needs EVAL_ADMIN_* secrets.
+        default: ''
   schedule:
     - cron: '17 6 * * 1' # Mondays 06:17 UTC — a weekly trend point
 
@@ -54,9 +60,11 @@ jobs:
       # mints an invite, and registers a throwaway user for the run.
       ADMIN_EMAIL: eval-admin@example.com
       ADMIN_PASSWORD: eval_admin_pw_ci_only_12345
-      EVAL_ADMIN_EMAIL: eval-admin@example.com
-      EVAL_ADMIN_PASSWORD: eval_admin_pw_ci_only_12345
-      EVAL_BASE_URL: http://localhost:8000
+      # Boot mode uses the CI admin above; external mode (base_url set) needs the
+      # target app's real admin — supply EVAL_ADMIN_* as repo secrets for that.
+      EVAL_ADMIN_EMAIL: ${{ secrets.EVAL_ADMIN_EMAIL || 'eval-admin@example.com' }}
+      EVAL_ADMIN_PASSWORD: ${{ secrets.EVAL_ADMIN_PASSWORD || 'eval_admin_pw_ci_only_12345' }}
+      EVAL_BASE_URL: ${{ github.event.inputs.base_url || 'http://localhost:8000' }}
       EVAL_ENV_LABEL: ${{ github.event.inputs.env_label || 'ci' }}
       EVAL_TRACER_URL: https://tracer.rtrentjones.dev
       TRACER_INGEST_TOKEN: ${{ secrets.TRACER_INGEST_TOKEN }}
@@ -70,15 +78,18 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libmagic1
       - name: Install
         run: pip install -r requirements.txt
-      - name: Preflight — Gemini key present
+      - name: Preflight — Gemini key present (boot mode only)
+        if: ${{ github.event.inputs.base_url == '' }}
         run: |
           if [ -z "$GEMINI_API_KEY" ]; then
             echo "::error::GEMINI_API_KEY is not set on this repo — the app can't boot for the eval. Add it in repo Actions secrets."
             exit 1
           fi
       - name: Migrate
+        if: ${{ github.event.inputs.base_url == '' }}
         run: python -m alembic upgrade head
       - name: Boot app + wait for health
+        if: ${{ github.event.inputs.base_url == '' }}
         run: |
           python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 &
           echo $! > /tmp/app.pid
@@ -98,7 +109,7 @@ jobs:
             --export gl-export.json \
             --tracer
       - name: Stop app
-        if: always()
+        if: ${{ always() && github.event.inputs.base_url == '' }}
         run: kill "$(cat /tmp/app.pid)" 2>/dev/null || true
       - name: Upload report
         if: always()
