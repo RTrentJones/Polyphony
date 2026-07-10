@@ -12,17 +12,31 @@ from sqlalchemy import select
 
 from app.core.database import get_async_session
 from app.core.orm_models import Character
+from app.core.sanitization import sanitize_for_llm
 from app.rag.store import get_chunk_store
 
 
 async def load_characters_for_book_or_manuscript(
     names: list[str],
+    user_id: UUID,
     manuscript_id: Optional[UUID] = None,
     book_id: Optional[UUID] = None,
 ) -> dict[str, Character]:
-    """Character rows by name, matched from the book or manuscript scope."""
+    """Character rows by name, scoped to the requesting user.
+
+    ownership is ALWAYS enforced (directly via user_id, or via the owning
+    manuscript for legacy extracted rows that predate user_id backfill) — the
+    book/manuscript filters only narrow within the user's own bible. Without
+    the user scope, book_id-is-null characters would match across all tenants.
+    """
     async with get_async_session() as session:
-        query = select(Character)
+        from app.core.orm_models import Manuscript
+
+        query = (
+            select(Character)
+            .outerjoin(Manuscript, Character.manuscript_id == Manuscript.id)
+            .where((Character.user_id == user_id) | (Manuscript.user_id == user_id))
+        )
         if book_id is not None:
             query = query.where(
                 (Character.book_id == book_id) | (Character.book_id.is_(None))
@@ -56,10 +70,14 @@ async def build_character_context(
             query=beat_description,
             k=max_samples,
             chunk_type="dialogue",
+            user_id=str(character.user_id) if character.user_id else None,
         )
         if samples:
             lines.append("Voice samples (match this voice):")
-            lines.extend(f'- "{s["text"][:200]}"' for s in samples)
+            # Retrieved text is user content — sanitize before it enters the prompt.
+            lines.extend(
+                f'- "{sanitize_for_llm(s["text"], max_length=200)}"' for s in samples
+            )
     else:
         lines.append("(No bible entry — infer a consistent voice.)")
     return "\n".join(lines)
@@ -68,12 +86,13 @@ async def build_character_context(
 async def build_cast_context(
     names: list[str],
     beat_description: str,
+    user_id: UUID,
     manuscript_id: Optional[UUID] = None,
     book_id: Optional[UUID] = None,
 ) -> str:
-    """Context blocks for every character in a beat."""
+    """Context blocks for every character in a beat (scoped to the user)."""
     characters = await load_characters_for_book_or_manuscript(
-        names, manuscript_id=manuscript_id, book_id=book_id
+        names, user_id=user_id, manuscript_id=manuscript_id, book_id=book_id
     )
     blocks = []
     for name in names:

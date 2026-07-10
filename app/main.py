@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -90,14 +91,17 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Polyphony", extra_fields={"event": "service_shutdown"})
 
 
+# Interactive docs + the raw OpenAPI schema are public through the tunnel, so
+# disable them in production (they leak the full surface + usage shape).
+_is_prod = settings.ENVIRONMENT == "production"
 app = FastAPI(
     title="Polyphony",
     version="1.0.0",
     description="Multi-character AI book-writing platform",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
+    docs_url=None if _is_prod else "/docs",
+    redoc_url=None if _is_prod else "/redoc",
+    openapi_url=None if _is_prod else "/openapi.json",
 )
 
 # Rate limiting — in-process storage (one container; ADR-001 §4)
@@ -111,6 +115,10 @@ limiter = Limiter(
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# WITHOUT this middleware slowapi's default_limits never fire — only routes with
+# an explicit @limiter.limit decorator are throttled. This makes the per-minute/
+# per-hour defaults actually apply to every endpoint (the shared-quota backstop).
+app.add_middleware(SlowAPIMiddleware)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -207,13 +215,27 @@ async def log_requests(request: Request, call_next):
     return response
 
 
+def _redact_validation_errors(errors: list) -> list:
+    """Pydantic error objects carry the offending `input` value — which for a
+    login/register is the submitted password/email. Strip it before logging or
+    returning so raw credentials never reach logs or clients."""
+    redacted = []
+    for err in errors:
+        e = {k: v for k, v in err.items() if k != "input"}
+        if "ctx" in e:
+            e = {**e, "ctx": {k: v for k, v in e["ctx"].items() if k != "input"}}
+        redacted.append(e)
+    return redacted
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    safe_errors = _redact_validation_errors(exc.errors())
     logger.warning(
         f"Validation error on {request.method} {request.url.path}",
         extra_fields={
             "event": "validation_error",
-            "errors": exc.errors(),
+            "errors": safe_errors,
             "path": request.url.path,
             "method": request.method,
         },
@@ -221,7 +243,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
-            "detail": exc.errors(),
+            "detail": safe_errors,
             "message": "Validation error - please check your request data",
         },
     )

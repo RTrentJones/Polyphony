@@ -99,8 +99,14 @@ class ChunkStore:
         k: Optional[int] = None,
         chunk_type: Optional[str] = None,
         score_threshold: Optional[float] = None,
+        user_id: Optional[str] = None,
     ) -> list[dict]:
-        """Retrieve a character's most similar chunks for voice grounding."""
+        """Retrieve a character's most similar chunks for voice grounding.
+
+        Pass user_id for defense-in-depth: even though character_id already
+        implies one owner, scoping the vector read by user_id too means a
+        mis-scoped caller can never read another tenant's voice.
+        """
         threshold = (
             settings.RAG_SCORE_THRESHOLD if score_threshold is None else score_threshold
         )
@@ -117,6 +123,9 @@ class ChunkStore:
                 "character_id": character_id,
                 "k": k or settings.RAG_TOP_K,
             }
+            if user_id:
+                sql += " AND user_id = :user_id"
+                params["user_id"] = user_id
             if chunk_type:
                 sql += " AND chunk_type = :chunk_type"
                 params["chunk_type"] = chunk_type

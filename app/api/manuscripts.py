@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 
+from app.core.budget import check_user_budget
 from app.core.database import get_db
 from app.core.models import ManuscriptStatus
 from app.core.orm_models import (
@@ -40,6 +41,8 @@ async def upload_manuscript(
     db: AsyncSession = Depends(get_db),
 ):
     """Upload a manuscript; character extraction/indexing runs in the background."""
+    # Extraction spends LLM quota — gate it on the per-user daily budget.
+    await check_user_budget(db, current_user.id)
     if not title:
         title = file.filename or "Untitled"
 
@@ -53,14 +56,17 @@ async def upload_manuscript(
             detail=f"Error parsing document: {e}",
         )
 
-    # Duplicate upload guard (content_hash is unique)
+    # Per-user duplicate guard (content_hash is unique per user, not globally).
     existing = await db.execute(
-        select(ManuscriptORM).where(ManuscriptORM.content_hash == saved["content_hash"])
+        select(ManuscriptORM).where(
+            ManuscriptORM.user_id == current_user.id,
+            ManuscriptORM.content_hash == saved["content_hash"],
+        )
     )
     if existing.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="This manuscript has already been uploaded",
+            detail="You have already uploaded this manuscript",
         )
 
     manuscript = ManuscriptORM(
@@ -68,7 +74,7 @@ async def upload_manuscript(
         title=title,
         author=author or None,
         content_hash=saved["content_hash"],
-        file_path=saved["file_path"],
+        content_text=saved["text"],
         word_count=saved["word_count"],
         status=ManuscriptStatus.PROCESSING.value,
     )
@@ -77,7 +83,7 @@ async def upload_manuscript(
     await db.refresh(manuscript)
 
     background_tasks.add_task(
-        process_manuscript, manuscript.id, saved["file_path"], current_user.id
+        process_manuscript, manuscript.id, current_user.id, saved["text"]
     )
 
     return {
@@ -242,14 +248,13 @@ async def reprocess_manuscript(
 ):
     """Re-run character extraction/indexing (e.g. after a failed run)."""
     manuscript = await _owned_manuscript(manuscript_id, current_user, db)
-    if not manuscript.file_path:
+    if not manuscript.content_text:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Manuscript has no stored file to process",
+            detail="Manuscript has no stored content to process",
         )
+    await check_user_budget(db, current_user.id)
     manuscript.status = ManuscriptStatus.PROCESSING.value
     await db.commit()
-    background_tasks.add_task(
-        process_manuscript, manuscript.id, manuscript.file_path, current_user.id
-    )
+    background_tasks.add_task(process_manuscript, manuscript.id, current_user.id)
     return {"id": str(manuscript.id), "status": manuscript.status}

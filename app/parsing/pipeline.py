@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 import aiofiles
 import magic
+from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.database import get_async_session
@@ -63,22 +64,22 @@ async def save_upload(filename: str, content: bytes) -> dict:
             "File extension may not match content."
         )
 
+    # Parse via a short-lived temp file (the parser reads a path), then delete
+    # it — the durable copy is the parsed text, persisted to Postgres by the
+    # caller. Nothing survives on local disk past this function.
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     file_id = str(uuid4())
     file_path = os.path.join(settings.UPLOAD_DIR, f"{file_id}{file_ext}")
     async with aiofiles.open(file_path, "wb") as f:
         await f.write(content)
-
     try:
         text = doc_parser.parse_document(file_path)
-    except Exception:
+    finally:
         if os.path.exists(file_path):
             os.remove(file_path)
-        raise
 
     return {
         "file_id": file_id,
-        "file_path": file_path,
         "content_hash": hashlib.sha256(content).hexdigest(),
         "text": text,
         "word_count": doc_parser.get_word_count(text),
@@ -86,55 +87,93 @@ async def save_upload(filename: str, content: bytes) -> dict:
 
 
 async def process_manuscript(
-    manuscript_id: UUID, file_path: str, user_id: UUID
+    manuscript_id: UUID, user_id: UUID, text: str | None = None
 ) -> None:
-    """Background pipeline: extract characters, persist them, index their voices."""
+    """Background pipeline: extract characters, persist them, index their voices.
+
+    Text is read from the manuscript row (durable) — restart-safe, unlike a
+    container-local file. Characters + chunks are COMMITTED before any pgvector
+    indexing, so the voice_chunks FK to characters is satisfied on Postgres (the
+    vector store commits on its own connection and can't see an uncommitted
+    parent).
+    """
     try:
-        text = doc_parser.parse_document(file_path)
-        character_names = await char_extractor.extract_characters(text, user_id=user_id)
-
-        store = get_chunk_store()
-        indexed_total = 0
-
+        # Load the parsed text + reset prior characters (reprocess-safe) in one txn.
         async with get_async_session() as session:
             manuscript = await session.get(Manuscript, manuscript_id)
             if manuscript is None:
                 return
+            source_text = text if text is not None else (manuscript.content_text or "")
+            if not source_text:
+                raise ValueError("manuscript has no stored content to process")
+            # Reprocess: drop existing characters (vectors cascade) so re-extraction
+            # can't collide with the unique (manuscript_id, name) index.
+            existing = (
+                (
+                    await session.execute(
+                        select(Character).where(
+                            Character.manuscript_id == manuscript_id
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for c in existing:
+                await get_chunk_store().delete_character(str(c.id))
+                await session.delete(c)
+            manuscript.status = "processing"
 
-            for name in character_names:
-                chunks = char_extractor.extract_character_content(text, name)
-                stats = char_extractor.get_character_statistics(chunks)
+        character_names = await char_extractor.extract_characters(
+            source_text, user_id=user_id
+        )
 
+        store = get_chunk_store()
+        indexed_total = 0
+
+        for name in character_names:
+            chunks = char_extractor.extract_character_content(source_text, name)
+            stats = char_extractor.get_character_statistics(chunks)
+
+            # 1) Persist + COMMIT the character (and its chunk rows) first.
+            async with get_async_session() as session:
                 character = Character(
+                    user_id=user_id,
                     manuscript_id=manuscript_id,
                     name=name,
                     dialogue_count=stats["dialogue_count"],
                 )
                 session.add(character)
-                await session.flush()  # assign character.id
-
+                await session.flush()
+                character_id = character.id
                 for chunk in chunks:
                     session.add(
                         CharacterChunk(
-                            character_id=character.id,
+                            character_id=character_id,
                             chunk_type=chunk["chunk_type"],
                             content=chunk["text"],
                             source_location=chunk.get("source_location"),
                         )
                     )
+            # 2) Index into pgvector now that the parent row is committed.
+            indexed = await store.index_chunks(
+                character_id=str(character_id),
+                character_name=name,
+                user_id=str(user_id),
+                chunks=chunks,
+            )
+            if indexed:
+                async with get_async_session() as session:
+                    c = await session.get(Character, character_id)
+                    if c is not None:
+                        c.indexed_at = datetime.now(timezone.utc)
+            indexed_total += indexed
 
-                indexed = await store.index_chunks(
-                    character_id=str(character.id),
-                    character_name=name,
-                    user_id=str(user_id),
-                    chunks=chunks,
-                )
-                if indexed:
-                    character.indexed_at = datetime.now(timezone.utc)
-                indexed_total += indexed
-
-            manuscript.status = "completed"
-            manuscript.processed_at = datetime.now(timezone.utc)
+        async with get_async_session() as session:
+            manuscript = await session.get(Manuscript, manuscript_id)
+            if manuscript is not None:
+                manuscript.status = "completed"
+                manuscript.processed_at = datetime.now(timezone.utc)
 
         log_business_event(
             logger,
