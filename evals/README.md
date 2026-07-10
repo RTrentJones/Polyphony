@@ -61,7 +61,14 @@ python -m evals.tools.rename   --book dracula --source /path/to/source.txt   # r
 python -m evals.tools.build_gt --book dracula                                 # ground_truth.json
 ```
 
-## Adding a book
+## Adding a book — data only, no code
 
-Create `corpora/<book>/aliases.json` (rename map + chapters), add a `SPEC` entry
-in `tools/build_gt.py`, run the two tools above, and write `PROVENANCE.md`.
+1. `corpora/<book>/aliases.json` — rename map + the chapters to extract.
+2. `corpora/<book>/spec.json` — cast, `voice_sources`, synopsis, canonical
+   beats, continuity injections (see Dracula's for the shape).
+3. Run `rename` then `build_gt` (above) and write `PROVENANCE.md`.
+
+No Python changes: `build_gt.py` reads `spec.json`, and the steps read the
+resulting `ground_truth.json`. A new eval *step* is likewise one
+`@step("name", needs_api=...)` decorator in `steps/pipeline.py` — the runner
+discovers it from the registry.

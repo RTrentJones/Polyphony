@@ -192,6 +192,17 @@ class PolyphonyClient:
             lambda b: b.get("status") in ("completed", "failed"),
         )
 
+    async def set_scene_content(self, scene_id: str, content: str) -> dict:
+        """Overwrite a scene's prose (used to seed continuity-eval content)."""
+        r = await self._post(
+            f"/api/v1/books/scenes/{scene_id}/content", json={"content": content}
+        )
+        if r.status_code not in (200, 201):
+            raise EvalClientError(
+                f"set scene content failed ({r.status_code}): {r.text[:200]}"
+            )
+        return r.json()
+
     async def run_continuity(
         self, book_id: str, chapter_id: str | None = None
     ) -> list[dict]:

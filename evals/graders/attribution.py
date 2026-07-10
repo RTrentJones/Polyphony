@@ -13,19 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
-def _cos(a: list[float], b: list[float]) -> float:
-    num = sum(x * y for x, y in zip(a, b))
-    na = sum(x * x for x in a) ** 0.5
-    nb = sum(y * y for y in b) ** 0.5
-    return num / (na * nb) if na and nb else 0.0
-
-
-def _centroid(vectors: list[list[float]]) -> list[float]:
-    if not vectors:
-        return []
-    n = len(vectors)
-    return [sum(col) / n for col in zip(*vectors)]
+from evals.harness.vecmath import centroid, cosine
 
 
 def rank_character(
@@ -34,7 +22,7 @@ def rank_character(
     """Characters ranked by similarity of `generated_vec` to their reference
     centroid, most similar first."""
     scored = [
-        (name, _cos(generated_vec, _centroid(vecs)))
+        (name, cosine(generated_vec, centroid(vecs)))
         for name, vecs in reference_vecs.items()
         if vecs
     ]

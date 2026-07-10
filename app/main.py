@@ -171,6 +171,16 @@ app.add_middleware(
 )
 
 
+def _endpoint_label(request: Request) -> str:
+    """Metrics label = the ROUTE TEMPLATE (`/api/v1/scenes/{scene_id}`), never the
+    raw path. Raw paths embed UUIDs, so every id would mint a new Prometheus time
+    series — unbounded registry growth on a memory-constrained box. The router
+    stamps the matched route into the scope during call_next; unmatched requests
+    (404s) collapse into one bucket."""
+    route = request.scope.get("route")
+    return getattr(route, "path", None) or "__unmatched__"
+
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     """Request logging + Prometheus metrics with correlation IDs."""
@@ -180,29 +190,31 @@ async def log_requests(request: Request, call_next):
     log_request_start(logger, request.method, request.url.path)
 
     request_size = int(request.headers.get("content-length", 0))
-    if request_size > 0:
-        http_request_size_bytes.labels(
-            method=request.method, endpoint=request.url.path, service=SERVICE_NAME
-        ).observe(request_size)
 
     response = await call_next(request)
 
+    # Routing has run inside call_next, so the template label is now resolvable.
+    endpoint = _endpoint_label(request)
     process_time = time.time() - start_time
     response.headers["X-Process-Time"] = str(process_time)
     response.headers["X-Correlation-ID"] = correlation_id
 
+    if request_size > 0:
+        http_request_size_bytes.labels(
+            method=request.method, endpoint=endpoint, service=SERVICE_NAME
+        ).observe(request_size)
     http_requests_total.labels(
         method=request.method,
-        endpoint=request.url.path,
+        endpoint=endpoint,
         status_code=response.status_code,
         service=SERVICE_NAME,
     ).inc()
     http_request_duration_seconds.labels(
-        method=request.method, endpoint=request.url.path, service=SERVICE_NAME
+        method=request.method, endpoint=endpoint, service=SERVICE_NAME
     ).observe(process_time)
     if "content-length" in response.headers:
         http_response_size_bytes.labels(
-            method=request.method, endpoint=request.url.path, service=SERVICE_NAME
+            method=request.method, endpoint=endpoint, service=SERVICE_NAME
         ).observe(int(response.headers["content-length"]))
 
     log_request_end(

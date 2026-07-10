@@ -7,9 +7,19 @@ and proper context management across the application.
 
 import logging
 import sys
+from contextvars import ContextVar
 from typing import Any, Dict
 from datetime import datetime
 import json
+
+# The correlation id rides the ASYNC CONTEXT, not logger instance state: loggers
+# are module singletons, so an instance attribute would be overwritten by every
+# interleaved request (request B's id bleeding into request A's later log lines
+# across await points). A ContextVar is copied per task, so each request keeps
+# its own id no matter how requests interleave on the single event loop.
+_correlation_id: ContextVar[str | None] = ContextVar(
+    "polyphony_correlation_id", default=None
+)
 
 
 class JSONFormatter(logging.Formatter):
@@ -55,18 +65,23 @@ class ContextLogger(logging.LoggerAdapter):
     def __init__(self, logger: logging.Logger, service_name: str):
         super().__init__(logger, {})
         self.service_name = service_name
-        self.correlation_id: str | None = None
 
-    def set_correlation_id(self, correlation_id: str):
-        """Set correlation ID for request tracing"""
-        self.correlation_id = correlation_id
+    @property
+    def correlation_id(self) -> str | None:
+        """The current task's correlation id (context-local, never shared)."""
+        return _correlation_id.get()
+
+    def set_correlation_id(self, correlation_id: str) -> None:
+        """Bind the correlation id to the CURRENT async context (request task)."""
+        _correlation_id.set(correlation_id)
 
     def process(self, msg: str, kwargs: Dict[str, Any]) -> tuple[str, Dict[str, Any]]:
         """Add context to log record"""
         extra = kwargs.get("extra", {})
 
-        if self.correlation_id:
-            extra["correlation_id"] = self.correlation_id
+        correlation_id = _correlation_id.get()
+        if correlation_id:
+            extra["correlation_id"] = correlation_id
 
         extra["service"] = self.service_name
 
