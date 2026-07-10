@@ -271,6 +271,24 @@ async def version():
     return {"sha": os.getenv("GREENLIGHT_SHA", "")}
 
 
+# Greenlight's mcp lane (the only lane that can target oci) resolves this tool's
+# URL as <host>/mcp and probes <host>/mcp/__version for the SHA gate. Polyphony
+# is not an MCP server, so alias the health/identity surface under /mcp.
+@app.get("/mcp")
+async def mcp_alias_root():
+    return {"service": SERVICE_NAME, "note": "not an MCP server; see /docs"}
+
+
+@app.get("/mcp/health")
+async def mcp_alias_health():
+    return await health_check()
+
+
+@app.get("/mcp/__version")
+async def mcp_alias_version():
+    return await version()
+
+
 @app.get("/metrics")
 async def metrics():
     from fastapi import Response
