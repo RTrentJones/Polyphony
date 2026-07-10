@@ -65,8 +65,7 @@ class ChunkStore:
                 vectors = await self.embedder.aencode([c["text"] for c in batch])
                 for chunk, vector in zip(batch, vectors):
                     await session.execute(
-                        text(
-                            """
+                        text("""
                             INSERT INTO voice_chunks
                               (id, character_id, user_id, book_id, chunk_type,
                                text, source_location, word_count, embedding)
@@ -74,8 +73,7 @@ class ChunkStore:
                               (:id, :character_id, :user_id, :book_id, :chunk_type,
                                :text, :source_location, :word_count,
                                CAST(:embedding AS vector))
-                            """
-                        ),
+                            """),
                         {
                             "id": str(uuid.uuid4()),
                             "character_id": character_id,
@@ -160,15 +158,13 @@ class ChunkStore:
                 rows = (
                     (
                         await session.execute(
-                            text(
-                                """
+                            text("""
                                 SELECT chunk_type, COUNT(*) AS n,
                                        COALESCE(SUM(word_count), 0) AS words
                                 FROM voice_chunks
                                 WHERE character_id = :character_id
                                 GROUP BY chunk_type
-                                """
-                            ),
+                                """),
                             {"character_id": character_id},
                         )
                     )

@@ -34,8 +34,7 @@ def upgrade() -> None:
     # to the postgresql dialect (Neon ships the extension on the free tier).
     if bind.dialect.name == "postgresql":
         op.execute("CREATE EXTENSION IF NOT EXISTS vector")
-        op.execute(
-            """
+        op.execute("""
             CREATE TABLE IF NOT EXISTS voice_chunks (
               id UUID PRIMARY KEY,
               character_id UUID NOT NULL
@@ -49,8 +48,7 @@ def upgrade() -> None:
               embedding vector(384) NOT NULL,
               created_at TIMESTAMPTZ DEFAULT now()
             )
-            """
-        )
+            """)
         op.execute(
             "CREATE INDEX IF NOT EXISTS idx_voice_chunks_character "
             "ON voice_chunks (character_id, chunk_type)"

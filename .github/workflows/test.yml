@@ -49,8 +49,11 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      # Pinned: an unpinned `pip install black ruff` silently tracks the latest
+      # release, so a new black stable-style bump reformats files and reddens CI
+      # with no code change. Bump these deliberately.
       - name: Install lint tools
-        run: pip install black ruff
+        run: pip install 'black==26.5.1' 'ruff==0.15.21'
 
       - name: Black
         run: black --check app tests alembic
