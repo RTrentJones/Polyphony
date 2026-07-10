@@ -27,6 +27,8 @@ class Provider:
     rate_out: float = 0.0
     # Free-tier requests-per-minute pacing default (overridable via LLM_MAX_RPM)
     max_rpm: int = 10
+    # Extra JSON body fields for chat.completions (provider-specific knobs).
+    extra_body: Optional[dict] = None
 
 
 PROVIDERS: dict[str, Provider] = {
@@ -39,6 +41,11 @@ PROVIDERS: dict[str, Provider] = {
         default_model="gemini-2.5-flash",
         fast_model="gemini-2.5-flash-lite",
         max_rpm=8,  # AI Studio free tier is ~10 RPM; leave headroom
+        # 2.5 models are thinking models on the OpenAI-compat endpoint, and
+        # thinking tokens count against max_tokens — small caps starve the
+        # actual output. This app's calls are structured/functional, so turn
+        # thinking off (supported on flash/flash-lite).
+        extra_body={"reasoning_effort": "none"},
     ),
     "groq": Provider(
         id="groq",

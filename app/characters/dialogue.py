@@ -92,7 +92,7 @@ Important:
     result = await client.generate(
         [{"role": "user", "content": prompt}],
         temperature=0.9,
-        max_tokens=200,
+        max_tokens=400,
         user_id=user_id,
         purpose="dialogue",
     )
@@ -136,7 +136,7 @@ Action:"""
             [{"role": "user", "content": prompt}],
             fast=True,
             temperature=0.7,
-            max_tokens=50,
+            max_tokens=150,
             user_id=user_id,
             purpose="action",
         )

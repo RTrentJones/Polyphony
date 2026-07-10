@@ -8,6 +8,7 @@ import json
 from app.core.models import ChunkType
 from app.core.logging_config import setup_logging
 from app.llm.client import get_llm_client
+from app.llm.json_utils import extract_json_array
 
 logger = setup_logging("parsing.character_extractor")
 
@@ -55,20 +56,12 @@ JSON array:"""
             result = await get_llm_client().generate(
                 [{"role": "user", "content": prompt}],
                 temperature=0.3,
-                max_tokens=200,
+                max_tokens=1000,
                 user_id=user_id,
                 purpose="extract_characters",
             )
             content = result.text
-
-            # Extract JSON array from response
-            # Sometimes LLM wraps it in markdown code blocks
-            content = content.replace("```json", "").replace("```", "").strip()
-
-            characters = json.loads(content)
-
-            if not isinstance(characters, list):
-                raise ValueError("Response is not a list")
+            characters = extract_json_array(content)
 
             return [str(name) for name in characters[:max_characters]]
 

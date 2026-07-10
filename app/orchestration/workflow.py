@@ -50,7 +50,7 @@ Beats:"""
     result = await get_llm_client().generate(
         [{"role": "user", "content": prompt}],
         temperature=0.7,
-        max_tokens=500,
+        max_tokens=1000,
         user_id=user_id,
         purpose="plan_beats",
     )
