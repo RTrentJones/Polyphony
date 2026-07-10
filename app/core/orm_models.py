@@ -205,7 +205,6 @@ class Character(Base):
     notes = Column(Text)
     dialogue_count = Column(Integer, default=0)
     indexed_at = Column(DateTime(timezone=True))
-    qdrant_collection_name = Column(String(255))
 
     # Relationships
     manuscript = relationship("Manuscript", back_populates="characters")

@@ -23,11 +23,6 @@ class Settings(BaseSettings):
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: Optional[str] = None
 
-    # Vector Database - Qdrant
-    QDRANT_URL: str = "http://localhost:6333"
-    QDRANT_API_KEY: Optional[str] = None
-    QDRANT_COLLECTION: str = "polyphony_chunks"
-
     # LLM backend (see app/llm/providers.py for the registry).
     # None models fall back to the selected provider's registry defaults.
     LLM_PROVIDER: str = "gemini"

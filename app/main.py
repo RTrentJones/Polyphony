@@ -253,14 +253,14 @@ async def health_check():
     from app.rag.store import get_chunk_store
 
     db_healthy = await check_db_connection()
-    qdrant_healthy = await get_chunk_store().healthy()
+    vector_healthy = await get_chunk_store().healthy()  # pgvector in the same DB
     return {
         "status": "healthy" if db_healthy else "degraded",
         "service": SERVICE_NAME,
         "version": "1.0.0",
         "checks": {
             "database": "healthy" if db_healthy else "unhealthy",
-            "qdrant": "healthy" if qdrant_healthy else "unhealthy",
+            "vector_search": "healthy" if vector_healthy else "unhealthy",
         },
     }
 

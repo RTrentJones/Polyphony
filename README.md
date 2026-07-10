@@ -9,7 +9,7 @@ a book.
 Deployed as a [Greenlight](https://github.com/RTrentJones/greenlight) tool of
 [rtrentjones.dev](https://github.com/RTrentJones/RTrentJones.dev) at
 `polyphony.rtrentjones.dev` (single container on OCI behind a Cloudflare
-tunnel; Neon Postgres + Qdrant Cloud; Gemini free tier by default).
+tunnel; Neon Postgres with pgvector; Gemini free tier by default).
 
 > The original microservices design spec lives at
 > [docs/archive/DESIGN-SPEC-v1.md](docs/archive/DESIGN-SPEC-v1.md); the
@@ -28,7 +28,7 @@ app/
                    #   (JWT + refresh rotation), resilience, sanitization,
                    #   metrics, logging, caching (in-process), budget
   llm/             # provider-fungible LLM backend (see below)
-  rag/             # fastembed (ONNX) embeddings + shared Qdrant collection
+  rag/             # fastembed (ONNX) embeddings + pgvector store (same DB)
   characters/      # character-voice dialogue generation (characters = data)
   orchestration/   # scene workflow: plan beats -> dialogue -> assemble
   parsing/         # document parsing + character extraction pipeline
@@ -37,9 +37,9 @@ alembic/           # migrations (run automatically at container start)
 frontend/          # Next.js 15 App Router -> static export
 ```
 
-Stores: Postgres (SQLAlchemy async; `DATABASE_URL` or `POSTGRES_*`), Qdrant
-(one shared collection, payload-filtered per character/user), in-process
-caches (no Redis).
+Stores: ONE Postgres (SQLAlchemy async; `DATABASE_URL` or `POSTGRES_*`) that
+also holds the vector search — a pgvector `voice_chunks` table (HNSW, cosine)
+filtered per character/user. In-process caches (no Redis).
 
 ## The LLM backend is fungible
 
@@ -79,7 +79,7 @@ make install                 # pip install -r requirements.txt
 make test                    # pytest (the CI ship gate)
 make lint                    # black --check + ruff
 
-make dev                     # compose profile dev: postgres + qdrant + app (reload)
+make dev                     # compose profile dev: postgres (pgvector) + app (reload)
 make preview                 # compose profile preview: the as-shipped image
 ```
 

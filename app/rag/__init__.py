@@ -1,1 +1,1 @@
-"""Character-voice RAG: fastembed embeddings + a shared Qdrant collection."""
+"""Character-voice RAG: fastembed embeddings + pgvector in the app database."""

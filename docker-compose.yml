@@ -1,8 +1,8 @@
-# Polyphony local stack (docs/ADR-001: one app container + its stores).
+# Polyphony local stack (docs/ADR-001: one app container + its store).
 #
 # Profiles:
-#   dev     — postgres + qdrant + the app with source bind-mounted and reload
-#   preview — postgres + qdrant + the app AS SHIPPED (production image build);
+#   dev     — postgres (pgvector) + the app with source bind-mounted and reload
+#   preview — postgres (pgvector) + the app AS SHIPPED (production image build);
 #             this is what `greenlight preview polyphony` runs against.
 #
 # Usage:
@@ -12,7 +12,8 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector image: vector search lives IN Postgres (parity with Neon prod)
+    image: pgvector/pgvector:pg16
     container_name: polyphony-postgres
     profiles: ["dev", "preview"]
     environment:
@@ -29,20 +30,6 @@ services:
       timeout: 5s
       retries: 10
 
-  qdrant:
-    image: qdrant/qdrant:v1.9.7
-    container_name: polyphony-qdrant
-    profiles: ["dev", "preview"]
-    ports:
-      - "6333:6333"
-    volumes:
-      - qdrant_data:/qdrant/storage
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   app:
     build:
       context: .
@@ -54,12 +41,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      qdrant:
-        condition: service_healthy
     environment:
       ENVIRONMENT: development  # preview: don't hard-require an LLM key
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-local_dev_password}@postgres:5432/polyphony
-      QDRANT_URL: http://qdrant:6333
       SECRET_KEY: ${SECRET_KEY:-local_preview_secret_key_32_chars_min!}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
@@ -78,13 +62,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      qdrant:
-        condition: service_healthy
     environment:
       ENVIRONMENT: development
       DEBUG: "true"
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-local_dev_password}@postgres:5432/polyphony
-      QDRANT_URL: http://qdrant:6333
       SECRET_KEY: ${SECRET_KEY:-local_preview_secret_key_32_chars_min!}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
@@ -102,4 +83,3 @@ services:
 
 volumes:
   postgres_data:
-  qdrant_data:
