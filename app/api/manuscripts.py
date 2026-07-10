@@ -203,6 +203,36 @@ async def get_manuscript_characters(
     }
 
 
+@router.delete("/{manuscript_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_manuscript(
+    manuscript_id: UUID,
+    current_user: UserORM = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a manuscript, its characters, and their indexed voices."""
+    from app.rag.store import get_chunk_store
+
+    manuscript = await _owned_manuscript(manuscript_id, current_user, db)
+    characters = (
+        (
+            await db.execute(
+                select(CharacterORM).where(CharacterORM.manuscript_id == manuscript_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    store = get_chunk_store()
+    for character in characters:
+        try:
+            await store.delete_character(str(character.id))
+        except Exception:
+            pass  # vector cleanup is best-effort; rows cascade below
+    await db.delete(manuscript)
+    await db.commit()
+    return None
+
+
 @router.post("/{manuscript_id}/process", response_model=dict)
 async def reprocess_manuscript(
     manuscript_id: UUID,

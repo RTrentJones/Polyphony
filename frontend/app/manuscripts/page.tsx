@@ -174,7 +174,7 @@ export default function ManuscriptsPage() {
                   variant="outline"
                   size="sm"
                   fullWidth
-                  onClick={() => router.push(`/manuscripts/${manuscript.id}`)}
+                  onClick={() => router.push(`/manuscripts/detail?id=${manuscript.id}`)}
                 >
                   <Eye className="h-4 w-4 mr-2" />
                   View

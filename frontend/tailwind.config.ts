@@ -9,6 +9,12 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Tokens consumed by app/globals.css (@apply border-border /
+        // bg-background / text-foreground). --background/--foreground are
+        // defined there; border gets a sensible static default.
+        border: 'hsl(214.3 31.8% 91.4%)',
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
         primary: {
           50: '#f0f9ff',
           100: '#e0f2fe',

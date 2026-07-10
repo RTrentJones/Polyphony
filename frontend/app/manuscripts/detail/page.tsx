@@ -4,8 +4,8 @@
 
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useEffect, useState, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { ArrowLeft, Users, FileText, Wand2 } from 'lucide-react'
 import Card from '@/components/Card'
 import Button from '@/components/Button'
@@ -14,10 +14,10 @@ import apiClient from '@/lib/api-client'
 import { Manuscript, Character } from '@/lib/types'
 import { formatRelativeTime } from '@/lib/utils'
 
-export default function ManuscriptDetailPage() {
+function ManuscriptDetailContent() {
   const router = useRouter()
-  const params = useParams()
-  const manuscriptId = params.id as string
+  const searchParams = useSearchParams()
+  const manuscriptId = searchParams.get('id') as string
 
   const [manuscript, setManuscript] = useState<Manuscript | null>(null)
   const [characters, setCharacters] = useState<Character[]>([])
@@ -223,5 +223,13 @@ export default function ManuscriptDetailPage() {
         )}
       </Card>
     </div>
+  )
+}
+
+export default function ManuscriptDetailPage() {
+  return (
+    <Suspense fallback={null}>
+      <ManuscriptDetailContent />
+    </Suspense>
   )
 }
