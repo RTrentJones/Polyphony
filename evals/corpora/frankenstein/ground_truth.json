@@ -1,0 +1,111 @@
+{
+  "book": "frankenstein",
+  "author": "Mary Wollstonecraft Shelley",
+  "year": 1818,
+  "source": "Project Gutenberg #84 (public domain, US; PG wrapper stripped)",
+  "cast": [
+    "Emeric Vandel",
+    "Rowan Merrow",
+    "Hollis Crane",
+    "Cosima Lorenzi",
+    "Fenwick",
+    "Alina",
+    "Soraya"
+  ],
+  "synopsis": "A driven natural philosopher, Emeric Vandel, discovers the secret of animating lifeless matter and builds a living man from dead tissue — then, horrified by what he has made, abandons it. Cast out and reviled by everyone it meets, the creature teaches itself to speak and read by watching a poor family in secret, and grows from wonder into rage. It demands that Emeric make it a companion; when he refuses, it destroys everyone Emeric loves. Emeric pursues his creation across the ice to destroy it, and their chase is recounted to the polar explorer Rowan Merrow, who finds Emeric dying on the frozen sea.",
+  "gold_lines": {
+    "Rowan Merrow": {
+      "train": [
+        "You will rejoice to hear that no disaster has accompanied the commencement of an enterprise which you have regarded with such evil forebodings. I arrived here yesterday, and my first task is to assure my dear sister of my welfare and increasing confidence in the success of my undertaking.",
+        "These reflections have dispelled the agitation with which I began my letter, and I feel my heart glow with an enthusiasm which elevates me to heaven, for nothing contributes so much to tranquillise the mind as a steady purpose—a point on which the soul may fix its intellectual eye. This expedition has been the favourite dream of my early years. I have read with ardour the accounts of the various voyages which have been made in the prospect of arriving at the North Pacific Ocean through the seas which surround the pole. You may remember that a history of all the voyages made for purposes of discovery composed the whole of our good Uncle Thomas’ library. My education was neglected, yet I was passionately fond of reading. These volumes were my study day and night, and my familiarity with them increased that regret which I had felt, as a child, on learning that my father’s dying injunction had forbidden my uncle to allow me to embark in a seafaring life.",
+        "These visions faded when I perused, for the first time, those poets whose effusions entranced my soul and lifted it to heaven. I also became a poet and for one year lived in a paradise of my own creation; I imagined that I also might obtain a niche in the temple where the names of Homer and Shakespeare are consecrated. You are well acquainted with my failure and how heavily I bore the disappointment. But just at that time I inherited the fortune of my cousin, and my thoughts were turned into the channel of their earlier bent.",
+        "Six years have passed since I resolved on my present undertaking. I can, even now, remember the hour from which I dedicated myself to this great enterprise. I commenced by inuring my body to hardship. I accompanied the whale-fishers on several expeditions to the North Sea; I voluntarily endured cold, famine, thirst, and want of sleep; I often worked harder than the common sailors during the day and devoted my nights to the study of mathematics, the theory of medicine, and those branches of physical science from which a naval adventurer might derive the greatest practical advantage. Twice I actually hired myself as an under-mate in a Greenland whaler, and acquitted myself to admiration. I must own I felt a little proud when my captain offered me the second dignity in the vessel and entreated me to remain with the greatest earnestness, so valuable did he consider my services.",
+        "And now, dear Isolde, do I not deserve to accomplish some great purpose? My life might have been passed in ease and luxury, but I preferred glory to every enticement that wealth placed in my path. Oh, that some encouraging voice would answer in the affirmative! My courage and my resolution is firm; but my hopes fluctuate, and my spirits are often depressed. I am about to proceed on a long and difficult voyage, the emergencies of which will demand all my fortitude: I am required not only to raise the spirits of others, but sometimes to sustain my own, when theirs are failing.",
+        "This is the most favourable period for travelling in Russia. They fly quickly over the snow in their sledges; the motion is pleasant, and, in my opinion, far more agreeable than that of an English stagecoach. The cold is not excessive, if you are wrapped in furs—a dress which I have already adopted, for there is a great difference between walking the deck and remaining seated motionless for hours, when no exercise prevents the blood from actually freezing in your veins. I have no ambition to lose my life on the post-road between St. Novaskol and Arkosk.",
+        "I shall depart for the latter town in a fortnight or three weeks; and my intention is to hire a ship there, which can easily be done by paying the insurance for the owner, and to engage as many sailors as I think necessary among those who are accustomed to the whale-fishing. I do not intend to sail until the month of June; and when shall I return? Ah, dear sister, how can I answer this question? If I succeed, many, many months, perhaps years, will pass before you and I may meet. If I fail, you will see me again soon, or never.",
+        "Farewell, my dear, excellent Isolde. Heaven shower down blessings on you, and save me, that I may again and again testify my gratitude for all your love and kindness."
+      ],
+      "test": [
+        "How slowly the time passes here, encompassed as I am by frost and snow! Yet a second step is taken towards my enterprise. I have hired a vessel and am occupied in collecting my sailors; those whom I have already engaged appear to be men on whom I can depend and are certainly possessed of dauntless courage.",
+        "Well, these are useless complaints; I shall certainly find no friend on the wide ocean, nor even here in Arkosk, among merchants and seamen. Yet some feelings, unallied to the dross of human nature, beat even in these rugged bosoms. My lieutenant, for instance, is a man of wonderful courage and enterprise; he is madly desirous of glory, or rather, to word my phrase more characteristically, of advancement in his profession. He is an Englishman, and in the midst of national and professional prejudices, unsoftened by cultivation, retains some of the noblest endowments of humanity. I first became acquainted with him on board a whale vessel; finding that he was unemployed in this city, I easily engaged him to assist in my enterprise.",
+        "Yet do not suppose, because I complain a little or because I can conceive a consolation for my toils which I may never know, that I am wavering in my resolutions. Those are as fixed as fate, and my voyage is only now delayed until the weather shall permit my embarkation. The winter has been dreadfully severe, but the spring promises well, and it is considered as a remarkably early season, so that perhaps I may sail sooner than I expected. I shall do nothing rashly: you know me sufficiently to confide in my prudence and considerateness whenever the safety of others is committed to my care."
+      ]
+    },
+    "Emeric Vandel": {
+      "train": [
+        "It was on a dreary night of November that I beheld the accomplishment of my toils. With an anxiety that almost amounted to agony, I collected the instruments of life around me, that I might infuse a spark of being into the lifeless thing that lay at my feet. It was already one in the morning; the rain pattered dismally against the panes, and my candle was nearly burnt out, when, by the glimmer of the half-extinguished light, I saw the dull yellow eye of the creature open; it breathed hard, and a convulsive motion agitated its limbs.",
+        "How can I describe my emotions at this catastrophe, or how delineate the wretch whom with such infinite pains and care I had endeavoured to form? His limbs were in proportion, and I had selected his features as beautiful. Beautiful! Great God! His yellow skin scarcely covered the work of muscles and arteries beneath; his hair was of a lustrous black, and flowing; his teeth of a pearly whiteness; but these luxuriances only formed a more horrid contrast with his watery eyes, that seemed almost of the same colour as the dun-white sockets in which they were set, his shrivelled complexion and straight black lips.",
+        "Oh! No mortal could support the horror of that countenance. A mummy again endued with animation could not be so hideous as that wretch. I had gazed on him while unfinished; he was ugly then, but when those muscles and joints were rendered capable of motion, it became a thing such as even Dante could not have conceived.",
+        "I passed the night wretchedly. Sometimes my pulse beat so quickly and hardly that I felt the palpitation of every artery; at others, I nearly sank to the ground through languor and extreme weakness. Mingled with this horror, I felt the bitterness of disappointment; dreams that had been my food and pleasant rest for so long a space were now become a hell to me; and the change was so rapid, the overthrow so complete!",
+        "Morning, dismal and wet, at length dawned and discovered to my sleepless and aching eyes the church of Ingelhoff, its white steeple and clock, which indicated the sixth hour. The porter opened the gates of the court, which had that night been my asylum, and I issued into the streets, pacing them with quick steps, as if I sought to avoid the wretch whom I feared every turning of the street would present to my view. I did not dare return to the apartment which I inhabited, but felt impelled to hurry on, although drenched by the rain which poured from a black and comfortless sky.",
+        "I continued walking in this manner for some time, endeavouring by bodily exercise to ease the load that weighed upon my mind. I traversed the streets without any clear conception of where I was or what I was doing. My heart palpitated in the sickness of fear, and I hurried on with irregular steps, not daring to look about me: Like one who, on a lonely road, Doth walk in fear and dread, And, having once turned round, walks on, And turns no more his head; Because he knows a frightful fiend Doth close behind him tread. [Coleridge’s “Ancient Mariner.”]",
+        "Continuing thus, I came at length opposite to the inn at which the various diligences and carriages usually stopped. Here I paused, I knew not why; but I remained some minutes with my eyes fixed on a coach that was coming towards me from the other end of the street. As it drew nearer I observed that it was the Swiss diligence; it stopped just where I was standing, and on the door being opened, I perceived Hollis Crane, who, on seeing me, instantly sprung out. “My dear Vandel,” exclaimed he, “how glad I am to see you! How fortunate that you should be here at the very moment of my alighting!”",
+        "Nothing could equal my delight on seeing Crane; his presence brought back to my thoughts my father, Cosima, and all those scenes of home so dear to my recollection. I grasped his hand, and in a moment forgot my horror and misfortune; I felt suddenly, and for the first time during many months, calm and serene joy. I welcomed my friend, therefore, in the most cordial manner, and we walked towards my college. Crane continued talking for some time about our mutual friends and his own good fortune in being permitted to come to Ingelhoff. “You may easily believe,” said he, “how great was the difficulty to persuade my father that all necessary knowledge was not comprised in the noble art of book-keeping; and, indeed, I believe I left him incredulous to the last, for his constant answer to my unwearied entreaties was the same as that of the Dutch schoolmaster in The Vicar of Wakefield: ‘I have ten thousand florins a year without Greek, I eat heartily without Greek.’ But his affection for me at length overcame his dislike of learning, and he has permitted me to undertake a voyage of discovery to the land of knowledge.”"
+      ],
+      "test": [
+        "I trembled excessively; I could not endure to think of, and far less to allude to, the occurrences of the preceding night. I walked with a quick pace, and we soon arrived at my college. I then reflected, and the thought made me shiver, that the creature whom I had left in my apartment might still be there, alive and walking about. I dreaded to behold this monster, but I feared still more that Hollis should see him. Entreating him, therefore, to remain a few minutes at the bottom of the stairs, I darted up towards my own room. My hand was already on the lock of the door before I recollected myself. I then paused, and a cold shivering came over me. I threw the door forcibly open, as children are accustomed to do when they expect a spectre to stand in waiting for them on the other side; but nothing appeared. I stepped fearfully in: the apartment was empty, and my bedroom was also freed from its hideous guest. I could hardly believe that so great a good fortune could have befallen me, but when I became assured that my enemy had indeed fled, I clapped my hands for joy and ran down to Crane.",
+        "We ascended into my room, and the servant presently brought breakfast; but I was unable to contain myself. It was not joy only that possessed me; I felt my flesh tingle with excess of sensitiveness, and my pulse beat rapidly. I was unable to remain for a single instant in the same place; I jumped over the chairs, clapped my hands, and laughed aloud. Crane at first attributed my unusual spirits to joy on his arrival, but when he observed me more attentively, he saw a wildness in my eyes for which he could not account, and my loud, unrestrained, heartless laughter frightened and astonished him.",
+        "Poor Crane! What must have been his feelings? A meeting, which he anticipated with such joy, so strangely turned to bitterness. But I was not the witness of his grief, for I was lifeless and did not recover my senses for a long, long time."
+      ]
+    },
+    "The Creature": {
+      "train": [
+        "I now hasten to the more moving part of my story. I shall relate events that impressed me with feelings which, from what I had been, have made me what I am.",
+        "Spring advanced rapidly; the weather became fine and the skies cloudless. It surprised me that what before was desert and gloomy should now bloom with the most beautiful flowers and verdure. My senses were gratified and refreshed by a thousand scents of delight and a thousand sights of beauty.",
+        "It was on one of these days, when my cottagers periodically rested from labour—the old man played on his guitar, and the children listened to him—that I observed the countenance of Fenwick was melancholy beyond expression; he sighed frequently, and once his father paused in his music, and I conjectured by his manner that he inquired the cause of his son’s sorrow. Fenwick replied in a cheerful accent, and the old man was recommencing his music when someone tapped at the door.",
+        "It was a lady on horseback, accompanied by a country-man as a guide. The lady was dressed in a dark suit and covered with a thick black veil. Alina asked a question, to which the stranger only replied by pronouncing, in a sweet accent, the name of Fenwick. Her voice was musical but unlike that of either of my friends. On hearing this word, Fenwick came up hastily to the lady, who, when she saw him, threw up her veil, and I beheld a countenance of angelic beauty and expression. Her hair of a shining raven black, and curiously braided; her eyes were dark, but gentle, although animated; her features of a regular proportion, and her complexion wondrously fair, each cheek tinged with a lovely pink.",
+        "Fenwick seemed ravished with delight when he saw her, every trait of sorrow vanished from his face, and it instantly expressed a degree of ecstatic joy, of which I could hardly have believed it capable; his eyes sparkled, as his cheek flushed with pleasure; and at that moment I thought him as beautiful as the stranger. She appeared affected by different feelings; wiping a few tears from her lovely eyes, she held out her hand to Fenwick, who kissed it rapturously and called her, as well as I could distinguish, his sweet Arabian. She did not appear to understand him, but smiled. He assisted her to dismount, and dismissing her guide, conducted her into the cottage. Some conversation took place between him and his father, and the young stranger knelt at the old man’s feet and would have kissed his hand, but he raised her and embraced her affectionately.",
+        "I soon perceived that although the stranger uttered articulate sounds and appeared to have a language of her own, she was neither understood by nor herself understood the cottagers. They made many signs which I did not comprehend, but I saw that her presence diffused gladness through the cottage, dispelling their sorrow as the sun dissipates the morning mists. Fenwick seemed peculiarly happy and with smiles of delight welcomed his Arabian. Alina, the ever-gentle Alina, kissed the hands of the lovely stranger, and pointing to her brother, made signs which appeared to me to mean that he had been sorrowful until she came. Some hours passed thus, while they, by their countenances, expressed joy, the cause of which I did not comprehend. Presently I found, by the frequent recurrence of some sound which the stranger repeated after them, that she was endeavouring to learn their language; and the idea instantly occurred to me that I should make use of the same instructions to the same end. The stranger learned about twenty words at the first lesson; most of them, indeed, were those which I had before understood, but I profited by the others.",
+        "As night came on, Alina and the Arabian retired early. When they separated Fenwick kissed the hand of the stranger and said, ‘Good night sweet Soraya.’ He sat up much longer, conversing with his father, and by the frequent repetition of her name I conjectured that their lovely guest was the subject of their conversation. I ardently desired to understand them, and bent every faculty towards that purpose, but found it utterly impossible.",
+        "The next morning Fenwick went out to his work, and after the usual occupations of Alina were finished, the Arabian sat at the feet of the old man, and taking his guitar, played some airs so entrancingly beautiful that they at once drew tears of sorrow and delight from my eyes. She sang, and her voice flowed in a rich cadence, swelling or dying away like a nightingale of the woods."
+      ],
+      "test": [
+        "When she had finished, she gave the guitar to Alina, who at first declined it. She played a simple air, and her voice accompanied it in sweet accents, but unlike the wondrous strain of the stranger. The old man appeared enraptured and said some words which Alina endeavoured to explain to Soraya, and by which he appeared to wish to express that she bestowed on him the greatest delight by her music.",
+        "The days now passed as peaceably as before, with the sole alteration that joy had taken place of sadness in the countenances of my friends. Soraya was always gay and happy; she and I improved rapidly in the knowledge of language, so that in two months I began to comprehend most of the words uttered by my protectors.",
+        "In the meanwhile also the black ground was covered with herbage, and the green banks interspersed with innumerable flowers, sweet to the scent and the eyes, stars of pale radiance among the moonlight woods; the sun became warmer, the nights clear and balmy; and my nocturnal rambles were an extreme pleasure to me, although they were considerably shortened by the late setting and early rising of the sun, for I never ventured abroad during daylight, fearful of meeting with the same treatment I had formerly endured in the first village which I entered."
+      ]
+    }
+  },
+  "canonical_beats": [
+    {
+      "title": "Emeric animates the creature and flees it in horror",
+      "kind": "inciting"
+    },
+    {
+      "title": "The abandoned creature learns speech and feeling by watching the cottagers",
+      "kind": "rising"
+    },
+    {
+      "title": "The creature demands a mate; Emeric agrees then refuses",
+      "kind": "midpoint"
+    },
+    {
+      "title": "The creature takes revenge, killing those Emeric loves",
+      "kind": "rising"
+    },
+    {
+      "title": "Emeric pursues the creature across the Arctic ice",
+      "kind": "climax"
+    },
+    {
+      "title": "Emeric dies aboard the explorer's ship; the creature departs to end itself",
+      "kind": "resolution"
+    }
+  ],
+  "continuity_injections": [
+    {
+      "id": "name-misspell",
+      "locate": "Isolde",
+      "replace": "Isolda",
+      "expect_type": "character",
+      "note": "the sister/addressee's name respelled on first mention, inconsistent with later spellings"
+    },
+    {
+      "id": "date-era-flip",
+      "locate": "Dec. 11th, 17—",
+      "replace": "Dec. 11th, 18—",
+      "expect_type": "timeline",
+      "note": "opening letter dated a century off from the others (all 17—)"
+    }
+  ]
+}

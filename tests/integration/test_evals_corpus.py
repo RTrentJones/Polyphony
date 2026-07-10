@@ -21,12 +21,13 @@ pytestmark = [
 ]
 
 
-async def test_dracula_voices_separate():
+@pytest.mark.parametrize("book", ["dracula", "frankenstein"])
+async def test_corpus_voices_separate(book):
     from evals.graders import attribution
     from evals.harness import embed
     from evals.steps import pipeline
 
-    _, gt = pipeline.load_corpus("dracula")
+    _, gt = pipeline.load_corpus(book)
     gold = gt["gold_lines"]
     assert len(gold) >= 3, "need >=3 voices for a meaningful attribution baseline"
 
@@ -37,6 +38,8 @@ async def test_dracula_voices_separate():
         for ln in v["test"]
     ]
     agg = attribution.accuracy(results)
-    # comfortably above the 1/N chance baseline (0.33 for three voices).
-    assert agg["accuracy"] >= 0.6, f"voices not separable enough: {agg}"
+    # comfortably above the 1/N chance baseline (0.33 for three voices). Both the
+    # training corpus (dracula) and the held-out corpus (frankenstein) must hold
+    # separable gold voices or the voice/attribution evals go meaningless.
+    assert agg["accuracy"] >= 0.6, f"{book} voices not separable enough: {agg}"
     assert agg["chance"] < agg["accuracy"]

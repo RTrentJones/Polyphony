@@ -26,6 +26,8 @@ import json
 import re
 from pathlib import Path
 
+from evals.tools.headings import HEADING_LINE
+
 CORPORA = Path(__file__).resolve().parent.parent / "corpora"
 
 
@@ -73,10 +75,9 @@ def extract_sections(body: str, sections: list[str]) -> str:
     A section runs from its header line to the next chapter/section header. This
     keeps the committed corpus to a curated few chapters, not the whole book.
     """
-    # Any CHAPTER heading marks a boundary.
+    # Any section heading (chapter or letter) marks a boundary.
     boundaries = [
-        (m.start(), m.group(0).strip())
-        for m in re.finditer(r"(?m)^CHAPTER [IVXLC]+\b.*$", body)
+        (m.start(), m.group(0).strip()) for m in re.finditer(HEADING_LINE, body)
     ]
     out = []
     for i, (pos, name) in enumerate(boundaries):
@@ -102,6 +103,9 @@ def main() -> None:
     book_dir = CORPORA / args.book
     spec = json.loads((book_dir / "aliases.json").read_text())
     raw = Path(args.source).read_text(encoding="utf-8")
+    # Normalize line endings — Gutenberg .txt ships CRLF, and the section
+    # slicing / gold-line extraction anchor on "\n". No-op on an LF source.
+    raw = raw.replace("\r\n", "\n").replace("\r", "\n")
 
     body = strip_gutenberg(raw)
     body = extract_sections(body, spec["sections"])
