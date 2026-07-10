@@ -83,14 +83,36 @@ python -m evals.tools.rename   --book dracula --source /path/to/source.txt   # r
 python -m evals.tools.build_gt --book dracula                                 # ground_truth.json
 ```
 
+## Corpora
+
+- **`dracula`** — the training corpus (epistolary; three diary/letter narrators).
+- **`frankenstein`** — the **held-out validation** corpus (Walton's letters,
+  Victor's creation chapter, the creature's quoted tale). A prompt/architecture
+  change counts only if it improves **both**: a gain on Dracula alone is likely
+  overfitting to one book's ground truth. CI grades both and tags them as
+  separate Tracer runs (`env=<label>-dracula` / `-frankenstein`).
+
 ## Adding a book — data only, no code
 
-1. `corpora/<book>/aliases.json` — rename map + the chapters to extract.
+1. `corpora/<book>/aliases.json` — rename map + the `sections` to extract.
 2. `corpora/<book>/spec.json` — cast, `voice_sources`, synopsis, canonical
    beats, continuity injections (see Dracula's for the shape).
 3. Run `rename` then `build_gt` (above) and write `PROVENANCE.md`.
 
-No Python changes: `build_gt.py` reads `spec.json`, and the steps read the
-resulting `ground_truth.json`. A new eval *step* is likewise one
+`voice_sources` knobs (each narrator needs a **disjoint, single-narrator**
+section so voices separate):
+- `{"chapters": [...]}` — whole chapters/letters of that narrator's text; or
+  `{"blocks": "regex"}` — letter/diary block headers.
+- `"quoted": true` — the narration is a nested multi-paragraph quotation (each
+  paragraph opens with `“`, e.g. a character recounting their story); keeps that
+  framed prose as voice instead of discarding it as dialogue.
+- `"max_lines": N` — cap this narrator's gold lines to **balance the pool**; a
+  narrator with far more lines than the others biases retrieval and understates
+  separability.
+
+Heading styles recognized by the slicer (`evals/tools/headings.py`): roman
+`CHAPTER II`, arabic `Chapter 5`, and `Letter 4`. Extend that one file for a new
+style. No other Python changes: `build_gt.py` reads `spec.json`, and the steps
+read the resulting `ground_truth.json`. A new eval *step* is likewise one
 `@step("name", needs_api=...)` decorator in `steps/pipeline.py` — the runner
 discovers it from the registry.

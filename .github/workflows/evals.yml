@@ -16,8 +16,8 @@ on:
   workflow_dispatch:
     inputs:
       book:
-        description: corpus to grade
-        default: dracula
+        description: corpus(es) to grade, space-separated (dracula = training, frankenstein = held-out)
+        default: dracula frankenstein
       steps:
         description: comma list of steps or 'all'
         default: all
@@ -101,13 +101,21 @@ jobs:
           done
           echo "::error::app did not become healthy"; exit 1
       - name: Run evals + ingest to Tracer
+        env:
+          BASE_LABEL: ${{ github.event.inputs.env_label || 'ci' }}
+          STEPS: ${{ github.event.inputs.steps || 'all' }}
         run: |
-          python -m evals.run \
-            --book "${{ github.event.inputs.book || 'dracula' }}" \
-            --steps "${{ github.event.inputs.steps || 'all' }}" \
-            --out eval-report.json \
-            --export gl-export.json \
-            --tracer
+          BOOKS="${{ github.event.inputs.book || 'dracula frankenstein' }}"
+          rc=0
+          for BK in $BOOKS; do
+            echo "::group::evals $BK"
+            # Distinct Tracer env per book so training vs held-out trend apart.
+            EVAL_ENV_LABEL="${BASE_LABEL}-${BK}" python -m evals.run \
+              --book "$BK" --steps "$STEPS" \
+              --out "eval-report-$BK.json" --export "gl-export-$BK.json" --tracer || rc=1
+            echo "::endgroup::"
+          done
+          exit $rc
       - name: Stop app
         if: ${{ always() && github.event.inputs.base_url == '' }}
         run: kill "$(cat /tmp/app.pid)" 2>/dev/null || true
@@ -117,6 +125,6 @@ jobs:
         with:
           name: eval-report-${{ github.run_id }}
           path: |
-            eval-report.json
-            gl-export.json
+            eval-report-*.json
+            gl-export-*.json
           if-no-files-found: warn

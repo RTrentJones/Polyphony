@@ -1,0 +1,82 @@
+{
+  "_comment": "Data-only book spec consumed by evals/tools/build_gt.py. Frankenstein is the held-out validation corpus: like Dracula it has multiple disjoint first-person narrators (Walton's letters, Victor's creation chapter, the creature's chapter), so the voice-separability premise holds, but a different cast/genre so an improvement that only overfits Dracula won't score here. Names renamed for anti-memorization (see PROVENANCE.md).",
+  "author": "Mary Wollstonecraft Shelley",
+  "year": 1818,
+  "source": "Project Gutenberg #84 (public domain, US; PG wrapper stripped)",
+  "cast": [
+    "Emeric Vandel",
+    "Rowan Merrow",
+    "Hollis Crane",
+    "Cosima Lorenzi",
+    "Fenwick",
+    "Alina",
+    "Soraya"
+  ],
+  "voice_sources": {
+    "Rowan Merrow": {
+      "chapters": [
+        "Letter 1",
+        "Letter 2",
+        "Letter 3",
+        "Letter 4"
+      ],
+      "max_lines": 11
+    },
+    "Emeric Vandel": {
+      "chapters": [
+        "Chapter 5"
+      ],
+      "max_lines": 11
+    },
+    "The Creature": {
+      "chapters": [
+        "Chapter 13"
+      ],
+      "quoted": true,
+      "max_lines": 11
+    }
+  },
+  "synopsis": "A driven natural philosopher, Emeric Vandel, discovers the secret of animating lifeless matter and builds a living man from dead tissue — then, horrified by what he has made, abandons it. Cast out and reviled by everyone it meets, the creature teaches itself to speak and read by watching a poor family in secret, and grows from wonder into rage. It demands that Emeric make it a companion; when he refuses, it destroys everyone Emeric loves. Emeric pursues his creation across the ice to destroy it, and their chase is recounted to the polar explorer Rowan Merrow, who finds Emeric dying on the frozen sea.",
+  "canonical_beats": [
+    {
+      "title": "Emeric animates the creature and flees it in horror",
+      "kind": "inciting"
+    },
+    {
+      "title": "The abandoned creature learns speech and feeling by watching the cottagers",
+      "kind": "rising"
+    },
+    {
+      "title": "The creature demands a mate; Emeric agrees then refuses",
+      "kind": "midpoint"
+    },
+    {
+      "title": "The creature takes revenge, killing those Emeric loves",
+      "kind": "rising"
+    },
+    {
+      "title": "Emeric pursues the creature across the Arctic ice",
+      "kind": "climax"
+    },
+    {
+      "title": "Emeric dies aboard the explorer's ship; the creature departs to end itself",
+      "kind": "resolution"
+    }
+  ],
+  "continuity_injections": [
+    {
+      "id": "name-misspell",
+      "locate": "Isolde",
+      "replace": "Isolda",
+      "expect_type": "character",
+      "note": "the sister/addressee's name respelled on first mention, inconsistent with later spellings"
+    },
+    {
+      "id": "date-era-flip",
+      "locate": "Dec. 11th, 17—",
+      "replace": "Dec. 11th, 18—",
+      "expect_type": "timeline",
+      "note": "opening letter dated a century off from the others (all 17—)"
+    }
+  ]
+}
