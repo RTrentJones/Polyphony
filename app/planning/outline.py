@@ -4,13 +4,13 @@ An outline is a JSON list of nodes: {"title", "summary", "children": [...]}.
 Top-level nodes map naturally onto chapters ("promote" endpoint).
 """
 
-import json
 from typing import Optional
 from uuid import UUID
 
 from app.core.logging_config import setup_logging
 from app.core.sanitization import sanitize_for_llm
 from app.llm.client import get_llm_client
+from app.llm.json_utils import extract_json_array
 
 logger = setup_logging("planning.outline")
 
@@ -70,14 +70,13 @@ JSON:"""
     result = await get_llm_client().generate(
         [{"role": "user", "content": prompt}],
         temperature=0.7,
-        max_tokens=3000,
+        max_tokens=8192,
         user_id=user_id,
         purpose="outline",
     )
-    text = result.text.replace("```json", "").replace("```", "").strip()
     try:
-        nodes = json.loads(text)
-    except json.JSONDecodeError as e:
+        nodes = extract_json_array(result.text)
+    except ValueError as e:
         logger.warning(
             f"Outline JSON parse failed: {e}",
             extra_fields={"event": "outline_parse_failed"},

@@ -6,12 +6,12 @@ Map-reduce shape: each chunk of prose is checked against the fact sheet
 (bible + open threads + chapter summaries); findings are merged.
 """
 
-import json
 from typing import Optional
 from uuid import UUID
 
 from app.core.logging_config import setup_logging
 from app.llm.client import get_llm_client
+from app.llm.json_utils import extract_json_array
 
 logger = setup_logging("planning.continuity")
 
@@ -73,14 +73,13 @@ JSON:"""
     result = await get_llm_client().generate(
         [{"role": "user", "content": prompt}],
         temperature=0.2,
-        max_tokens=1500,
+        max_tokens=3000,
         user_id=user_id,
         purpose="continuity",
     )
-    text = result.text.replace("```json", "").replace("```", "").strip()
     try:
-        findings = validate_findings(json.loads(text))
-    except json.JSONDecodeError:
+        findings = validate_findings(extract_json_array(result.text))
+    except ValueError:
         logger.warning(
             "Continuity chunk returned unparseable JSON",
             extra_fields={"event": "continuity_parse_failed", "chunk": chunk_label},

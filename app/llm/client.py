@@ -96,6 +96,7 @@ class LLMClient:
                         messages=messages,
                         max_tokens=max_tokens,
                         temperature=temperature,
+                        extra_body=self.provider.extra_body,
                     )
                 return await self._account(
                     response, resolved_model, start, user_id, purpose
