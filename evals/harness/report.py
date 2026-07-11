@@ -39,7 +39,11 @@ def scorecard(run: dict) -> str:
             extra = f"acc={res['accuracy']} chance={res['chance']}"
         elif name == "continuity":
             extra = f"recall={res['detection_recall']} fpr={res['false_positive_rate']}"
-        lines.append(f"  {name:14s}  {score:.3f}   {extra}")
+        std = res.get("score_std")
+        score_str = f"{score:.3f}" + (
+            f" ±{std:.3f} (n={res.get('repeats')})" if std is not None else ""
+        )
+        lines.append(f"  {name:14s}  {score_str}   {extra}")
     return "\n".join(lines)
 
 

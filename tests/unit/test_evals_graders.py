@@ -105,6 +105,42 @@ class TestTracerExport:
         assert all(0.0 <= c["score"] <= 1.0 for c in out["cases"])
 
 
+class TestAggregate:
+    def test_mean_std_over_passes(self):
+        from evals.run import _aggregate
+
+        passes = [
+            {"outline": {"score": 0.8, "n_nodes": 6}},
+            {"outline": {"score": 0.6, "n_nodes": 6}},
+            {"outline": {"score": 0.7, "n_nodes": 6}},
+        ]
+        out = _aggregate(passes)
+        assert out["outline"]["score"] == pytest.approx(0.7, abs=1e-3)
+        assert out["outline"]["score_std"] > 0
+        assert out["outline"]["repeats"] == 3
+        assert out["outline"]["score_samples"] == [0.8, 0.6, 0.7]
+        # non-score fields survive from the last pass.
+        assert out["outline"]["n_nodes"] == 6
+
+    def test_single_pass_unchanged(self):
+        from evals.run import _aggregate
+
+        passes = [{"retrieval": {"score": 0.82, "mrr": 0.9}}]
+        out = _aggregate(passes)
+        assert out["retrieval"] == {"score": 0.82, "mrr": 0.9}
+        assert "score_std" not in out["retrieval"]
+
+    def test_skipped_and_errored_steps_pass_through(self):
+        from evals.run import _aggregate
+
+        passes = [
+            {"a": {"skipped": True}, "b": {"error": "x"}},
+            {"a": {"skipped": True}, "b": {"error": "x"}},
+        ]
+        out = _aggregate(passes)
+        assert out["a"] == {"skipped": True} and out["b"] == {"error": "x"}
+
+
 class TestExtraction:
     def test_perfect(self):
         s = extraction.grade_extraction(
