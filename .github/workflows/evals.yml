@@ -32,6 +32,14 @@ on:
         default: ''
   schedule:
     - cron: '17 6 * * 1' # Mondays 06:17 UTC — a weekly trend point
+  # On-demand trigger for when workflow_dispatch isn't available (e.g. an
+  # integration token can't press "Run workflow"): bump evals/.run-eval and push.
+  # Path-scoped so ordinary commits don't fire it (this run spends Gemini quota).
+  # A push run has no inputs, so it uses the boot-mode defaults: both corpora,
+  # all steps, base_url blank (boots this ref's app).
+  push:
+    paths:
+      - evals/.run-eval
 
 concurrency:
   group: evals-${{ github.ref }}
