@@ -84,6 +84,10 @@ class LLMClient:
     ) -> GenResult:
         """Generate a chat completion through pacing/retry/accounting."""
         resolved_model = model or resolve_model(self.provider, fast)
+        # Deterministic-eval override: pin temperature when configured so a
+        # score delta is attributable to the change under test, not sampling.
+        if settings.LLM_TEMPERATURE_OVERRIDE is not None:
+            temperature = settings.LLM_TEMPERATURE_OVERRIDE
         start = time.monotonic()
         last_error: Optional[Exception] = None
 

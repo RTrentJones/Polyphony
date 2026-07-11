@@ -56,6 +56,9 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://postgres:ci_password_12345@localhost:5432/polyphony_eval
       LLM_PROVIDER: gemini
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      # Deterministic generation so a score delta reflects the change under
+      # test, not sampling jitter (only affects boot mode; prod is unchanged).
+      LLM_TEMPERATURE_OVERRIDE: '0'
       # First-boot admin (empty DB) → the eval client logs in as this admin,
       # mints an invite, and registers a throwaway user for the run.
       ADMIN_EMAIL: eval-admin@example.com

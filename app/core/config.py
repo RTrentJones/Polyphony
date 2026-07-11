@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     LLM_MAX_RPM: Optional[int] = None  # override the provider's pacing default
     LLM_MAX_CONCURRENCY: int = 2
     LLM_TIMEOUT_SECONDS: float = 60.0
+    # Reproducibility knob: when set (e.g. 0.0 during evals), overrides every
+    # call's temperature so generations are deterministic and score deltas
+    # reflect prompt/architecture changes, not sampling jitter. None = off
+    # (production sampling unchanged).
+    LLM_TEMPERATURE_OVERRIDE: Optional[float] = None
 
     # Embeddings (fastembed / ONNX; 384 dims matches all-MiniLM-L6-v2)
     EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
