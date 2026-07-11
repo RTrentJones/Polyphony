@@ -99,7 +99,12 @@ class Settings(BaseSettings):
 
     # RAG settings
     RAG_TOP_K: int = 5
-    RAG_SCORE_THRESHOLD: float = 0.5
+    # Voice retrieval embeds a beat/scene DESCRIPTION against stored voice LINES;
+    # on symmetric all-MiniLM those land at cosine ~0.2-0.45 even for the best,
+    # on-voice samples, so the old 0.5 floor silently dropped ALL grounding.
+    # Lower floor + a never-empty fallback in retrieve_similar (the query is
+    # already character-scoped, so its closest samples are always wanted).
+    RAG_SCORE_THRESHOLD: float = 0.2
 
     # Scene generation settings
     DEFAULT_TARGET_WORD_COUNT: int = 500

@@ -12,6 +12,22 @@ from app.llm.json_utils import extract_json_array
 
 logger = setup_logging("parsing.character_extractor")
 
+# Real prose (Gutenberg, Standard Ebooks, Word, most published text) uses smart
+# quotes. Dialogue detection matched only straight ASCII quotes, so it found
+# ZERO dialogue in curly-quoted manuscripts — every character's spoken voice was
+# invisible to indexing. Normalize smart→straight before matching.
+_SMART_QUOTES = str.maketrans({"“": '"', "”": '"', "‘": "'", "’": "'", "″": '"'})
+# Speech tags vary widely; the old set was just said/asked/replied.
+_SPEECH_VERBS = (
+    "said|asked|replied|responded|shouted|whispered|muttered|cried|exclaimed|"
+    "answered|continued|added|declared|murmured|remarked|returned|observed|"
+    "demanded|inquired|repeated|began|went on"
+)
+
+
+def _normalize_quotes(text: str) -> str:
+    return text.translate(_SMART_QUOTES)
+
 
 def stratified_sample(text: str, budget: int = 14000, windows: int = 4) -> str:
     """Evenly-spaced windows across the WHOLE manuscript, not just the head.
@@ -148,6 +164,24 @@ JSON array:"""
                     }
                 )
 
+        # Also index the character's actual spoken lines as dialogue voice. The
+        # name-in-paragraph gate above misses inverted attributions ("…," said X)
+        # and, more importantly, a speaking character's most voice-bearing text is
+        # their dialogue — which the paragraph classifier under-labels. Deduped
+        # against paragraphs already captured.
+        seen = {c["text"] for c in chunks}
+        for j, line in enumerate(self.extract_dialogue_only(text, character_name)):
+            if line not in seen:
+                seen.add(line)
+                chunks.append(
+                    {
+                        "text": line,
+                        "chunk_type": ChunkType.DIALOGUE.value,
+                        "source_location": f"dialogue_{j}",
+                        "character_name": character_name,
+                    }
+                )
+
         return chunks
 
     def extract_dialogue_only(self, text: str, character_name: str) -> List[str]:
@@ -162,17 +196,22 @@ JSON array:"""
             List of dialogue strings
         """
         dialogues = []
+        # Normalize smart quotes first so the straight-quote patterns fire on
+        # real-world prose (see _SMART_QUOTES).
+        text = _normalize_quotes(text)
+        name = re.escape(character_name)
 
-        # Common dialogue patterns
+        # Common dialogue patterns (the closing quote may carry a comma, e.g.
+        # "No," said Sarah — [^"]+ absorbs it before the closing ").
         patterns = [
-            # Pattern: "dialogue" said Character
-            rf'"([^"]+)"\s+(?:said|asked|replied|responded|shouted|whispered|muttered)\s+{character_name}',
-            # Pattern: Character said, "dialogue"
-            rf'{character_name}\s+(?:said|asked|replied|responded|shouted|whispered|muttered),?\s+"([^"]+)"',
-            # Pattern: Character: "dialogue"
-            rf'{character_name}:\s+"([^"]+)"',
-            # Pattern: Character spoke first, then "dialogue"
-            rf'{character_name}\s+[^"]*"([^"]+)"',
+            # "dialogue," said Character   (inversion — the common newspaper form)
+            rf'"([^"]+)"\s+(?:{_SPEECH_VERBS})\s+{name}',
+            # Character said, "dialogue"
+            rf'{name}\s+(?:{_SPEECH_VERBS}),?\s+"([^"]+)"',
+            # Character: "dialogue"
+            rf'{name}:\s+"([^"]+)"',
+            # Character <clause> "dialogue"
+            rf'{name}\s+[^"]*"([^"]+)"',
         ]
 
         for pattern in patterns:
@@ -213,15 +252,18 @@ JSON array:"""
         Returns:
             ChunkType value
         """
-        # Check for dialogue indicators
-        if '"' in text or "'" in text or '"' in text:
-            # Check if it's actually dialogue involving the character
+        # Check for dialogue indicators (normalize smart quotes first).
+        norm = _normalize_quotes(text)
+        name = re.escape(character_name)
+        if '"' in norm or "'" in norm:
+            # Is it actually dialogue involving the character (either speaker order)?
             dialogue_patterns = [
-                rf"{character_name}\s+(?:said|asked|replied)",
-                rf'"\s+(?:said|asked|replied)\s+{character_name}',
-                rf'{character_name}:\s*["\']',
+                rf"{name}\s+(?:{_SPEECH_VERBS})",
+                rf'"\s*(?:{_SPEECH_VERBS})\s+{name}',
+                rf'"[^"]*,?"\s+(?:{_SPEECH_VERBS})\s+{name}',
+                rf'{name}:\s*["\']',
             ]
-            if any(re.search(p, text, re.IGNORECASE) for p in dialogue_patterns):
+            if any(re.search(p, norm, re.IGNORECASE) for p in dialogue_patterns):
                 return ChunkType.DIALOGUE.value
 
         # Check for thought indicators

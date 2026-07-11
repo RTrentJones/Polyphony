@@ -139,17 +139,22 @@ class ChunkStore:
             )
             return []
 
-        return [
+        results = [
             {
                 "text": row["text"],
-                "score": float(row["score"]),
+                "score": float(row["score"]) if row["score"] is not None else None,
                 "chunk_type": row["chunk_type"],
                 "source": row["source_location"] or "",
                 "word_count": row["word_count"] or 0,
             }
             for row in rows
-            if row["score"] is None or float(row["score"]) >= threshold
         ]
+        above = [r for r in results if r["score"] is None or r["score"] >= threshold]
+        # Never strip a character's grounding to nothing: rows are already scoped
+        # to this character and ordered by similarity, so if the absolute
+        # threshold rejects them all, return the closest ones anyway rather than
+        # generating voice-blind.
+        return above or results
 
     async def character_statistics(self, character_id: str) -> dict:
         """Chunk counts / word totals for one character."""
