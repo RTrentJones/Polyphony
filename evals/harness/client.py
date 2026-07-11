@@ -41,7 +41,7 @@ class PolyphonyClient:
             "/api/v1/auth/login", data={"username": email, "password": password}
         )
         if r.status_code != 200:
-            raise EvalClientError(f"login failed ({r.status_code}): {r.text[:200]}")
+            raise EvalClientError(f"login failed ({r.status_code}): {r.text[:400]}")
         return r.json()["access_token"]
 
     async def bootstrap_eval_user(self, admin_email: str, admin_password: str) -> str:
@@ -54,7 +54,7 @@ class PolyphonyClient:
         )
         if r.status_code not in (200, 201):
             raise EvalClientError(
-                f"invite mint failed ({r.status_code}): {r.text[:200]}"
+                f"invite mint failed ({r.status_code}): {r.text[:400]}"
             )
         code = r.json()["code"]
         email = f"eval+{secrets.token_hex(6)}@polyphony.eval"
@@ -69,7 +69,7 @@ class PolyphonyClient:
             },
         )
         if r.status_code not in (200, 201):
-            raise EvalClientError(f"register failed ({r.status_code}): {r.text[:200]}")
+            raise EvalClientError(f"register failed ({r.status_code}): {r.text[:400]}")
         self._token = r.json()["access_token"]
         self.user_email = email
         return email
@@ -106,7 +106,7 @@ class PolyphonyClient:
             params={"title": title},
         )
         if r.status_code not in (200, 201):
-            raise EvalClientError(f"upload failed ({r.status_code}): {r.text[:200]}")
+            raise EvalClientError(f"upload failed ({r.status_code}): {r.text[:400]}")
         return r.json()
 
     async def wait_manuscript(self, manuscript_id: str, timeout: float = 300) -> dict:
@@ -130,7 +130,7 @@ class PolyphonyClient:
         r = await self._post("/api/v1/characters/", json={"name": name, **fields})
         if r.status_code not in (200, 201):
             raise EvalClientError(
-                f"create character failed ({r.status_code}): {r.text[:200]}"
+                f"create character failed ({r.status_code}): {r.text[:400]}"
             )
         return r.json()
 
@@ -153,7 +153,7 @@ class PolyphonyClient:
         )
         if r.status_code != 200:
             raise EvalClientError(
-                f"test-dialogue failed ({r.status_code}): {r.text[:200]}"
+                f"test-dialogue failed ({r.status_code}): {r.text[:400]}"
             )
         return r.json()
 
@@ -165,7 +165,7 @@ class PolyphonyClient:
         )
         if r.status_code not in (200, 201):
             raise EvalClientError(
-                f"create book failed ({r.status_code}): {r.text[:200]}"
+                f"create book failed ({r.status_code}): {r.text[:400]}"
             )
         return r.json()
 
@@ -175,7 +175,7 @@ class PolyphonyClient:
             json={"kind": "outline", "chapters_target": chapters_target},
         )
         if r.status_code != 200:
-            raise EvalClientError(f"outline failed ({r.status_code}): {r.text[:200]}")
+            raise EvalClientError(f"outline failed ({r.status_code}): {r.text[:400]}")
         return r.json()
 
     async def create_chapter(self, book_id: str, title: str, summary: str = "") -> dict:
@@ -192,7 +192,7 @@ class PolyphonyClient:
         )
         if r.status_code not in (200, 201):
             raise EvalClientError(
-                f"scene generate failed ({r.status_code}): {r.text[:200]}"
+                f"scene generate failed ({r.status_code}): {r.text[:400]}"
             )
         started = r.json()
         return await self.poll(
@@ -209,7 +209,7 @@ class PolyphonyClient:
         )
         if r.status_code not in (200, 201):
             raise EvalClientError(
-                f"set scene content failed ({r.status_code}): {r.text[:200]}"
+                f"set scene content failed ({r.status_code}): {r.text[:400]}"
             )
         return r.json()
 
@@ -221,7 +221,7 @@ class PolyphonyClient:
         )
         if r.status_code not in (200, 201):
             raise EvalClientError(
-                f"continuity failed ({r.status_code}): {r.text[:200]}"
+                f"continuity failed ({r.status_code}): {r.text[:400]}"
             )
         report_id = r.json()["report_id"]
         reports = await self.poll(

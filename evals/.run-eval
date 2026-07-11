@@ -1,2 +1,2 @@
-run 3 — drop temp=0 override (was homogenizing voice); add self-diagnosing prose/attribution status
+run 4 — diagnostic: unmask the back-half 500s (DEBUG error detail + unbuffered app logs)
 books: dracula

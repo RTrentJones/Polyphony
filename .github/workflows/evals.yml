@@ -64,6 +64,13 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://postgres:ci_password_12345@localhost:5432/polyphony_eval
       LLM_PROVIDER: gemini
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      # Stream the backgrounded app's logs (Python block-buffers a pipe, so a
+      # crashed generation's traceback otherwise never reaches the job log).
+      PYTHONUNBUFFERED: '1'
+      # CI-only: let the app's 500 handler name the real error (429/quota vs
+      # safety-block vs bug) in the response so the eval scorecard is
+      # self-diagnosing. DEBUG defaults False, so prod leaks nothing.
+      DEBUG: 'true'
       # NOTE: do NOT force temperature to 0 here. Temp=0 homogenizes the voice
       # steps (every character answers a prompt near-identically → attribution
       # collapses, prose degenerates), which defeats the voice measurement. Let
