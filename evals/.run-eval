@@ -1,2 +1,2 @@
-run 4 — diagnostic: unmask the back-half 500s (DEBUG error detail + unbuffered app logs)
+run 5 — fix circuit-breaker-in-retry-loop cascade (breaker now wraps the whole generate)
 books: dracula

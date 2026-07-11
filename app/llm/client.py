@@ -26,7 +26,7 @@ from app.core.metrics import (
     llm_requests_total,
     llm_tokens_used_total,
 )
-from app.core.resilience import CircuitBreaker
+from app.core.resilience import CircuitBreaker, CircuitBreakerError
 
 from .pacing import backoff_after_429, get_pacer
 from .providers import (
@@ -89,13 +89,50 @@ class LLMClient:
         if settings.LLM_TEMPERATURE_OVERRIDE is not None:
             temperature = settings.LLM_TEMPERATURE_OVERRIDE
         start = time.monotonic()
-        last_error: Optional[Exception] = None
 
+        # The circuit breaker wraps the WHOLE retry sequence, not each attempt:
+        # one logical generate() = one breaker success/failure. Wrapping each
+        # attempt (breaker inside the loop) meant a single call's exhausted
+        # retries logged _MAX_ATTEMPTS failures and — with failure_threshold ==
+        # _MAX_ATTEMPTS — tripped the breaker in one unlucky call, blackholing
+        # every later call for the recovery window (this is exactly what made
+        # the eval's whole generation half cascade to CircuitBreakerError). Now
+        # the breaker opens only on sustained failure across multiple calls,
+        # while transient blips stay absorbed by the per-call retries.
+        try:
+            return await self._breaker.call(
+                self._generate_with_retries,
+                messages,
+                resolved_model,
+                max_tokens,
+                temperature,
+                start,
+                user_id,
+                purpose,
+            )
+        except CircuitBreakerError:
+            llm_requests_total.labels(
+                service="app", model=resolved_model, status="circuit_open"
+            ).inc()
+            raise
+
+    async def _generate_with_retries(
+        self,
+        messages: list[dict],
+        resolved_model: str,
+        max_tokens: int,
+        temperature: float,
+        start: float,
+        user_id: Optional[UUID],
+        purpose: str,
+    ) -> GenResult:
+        """The paced retry loop; a single logical generation. Raised failures
+        here count as ONE breaker failure (see generate())."""
+        last_error: Optional[Exception] = None
         for attempt in range(_MAX_ATTEMPTS):
             try:
                 async with get_pacer(self.provider):
-                    response = await self._breaker.call(
-                        self._client.chat.completions.create,
+                    response = await self._client.chat.completions.create(
                         model=resolved_model,
                         messages=messages,
                         max_tokens=max_tokens,
