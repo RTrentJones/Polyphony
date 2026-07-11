@@ -1,2 +1,2 @@
-run 2 — validate harness fixes (PUT scene-content, ingestion nonce, prose guard, ingest best-effort)
+run 3 — drop temp=0 override (was homogenizing voice); add self-diagnosing prose/attribution status
 books: dracula

@@ -134,6 +134,7 @@ async def step_attribution(ctx: StepContext) -> dict:
         char_ids[char] = created["id"]
 
     results = []
+    empty = 0
     for char in gold:
 
         async def gen(_char=char):
@@ -142,13 +143,23 @@ async def step_attribution(ctx: StepContext) -> dict:
 
         line = await ctx.cache.memo("attribution", f"{char}|{_KNOCK}", gen)
         if not line:
+            empty += 1
             continue
         results.append(
             attribution.attribute(char, await embed.embed_one(line), ref_vecs)
         )
 
     agg = attribution.accuracy(results)
-    return {**agg, "score": agg["accuracy"], "detail": [r.as_dict() for r in results]}
+    # Surface how many voices actually produced a line: accuracy=0 with
+    # generated=0 means generation failed/blocked (not a voice-quality signal);
+    # accuracy=0 with generated=N means real misattribution (homogenized voice).
+    return {
+        **agg,
+        "score": agg["accuracy"],
+        "generated": len(results),
+        "empty": empty,
+        "detail": [r.as_dict() for r in results],
+    }
 
 
 # --- Step 4: outline / plot coherence -------------------------------------
@@ -248,14 +259,25 @@ async def step_prose(ctx: StepContext) -> dict:
 
     async def gen():
         scene = await ctx.client.generate_scene(chapter["id"], body)
-        return scene.get("content", "")
+        # Keep the terminal status alongside the prose so an empty result is
+        # self-diagnosing (status=failed vs completed-but-empty vs blocked)
+        # instead of a guess in the scorecard.
+        return {"content": scene.get("content") or "", "status": scene.get("status")}
 
-    prose = (await ctx.cache.memo("prose", f"{gt['book']}|{'/'.join(cast)}", gen)) or ""
+    gen_out = await ctx.cache.memo("prose", f"{gt['book']}|{'/'.join(cast)}", gen)
+    # Back-compat: older cache entries memoized a bare content string.
+    if isinstance(gen_out, str):
+        prose, gen_status = gen_out, "unknown"
+    else:
+        prose = (gen_out or {}).get("content") or ""
+        gen_status = (gen_out or {}).get("status") or "unknown"
     if not prose.strip():
         # Generation failed/blocked — score 0 rather than crash or judge "(empty)".
         return {
             "score": 0.0,
-            "judge_explanation": "empty scene (generation failed or blocked)",
+            "judge_explanation": f"empty scene (terminal status={gen_status}: "
+            "generation failed, blocked, or quota-exhausted)",
+            "scene_status": gen_status,
             "words": 0,
         }
     rubric = (
