@@ -45,6 +45,44 @@ async def step_extraction(ctx: StepContext) -> dict:
     return {"predicted": predicted, **score.as_dict(), "score": score.f1}
 
 
+# --- Step 1b: ingestion voice quality (closes the manuscript→voice gap) -----
+# attribution/prose seed voice via the voice-samples API, bypassing the
+# manuscript chunking — so nothing measured whether an UPLOAD actually produces
+# usable per-character voice. This uploads the manuscript and checks how much
+# voice each extracted character ends up grounded on (was ~0 before the smart-
+# quote / threshold fixes).
+_MIN_USABLE_CHUNKS = 3
+
+
+@step("ingestion", needs_api=True)
+async def step_ingestion(ctx: StepContext) -> dict:
+    up = await ctx.client.upload_manuscript(
+        f"{ctx.book}.txt", ctx.corpus_text.encode("utf-8"), title=f"eval-ing-{ctx.book}"
+    )
+    status = await ctx.client.wait_manuscript(up["id"])
+    if status.get("status") != "completed":
+        return {"error": f"manuscript status {status.get('status')}", "score": 0.0}
+    chars = await ctx.client.manuscript_characters(up["id"])
+    if not chars:
+        return {"score": 0.0, "reason": "no characters extracted", "n_characters": 0}
+
+    detail, grounded, total_chunks = [], 0, 0
+    for c in chars:
+        stats = (await ctx.client.get_character(c["id"])).get("voice_stats") or {}
+        n = stats.get("total_chunks", 0)
+        total_chunks += n
+        grounded += n >= _MIN_USABLE_CHUNKS
+        detail.append({"name": c["name"], "chunks": n})
+    # score = fraction of the extracted cast that got a usable indexed voice.
+    return {
+        "score": round(grounded / len(chars), 4),
+        "grounded": grounded,
+        "n_characters": len(chars),
+        "avg_chunks": round(total_chunks / len(chars), 2),
+        "detail": detail,
+    }
+
+
 # --- Step 2: retrieval / voice separability (in-harness embeddings) --------
 @step("retrieval", needs_api=False)
 async def step_retrieval(ctx: StepContext) -> dict:
