@@ -98,11 +98,27 @@ class TestTracerExport:
         assert out["passed"] is True and out["pass_rate"] == 1.0
 
     def test_scores_bounded_0_1_for_zod(self):
-        # Tracer's zod caps case.score at [0,1]; the export must never exceed it.
+        # Tracer's zod caps case.score at [0,1]; the export must clamp so an
+        # out-of-range score can't 422 the whole payload.
         from evals.harness import report
 
-        out = report.tracer_export({"steps": {"x": {"score": 1.0}}}, model="m")
-        assert all(0.0 <= c["score"] <= 1.0 for c in out["cases"])
+        out = report.tracer_export(
+            {"steps": {"hi": {"score": 1.4}, "lo": {"score": -0.2}}}, model="m"
+        )
+        by = {c["name"]: c["score"] for c in out["cases"]}
+        assert by["eval:hi"] == 1.0 and by["eval:lo"] == 0.0
+
+    def test_noise_band_folded_into_case_output(self):
+        # score_std has no Tracer field, so it must ride in the case output text.
+        from evals.harness import report
+
+        run = {
+            "app_sha": "s",
+            "steps": {"outline": {"score": 0.7, "score_std": 0.05, "repeats": 3}},
+        }
+        out = report.tracer_export(run, model="m")
+        assert "±0.05" in out["cases"][0]["output"]
+        assert "n=3" in out["cases"][0]["output"]
 
 
 class TestAggregate:
@@ -140,6 +156,22 @@ class TestAggregate:
         out = _aggregate(passes)
         assert out["a"] == {"skipped": True} and out["b"] == {"error": "x"}
 
+    def test_error_on_last_pass_does_not_drop_valid_mean(self):
+        # A transient error on the FINAL repeat must not carry an 'error' key onto
+        # the aggregated result (which would drop the whole step from export).
+        from evals.run import _aggregate
+
+        passes = [
+            {"outline": {"score": 0.8, "n_nodes": 6}},
+            {"outline": {"score": 0.6, "n_nodes": 6}},
+            {"outline": {"error": "TimeoutError: boom"}},
+        ]
+        out = _aggregate(passes)
+        assert "error" not in out["outline"]
+        assert out["outline"]["score"] == pytest.approx(0.7, abs=1e-3)
+        assert out["outline"]["repeats"] == 2
+        assert out["outline"]["n_nodes"] == 6
+
 
 class TestExtraction:
     def test_perfect(self):
@@ -162,6 +194,18 @@ class TestExtraction:
         assert "Ghost" in s.spurious
         assert s.recall == 0.5
         assert s.precision == 0.5
+
+    def test_shared_surname_is_not_a_match(self):
+        # 'John Ward' must NOT match gold 'Elias Ward' (subset, not overlap) —
+        # else a wrong prediction inflates both precision and recall.
+        assert extraction.match("John Ward", "Elias Ward") is False
+        s = extraction.grade_extraction(["John Ward"], ["Elias Ward"])
+        assert s.precision == 0.0 and s.recall == 0.0
+
+    def test_bare_honorific_and_title_prefix_match(self):
+        assert extraction.match("Count", "Count Vasska") is True  # bare honorific
+        assert extraction.match("Mr. Kerr", "Aldous Kerr") is True  # honorific+surname
+        assert extraction.match("Prof. Verhoeven", "Verhoeven") is True
 
     def test_empty_prediction(self):
         s = extraction.grade_extraction([], ["Nora Vance"])

@@ -146,11 +146,19 @@ async def step_outline(ctx: StepContext) -> dict:
 
 
 # --- Step 5: continuity detection (constructed ground truth) ---------------
+# The prose fed to the checker is truncated to this window, so injections MUST be
+# applied over the SAME window (not the full text) or a mutation past the cut is
+# counted in the denominator yet never seen — pinning recall at 0. Sized to hold
+# each corpus's injection anchors AND a second occurrence for the contradiction.
+_CONTINUITY_WINDOW = 12000
+
+
 @step("continuity", needs_api=True)
 async def step_continuity(ctx: StepContext) -> dict:
     gt = ctx.ground_truth
+    window = ctx.corpus_text[:_CONTINUITY_WINDOW]
     injected_text, expected = continuity.apply_injections(
-        ctx.corpus_text, gt["continuity_injections"]
+        window, gt["continuity_injections"]
     )
 
     async def run_on(prose: str, tag: str) -> list[dict]:
@@ -168,11 +176,11 @@ async def step_continuity(ctx: StepContext) -> dict:
                 "target_word_count": 100,
             },
         )
-        await ctx.client.set_scene_content(scene["id"], prose[:8000])
+        await ctx.client.set_scene_content(scene["id"], prose[:_CONTINUITY_WINDOW])
         return await ctx.client.run_continuity(book["id"], chapter["id"])
 
-    injected = await run_on(injected_text[:8000], "injected")
-    control = await run_on(ctx.corpus_text[:8000], "control")
+    injected = await run_on(injected_text, "injected")
+    control = await run_on(window, "control")
     score = continuity.grade_continuity(expected, injected, control)
     return {**score.as_dict(), "score": score.detection_recall}
 
