@@ -20,48 +20,99 @@ def extract_json_array(text: str) -> list:
     Raises ValueError when nothing parseable remains.
     """
     t = (text or "").replace("```json", "").replace("```", "").strip()
-    start = t.find("[")
-    if start == -1:
-        raise ValueError("Reply contains no JSON array")
-    t = t[start:]
 
-    # Whole thing (common case), then the outermost [...] span.
+    # Whole reply as JSON: a clean array, or a single object (one node) which we
+    # wrap — NOT reach into for its inner array, which silently returned the
+    # wrong subset before.
     try:
-        parsed = json.loads(t)
-        if isinstance(parsed, list):
-            return parsed
+        whole = json.loads(t)
+        if isinstance(whole, list):
+            return whole
+        if isinstance(whole, dict):
+            # {"outline": [...]} / {"findings": [...]} — a single wrapper key over
+            # the array → unwrap it. A real node ({"title","summary","children"})
+            # has several keys → treat the object itself as one node (don't reach
+            # into its inner array, which returned the wrong subset before).
+            if len(whole) == 1:
+                (only,) = whole.values()
+                if isinstance(only, list):
+                    return only
+            return [whole]
     except json.JSONDecodeError:
         pass
-    end = t.rfind("]")
-    if end != -1:
-        try:
-            parsed = json.loads(t[: end + 1])
-            if isinstance(parsed, list):
-                return parsed
-        except json.JSONDecodeError:
-            pass
 
-    # Truncation repair: cut back to a '}' boundary (a complete object) and
-    # append whatever closers the open bracket stack still needs. Keep
-    # trimming until a cut parses or nothing is left.
+    start = t.find("[")
+    if start != -1:
+        seg = t[start:]
+        # Clean array from the first '[' (whole, then trimmed to its last ']' for
+        # trailing prose).
+        for cand in _dedup([seg, _to_last_bracket(seg)]):
+            arr = _as_list(cand)
+            if arr is not None:
+                return arr
+        # Truncation repair on the first '[' BEFORE scanning later brackets, so a
+        # truncated outer array isn't mistaken for its own complete-but-empty
+        # inner "children": [] (which parses as a valid []).
+        repaired = _repair_truncated(seg)
+        if repaired is not None:
+            return repaired
+
+    # Prose before the array may itself contain a bracket ("the beats [see
+    # below]:\n[…]"); the first '[' was the prose one. Try each SUBSEQUENT '[' .
+    for i in range(start + 1, len(t)):
+        if t[i] != "[":
+            continue
+        seg = t[i:]
+        for cand in _dedup([seg, _to_last_bracket(seg)]):
+            arr = _as_list(cand)
+            if arr is not None:
+                return arr
+
+    raise ValueError("Reply contains no parseable JSON array")
+
+
+def _as_list(s: str | None):
+    if not s:
+        return None
+    try:
+        parsed = json.loads(s)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, list) else None
+
+
+def _to_last_bracket(seg: str) -> str | None:
+    end = seg.rfind("]")
+    return seg[: end + 1] if end != -1 else None
+
+
+def _dedup(items: list) -> list:
+    out = []
+    for x in items:
+        if x and x not in out:
+            out.append(x)
+    return out
+
+
+def _repair_truncated(t: str):
+    """Cut back to a '}' boundary (a complete object) and append whatever closers
+    the open-bracket stack still needs; keep trimming until a cut parses. Returns
+    the repaired list or None."""
     work = t
     while True:
         cut = work.rfind("}")
         if cut <= 0:
-            raise ValueError("Reply contains no parseable JSON array")
+            return None
         work = work[: cut + 1]
         closers = _close_sequence(work)
         if closers is not None:
-            try:
-                parsed = json.loads(work + closers)
-                if isinstance(parsed, list):
-                    logger.warning(
-                        "Repaired truncated JSON array from LLM reply",
-                        extra_fields={"event": "json_truncation_repaired"},
-                    )
-                    return parsed
-            except json.JSONDecodeError:
-                pass
+            arr = _as_list(work + closers)
+            if arr is not None:
+                logger.warning(
+                    "Repaired truncated JSON array from LLM reply",
+                    extra_fields={"event": "json_truncation_repaired"},
+                )
+                return arr
         work = work[:cut]
 
 

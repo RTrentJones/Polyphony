@@ -38,12 +38,13 @@ Setting: {setting}
 Emotional Tone: {emotional_tone}
 Characters: {characters_str}
 
-For each beat, provide:
-1. A brief description (1-2 sentences)
-2. Which characters are active
-3. The emotional subtext
+Return ONE beat per line, each starting with a number, and put the WHOLE beat on
+that single line: a brief description of what happens plus its emotional subtext.
+Do NOT add sub-bullets, sub-numbering, or fields on separate lines.
 
-Format your response as a numbered list of beats. Each beat should be on its own line starting with a number.
+Example:
+1. Alice confronts Bob about the missing letter; her calm masks fury.
+2. Bob deflects, then admits the truth, and the room turns cold.
 
 Beats:"""
 

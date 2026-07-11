@@ -130,6 +130,13 @@ async def run_prose_scene_workflow(
         word_count = len(scene_text.split())
         elapsed_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
 
+        # A safety block / truncation can make every beat return "" — don't record
+        # blank output as a successful, editable draft.
+        if word_count < 10:
+            raise RuntimeError(
+                f"scene generation produced no usable prose ({word_count} words)"
+            )
+
         async with get_async_session() as session:
             scene = await session.get(Scene, scene_id)
             if scene is None:

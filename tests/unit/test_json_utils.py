@@ -39,6 +39,22 @@ class TestExtractJsonArray:
         with pytest.raises(ValueError):
             extract_json_array("I could not produce an outline.")
 
+    def test_prose_containing_a_bracket_before_the_array(self):
+        # The leading prose has its own '[' — must not latch onto it and fail.
+        text = "Here are the beats [see below]:\n" + NODES
+        assert len(extract_json_array(text)) == 2
+
+    def test_single_object_is_one_node_not_its_children(self):
+        # A lone node object → a one-element list of that node, NOT its inner
+        # children array (which silently returned the wrong subset before).
+        obj = '{"title": "Ch1", "summary": "s", "children": [{"title": "beat"}]}'
+        nodes = extract_json_array(obj)
+        assert len(nodes) == 1 and nodes[0]["title"] == "Ch1"
+
+    def test_object_wrapping_the_array_is_unwrapped(self):
+        nodes = extract_json_array('{"outline": ' + NODES + "}")
+        assert len(nodes) == 2 and nodes[0]["title"] == "One"
+
     def test_empty_raises(self):
         with pytest.raises(ValueError):
             extract_json_array("")
