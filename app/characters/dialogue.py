@@ -48,10 +48,12 @@ async def generate_dialogue(
         return _dialogue_cache[cache_key]
 
     store = get_chunk_store()
+    # Retrieve across ALL chunk types, not dialogue-only: the ingest-time
+    # classifier under-labels dialogue, so a dialogue-only filter starves this to
+    # nothing (mirrors the fix in characters/context.py).
     similar = await store.retrieve_similar(
         character_id=character_id,
         query=scene_context.get("description", beat_description),
-        chunk_type="dialogue",
     )
 
     examples_text = (
