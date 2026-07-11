@@ -110,17 +110,17 @@
   "continuity_injections": [
     {
       "id": "name-misspell",
-      "locate": "Aldous Kerr",
-      "replace": "Aldous Karr",
+      "locate": "Vasska",
+      "replace": "Vaska",
       "expect_type": "character",
-      "note": "surname respelled mid-text"
+      "note": "the Count's name respelled on first mention (Vaska vs Vasska), inconsistent with later spellings — both occurrences fall inside the graded window"
     },
     {
       "id": "date-flip",
-      "locate": "_5 May._",
-      "replace": "_5 August._",
+      "locate": "_7 May._",
+      "replace": "_1 May._",
       "expect_type": "timeline",
-      "note": "journal date jumps backwards out of sequence"
+      "note": "journal entry dated 1 May placed after the 5 May entry — chronology runs backwards; both dates inside the graded window"
     }
   ]
 }

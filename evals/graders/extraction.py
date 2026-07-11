@@ -9,22 +9,47 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+_HONORIFICS = {
+    "prof",
+    "professor",
+    "dr",
+    "doctor",
+    "mr",
+    "mister",
+    "mrs",
+    "ms",
+    "miss",
+    "count",
+    "countess",
+    "lord",
+    "lady",
+    "sir",
+    "master",
+    "st",
+    "saint",
+}
+
 
 def _norm(name: str) -> str:
     return " ".join(name.lower().replace(".", " ").split())
 
 
 def _tokens(name: str) -> set[str]:
-    # drop honorifics so "Prof. Verhoeven" ~ "Verhoeven"
-    drop = {"prof", "professor", "dr", "mr", "mrs", "miss", "count", "lord", "sir"}
-    return {t for t in _norm(name).split() if t not in drop}
+    return set(_norm(name).split())
 
 
 def match(extracted: str, gold: str) -> bool:
-    """A predicted name matches a gold name if their significant tokens overlap
-    (covers 'Verhoeven' vs 'Prof. Verhoeven', 'Nora' vs 'Nora Vance')."""
-    e, g = _tokens(extracted), _tokens(gold)
-    return bool(e & g)
+    """A prediction matches a gold name when one's tokens are a SUBSET of the
+    other's — either after dropping honorifics ('Prof. Verhoeven' ~ 'Verhoeven',
+    'Mr. Kerr' ~ 'Aldous Kerr') or on the raw tokens (a bare honorific 'Count'
+    still matches 'Count Vasska'). Subset — not mere overlap — so two different
+    characters sharing one token ('John Ward' vs 'Elias Ward') do NOT match."""
+    e_full, g_full = _tokens(extracted), _tokens(gold)
+    if not e_full or not g_full:
+        return False
+    e_sig = (e_full - _HONORIFICS) or e_full
+    g_sig = (g_full - _HONORIFICS) or g_full
+    return e_sig <= g_sig or g_sig <= e_sig or e_full <= g_full or g_full <= e_full
 
 
 @dataclass

@@ -46,20 +46,25 @@ def _aggregate(passes: list[dict]) -> dict:
     names = list(passes[-1].keys())
     out = {}
     for name in names:
-        last = passes[-1][name]
-        scores = [
-            p[name]["score"]
+        scored = [
+            p[name]
             for p in passes
             if name in p and isinstance(p[name].get("score"), (int, float))
         ]
-        if len(scores) <= 1:
-            out[name] = last
+        if len(scored) <= 1:
+            # 0 or 1 numeric passes: report the last pass verbatim (a lone error
+            # or skip surfaces as-is; a single score needs no aggregation).
+            out[name] = passes[-1][name]
             continue
-        merged = dict(last)
-        merged["score"] = round(statistics.mean(scores), 4)
-        merged["score_std"] = round(statistics.pstdev(scores), 4)
-        merged["score_samples"] = [round(s, 4) for s in scores]
-        merged["repeats"] = len(scores)
+        # Seed from the last SCORED pass (not passes[-1]) so a transient error on
+        # the final repeat can't drag an "error" key onto a valid aggregated mean
+        # and get the whole step dropped from the Tracer/greenlight export.
+        vals = [r["score"] for r in scored]
+        merged = dict(scored[-1])
+        merged["score"] = round(statistics.mean(vals), 4)
+        merged["score_std"] = round(statistics.pstdev(vals), 4)
+        merged["score_samples"] = [round(s, 4) for s in vals]
+        merged["repeats"] = len(vals)
         out[name] = merged
     return out
 

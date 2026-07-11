@@ -71,13 +71,19 @@ def tracer_export(
     for name, res in run["steps"].items():
         if res.get("skipped") or "error" in res:
             continue
-        score = round(float(res.get("score", 0.0)), 4)
+        score = round(min(1.0, max(0.0, float(res.get("score", 0.0)))), 4)
+        out = _case_output(name, res)
+        # Tracer's case schema has no std field, so fold the noise band into the
+        # output text — otherwise a stable 0.50±0.00 and a noisy 0.50±0.40 look
+        # identical on the trend.
+        if res.get("score_std") is not None:
+            out = f"score={score} ±{res['score_std']} (n={res.get('repeats')})  {out}"
         cases.append(
             {
                 "name": f"eval:{name}",
                 "score": score,
                 "passed": score >= threshold,
-                "output": _case_output(name, res),
+                "output": out,
                 "judge_rationale": (res.get("judge_explanation") or "")[:16000] or None,
             }
         )
