@@ -34,7 +34,37 @@ async def _app_sha(base_url: str) -> str:
         return "unknown"
 
 
-async def run(book: str, step_names: list[str], out: str) -> dict:
+def _aggregate(passes: list[dict]) -> dict:
+    """Fold N per-pass step dicts into one: score = mean, plus score_std / repeats.
+
+    A skipped/errored step in any pass is reported from the last pass as-is. Only
+    passes that produced a numeric score contribute to the mean/std, so the noise
+    band reflects real generations, not failures.
+    """
+    import statistics
+
+    names = list(passes[-1].keys())
+    out = {}
+    for name in names:
+        last = passes[-1][name]
+        scores = [
+            p[name]["score"]
+            for p in passes
+            if name in p and isinstance(p[name].get("score"), (int, float))
+        ]
+        if len(scores) <= 1:
+            out[name] = last
+            continue
+        merged = dict(last)
+        merged["score"] = round(statistics.mean(scores), 4)
+        merged["score_std"] = round(statistics.pstdev(scores), 4)
+        merged["score_samples"] = [round(s, 4) for s in scores]
+        merged["repeats"] = len(scores)
+        out[name] = merged
+    return out
+
+
+async def run(book: str, step_names: list[str], out: str, repeat: int = 1) -> dict:
     cfg = load_config()
     text, gt = pipeline.load_corpus(book)
     app_sha = await _app_sha(cfg.base_url)
@@ -59,6 +89,7 @@ async def run(book: str, step_names: list[str], out: str) -> dict:
             "model": cfg.judge_model,
             "self": cfg.judge_is_self,
         },
+        "repeat": repeat,
         "steps": {},
     }
 
@@ -69,17 +100,25 @@ async def run(book: str, step_names: list[str], out: str) -> dict:
         await ctx.client.bootstrap_eval_user(cfg.admin_email, cfg.admin_password)
 
     try:
-        for s in steps:
-            if s.needs_api and ctx.client is None:
-                result["steps"][s.name] = {
-                    "skipped": True,
-                    "reason": "no EVAL_ADMIN_EMAIL/PASSWORD",
-                }
-                continue
-            try:
-                result["steps"][s.name] = await s.run(ctx)
-            except Exception as e:  # a failing step never aborts the suite
-                result["steps"][s.name] = {"error": f"{type(e).__name__}: {e}"}
+        passes = []
+        for i in range(max(1, repeat)):
+            # Salt the cache per pass so repeats actually re-generate (variance),
+            # while a single pass keeps the shared, byte-identical cache keys.
+            ctx.cache = Cache(cfg.cache_dir, app_sha, salt=str(i) if repeat > 1 else "")
+            one: dict = {}
+            for s in steps:
+                if s.needs_api and ctx.client is None:
+                    one[s.name] = {
+                        "skipped": True,
+                        "reason": "no EVAL_ADMIN_EMAIL/PASSWORD",
+                    }
+                    continue
+                try:
+                    one[s.name] = await s.run(ctx)
+                except Exception as e:  # a failing step never aborts the suite
+                    one[s.name] = {"error": f"{type(e).__name__}: {e}"}
+            passes.append(one)
+        result["steps"] = _aggregate(passes)
     finally:
         if ctx.client:
             await ctx.client.aclose()
@@ -107,6 +146,13 @@ def main() -> None:
     ap.add_argument("--book", default="dracula")
     ap.add_argument("--steps", default="all", help="comma list or 'all'")
     ap.add_argument("--out", default="eval-report.json")
+    ap.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="run each step N times; report score mean +/- std (the noise band). "
+        "Re-generates per pass, so N x the LLM cost — use for judge/generation steps.",
+    )
     ap.add_argument("--export", help="also write the greenlight eval-export JSON here")
     ap.add_argument(
         "--tracer",
@@ -120,7 +166,7 @@ def main() -> None:
         if args.steps == "all"
         else [s.strip() for s in args.steps.split(",")]
     )
-    result = asyncio.run(run(args.book, step_names, args.out))
+    result = asyncio.run(run(args.book, step_names, args.out, repeat=args.repeat))
     print(report.scorecard(result))
     print(f"\nfull report -> {args.out}")
     if args.export:

@@ -14,12 +14,18 @@ from pathlib import Path
 
 
 class Cache:
-    def __init__(self, cache_dir: str, app_sha: str):
+    def __init__(self, cache_dir: str, app_sha: str, salt: str = ""):
         self._dir = Path(cache_dir) / (app_sha or "unknown")[:12]
         self._dir.mkdir(parents=True, exist_ok=True)
+        # A non-empty salt (e.g. a --repeat pass index) makes an otherwise
+        # identical generation cache to a distinct key, so repeated passes
+        # actually re-generate — that's how the noise band is estimated. Empty
+        # salt (the default) keeps keys byte-identical to a single run.
+        self._salt = salt
 
     def _path(self, namespace: str, key: str) -> Path:
-        h = hashlib.sha256(key.encode("utf-8")).hexdigest()[:20]
+        raw = f"{self._salt}\0{key}" if self._salt else key
+        h = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
         return self._dir / f"{namespace}-{h}.json"
 
     def get(self, namespace: str, key: str):
