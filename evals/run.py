@@ -34,6 +34,18 @@ async def _app_sha(base_url: str) -> str:
         return "unknown"
 
 
+def _is_quota_error(msg: str) -> bool:
+    """True if a step error is a provider daily-quota / rate-limit 429 — the
+    signal to stop spending calls for the rest of the run (see run())."""
+    m = msg.lower()
+    return (
+        "ratelimiterror" in m
+        or "exceeded your current quota" in m
+        or "error code: 429" in m
+        or ("429" in m and "quota" in m)
+    )
+
+
 def _aggregate(passes: list[dict]) -> dict:
     """Fold N per-pass step dicts into one: score = mean, plus score_std / repeats.
 
@@ -111,6 +123,7 @@ async def run(book: str, step_names: list[str], out: str, repeat: int = 1) -> di
             # while a single pass keeps the shared, byte-identical cache keys.
             ctx.cache = Cache(cfg.cache_dir, app_sha, salt=str(i) if repeat > 1 else "")
             one: dict = {}
+            quota_exhausted = False
             for s in steps:
                 if s.needs_api and ctx.client is None:
                     one[s.name] = {
@@ -118,10 +131,23 @@ async def run(book: str, step_names: list[str], out: str, repeat: int = 1) -> di
                         "reason": "no EVAL_ADMIN_EMAIL/PASSWORD",
                     }
                     continue
+                # Once the provider's daily free-tier quota is hit, every later
+                # LLM step will 429 too. Skip them (don't record a misleading 0.0
+                # that reads as a quality regression) and don't burn retries —
+                # the quota won't come back mid-run. Non-API steps still run.
+                if quota_exhausted and s.needs_api:
+                    one[s.name] = {
+                        "skipped": True,
+                        "reason": "provider quota exhausted (429) earlier this run",
+                    }
+                    continue
                 try:
                     one[s.name] = await s.run(ctx)
                 except Exception as e:  # a failing step never aborts the suite
-                    one[s.name] = {"error": f"{type(e).__name__}: {e}"}
+                    msg = f"{type(e).__name__}: {e}"
+                    one[s.name] = {"error": msg}
+                    if _is_quota_error(msg):
+                        quota_exhausted = True
             passes.append(one)
         result["steps"] = _aggregate(passes)
     finally:
