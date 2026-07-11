@@ -44,9 +44,22 @@ re-set once the true baseline is known.
 
 ---
 
-## 2. Accelerators to build first (they make every later sprint faster/cheaper)
+## 2. Accelerators (built ✓)
 
-These are one-time infra pieces that de-risk and speed the whole campaign.
+These one-time infra pieces de-risk and speed the whole campaign. **All four are
+built, tested, and on the branch** — the campaign can start the moment the two CI
+secrets land.
+
+- **A2 ✓** `evals/offline.py` — grades extraction + outline by calling the
+  pipeline functions directly (no server/DB), key-only; the seconds-long local loop.
+- **A3 ✓** `LLM_TEMPERATURE_OVERRIDE` — pins generation temperature (CI eval sets 0)
+  so a delta is the change, not sampling; off by default (prod unchanged).
+- **A4 ✓** `evals.run --repeat N` — score mean ± std (the noise band); each pass
+  re-generates via a salted cache.
+- **A5 ✓** `frankenstein` — the held-out validation corpus (p@3 0.852), graded
+  alongside Dracula in CI; a gain must hold on both.
+
+Original notes retained below for reference.
 
 ### A2. Offline direct-eval harness for DB-free steps
 `extraction` and `outline` are **pure LLM calls** — no DB, no server. Add
