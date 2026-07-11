@@ -30,6 +30,7 @@ class TestStepRegistry:
 
         assert all_steps() == [
             "extraction",
+            "ingestion",
             "retrieval",
             "attribution",
             "outline",
@@ -39,6 +40,7 @@ class TestStepRegistry:
         # embedding-only steps must not require the API (so they run keyless)
         assert get_step("retrieval").needs_api is False
         assert get_step("extraction").needs_api is True
+        assert get_step("ingestion").needs_api is True
 
     def test_unknown_step_raises(self):
         from evals.steps.base import get_step

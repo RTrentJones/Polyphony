@@ -19,6 +19,7 @@ renamed excerpts of a few chapters are committed, never whole novels.
 | step | what it measures | method | needs LLM |
 |------|------------------|--------|-----------|
 | `extraction`  | finds the right cast          | upload → extract → **F1** vs gold cast | yes (extract) |
+| `ingestion`   | upload yields usable voice     | upload → per-character indexed-chunk count → **fraction grounded** | yes (extract) |
 | `retrieval`   | voices separate in embedding space | held-out line → nearest across pooled voices → **precision@k / MRR** | no (embedder) |
 | `attribution` | generated line sounds like the character | test-dialogue → embed → nearest centroid → **top-1 accuracy** vs chance | yes (generate) |
 | `outline`     | recovers the story's shape    | generate outline → structural + **judge** vs canonical beats | yes |

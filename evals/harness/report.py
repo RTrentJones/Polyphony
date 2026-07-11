@@ -33,6 +33,8 @@ def scorecard(run: dict) -> str:
         extra = ""
         if name == "extraction":
             extra = f"F1={res['f1']} P={res['precision']} R={res['recall']}"
+        elif name == "ingestion":
+            extra = f"grounded={res.get('grounded')}/{res.get('n_characters')} avg_chunks={res.get('avg_chunks')}"
         elif name == "retrieval":
             extra = f"p@k={res['precision_at_k']} mrr={res['mrr']}"
         elif name == "attribution":
@@ -105,6 +107,8 @@ def _case_output(name: str, res: dict) -> str:
     """A compact, human-readable per-case summary stored on the Tracer case."""
     if name == "extraction":
         return f"F1={res.get('f1')} P={res.get('precision')} R={res.get('recall')} predicted={res.get('predicted')}"
+    if name == "ingestion":
+        return f"grounded={res.get('grounded')}/{res.get('n_characters')} avg_chunks={res.get('avg_chunks')}"
     if name == "retrieval":
         return f"precision@k={res.get('precision_at_k')} mrr={res.get('mrr')}"
     if name == "attribution":

@@ -118,6 +118,11 @@ class PolyphonyClient:
         r.raise_for_status()
         return r.json()["characters"]
 
+    async def get_character(self, character_id: str) -> dict:
+        r = await self._get(f"/api/v1/characters/{character_id}")
+        r.raise_for_status()
+        return r.json()
+
     async def create_character(self, name: str, **fields) -> dict:
         r = await self._post("/api/v1/characters/", json={"name": name, **fields})
         if r.status_code not in (200, 201):
