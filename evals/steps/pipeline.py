@@ -56,8 +56,12 @@ _MIN_USABLE_CHUNKS = 3
 
 @step("ingestion", needs_api=True)
 async def step_ingestion(ctx: StepContext) -> dict:
+    # Append a marker so the content hash differs from the extraction step's
+    # upload of the same corpus (uploads are deduped per-user by content hash,
+    # so an identical re-upload 409s). Doesn't affect the chunking measured here.
+    content = (ctx.corpus_text + "\n\n[[eval-ingestion-copy]]\n").encode("utf-8")
     up = await ctx.client.upload_manuscript(
-        f"{ctx.book}.txt", ctx.corpus_text.encode("utf-8"), title=f"eval-ing-{ctx.book}"
+        f"{ctx.book}-ing.txt", content, title=f"eval-ing-{ctx.book}"
     )
     status = await ctx.client.wait_manuscript(up["id"])
     if status.get("status") != "completed":
@@ -246,14 +250,21 @@ async def step_prose(ctx: StepContext) -> dict:
         scene = await ctx.client.generate_scene(chapter["id"], body)
         return scene.get("content", "")
 
-    prose = await ctx.cache.memo("prose", f"{gt['book']}|{'/'.join(cast)}", gen)
+    prose = (await ctx.cache.memo("prose", f"{gt['book']}|{'/'.join(cast)}", gen)) or ""
+    if not prose.strip():
+        # Generation failed/blocked — score 0 rather than crash or judge "(empty)".
+        return {
+            "score": 0.0,
+            "judge_explanation": "empty scene (generation failed or blocked)",
+            "words": 0,
+        }
     rubric = (
         "Judge this generated scene on: (a) does it dramatize the requested beat "
         "(the two characters meet and argue about pressing on); (b) is it coherent, "
         "readable prose; (c) do the two named characters read as distinct voices. "
         f"Characters: {', '.join(cast)}."
     )
-    j = await ctx.judge.score(rubric, prose or "(empty)")
+    j = await ctx.judge.score(rubric, prose)
     return {
         "score": j.score,
         "judge_explanation": j.explanation,

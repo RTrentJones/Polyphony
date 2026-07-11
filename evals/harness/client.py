@@ -81,6 +81,9 @@ class PolyphonyClient:
     async def _get(self, path: str, **kw) -> httpx.Response:
         return await self._http.get(path, headers=self._auth(), **kw)
 
+    async def _put(self, path: str, **kw) -> httpx.Response:
+        return await self._http.put(path, headers=self._auth(), **kw)
+
     async def poll(self, path: str, done, *, timeout: float = 300, interval: float = 3):
         """Poll GET `path` until `done(json)` is truthy; returns that json."""
         deadline = time.monotonic() + timeout
@@ -198,8 +201,10 @@ class PolyphonyClient:
         )
 
     async def set_scene_content(self, scene_id: str, content: str) -> dict:
-        """Overwrite a scene's prose (used to seed continuity-eval content)."""
-        r = await self._post(
+        """Overwrite a scene's prose (used to seed continuity-eval content).
+
+        The route is PUT /books/scenes/{id}/content — POST 405s."""
+        r = await self._put(
             f"/api/v1/books/scenes/{scene_id}/content", json={"content": content}
         )
         if r.status_code not in (200, 201):

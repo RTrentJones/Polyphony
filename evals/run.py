@@ -188,7 +188,12 @@ def main() -> None:
             print("tracer ingest skipped: TRACER_INGEST_TOKEN unset")
         else:
             env_label = os.getenv("EVAL_ENV_LABEL", "prod")
-            asyncio.run(ingest_to_tracer(result, url, token, env_label))
+            # Best-effort: a Tracer outage / token mismatch (401) must NOT fail
+            # the eval run or discard the scorecard we just computed.
+            try:
+                asyncio.run(ingest_to_tracer(result, url, token, env_label))
+            except Exception as e:  # noqa: BLE001 - telemetry is never fatal
+                print(f"tracer ingest failed (non-fatal): {type(e).__name__}: {e}")
 
 
 if __name__ == "__main__":

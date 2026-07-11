@@ -116,7 +116,15 @@ jobs:
           BASE_LABEL: ${{ github.event.inputs.env_label || 'ci' }}
           STEPS: ${{ github.event.inputs.steps || 'all' }}
         run: |
-          BOOKS="${{ github.event.inputs.book || 'dracula frankenstein' }}"
+          # Book selection: dispatch input wins; else on a push read the book
+          # names from the sentinel file (so a single push can grade just one
+          # book to stay inside the Gemini free-tier quota); else both.
+          BOOKS="${{ github.event.inputs.book }}"
+          if [ -z "$BOOKS" ]; then
+            BOOKS="$(grep -oiE 'dracula|frankenstein' evals/.run-eval | tr '\n' ' ' || true)"
+          fi
+          BOOKS="${BOOKS:-dracula frankenstein}"
+          echo "grading books: $BOOKS"
           rc=0
           for BK in $BOOKS; do
             echo "::group::evals $BK"

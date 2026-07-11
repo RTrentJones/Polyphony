@@ -1,1 +1,2 @@
-run 1 — after-fixes eval (merged pipeline @ 51b556a)
+run 2 — validate harness fixes (PUT scene-content, ingestion nonce, prose guard, ingest best-effort)
+books: dracula
