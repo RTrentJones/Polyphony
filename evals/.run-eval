@@ -1,2 +1,2 @@
-run 5 — fix circuit-breaker-in-retry-loop cascade (breaker now wraps the whole generate)
+run 6 — first clean post-reset full pipeline (breaker fix + quota-aware short-circuit)
 books: dracula
