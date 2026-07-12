@@ -219,17 +219,15 @@ async def step_continuity(ctx: StepContext) -> dict:
             title=f"eval-cont-{tag}", synopsis="continuity eval"
         )
         chapter = await ctx.client.create_chapter(book["id"], "Chapter", summary="eval")
-        scene = await ctx.client.generate_scene(
+        # Scaffold the scene with our injected/control prose directly — no
+        # generation. Generating a placeholder scene only to overwrite it burned
+        # ~4-6 LLM calls PER continuity run (x2 for injected+control) against the
+        # free-tier daily budget, for prose we immediately discard.
+        await ctx.client.create_scene(
             chapter["id"],
-            {
-                "characters": [gt["cast"][0]],
-                "scene_description": "placeholder scene for continuity eval content",
-                "setting": "n/a",
-                "emotional_tone": "neutral",
-                "target_word_count": 100,
-            },
+            content=prose[:_CONTINUITY_WINDOW],
+            characters=[gt["cast"][0]],
         )
-        await ctx.client.set_scene_content(scene["id"], prose[:_CONTINUITY_WINDOW])
         return await ctx.client.run_continuity(book["id"], chapter["id"])
 
     injected = await run_on(injected_text, "injected")

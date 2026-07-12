@@ -22,6 +22,21 @@ def _resp(status=200, json_body=None):
     )
 
 
+async def test_create_scene_posts_to_chapter_scenes():
+    # Manual scene create is POST /books/chapters/{id}/scenes (no generation).
+    c = PolyphonyClient("http://localhost:8000")
+    post = AsyncMock(
+        return_value=_resp(201, {"scene_id": "sid", "status": "completed"})
+    )
+    c._http.post = post
+    out = await c.create_scene("cid", content="hello", characters=["Nora"])
+    assert out["scene_id"] == "sid"
+    path = post.await_args.args[0]
+    assert path == "/api/v1/books/chapters/cid/scenes"
+    assert post.await_args.kwargs["json"]["content"] == "hello"
+    await c.aclose()
+
+
 async def test_set_scene_content_uses_put():
     # Route is PUT /books/scenes/{id}/content — a POST 405s.
     c = PolyphonyClient("http://localhost:8000")

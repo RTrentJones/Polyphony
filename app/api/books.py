@@ -92,6 +92,16 @@ class SceneContentUpdate(BaseModel):
     content: str = Field(..., min_length=1)
 
 
+class ManualSceneCreate(BaseModel):
+    """Create a scene WITHOUT LLM generation — a blank/manual draft to write in."""
+
+    title: Optional[str] = None
+    content: str = ""
+    characters: list[str] = Field(default_factory=list)
+    setting: str = ""
+    emotional_tone: str = ""
+
+
 # --- Helpers -------------------------------------------------------------------
 
 
@@ -451,6 +461,56 @@ async def generate_scene_into_chapter(
         chapter.book_id,
     )
 
+    return {
+        "scene_id": str(scene.id),
+        "chapter_id": str(chapter.id),
+        "position": next_pos,
+        "status": scene.status,
+    }
+
+
+@router.post(
+    "/chapters/{chapter_id}/scenes",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_manual_scene(
+    chapter_id: UUID,
+    payload: ManualSceneCreate,
+    current_user: UserORM = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a scene WITHOUT LLM generation — a blank/manual draft to write in.
+
+    Unlike /scenes/generate this spends no model quota: it just appends an
+    (optionally pre-filled) scene row the author can then edit via PUT
+    /scenes/{id}/content. A scene created with content is immediately part of
+    the chapter's prose (continuity/export read it), so status is 'completed'
+    when content is supplied, else 'draft'."""
+    chapter = await _owned_chapter(chapter_id, current_user, db)
+    next_pos = (
+        await db.execute(
+            select(func.coalesce(func.max(SceneORM.position), -1)).where(
+                SceneORM.chapter_id == chapter.id
+            )
+        )
+    ).scalar_one() + 1
+    content = payload.content or ""
+    scene = SceneORM(
+        user_id=current_user.id,
+        chapter_id=chapter.id,
+        position=next_pos,
+        title=payload.title,
+        setting=payload.setting,
+        emotional_tone=payload.emotional_tone,
+        characters=payload.characters,
+        content=content,
+        word_count=len(content.split()),
+        status="completed" if content.strip() else "draft",
+    )
+    db.add(scene)
+    await db.commit()
+    await db.refresh(scene)
     return {
         "scene_id": str(scene.id),
         "chapter_id": str(chapter.id),

@@ -200,6 +200,24 @@ class PolyphonyClient:
             lambda b: b.get("status") in ("completed", "failed"),
         )
 
+    async def create_scene(
+        self, chapter_id: str, content: str = "", characters: list[str] | None = None
+    ) -> dict:
+        """Create a scene WITHOUT generation (POST /chapters/{id}/scenes).
+
+        Used to scaffold continuity-eval scenes cheaply — the harness supplies
+        its own injected/control prose, so paying for a full generation only to
+        overwrite it would burn free-tier quota for nothing."""
+        r = await self._post(
+            f"/api/v1/books/chapters/{chapter_id}/scenes",
+            json={"content": content, "characters": characters or []},
+        )
+        if r.status_code not in (200, 201):
+            raise EvalClientError(
+                f"create scene failed ({r.status_code}): {r.text[:400]}"
+            )
+        return r.json()
+
     async def set_scene_content(self, scene_id: str, content: str) -> dict:
         """Overwrite a scene's prose (used to seed continuity-eval content).
 
