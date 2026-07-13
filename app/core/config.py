@@ -54,6 +54,14 @@ class Settings(BaseSettings):
     # Per-user LLM budget (tokens per rolling 24h; 0 disables the check)
     USER_DAILY_TOKEN_LIMIT: int = 200_000
 
+    # Durable background jobs (app/jobs). Disable the worker to pause
+    # execution without losing queued work.
+    JOB_WORKER_ENABLED: bool = True
+    JOB_POLL_INTERVAL_SECONDS: float = 2.0
+    # Scene generation + extraction can legitimately run for minutes; a
+    # 'running' job locked longer than this is presumed orphaned and reaped.
+    JOB_STALE_AFTER_SECONDS: int = 1800
+
     @field_validator("SECRET_KEY")
     @classmethod
     def validate_secret_key(cls, v: str) -> str:

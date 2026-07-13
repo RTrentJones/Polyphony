@@ -86,7 +86,25 @@ async def lifespan(app: FastAPI):
 
     await bootstrap_admin()
 
+    # Durable-jobs worker: claims queued jobs (scene generation, manuscript
+    # processing, continuity) from Postgres; single consumer per process.
+    worker = None
+    if settings.JOB_WORKER_ENABLED:
+        from datetime import timedelta
+
+        from app.jobs.worker import JobWorker
+
+        worker = JobWorker(
+            poll_interval=settings.JOB_POLL_INTERVAL_SECONDS,
+            stale_after=timedelta(seconds=settings.JOB_STALE_AFTER_SECONDS),
+        )
+        await worker.start()
+        app.state.job_worker = worker
+
     yield
+
+    if worker is not None:
+        await worker.stop()
 
     logger.info("Shutting down Polyphony", extra_fields={"event": "service_shutdown"})
 
