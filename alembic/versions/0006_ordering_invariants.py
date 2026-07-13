@@ -44,6 +44,11 @@ def upgrade() -> None:
         WHERE c.id = r.id AND c.position <> r.rn
         """
     )
+    # DROP-then-ADD so this is idempotent whether the 0001 baseline create_all
+    # already built the constraint (fresh DB) or not (an older prod DB).
+    op.execute(
+        "ALTER TABLE chapters DROP CONSTRAINT IF EXISTS uq_chapters_book_position"
+    )
     op.execute(
         "ALTER TABLE chapters ADD CONSTRAINT uq_chapters_book_position "
         "UNIQUE (book_id, position)"
@@ -64,6 +69,9 @@ def upgrade() -> None:
         FROM ranked r
         WHERE s.id = r.id AND s.position <> r.rn
         """
+    )
+    op.execute(
+        "ALTER TABLE scenes DROP CONSTRAINT IF EXISTS uq_scenes_chapter_position"
     )
     op.execute(
         "ALTER TABLE scenes ADD CONSTRAINT uq_scenes_chapter_position "
