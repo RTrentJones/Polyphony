@@ -1,8 +1,8 @@
 """Shared Pydantic models for Polyphony"""
 
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, ConfigDict, Field, EmailStr
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 from enum import Enum
 
@@ -36,8 +36,7 @@ class User(UserBase):
     id: UUID
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Manuscript models
@@ -56,16 +55,15 @@ class Manuscript(BaseModel):
     uploaded_at: datetime
     processed_at: Optional[datetime]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Character models
 class CharacterProfile(BaseModel):
     name: str
     description: Optional[str] = None
-    personality_traits: Dict[str, Any] = {}
-    voice_characteristics: Dict[str, Any] = {}
+    personality_traits: Dict[str, Any] = Field(default_factory=dict)
+    voice_characteristics: Dict[str, Any] = Field(default_factory=dict)
 
 
 class Character(CharacterProfile):
@@ -74,8 +72,7 @@ class Character(CharacterProfile):
     dialogue_count: int = 0
     indexed_at: Optional[datetime]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Scene request models
@@ -102,12 +99,12 @@ class SceneGenerationState(BaseModel):
     """State for LangGraph orchestrator"""
 
     scene_request: SceneRequest
-    scene_beats: List[SceneBeat] = []
+    scene_beats: List[SceneBeat] = Field(default_factory=list)
     current_beat_index: int = 0
-    character_turns: List[Dict[str, Any]] = []
-    generated_content: List[str] = []
+    character_turns: List[Dict[str, Any]] = Field(default_factory=list)
+    generated_content: List[str] = Field(default_factory=list)
     final_scene: str = ""
-    metadata: Dict[str, Any] = {}
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 # Character agent models
@@ -117,7 +114,7 @@ class DialogueRequest(BaseModel):
     emotional_state: str
     other_characters: List[str]
     beat_description: str
-    previous_dialogue: List[Dict[str, str]] = []
+    previous_dialogue: List[Dict[str, str]] = Field(default_factory=list)
 
 
 class DialogueResponse(BaseModel):
@@ -126,7 +123,7 @@ class DialogueResponse(BaseModel):
     action: Optional[str] = None
     internal_thought: Optional[str] = None
     confidence_score: float = Field(ge=0.0, le=1.0)
-    retrieved_examples: List[str] = []
+    retrieved_examples: List[str] = Field(default_factory=list)
 
 
 # Evaluation models
@@ -152,7 +149,7 @@ class StreamEvent(BaseModel):
         str  # beat_start, character_generating, dialogue_complete, scene_complete
     )
     data: Dict[str, Any]
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # Vector-store chunk metadata

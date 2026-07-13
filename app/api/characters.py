@@ -28,8 +28,8 @@ class CharacterCreate(BaseModel):
     # another — ownership is carried by user_id either way.
     manuscript_id: Optional[UUID] = None
     description: Optional[str] = None
-    personality_traits: dict = {}
-    voice_characteristics: dict = {}
+    personality_traits: dict = Field(default_factory=dict)
+    voice_characteristics: dict = Field(default_factory=dict)
     role: Optional[str] = Field(None, max_length=100)
     goals: Optional[str] = None
     arc: Optional[str] = None
