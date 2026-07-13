@@ -272,12 +272,19 @@ async def general_exception_handler(request: Request, exc: Exception):
             "event": "unhandled_exception",
         },
     )
+    content = {
+        "detail": "Internal server error",
+        "message": "An unexpected error occurred. Please try again later.",
+    }
+    # In DEBUG (never production), name the underlying error so callers — the
+    # eval harness especially — can tell a quota 429 from a safety block from a
+    # real bug instead of staring at an opaque 500. Gated so prod leaks nothing.
+    if settings.DEBUG:
+        content["error_type"] = type(exc).__name__
+        content["error_detail"] = str(exc)[:500]
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={
-            "detail": "Internal server error",
-            "message": "An unexpected error occurred. Please try again later.",
-        },
+        content=content,
     )
 
 

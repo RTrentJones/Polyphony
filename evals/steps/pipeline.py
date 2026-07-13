@@ -56,8 +56,12 @@ _MIN_USABLE_CHUNKS = 3
 
 @step("ingestion", needs_api=True)
 async def step_ingestion(ctx: StepContext) -> dict:
+    # Append a marker so the content hash differs from the extraction step's
+    # upload of the same corpus (uploads are deduped per-user by content hash,
+    # so an identical re-upload 409s). Doesn't affect the chunking measured here.
+    content = (ctx.corpus_text + "\n\n[[eval-ingestion-copy]]\n").encode("utf-8")
     up = await ctx.client.upload_manuscript(
-        f"{ctx.book}.txt", ctx.corpus_text.encode("utf-8"), title=f"eval-ing-{ctx.book}"
+        f"{ctx.book}-ing.txt", content, title=f"eval-ing-{ctx.book}"
     )
     status = await ctx.client.wait_manuscript(up["id"])
     if status.get("status") != "completed":
@@ -130,6 +134,7 @@ async def step_attribution(ctx: StepContext) -> dict:
         char_ids[char] = created["id"]
 
     results = []
+    empty = 0
     for char in gold:
 
         async def gen(_char=char):
@@ -138,13 +143,23 @@ async def step_attribution(ctx: StepContext) -> dict:
 
         line = await ctx.cache.memo("attribution", f"{char}|{_KNOCK}", gen)
         if not line:
+            empty += 1
             continue
         results.append(
             attribution.attribute(char, await embed.embed_one(line), ref_vecs)
         )
 
     agg = attribution.accuracy(results)
-    return {**agg, "score": agg["accuracy"], "detail": [r.as_dict() for r in results]}
+    # Surface how many voices actually produced a line: accuracy=0 with
+    # generated=0 means generation failed/blocked (not a voice-quality signal);
+    # accuracy=0 with generated=N means real misattribution (homogenized voice).
+    return {
+        **agg,
+        "score": agg["accuracy"],
+        "generated": len(results),
+        "empty": empty,
+        "detail": [r.as_dict() for r in results],
+    }
 
 
 # --- Step 4: outline / plot coherence -------------------------------------
@@ -204,17 +219,15 @@ async def step_continuity(ctx: StepContext) -> dict:
             title=f"eval-cont-{tag}", synopsis="continuity eval"
         )
         chapter = await ctx.client.create_chapter(book["id"], "Chapter", summary="eval")
-        scene = await ctx.client.generate_scene(
+        # Scaffold the scene with our injected/control prose directly — no
+        # generation. Generating a placeholder scene only to overwrite it burned
+        # ~4-6 LLM calls PER continuity run (x2 for injected+control) against the
+        # free-tier daily budget, for prose we immediately discard.
+        await ctx.client.create_scene(
             chapter["id"],
-            {
-                "characters": [gt["cast"][0]],
-                "scene_description": "placeholder scene for continuity eval content",
-                "setting": "n/a",
-                "emotional_tone": "neutral",
-                "target_word_count": 100,
-            },
+            content=prose[:_CONTINUITY_WINDOW],
+            characters=[gt["cast"][0]],
         )
-        await ctx.client.set_scene_content(scene["id"], prose[:_CONTINUITY_WINDOW])
         return await ctx.client.run_continuity(book["id"], chapter["id"])
 
     injected = await run_on(injected_text, "injected")
@@ -244,16 +257,34 @@ async def step_prose(ctx: StepContext) -> dict:
 
     async def gen():
         scene = await ctx.client.generate_scene(chapter["id"], body)
-        return scene.get("content", "")
+        # Keep the terminal status alongside the prose so an empty result is
+        # self-diagnosing (status=failed vs completed-but-empty vs blocked)
+        # instead of a guess in the scorecard.
+        return {"content": scene.get("content") or "", "status": scene.get("status")}
 
-    prose = await ctx.cache.memo("prose", f"{gt['book']}|{'/'.join(cast)}", gen)
+    gen_out = await ctx.cache.memo("prose", f"{gt['book']}|{'/'.join(cast)}", gen)
+    # Back-compat: older cache entries memoized a bare content string.
+    if isinstance(gen_out, str):
+        prose, gen_status = gen_out, "unknown"
+    else:
+        prose = (gen_out or {}).get("content") or ""
+        gen_status = (gen_out or {}).get("status") or "unknown"
+    if not prose.strip():
+        # Generation failed/blocked — score 0 rather than crash or judge "(empty)".
+        return {
+            "score": 0.0,
+            "judge_explanation": f"empty scene (terminal status={gen_status}: "
+            "generation failed, blocked, or quota-exhausted)",
+            "scene_status": gen_status,
+            "words": 0,
+        }
     rubric = (
         "Judge this generated scene on: (a) does it dramatize the requested beat "
         "(the two characters meet and argue about pressing on); (b) is it coherent, "
         "readable prose; (c) do the two named characters read as distinct voices. "
         f"Characters: {', '.join(cast)}."
     )
-    j = await ctx.judge.score(rubric, prose or "(empty)")
+    j = await ctx.judge.score(rubric, prose)
     return {
         "score": j.score,
         "judge_explanation": j.explanation,

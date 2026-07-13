@@ -59,7 +59,15 @@ Premise/synopsis: {safe_synopsis}
 
 {f"Character bible: {character_bible[:2000]}" if character_bible else ""}
 
-Shape the arc so the through-line is unmistakable and causally ordered:
+Develop THIS premise faithfully — this is the author's story, not a prompt to
+riff on. Use the characters, setting, and central conflict the premise (and
+character bible) name; expand and dramatize what is given. Do NOT introduce
+major new characters or plot lines the premise doesn't imply, and do not swap
+its conflict for a different one. Recover the shape the premise is reaching for
+rather than inventing a new story around the same title.
+
+Within that fidelity, shape the arc so the through-line is unmistakable and
+causally ordered:
 - open with an inciting incident that sets the premise in motion,
 - build rising complications with escalating stakes,
 - turn on a midpoint reversal or revelation,

@@ -32,6 +32,14 @@ on:
         default: ''
   schedule:
     - cron: '17 6 * * 1' # Mondays 06:17 UTC — a weekly trend point
+  # On-demand trigger for when workflow_dispatch isn't available (e.g. an
+  # integration token can't press "Run workflow"): bump evals/.run-eval and push.
+  # Path-scoped so ordinary commits don't fire it (this run spends Gemini quota).
+  # A push run has no inputs, so it uses the boot-mode defaults: both corpora,
+  # all steps, base_url blank (boots this ref's app).
+  push:
+    paths:
+      - evals/.run-eval
 
 concurrency:
   group: evals-${{ github.ref }}
@@ -56,9 +64,18 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://postgres:ci_password_12345@localhost:5432/polyphony_eval
       LLM_PROVIDER: gemini
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      # Deterministic generation so a score delta reflects the change under
-      # test, not sampling jitter (only affects boot mode; prod is unchanged).
-      LLM_TEMPERATURE_OVERRIDE: '0'
+      # Stream the backgrounded app's logs (Python block-buffers a pipe, so a
+      # crashed generation's traceback otherwise never reaches the job log).
+      PYTHONUNBUFFERED: '1'
+      # CI-only: let the app's 500 handler name the real error (429/quota vs
+      # safety-block vs bug) in the response so the eval scorecard is
+      # self-diagnosing. DEBUG defaults False, so prod leaks nothing.
+      DEBUG: 'true'
+      # NOTE: do NOT force temperature to 0 here. Temp=0 homogenizes the voice
+      # steps (every character answers a prompt near-identically → attribution
+      # collapses, prose degenerates), which defeats the voice measurement. Let
+      # each call use its natural temperature; use `--repeat` for the noise band
+      # on the judge/voice steps instead of killing sampling.
       # First-boot admin (empty DB) → the eval client logs in as this admin,
       # mints an invite, and registers a throwaway user for the run.
       ADMIN_EMAIL: eval-admin@example.com
@@ -108,7 +125,15 @@ jobs:
           BASE_LABEL: ${{ github.event.inputs.env_label || 'ci' }}
           STEPS: ${{ github.event.inputs.steps || 'all' }}
         run: |
-          BOOKS="${{ github.event.inputs.book || 'dracula frankenstein' }}"
+          # Book selection: dispatch input wins; else on a push read the book
+          # names from the sentinel file (so a single push can grade just one
+          # book to stay inside the Gemini free-tier quota); else both.
+          BOOKS="${{ github.event.inputs.book }}"
+          if [ -z "$BOOKS" ]; then
+            BOOKS="$(grep -oiE 'dracula|frankenstein' evals/.run-eval | tr '\n' ' ' || true)"
+          fi
+          BOOKS="${BOOKS:-dracula frankenstein}"
+          echo "grading books: $BOOKS"
           rc=0
           for BK in $BOOKS; do
             echo "::group::evals $BK"

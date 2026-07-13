@@ -41,7 +41,7 @@ class PolyphonyClient:
             "/api/v1/auth/login", data={"username": email, "password": password}
         )
         if r.status_code != 200:
-            raise EvalClientError(f"login failed ({r.status_code}): {r.text[:200]}")
+            raise EvalClientError(f"login failed ({r.status_code}): {r.text[:400]}")
         return r.json()["access_token"]
 
     async def bootstrap_eval_user(self, admin_email: str, admin_password: str) -> str:
@@ -54,7 +54,7 @@ class PolyphonyClient:
         )
         if r.status_code not in (200, 201):
             raise EvalClientError(
-                f"invite mint failed ({r.status_code}): {r.text[:200]}"
+                f"invite mint failed ({r.status_code}): {r.text[:400]}"
             )
         code = r.json()["code"]
         email = f"eval+{secrets.token_hex(6)}@polyphony.eval"
@@ -69,7 +69,7 @@ class PolyphonyClient:
             },
         )
         if r.status_code not in (200, 201):
-            raise EvalClientError(f"register failed ({r.status_code}): {r.text[:200]}")
+            raise EvalClientError(f"register failed ({r.status_code}): {r.text[:400]}")
         self._token = r.json()["access_token"]
         self.user_email = email
         return email
@@ -80,6 +80,9 @@ class PolyphonyClient:
 
     async def _get(self, path: str, **kw) -> httpx.Response:
         return await self._http.get(path, headers=self._auth(), **kw)
+
+    async def _put(self, path: str, **kw) -> httpx.Response:
+        return await self._http.put(path, headers=self._auth(), **kw)
 
     async def poll(self, path: str, done, *, timeout: float = 300, interval: float = 3):
         """Poll GET `path` until `done(json)` is truthy; returns that json."""
@@ -103,7 +106,7 @@ class PolyphonyClient:
             params={"title": title},
         )
         if r.status_code not in (200, 201):
-            raise EvalClientError(f"upload failed ({r.status_code}): {r.text[:200]}")
+            raise EvalClientError(f"upload failed ({r.status_code}): {r.text[:400]}")
         return r.json()
 
     async def wait_manuscript(self, manuscript_id: str, timeout: float = 300) -> dict:
@@ -127,7 +130,7 @@ class PolyphonyClient:
         r = await self._post("/api/v1/characters/", json={"name": name, **fields})
         if r.status_code not in (200, 201):
             raise EvalClientError(
-                f"create character failed ({r.status_code}): {r.text[:200]}"
+                f"create character failed ({r.status_code}): {r.text[:400]}"
             )
         return r.json()
 
@@ -150,7 +153,7 @@ class PolyphonyClient:
         )
         if r.status_code != 200:
             raise EvalClientError(
-                f"test-dialogue failed ({r.status_code}): {r.text[:200]}"
+                f"test-dialogue failed ({r.status_code}): {r.text[:400]}"
             )
         return r.json()
 
@@ -162,7 +165,7 @@ class PolyphonyClient:
         )
         if r.status_code not in (200, 201):
             raise EvalClientError(
-                f"create book failed ({r.status_code}): {r.text[:200]}"
+                f"create book failed ({r.status_code}): {r.text[:400]}"
             )
         return r.json()
 
@@ -172,7 +175,7 @@ class PolyphonyClient:
             json={"kind": "outline", "chapters_target": chapters_target},
         )
         if r.status_code != 200:
-            raise EvalClientError(f"outline failed ({r.status_code}): {r.text[:200]}")
+            raise EvalClientError(f"outline failed ({r.status_code}): {r.text[:400]}")
         return r.json()
 
     async def create_chapter(self, book_id: str, title: str, summary: str = "") -> dict:
@@ -189,7 +192,7 @@ class PolyphonyClient:
         )
         if r.status_code not in (200, 201):
             raise EvalClientError(
-                f"scene generate failed ({r.status_code}): {r.text[:200]}"
+                f"scene generate failed ({r.status_code}): {r.text[:400]}"
             )
         started = r.json()
         return await self.poll(
@@ -197,14 +200,34 @@ class PolyphonyClient:
             lambda b: b.get("status") in ("completed", "failed"),
         )
 
-    async def set_scene_content(self, scene_id: str, content: str) -> dict:
-        """Overwrite a scene's prose (used to seed continuity-eval content)."""
+    async def create_scene(
+        self, chapter_id: str, content: str = "", characters: list[str] | None = None
+    ) -> dict:
+        """Create a scene WITHOUT generation (POST /chapters/{id}/scenes).
+
+        Used to scaffold continuity-eval scenes cheaply — the harness supplies
+        its own injected/control prose, so paying for a full generation only to
+        overwrite it would burn free-tier quota for nothing."""
         r = await self._post(
+            f"/api/v1/books/chapters/{chapter_id}/scenes",
+            json={"content": content, "characters": characters or []},
+        )
+        if r.status_code not in (200, 201):
+            raise EvalClientError(
+                f"create scene failed ({r.status_code}): {r.text[:400]}"
+            )
+        return r.json()
+
+    async def set_scene_content(self, scene_id: str, content: str) -> dict:
+        """Overwrite a scene's prose (used to seed continuity-eval content).
+
+        The route is PUT /books/scenes/{id}/content — POST 405s."""
+        r = await self._put(
             f"/api/v1/books/scenes/{scene_id}/content", json={"content": content}
         )
         if r.status_code not in (200, 201):
             raise EvalClientError(
-                f"set scene content failed ({r.status_code}): {r.text[:200]}"
+                f"set scene content failed ({r.status_code}): {r.text[:400]}"
             )
         return r.json()
 
@@ -216,7 +239,7 @@ class PolyphonyClient:
         )
         if r.status_code not in (200, 201):
             raise EvalClientError(
-                f"continuity failed ({r.status_code}): {r.text[:200]}"
+                f"continuity failed ({r.status_code}): {r.text[:400]}"
             )
         report_id = r.json()["report_id"]
         reports = await self.poll(
