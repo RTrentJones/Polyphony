@@ -12,7 +12,6 @@ from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 import aiofiles
-import magic
 from sqlalchemy import select
 
 from app.core.config import settings
@@ -42,6 +41,18 @@ class UploadValidationError(ValueError):
     """Upload failed validation (extension, size, or MIME sniff)."""
 
 
+def _sniff_mime(content: bytes) -> str:
+    """MIME-sniff upload content via libmagic.
+
+    Imported lazily: the native libmagic library is only required when an
+    upload is actually validated, so importing the app (and collecting tests)
+    works on machines without it.
+    """
+    import magic
+
+    return magic.from_buffer(content, mime=True)
+
+
 async def save_upload(filename: str, content: bytes) -> dict:
     """Validate and persist an uploaded manuscript file.
 
@@ -57,7 +68,7 @@ async def save_upload(filename: str, content: bytes) -> dict:
             f"File too large. Maximum size: {settings.MAX_UPLOAD_SIZE} bytes"
         )
 
-    mime_type = magic.from_buffer(content, mime=True)
+    mime_type = _sniff_mime(content)
     if mime_type not in ALLOWED_MIME_TYPES:
         raise UploadValidationError(
             f"Invalid file content. Detected type: {mime_type}. "
