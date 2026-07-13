@@ -79,6 +79,43 @@ PROVIDERS: dict[str, Provider] = {
         rate_out=10.0,
         max_rpm=60,
     ),
+    # --- additional free-tier vendors (all OpenAI-compatible) ---------------
+    # Primary use today: the EVAL JUDGE (EVAL_JUDGE_PROVIDER) — a judge from a
+    # different vendor than the model under test removes self-preference bias
+    # AND takes judge calls off the shared Gemini daily budget. Any row can
+    # also serve as the app's LLM_PROVIDER.
+    "cerebras": Provider(
+        id="cerebras",
+        label="Cerebras",
+        kind="openai",
+        env_key="CEREBRAS_API_KEY",
+        base_url="https://api.cerebras.ai/v1",
+        default_model="llama-3.3-70b",
+        fast_model="llama3.1-8b",
+        max_rpm=25,  # free tier ~30 RPM; leave headroom
+    ),
+    "openrouter": Provider(
+        id="openrouter",
+        label="OpenRouter",
+        kind="openai",
+        env_key="OPENROUTER_API_KEY",
+        base_url="https://openrouter.ai/api/v1",
+        # :free routes cost nothing; free daily request caps are modest —
+        # fine for judge duty, not for bulk generation.
+        default_model="meta-llama/llama-3.3-70b-instruct:free",
+        fast_model="meta-llama/llama-3.2-3b-instruct:free",
+        max_rpm=15,
+    ),
+    "mistral": Provider(
+        id="mistral",
+        label="Mistral",
+        kind="openai",
+        env_key="MISTRAL_API_KEY",
+        base_url="https://api.mistral.ai/v1",
+        default_model="mistral-small-latest",
+        fast_model="mistral-small-latest",
+        max_rpm=30,  # free Experiment plan is ~1 rps
+    ),
 }
 
 

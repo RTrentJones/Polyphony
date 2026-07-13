@@ -19,7 +19,27 @@ from app.llm.pacing import RateLimiter
 @pytest.mark.unit
 class TestProviderRegistry:
     def test_registry_has_expected_providers(self):
-        assert {"gemini", "groq", "xai", "openai"} <= set(PROVIDERS)
+        assert {
+            "gemini",
+            "groq",
+            "xai",
+            "openai",
+            "cerebras",
+            "openrouter",
+            "mistral",
+        } <= set(PROVIDERS)
+
+    def test_registry_rows_are_well_formed(self):
+        # Every openai-kind row (except openai itself) needs a base_url, and
+        # env keys must be unique — a duplicate would silently share quota.
+        env_keys = [p.env_key for p in PROVIDERS.values()]
+        assert len(env_keys) == len(set(env_keys))
+        for p in PROVIDERS.values():
+            assert p.kind in ("openai", "anthropic")
+            if p.kind == "openai" and p.id != "openai":
+                assert p.base_url, f"{p.id} missing base_url"
+            assert p.default_model and p.fast_model
+            assert p.max_rpm >= 1
 
     def test_gemini_is_openai_compatible(self):
         gemini = PROVIDERS["gemini"]

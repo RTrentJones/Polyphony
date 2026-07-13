@@ -10,6 +10,9 @@ name: evals
 #   GEMINI_API_KEY      — the model under test boots with it (fail-fast without).
 #   TRACER_INGEST_TOKEN — bearer for Tracer /api/ingest; if unset, the run still
 #                         produces a report artifact, it just doesn't ingest.
+#   GROQ_API_KEY        — free-tier judge (EVAL_JUDGE_PROVIDER=groq); if unset,
+#                         the judge falls back to Gemini (self-graded, labelled).
+#                         CEREBRAS/OPENROUTER/MISTRAL_API_KEY are alternates.
 # ADMIN_* / SECRET_KEY below are throwaway CI values (ephemeral DB), not secrets.
 
 on:
@@ -88,6 +91,15 @@ jobs:
       EVAL_ENV_LABEL: ${{ github.event.inputs.env_label || 'ci' }}
       EVAL_TRACER_URL: https://tracer.rtrentjones.dev
       TRACER_INGEST_TOKEN: ${{ secrets.TRACER_INGEST_TOKEN }}
+      # Judge on a DIFFERENT free vendor than the model under test: removes
+      # self-preference bias and takes judge calls off the shared Gemini daily
+      # budget. Fail-soft — until GROQ_API_KEY is set the judge falls back to
+      # the app provider and the report labels the run self-graded.
+      EVAL_JUDGE_PROVIDER: ${{ vars.EVAL_JUDGE_PROVIDER || 'groq' }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

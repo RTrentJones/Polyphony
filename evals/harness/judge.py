@@ -59,24 +59,52 @@ class Judge:
     def __init__(self, cfg: EvalConfig):
         self._cfg = cfg
         self._client = None
+        # Resolved eagerly so the report records the judge that will ACTUALLY
+        # grade (post-fallback), not just the requested one.
+        self.provider_id, self.fell_back = self._resolve()
+
+    def _resolve(self) -> tuple[str, bool]:
+        """Pick the judge provider fail-soft: the requested one if its key is
+        set, else the app's own provider (self-grading beats no grading — CI
+        stays green while a judge key hasn't been minted yet)."""
+        from app.llm.providers import PROVIDERS, provider_api_key
+
+        requested = self._cfg.judge_provider
+        provider = PROVIDERS.get(requested)
+        if provider is None:
+            raise RuntimeError(f"unknown judge provider {requested!r}")
+        if provider_api_key(provider):
+            return requested, False
+        fallback = self._cfg.app_provider
+        if fallback != requested and PROVIDERS.get(fallback):
+            print(
+                f"eval judge: {requested!r} requested but {provider.env_key} is "
+                f"unset — falling back to the app provider {fallback!r} "
+                "(self-grading; scores may show self-preference bias)"
+            )
+            return fallback, True
+        return requested, False
+
+    @property
+    def is_self(self) -> bool:
+        """True when the EFFECTIVE judge is the model under test's provider."""
+        return self.provider_id == self._cfg.app_provider
 
     def _ensure(self):
         if self._client is None:
             from app.llm.client import LLMClient
             from app.llm.providers import PROVIDERS
 
-            provider = PROVIDERS.get(self._cfg.judge_provider)
-            if provider is None:
-                raise RuntimeError(
-                    f"unknown judge provider {self._cfg.judge_provider!r}"
-                )
             # raises LLMConfigurationError if the provider's key is absent.
-            self._client = LLMClient(provider)
+            self._client = LLMClient(PROVIDERS[self.provider_id])
         return self._client
 
     async def score(self, rubric: str, content: str) -> Judgment:
         client = self._ensure()
         prompt = f"RUBRIC:\n{rubric}\n\nRESPONSE TO SCORE:\n{content}\n\nJSON:"
+        # An explicit EVAL_JUDGE_MODEL only applies when the requested provider
+        # actually grades — after a fallback it would name a foreign model.
+        model = None if self.fell_back else self._cfg.judge_model
         result = await client.generate(
             [
                 {"role": "system", "content": _SYSTEM},
@@ -85,12 +113,12 @@ class Judge:
             temperature=0.0,
             max_tokens=400,
             purpose="eval_judge",
-            model=self._cfg.judge_model,
+            model=model,
         )
         score, explanation = _parse(result.text)
         return Judgment(
             score=score,
             explanation=explanation,
-            judge_provider=self._cfg.judge_provider,
+            judge_provider=self.provider_id,
             judge_model=result.model,
         )

@@ -101,10 +101,15 @@ async def run(book: str, step_names: list[str], out: str, repeat: int = 1) -> di
         "model": os.getenv("EVAL_MODEL_LABEL")
         or os.getenv("LLM_MODEL")
         or "gemini-2.5-flash",
+        # Effective judge (post fail-soft fallback), not merely the requested
+        # one — so a run whose judge key was missing is honestly labelled as
+        # self-graded in the report/Tracer.
         "judge": {
-            "provider": cfg.judge_provider,
-            "model": cfg.judge_model,
-            "self": cfg.judge_is_self,
+            "provider": ctx.judge.provider_id,
+            "model": cfg.judge_model if not ctx.judge.fell_back else None,
+            "self": ctx.judge.is_self,
+            "requested": cfg.judge_provider,
+            "fell_back": ctx.judge.fell_back,
         },
         "repeat": repeat,
         "steps": {},
