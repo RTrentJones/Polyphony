@@ -31,20 +31,16 @@ def upgrade() -> None:
         return
 
     # --- characters: derive owner, then enforce -------------------------------
-    op.execute(
-        """
+    op.execute("""
         UPDATE characters c SET user_id = m.user_id
         FROM manuscripts m
         WHERE c.user_id IS NULL AND c.manuscript_id = m.id
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         UPDATE characters c SET user_id = b.user_id
         FROM books b
         WHERE c.user_id IS NULL AND c.book_id = b.id
-        """
-    )
+        """)
     orphan_chars = bind.execute(
         text("SELECT count(*) FROM characters WHERE user_id IS NULL")
     ).scalar()
@@ -63,20 +59,16 @@ def upgrade() -> None:
     op.execute("ALTER TABLE characters ALTER COLUMN user_id SET NOT NULL")
 
     # --- scenes: manuscript owner, else chapter->book owner -------------------
-    op.execute(
-        """
+    op.execute("""
         UPDATE scenes s SET user_id = m.user_id
         FROM manuscripts m
         WHERE s.user_id IS NULL AND s.manuscript_id = m.id
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         UPDATE scenes s SET user_id = b.user_id
         FROM chapters ch JOIN books b ON ch.book_id = b.id
         WHERE s.user_id IS NULL AND s.chapter_id = ch.id
-        """
-    )
+        """)
     orphan_scenes = bind.execute(
         text("SELECT count(*) FROM scenes WHERE user_id IS NULL")
     ).scalar()

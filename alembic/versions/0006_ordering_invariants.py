@@ -29,8 +29,7 @@ def upgrade() -> None:
         # sqlite tests build the current ORM shape from the 0001 baseline.
         return
 
-    op.execute(
-        """
+    op.execute("""
         WITH ranked AS (
             SELECT id,
                    row_number() OVER (
@@ -42,8 +41,7 @@ def upgrade() -> None:
         UPDATE chapters c SET position = r.rn
         FROM ranked r
         WHERE c.id = r.id AND c.position <> r.rn
-        """
-    )
+        """)
     # DROP-then-ADD so this is idempotent whether the 0001 baseline create_all
     # already built the constraint (fresh DB) or not (an older prod DB).
     op.execute(
@@ -54,8 +52,7 @@ def upgrade() -> None:
         "UNIQUE (book_id, position)"
     )
 
-    op.execute(
-        """
+    op.execute("""
         WITH ranked AS (
             SELECT id,
                    row_number() OVER (
@@ -68,8 +65,7 @@ def upgrade() -> None:
         UPDATE scenes s SET position = r.rn
         FROM ranked r
         WHERE s.id = r.id AND s.position <> r.rn
-        """
-    )
+        """)
     op.execute(
         "ALTER TABLE scenes DROP CONSTRAINT IF EXISTS uq_scenes_chapter_position"
     )

@@ -30,8 +30,7 @@ def upgrade() -> None:
     if bind.dialect.name != "postgresql":
         # sqlite tests build the current ORM shape from the 0001 baseline.
         return
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS jobs (
             id UUID PRIMARY KEY,
             user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -49,8 +48,7 @@ def upgrade() -> None:
             created_at TIMESTAMPTZ DEFAULT now(),
             updated_at TIMESTAMPTZ DEFAULT now()
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_jobs_status_available "
         "ON jobs (status, available_at)"
