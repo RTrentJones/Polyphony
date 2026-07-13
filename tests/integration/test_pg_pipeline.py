@@ -86,6 +86,61 @@ async def test_migrations_built_vector_and_manuscript_columns(pg):
         assert "content_text" in ms  # migration 0003 applied
 
 
+async def test_jobs_table_schema(pg):
+    """Migration 0004: jobs table exists with a JSONB payload."""
+    async with pg() as s:
+        rows = (
+            await s.execute(
+                text(
+                    "SELECT column_name, data_type FROM information_schema.columns "
+                    "WHERE table_name='jobs'"
+                )
+            )
+        ).all()
+        cols = dict(rows)
+        assert cols["payload"] == "jsonb"
+        assert "available_at" in cols and "locked_at" in cols
+
+
+async def test_claim_one_skip_locked_across_sessions(pg):
+    """Two concurrent claimers must get distinct jobs (FOR UPDATE SKIP LOCKED)."""
+    from app.core.orm_models import User
+    from app.core.security import get_password_hash
+    from app.jobs import repository as jobs_repo
+
+    async with pg() as s:
+        u = User(
+            email=f"pg-{uuid.uuid4()}@ex.com",
+            hashed_password=get_password_hash("password123"),
+            full_name="pg",
+        )
+        s.add(u)
+        await s.commit()
+        await s.refresh(u)
+        j1 = await jobs_repo.enqueue(
+            s, kind="test_kind", payload={"n": 1}, user_id=u.id
+        )
+        j2 = await jobs_repo.enqueue(
+            s, kind="test_kind", payload={"n": 2}, user_id=u.id
+        )
+        await s.commit()
+        ids = {j1.id, j2.id}
+
+    async with pg() as s1, pg() as s2:
+        # s1 claims and holds its row lock open; s2 must skip past it.
+        c1 = await jobs_repo.claim_one(s1, worker_id="w1")
+        c2 = await jobs_repo.claim_one(s2, worker_id="w2")
+        assert c1 is not None and c2 is not None
+        assert {c1.id, c2.id} == ids
+        await s1.commit()
+        await s2.commit()
+
+    async with pg() as s:
+        # cleanup so the test is rerunnable against a persistent DB
+        await s.execute(text("DELETE FROM jobs WHERE kind='test_kind'"))
+        await s.commit()
+
+
 async def test_process_manuscript_commits_before_indexing(pg, monkeypatch):
     """The FK regression: this raised on Postgres before the commit-first fix."""
     from app.core.orm_models import Manuscript, User
