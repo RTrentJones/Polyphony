@@ -2,8 +2,8 @@
 
 Started from the app lifespan. One job runs at a time, which (deliberately)
 serializes all LLM-heavy background work the way the old process-wide
-Semaphore(1) in app/orchestration/runner.py did — but against a durable
-queue, so queued work survives restarts and stale running jobs are reaped.
+scene-runner Semaphore(1) did — but against a durable queue, so queued work
+survives restarts and stale running jobs are reaped.
 The fine-grained per-call LLM pacer (app/llm/pacing.py) is unchanged.
 """
 

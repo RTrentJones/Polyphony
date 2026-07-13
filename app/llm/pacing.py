@@ -2,9 +2,9 @@
 
 A per-provider token bucket keeps us under the vendor's requests-per-minute
 budget (Gemini's AI Studio free tier is ~10 RPM), and a small semaphore caps
-in-flight calls. Scene workflows additionally serialize behind a process-wide
-semaphore in app/orchestration/runner.py so concurrent users queue instead of
-dueling over the same RPM budget.
+in-flight calls. LLM-heavy background work additionally serializes behind the
+single-consumer job worker (app/jobs/worker.py) so concurrent users queue
+instead of dueling over the same RPM budget.
 """
 
 import asyncio

@@ -78,6 +78,39 @@ async def _run_process_manuscript(payload: dict) -> None:
         raise JobExecutionError("manuscript processing failed")
 
 
+async def _run_continuity(payload: dict) -> None:
+    # Lazy imports: plans (router module) imports app.jobs.repository, so
+    # importing it at module scope here would be a cycle.
+    from app.api.plans import _build_fact_sheet, _collect_prose
+    from app.core.orm_models import Book
+    from app.planning.continuity import run_continuity_check
+
+    report_id = UUID(payload["report_id"])
+    async with get_async_session() as session:
+        report = await session.get(ContinuityReport, report_id)
+        if report is None:
+            return  # deleted since enqueue; nothing to do
+        book = await session.get(Book, report.book_id)
+        if book is None:
+            return
+        prose = await _collect_prose(report.book_id, report.chapter_id, session)
+        fact_sheet = await _build_fact_sheet(book, session)
+
+    # LLM work happens outside any session. An exception here fails the job;
+    # retry/backoff and the on_dead report flip are the worker's business.
+    findings, tokens = await run_continuity_check(
+        prose, fact_sheet, UUID(payload["user_id"])
+    )
+
+    async with get_async_session() as session:
+        report = await session.get(ContinuityReport, report_id)
+        if report is not None:
+            report.findings = findings
+            report.tokens_used = tokens
+            report.status = "completed"
+            await session.commit()
+
+
 async def _fail_row(model, row_id: str, event: str) -> None:
     """Flip a domain row to 'failed' if it is still 'processing'."""
     async with get_async_session() as session:
@@ -108,4 +141,5 @@ HANDLERS: dict[str, Handler] = {
     "process_manuscript": Handler(
         run=_run_process_manuscript, on_dead=_dead_manuscript
     ),
+    "continuity_check": Handler(run=_run_continuity, on_dead=_dead_report),
 }

@@ -6,7 +6,6 @@ from uuid import UUID
 
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Depends,
     HTTPException,
     Response,
@@ -38,7 +37,7 @@ from app.exports.builder import (
     to_epub,
     to_markdown,
 )
-from app.orchestration.runner import run_prose_scene_in_background
+from app.jobs import repository as jobs_repo
 
 router = APIRouter()
 
@@ -390,7 +389,6 @@ async def delete_chapter(
 async def generate_scene_into_chapter(
     chapter_id: UUID,
     payload: ChapterSceneRequest,
-    background_tasks: BackgroundTasks,
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -448,18 +446,24 @@ async def generate_scene_into_chapter(
         status="processing",
     )
     db.add(scene)
+    await db.flush()
+    # Job + scene commit atomically: no 'processing' scene without a durable job.
+    await jobs_repo.enqueue(
+        db,
+        kind="generate_prose_scene",
+        payload={
+            "scene_id": str(scene.id),
+            "request": request_dict,
+            "user_id": str(current_user.id),
+            "chapter_summary": chapter.summary or "",
+            "prior_tail": prior_tail,
+            "book_id": str(chapter.book_id),
+        },
+        user_id=current_user.id,
+        max_attempts=1,  # a retry re-spends LLM budget; user can re-trigger
+    )
     await db.commit()
     await db.refresh(scene)
-
-    background_tasks.add_task(
-        run_prose_scene_in_background,
-        scene.id,
-        request_dict,
-        current_user.id,
-        chapter.summary or "",
-        prior_tail,
-        chapter.book_id,
-    )
 
     return {
         "scene_id": str(scene.id),
