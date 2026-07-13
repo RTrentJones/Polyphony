@@ -102,6 +102,28 @@ async def test_jobs_table_schema(pg):
         assert "available_at" in cols and "locked_at" in cols
 
 
+async def test_tenant_ownership_enforced_in_schema(pg):
+    """Migration 0005: characters/scenes.user_id NOT NULL + budget-path index."""
+    async with pg() as s:
+        rows = (
+            await s.execute(
+                text(
+                    "SELECT table_name, is_nullable FROM information_schema.columns "
+                    "WHERE column_name='user_id' "
+                    "AND table_name IN ('characters', 'scenes')"
+                )
+            )
+        ).all()
+        assert dict(rows) == {"characters": "NO", "scenes": "NO"}
+        assert (
+            await s.execute(
+                text(
+                    "SELECT 1 FROM pg_indexes WHERE indexname='idx_api_usage_user_time'"
+                )
+            )
+        ).scalar() == 1
+
+
 async def test_claim_one_skip_locked_across_sessions(pg):
     """Two concurrent claimers must get distinct jobs (FOR UPDATE SKIP LOCKED)."""
     from app.core.orm_models import User

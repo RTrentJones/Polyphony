@@ -191,7 +191,7 @@ class Character(Base):
     # origin (manuscript_id set); manual creation is another (manuscript
     # optional). book_id scopes a character to one book when set.
     user_id = Column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     manuscript_id = Column(
         UUID(as_uuid=True),
@@ -255,7 +255,7 @@ class Scene(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     manuscript_id = Column(UUID(as_uuid=True), ForeignKey("manuscripts.id"))
     # Book placement (nullable: standalone scenes exist outside any chapter)
@@ -507,3 +507,7 @@ class APIUsage(Base):
 
     # Relationships
     user = relationship("User", back_populates="api_usage")
+
+    # The rolling-24h budget check filters WHERE user_id = ? AND timestamp >= ?
+    # on every LLM-spending request — keep that hot path indexed.
+    __table_args__ = (Index("idx_api_usage_user_time", "user_id", "timestamp"),)
