@@ -180,7 +180,12 @@ class Chapter(Base):
     book = relationship("Book", back_populates="chapters")
     scenes = relationship("Scene", back_populates="chapter", order_by="Scene.position")
 
-    __table_args__ = (Index("idx_chapters_book_id", "book_id"),)
+    __table_args__ = (
+        Index("idx_chapters_book_id", "book_id"),
+        # Reorder/insert logic renumbers via a two-phase pass (park on negative
+        # temp positions, then finalize) so this holds under immediate checking.
+        UniqueConstraint("book_id", "position", name="uq_chapters_book_position"),
+    )
 
 
 class Character(Base):
@@ -306,6 +311,9 @@ class Scene(Base):
         Index(
             "idx_scenes_created_at", "created_at", postgresql_ops={"created_at": "DESC"}
         ),
+        # NULL chapter_id (standalone scenes) is distinct on both Postgres and
+        # sqlite, so any number of standalone scenes may share position 0.
+        UniqueConstraint("chapter_id", "position", name="uq_scenes_chapter_position"),
     )
 
 

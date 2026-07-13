@@ -13,6 +13,7 @@ from fastapi import (
 )
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -63,7 +64,9 @@ class BookUpdate(BaseModel):
 class ChapterCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=500)
     summary: Optional[str] = None
-    position: Optional[int] = None  # append when omitted
+    # Append when omitted. Non-negative: negative positions are reserved as
+    # temp parking slots by the two-phase renumber (see _renumber_two_phase).
+    position: Optional[int] = Field(None, ge=0)
 
 
 class ChapterUpdate(BaseModel):
@@ -132,6 +135,20 @@ async def _owned_chapter(
             status_code=status.HTTP_404_NOT_FOUND, detail="Chapter not found"
         )
     return chapter
+
+
+async def _renumber_two_phase(db: AsyncSession, ordered: list) -> None:
+    """Renumber rows to 0..n-1 under an immediate UNIQUE (parent, position).
+
+    Phase 1 parks every row on a negative temp position — the API validates
+    client positions >= 0, so negatives can never collide with real data —
+    then phase 2 lands the final contiguous order. Caller commits.
+    """
+    for idx, item in enumerate(ordered):
+        item.position = -(idx + 1)
+    await db.flush()
+    for idx, item in enumerate(ordered):
+        item.position = idx
 
 
 def _chapter_dict(c: ChapterORM) -> dict:
@@ -267,26 +284,67 @@ async def create_chapter(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    book = await _owned_book(book_id, current_user, db)
+    await _owned_book(book_id, current_user, db)
     if payload.position is None:
-        max_pos = (
-            await db.execute(
-                select(func.coalesce(func.max(ChapterORM.position), -1)).where(
-                    ChapterORM.book_id == book.id
+        # Append: concurrent appends can both compute max+1; the UNIQUE
+        # (book_id, position) constraint turns that into an IntegrityError —
+        # recompute and retry once instead of silently duplicating.
+        for attempt in (1, 2):
+            max_pos = (
+                await db.execute(
+                    select(func.coalesce(func.max(ChapterORM.position), -1)).where(
+                        ChapterORM.book_id == book_id
+                    )
+                )
+            ).scalar_one()
+            chapter = ChapterORM(
+                book_id=book_id,
+                title=payload.title,
+                summary=payload.summary,
+                position=max_pos + 1,
+            )
+            db.add(chapter)
+            try:
+                await db.commit()
+                break
+            except IntegrityError:
+                await db.rollback()
+                if attempt == 2:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Chapter position conflict; please retry",
+                    )
+    else:
+        # Insert-at: shift siblings at >= the requested position up by one
+        # (two-phase: park on negatives, flush, land shifted positions).
+        to_shift = (
+            (
+                await db.execute(
+                    select(ChapterORM)
+                    .where(
+                        ChapterORM.book_id == book_id,
+                        ChapterORM.position >= payload.position,
+                    )
+                    .order_by(ChapterORM.position)
                 )
             )
-        ).scalar_one()
-        position = max_pos + 1
-    else:
-        position = payload.position
-    chapter = ChapterORM(
-        book_id=book.id,
-        title=payload.title,
-        summary=payload.summary,
-        position=position,
-    )
-    db.add(chapter)
-    await db.commit()
+            .scalars()
+            .all()
+        )
+        original_positions = [c.position for c in to_shift]
+        for idx, c in enumerate(to_shift):
+            c.position = -(idx + 1)
+        await db.flush()
+        for c, pos in zip(to_shift, original_positions):
+            c.position = pos + 1
+        chapter = ChapterORM(
+            book_id=book_id,
+            title=payload.title,
+            summary=payload.summary,
+            position=payload.position,
+        )
+        db.add(chapter)
+        await db.commit()
     await db.refresh(chapter)
     return _chapter_dict(chapter)
 
@@ -364,8 +422,7 @@ async def move_chapter(
     ordered = [c for c in siblings if c.id != chapter.id]
     new_pos = min(payload.position, len(ordered))
     ordered.insert(new_pos, chapter)
-    for idx, c in enumerate(ordered):
-        c.position = idx
+    await _renumber_two_phase(db, ordered)
     await db.commit()
     return _chapter_dict(chapter)
 
@@ -411,13 +468,10 @@ async def generate_scene_into_chapter(
 
     await check_user_budget(db, current_user.id)
 
-    next_pos = (
-        await db.execute(
-            select(func.coalesce(func.max(SceneORM.position), -1)).where(
-                SceneORM.chapter_id == chapter.id
-            )
-        )
-    ).scalar_one() + 1
+    # Plain values survive the rollback of a failed insert attempt below
+    # (ORM instances get expired on rollback).
+    chapter_summary = chapter.summary or ""
+    book_id = str(chapter.book_id)
 
     # Previous scene's tail for narrative continuity
     prev_scene = (
@@ -433,42 +487,64 @@ async def generate_scene_into_chapter(
         prior_tail = " ".join(scene_text(prev_scene).split()[-500:])
 
     request_dict = payload.model_dump(mode="json")
-    scene = SceneORM(
-        user_id=current_user.id,
-        manuscript_id=payload.manuscript_id,
-        chapter_id=chapter.id,
-        position=next_pos,
-        setting=payload.setting,
-        emotional_tone=payload.emotional_tone,
-        characters=payload.characters,
-        scene_description=payload.scene_description,
-        scene_request=request_dict,
-        status="processing",
-    )
-    db.add(scene)
-    await db.flush()
-    # Job + scene commit atomically: no 'processing' scene without a durable job.
-    await jobs_repo.enqueue(
-        db,
-        kind="generate_prose_scene",
-        payload={
-            "scene_id": str(scene.id),
-            "request": request_dict,
-            "user_id": str(current_user.id),
-            "chapter_summary": chapter.summary or "",
-            "prior_tail": prior_tail,
-            "book_id": str(chapter.book_id),
-        },
-        user_id=current_user.id,
-        max_attempts=1,  # a retry re-spends LLM budget; user can re-trigger
-    )
-    await db.commit()
+
+    # Concurrent appends can both compute max+1; the UNIQUE constraint turns
+    # that into an IntegrityError — recreate scene AND job (both roll back)
+    # with a recomputed position, once.
+    for attempt in (1, 2):
+        next_pos = (
+            await db.execute(
+                select(func.coalesce(func.max(SceneORM.position), -1)).where(
+                    SceneORM.chapter_id == chapter_id
+                )
+            )
+        ).scalar_one() + 1
+        scene = SceneORM(
+            user_id=current_user.id,
+            manuscript_id=payload.manuscript_id,
+            chapter_id=chapter_id,
+            position=next_pos,
+            setting=payload.setting,
+            emotional_tone=payload.emotional_tone,
+            characters=payload.characters,
+            scene_description=payload.scene_description,
+            scene_request=request_dict,
+            status="processing",
+        )
+        db.add(scene)
+        await db.flush()
+        # Job + scene commit atomically: no 'processing' scene without a
+        # durable job.
+        await jobs_repo.enqueue(
+            db,
+            kind="generate_prose_scene",
+            payload={
+                "scene_id": str(scene.id),
+                "request": request_dict,
+                "user_id": str(current_user.id),
+                "chapter_summary": chapter_summary,
+                "prior_tail": prior_tail,
+                "book_id": book_id,
+            },
+            user_id=current_user.id,
+            max_attempts=1,  # a retry re-spends LLM budget; user can re-trigger
+        )
+        try:
+            await db.commit()
+            break
+        except IntegrityError:
+            await db.rollback()
+            if attempt == 2:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Scene position conflict; please retry",
+                )
     await db.refresh(scene)
 
     return {
         "scene_id": str(scene.id),
-        "chapter_id": str(chapter.id),
-        "position": next_pos,
+        "chapter_id": str(chapter_id),
+        "position": scene.position,
         "status": scene.status,
     }
 
@@ -491,34 +567,45 @@ async def create_manual_scene(
     /scenes/{id}/content. A scene created with content is immediately part of
     the chapter's prose (continuity/export read it), so status is 'completed'
     when content is supplied, else 'draft'."""
-    chapter = await _owned_chapter(chapter_id, current_user, db)
-    next_pos = (
-        await db.execute(
-            select(func.coalesce(func.max(SceneORM.position), -1)).where(
-                SceneORM.chapter_id == chapter.id
-            )
-        )
-    ).scalar_one() + 1
+    await _owned_chapter(chapter_id, current_user, db)
     content = payload.content or ""
-    scene = SceneORM(
-        user_id=current_user.id,
-        chapter_id=chapter.id,
-        position=next_pos,
-        title=payload.title,
-        setting=payload.setting,
-        emotional_tone=payload.emotional_tone,
-        characters=payload.characters,
-        content=content,
-        word_count=len(content.split()),
-        status="completed" if content.strip() else "draft",
-    )
-    db.add(scene)
-    await db.commit()
+    # Append with a one-shot retry on position conflict (see create_chapter).
+    for attempt in (1, 2):
+        next_pos = (
+            await db.execute(
+                select(func.coalesce(func.max(SceneORM.position), -1)).where(
+                    SceneORM.chapter_id == chapter_id
+                )
+            )
+        ).scalar_one() + 1
+        scene = SceneORM(
+            user_id=current_user.id,
+            chapter_id=chapter_id,
+            position=next_pos,
+            title=payload.title,
+            setting=payload.setting,
+            emotional_tone=payload.emotional_tone,
+            characters=payload.characters,
+            content=content,
+            word_count=len(content.split()),
+            status="completed" if content.strip() else "draft",
+        )
+        db.add(scene)
+        try:
+            await db.commit()
+            break
+        except IntegrityError:
+            await db.rollback()
+            if attempt == 2:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Scene position conflict; please retry",
+                )
     await db.refresh(scene)
     return {
         "scene_id": str(scene.id),
-        "chapter_id": str(chapter.id),
-        "position": next_pos,
+        "chapter_id": str(chapter_id),
+        "position": scene.position,
         "status": scene.status,
     }
 
@@ -633,8 +720,7 @@ async def move_scene(
     ordered = [s for s in siblings if s.id != scene.id]
     new_pos = min(payload.position, len(ordered))
     ordered.insert(new_pos, scene)
-    for idx, s in enumerate(ordered):
-        s.position = idx
+    await _renumber_two_phase(db, ordered)
     await db.commit()
     return {"id": str(scene.id), "position": scene.position}
 
