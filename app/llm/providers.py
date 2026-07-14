@@ -106,6 +106,10 @@ PROVIDERS: dict[str, Provider] = {
         fast_model="meta-llama/llama-3.2-3b-instruct:free",
         max_rpm=15,
     ),
+    # PRIVACY: Mistral's free Experiment tier trains on submitted prompts.
+    # Acceptable for the eval judge (renamed public-domain corpus text only);
+    # do NOT make it the app's LLM_PROVIDER — user manuscripts would flow into
+    # third-party training data.
     "mistral": Provider(
         id="mistral",
         label="Mistral",
