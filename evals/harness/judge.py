@@ -131,6 +131,11 @@ class Judge:
             max_tokens=400,
             purpose="eval_judge",
             model=self.model_override,
+            # Structured-output mode: llama judges sometimes ignore the
+            # reply-only-JSON instruction (outline scores were regex-recovered
+            # from prose, losing the explanation). All registry vendors'
+            # OpenAI-compat endpoints support json_object.
+            response_format={"type": "json_object"},
         )
         score, explanation = _parse(result.text)
         return Judgment(
