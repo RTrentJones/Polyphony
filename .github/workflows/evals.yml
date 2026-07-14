@@ -24,6 +24,9 @@ on:
       steps:
         description: comma list of steps or 'all'
         default: all
+      repeat:
+        description: run each step N times for a mean±std noise band (N× the LLM cost)
+        default: '1'
       env_label:
         description: env tag stored on the Tracer run
         default: ci
@@ -145,13 +148,20 @@ jobs:
             BOOKS="$(grep -oiE 'dracula|frankenstein' evals/.run-eval | tr '\n' ' ' || true)"
           fi
           BOOKS="${BOOKS:-dracula frankenstein}"
-          echo "grading books: $BOOKS"
+          # Repeat count: dispatch input wins; else a "repeat: N" line in the
+          # sentinel (mean±std noise band; N× the LLM cost — budget for it).
+          REPEAT="${{ github.event.inputs.repeat }}"
+          if [ -z "$REPEAT" ]; then
+            REPEAT="$(grep -oiE 'repeat: *[0-9]+' evals/.run-eval | grep -oE '[0-9]+' || true)"
+          fi
+          REPEAT="${REPEAT:-1}"
+          echo "grading books: $BOOKS (repeat=$REPEAT)"
           rc=0
           for BK in $BOOKS; do
             echo "::group::evals $BK"
             # Distinct Tracer env per book so training vs held-out trend apart.
             EVAL_ENV_LABEL="${BASE_LABEL}-${BK}" python -m evals.run \
-              --book "$BK" --steps "$STEPS" \
+              --book "$BK" --steps "$STEPS" --repeat "$REPEAT" \
               --out "eval-report-$BK.json" --export "gl-export-$BK.json" --tracer || rc=1
             echo "::endgroup::"
           done
