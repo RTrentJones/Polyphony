@@ -81,6 +81,7 @@ class LLMClient:
         temperature: float = 0.7,
         user_id: Optional[UUID] = None,
         purpose: str = "",
+        response_format: Optional[dict] = None,
     ) -> GenResult:
         """Generate a chat completion through pacing/retry/accounting."""
         resolved_model = model or resolve_model(self.provider, fast)
@@ -109,6 +110,7 @@ class LLMClient:
                 start,
                 user_id,
                 purpose,
+                response_format,
             )
         except CircuitBreakerError:
             llm_requests_total.labels(
@@ -125,9 +127,13 @@ class LLMClient:
         start: float,
         user_id: Optional[UUID],
         purpose: str,
+        response_format: Optional[dict] = None,
     ) -> GenResult:
         """The paced retry loop; a single logical generation. Raised failures
         here count as ONE breaker failure (see generate())."""
+        # Only include response_format when requested — passing null breaks
+        # some OpenAI-compatible vendors.
+        extra_kwargs = {"response_format": response_format} if response_format else {}
         last_error: Optional[Exception] = None
         for attempt in range(_MAX_ATTEMPTS):
             try:
@@ -138,6 +144,7 @@ class LLMClient:
                         max_tokens=max_tokens,
                         temperature=temperature,
                         extra_body=self.provider.extra_body,
+                        **extra_kwargs,
                     )
                 return await self._account(
                     response, resolved_model, start, user_id, purpose

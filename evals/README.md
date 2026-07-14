@@ -71,11 +71,16 @@ so a prompt/architecture change shows as a step-score delta on the dashboard.
 
 ## Judge
 
-Rubric-scored steps (`outline`, `prose`) use a pluggable LLM judge — default
-**Gemini** (the only key present today). Set `EVAL_JUDGE_PROVIDER=anthropic|groq|
-openai` (+ its key) to grade with a different family; the report flags
-self-grading when the judge equals the model under test. Judge calls are
-temperature 0.
+Rubric-scored steps (`outline`, `prose`) use a pluggable LLM judge. Grade with
+a DIFFERENT family than the model under test — it removes self-preference bias
+and takes judge calls off the shared Gemini daily budget. Free options in the
+registry: `groq` (CI default), `cerebras`, `openrouter`, `mistral`; set
+`EVAL_JUDGE_PROVIDER=<id>` + that provider's key env var. Fail-soft: if the
+requested judge's key is unset the judge falls back to the app provider and the
+report/Tracer record `judge.fell_back: true` + `judge.self: true` — so a
+self-graded run is always labelled, never silent. Judge calls are temperature 0.
+Note: switching judge families shifts absolute scores; compare trends within one
+judge (the report's `judge.provider` records which one graded each run).
 
 ## Regenerating a corpus
 

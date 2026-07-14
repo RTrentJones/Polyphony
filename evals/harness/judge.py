@@ -59,19 +59,64 @@ class Judge:
     def __init__(self, cfg: EvalConfig):
         self._cfg = cfg
         self._client = None
+        # Resolved eagerly so the report records the judge that will ACTUALLY
+        # grade (post-fallback), not just the requested one.
+        self.provider_id, self.fell_back = self._resolve()
+        primary = self._cfg.judge_provider.split(",")[0].strip()
+        # An explicit EVAL_JUDGE_MODEL names a model for the PRIMARY chain
+        # provider only — applying it to a different vendor would 404.
+        self.model_override = (
+            self._cfg.judge_model
+            if (self.provider_id == primary and not self.fell_back)
+            else None
+        )
+
+    def _resolve(self) -> tuple[str, bool]:
+        """Pick the judge provider fail-soft. EVAL_JUDGE_PROVIDER may be a
+        comma-separated preference chain ("groq,openrouter"): the first
+        provider whose key is set grades. If none in the chain has a key, fall
+        back to the app's own provider (self-grading beats no grading — CI
+        stays green while judge keys haven't been minted yet)."""
+        from app.llm.providers import PROVIDERS, provider_api_key
+
+        chain = [p.strip() for p in self._cfg.judge_provider.split(",") if p.strip()]
+        if not chain:
+            raise RuntimeError("empty judge provider")
+        for name in chain:  # typo protection before any key check
+            if PROVIDERS.get(name) is None:
+                raise RuntimeError(f"unknown judge provider {name!r}")
+        for i, name in enumerate(chain):
+            if provider_api_key(PROVIDERS[name]):
+                if i > 0:
+                    print(
+                        f"eval judge: {chain[0]!r} has no key — using the next "
+                        f"provider in the chain, {name!r}"
+                    )
+                # fell_back stays False within the chain: any chain member is a
+                # deliberate, non-self judge choice.
+                return name, False
+        fallback = self._cfg.app_provider
+        if fallback not in chain and PROVIDERS.get(fallback):
+            print(
+                f"eval judge: no key set for any of {chain} — falling back to "
+                f"the app provider {fallback!r} (self-grading; scores may show "
+                "self-preference bias)"
+            )
+            return fallback, True
+        return chain[0], False
+
+    @property
+    def is_self(self) -> bool:
+        """True when the EFFECTIVE judge is the model under test's provider."""
+        return self.provider_id == self._cfg.app_provider
 
     def _ensure(self):
         if self._client is None:
             from app.llm.client import LLMClient
             from app.llm.providers import PROVIDERS
 
-            provider = PROVIDERS.get(self._cfg.judge_provider)
-            if provider is None:
-                raise RuntimeError(
-                    f"unknown judge provider {self._cfg.judge_provider!r}"
-                )
             # raises LLMConfigurationError if the provider's key is absent.
-            self._client = LLMClient(provider)
+            self._client = LLMClient(PROVIDERS[self.provider_id])
         return self._client
 
     async def score(self, rubric: str, content: str) -> Judgment:
@@ -85,12 +130,17 @@ class Judge:
             temperature=0.0,
             max_tokens=400,
             purpose="eval_judge",
-            model=self._cfg.judge_model,
+            model=self.model_override,
+            # Structured-output mode: llama judges sometimes ignore the
+            # reply-only-JSON instruction (outline scores were regex-recovered
+            # from prose, losing the explanation). All registry vendors'
+            # OpenAI-compat endpoints support json_object.
+            response_format={"type": "json_object"},
         )
         score, explanation = _parse(result.text)
         return Judgment(
             score=score,
             explanation=explanation,
-            judge_provider=self._cfg.judge_provider,
+            judge_provider=self.provider_id,
             judge_model=result.model,
         )

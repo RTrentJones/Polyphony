@@ -39,6 +39,27 @@ async def test_no_override_uses_passed_temperature(monkeypatch):
     assert await _capture_temperature(monkeypatch, None) == 0.9
 
 
+async def test_response_format_passthrough(monkeypatch):
+    # response_format reaches the vendor call when set, and is ABSENT (not
+    # null) when unset — passing null breaks some OpenAI-compatible vendors.
+    from app.core.config import settings
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(settings, "LLM_TEMPERATURE_OVERRIDE", None)
+    client = LLMClient()
+    create = AsyncMock(return_value=_fake_response())
+    monkeypatch.setattr(client._client.chat.completions, "create", create)
+
+    await client.generate([{"role": "user", "content": "hi"}])
+    assert "response_format" not in create.call_args.kwargs
+
+    await client.generate(
+        [{"role": "user", "content": "hi"}],
+        response_format={"type": "json_object"},
+    )
+    assert create.call_args.kwargs["response_format"] == {"type": "json_object"}
+
+
 async def test_failed_generate_is_one_breaker_failure(monkeypatch):
     # Regression: the breaker wraps the whole retry sequence, so a single
     # generate() that exhausts _MAX_ATTEMPTS retries must count as ONE breaker
