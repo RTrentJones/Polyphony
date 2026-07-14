@@ -5,7 +5,6 @@ from uuid import UUID
 
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Depends,
     HTTPException,
     status,
@@ -16,8 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.books import _owned_book, _owned_chapter
 from app.core.budget import check_user_budget
-from app.core.database import get_async_session, get_db
-from app.core.logging_config import log_error, setup_logging
+from app.core.database import get_db
+from app.core.logging_config import setup_logging
 from app.core.orm_models import (
     Book as BookORM,
     BookPlan as BookPlanORM,
@@ -31,7 +30,7 @@ from app.core.orm_models import (
 )
 from app.core.security import get_current_active_user
 from app.exports.builder import scene_text
-from app.planning.continuity import run_continuity_check
+from app.jobs import repository as jobs_repo
 from app.planning.outline import generate_outline, validate_outline_nodes
 
 logger = setup_logging("api.plans")
@@ -468,37 +467,30 @@ async def _build_fact_sheet(book: BookORM, db: AsyncSession) -> str:
     return "\n".join(parts)
 
 
-async def _run_continuity_background(
-    report_id: UUID, prose: str, fact_sheet: str, user_id: UUID
-) -> None:
-    try:
-        findings, tokens = await run_continuity_check(prose, fact_sheet, user_id)
-        async with get_async_session() as session:
-            report = await session.get(ContinuityReportORM, report_id)
-            if report is not None:
-                report.findings = findings
-                report.tokens_used = tokens
-                report.status = "completed"
-    except Exception as e:
-        log_error(
-            logger,
-            e,
-            context={"report_id": str(report_id), "event": "continuity_failed"},
-        )
-        try:
-            async with get_async_session() as session:
-                report = await session.get(ContinuityReportORM, report_id)
-                if report is not None:
-                    report.status = "failed"
-        except Exception:
-            pass
+async def _collect_prose(
+    book_id: UUID, chapter_id: UUID | None, db: AsyncSession
+) -> str:
+    """Ordered prose of a chapter (or the whole book) — the continuity input.
+
+    Derived data: the continuity job handler recomputes it from the DB at run
+    time instead of snapshotting up to a whole book of prose into the payload.
+    """
+    scene_query = (
+        select(SceneORM)
+        .join(ChapterORM, SceneORM.chapter_id == ChapterORM.id)
+        .where(ChapterORM.book_id == book_id)
+        .order_by(ChapterORM.position, SceneORM.position)
+    )
+    if chapter_id:
+        scene_query = scene_query.where(SceneORM.chapter_id == chapter_id)
+    scenes = (await db.execute(scene_query)).scalars().all()
+    return "\n\n".join(scene_text(s) for s in scenes if scene_text(s))
 
 
 @router.post("/books/{book_id}/continuity", response_model=dict)
 async def start_continuity_check(
     book_id: UUID,
     payload: ContinuityRequest,
-    background_tasks: BackgroundTasks,
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -506,25 +498,15 @@ async def start_continuity_check(
     book = await _owned_book(book_id, current_user, db)
     await check_user_budget(db, current_user.id)
 
-    scene_query = (
-        select(SceneORM)
-        .join(ChapterORM, SceneORM.chapter_id == ChapterORM.id)
-        .where(ChapterORM.book_id == book.id)
-        .order_by(ChapterORM.position, SceneORM.position)
-    )
     if payload.chapter_id:
         await _owned_chapter(payload.chapter_id, current_user, db)
-        scene_query = scene_query.where(SceneORM.chapter_id == payload.chapter_id)
 
-    scenes = (await db.execute(scene_query)).scalars().all()
-    prose = "\n\n".join(scene_text(s) for s in scenes if scene_text(s))
+    prose = await _collect_prose(book.id, payload.chapter_id, db)
     if not prose:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No prose to check yet",
         )
-
-    fact_sheet = await _build_fact_sheet(book, db)
 
     from app.llm.providers import active_provider, resolve_model
 
@@ -536,12 +518,22 @@ async def start_continuity_check(
         model=resolve_model(active_provider(), fast=False),
     )
     db.add(report)
+    await db.flush()
+    # Job + report row commit atomically; the handler recomputes prose and
+    # fact sheet from the DB (derived data) at run time.
+    await jobs_repo.enqueue(
+        db,
+        kind="continuity_check",
+        payload={
+            "report_id": str(report.id),
+            "user_id": str(current_user.id),
+        },
+        user_id=current_user.id,
+        max_attempts=2,
+    )
     await db.commit()
     await db.refresh(report)
 
-    background_tasks.add_task(
-        _run_continuity_background, report.id, prose, fact_sheet, current_user.id
-    )
     return {"report_id": str(report.id), "status": report.status}
 
 

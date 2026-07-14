@@ -16,6 +16,7 @@ from sqlalchemy import (
 
 # Generic Uuid type (native uuid on Postgres, CHAR on sqlite test databases)
 from sqlalchemy import Uuid as UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
@@ -179,7 +180,12 @@ class Chapter(Base):
     book = relationship("Book", back_populates="chapters")
     scenes = relationship("Scene", back_populates="chapter", order_by="Scene.position")
 
-    __table_args__ = (Index("idx_chapters_book_id", "book_id"),)
+    __table_args__ = (
+        Index("idx_chapters_book_id", "book_id"),
+        # Reorder/insert logic renumbers via a two-phase pass (park on negative
+        # temp positions, then finalize) so this holds under immediate checking.
+        UniqueConstraint("book_id", "position", name="uq_chapters_book_position"),
+    )
 
 
 class Character(Base):
@@ -190,7 +196,7 @@ class Character(Base):
     # origin (manuscript_id set); manual creation is another (manuscript
     # optional). book_id scopes a character to one book when set.
     user_id = Column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     manuscript_id = Column(
         UUID(as_uuid=True),
@@ -254,7 +260,7 @@ class Scene(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     manuscript_id = Column(UUID(as_uuid=True), ForeignKey("manuscripts.id"))
     # Book placement (nullable: standalone scenes exist outside any chapter)
@@ -305,6 +311,9 @@ class Scene(Base):
         Index(
             "idx_scenes_created_at", "created_at", postgresql_ops={"created_at": "DESC"}
         ),
+        # NULL chapter_id (standalone scenes) is distinct on both Postgres and
+        # sqlite, so any number of standalone scenes may share position 0.
+        UniqueConstraint("chapter_id", "position", name="uq_scenes_chapter_position"),
     )
 
 
@@ -445,6 +454,55 @@ class ContinuityReport(Base):
     __table_args__ = (Index("idx_continuity_reports_book_id", "book_id"),)
 
 
+class Job(Base):
+    """Durable background job.
+
+    Replaces FastAPI BackgroundTasks for long-running LLM/manuscript work:
+    a job row commits atomically with its domain row (scene/manuscript/report),
+    survives process restarts, and is executed by the single in-process worker
+    loop (app/jobs/worker.py) which claims via FOR UPDATE SKIP LOCKED.
+    """
+
+    __tablename__ = "jobs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # process_manuscript | generate_scene | generate_prose_scene | continuity_check
+    kind = Column(String(50), nullable=False)
+    # JSON on sqlite (tests), JSONB on Postgres — same convention as other
+    # JSON columns, upgraded where the dialect supports it.
+    payload = Column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=dict
+    )
+    status = Column(
+        String(20), nullable=False, default="queued"
+    )  # queued | running | succeeded | dead
+    attempts = Column(Integer, nullable=False, default=0)
+    max_attempts = Column(Integer, nullable=False, default=1)
+    locked_at = Column(DateTime(timezone=True))
+    locked_by = Column(String(100))
+    available_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    started_at = Column(DateTime(timezone=True))
+    finished_at = Column(DateTime(timezone=True))
+    error = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_jobs_status_available", "status", "available_at"),
+        Index("idx_jobs_user_id", "user_id"),
+        Index("idx_jobs_kind", "kind"),
+    )
+
+
 class APIUsage(Base):
     __tablename__ = "api_usage"
 
@@ -457,3 +515,7 @@ class APIUsage(Base):
 
     # Relationships
     user = relationship("User", back_populates="api_usage")
+
+    # The rolling-24h budget check filters WHERE user_id = ? AND timestamp >= ?
+    # on every LLM-spending request — keep that hot path indexed.
+    __table_args__ = (Index("idx_api_usage_user_time", "user_id", "timestamp"),)

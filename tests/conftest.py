@@ -102,10 +102,11 @@ async def test_manuscript(async_session: AsyncSession, test_user: User) -> Manus
 
 @pytest.fixture
 async def test_character(
-    async_session: AsyncSession, test_manuscript: Manuscript
+    async_session: AsyncSession, test_user: User, test_manuscript: Manuscript
 ) -> Character:
     """Create a test character"""
     character = Character(
+        user_id=test_user.id,
         manuscript_id=test_manuscript.id,
         name="Test Character",
         description="A test character",

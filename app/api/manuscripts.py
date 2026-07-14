@@ -2,7 +2,6 @@
 
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Depends,
     File,
     HTTPException,
@@ -22,9 +21,9 @@ from app.core.orm_models import (
     User as UserORM,
 )
 from app.core.security import get_current_active_user
+from app.jobs import repository as jobs_repo
 from app.parsing.pipeline import (
     UploadValidationError,
-    process_manuscript,
     save_upload,
 )
 
@@ -33,7 +32,6 @@ router = APIRouter()
 
 @router.post("/upload", response_model=dict)
 async def upload_manuscript(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     title: str = "",
     author: str = "",
@@ -79,12 +77,21 @@ async def upload_manuscript(
         status=ManuscriptStatus.PROCESSING.value,
     )
     db.add(manuscript)
+    await db.flush()
+    # Job + manuscript row commit atomically; the pipeline reads the durable
+    # content_text from the row, so the payload is just the two ids.
+    await jobs_repo.enqueue(
+        db,
+        kind="process_manuscript",
+        payload={
+            "manuscript_id": str(manuscript.id),
+            "user_id": str(current_user.id),
+        },
+        user_id=current_user.id,
+        max_attempts=2,  # extraction is cheap and reprocess-idempotent
+    )
     await db.commit()
     await db.refresh(manuscript)
-
-    background_tasks.add_task(
-        process_manuscript, manuscript.id, current_user.id, saved["text"]
-    )
 
     return {
         "id": str(manuscript.id),
@@ -242,7 +249,6 @@ async def delete_manuscript(
 @router.post("/{manuscript_id}/process", response_model=dict)
 async def reprocess_manuscript(
     manuscript_id: UUID,
-    background_tasks: BackgroundTasks,
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -255,6 +261,15 @@ async def reprocess_manuscript(
         )
     await check_user_budget(db, current_user.id)
     manuscript.status = ManuscriptStatus.PROCESSING.value
+    await jobs_repo.enqueue(
+        db,
+        kind="process_manuscript",
+        payload={
+            "manuscript_id": str(manuscript.id),
+            "user_id": str(current_user.id),
+        },
+        user_id=current_user.id,
+        max_attempts=2,
+    )
     await db.commit()
-    background_tasks.add_task(process_manuscript, manuscript.id, current_user.id)
     return {"id": str(manuscript.id), "status": manuscript.status}

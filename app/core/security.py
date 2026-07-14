@@ -13,8 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from .config import settings
+from .logging_config import log_error, setup_logging
 from .orm_models import RefreshToken, User as UserORM
 from .database import get_db
+
+logger = setup_logging("core.security")
 
 # Password hashing with strong configuration (P1-4 fix)
 pwd_context = CryptContext(
@@ -289,5 +292,6 @@ async def authenticate_user(
         return user
 
     except Exception as e:
-        print(f"Error authenticating user: {e}")
+        # Deliberately no email in the log context (PII).
+        log_error(logger, e, context={"event": "authenticate_user_error"})
         return None

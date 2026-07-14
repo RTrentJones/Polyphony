@@ -6,7 +6,7 @@ inserted the row twice with the same PK and without user_id — both fixed
 structurally here.)
 """
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
@@ -20,7 +20,7 @@ from app.core.orm_models import (
     User as UserORM,
 )
 from app.core.security import get_current_active_user
-from app.orchestration.runner import run_scene_in_background
+from app.jobs import repository as jobs_repo
 
 router = APIRouter()
 
@@ -28,7 +28,6 @@ router = APIRouter()
 @router.post("/generate", response_model=dict)
 async def generate_scene(
     scene_request: SceneRequest,
-    background_tasks: BackgroundTasks,
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -59,12 +58,22 @@ async def generate_scene(
         status="processing",
     )
     db.add(scene)
+    await db.flush()
+    # The job commits atomically with the scene row: no scene can exist in
+    # 'processing' without a durable job that will drive it to a terminal state.
+    await jobs_repo.enqueue(
+        db,
+        kind="generate_scene",
+        payload={
+            "scene_id": str(scene.id),
+            "request": request_dict,
+            "user_id": str(current_user.id),
+        },
+        user_id=current_user.id,
+        max_attempts=1,  # a retry re-spends LLM budget; user can re-trigger
+    )
     await db.commit()
     await db.refresh(scene)
-
-    background_tasks.add_task(
-        run_scene_in_background, scene.id, request_dict, current_user.id
-    )
 
     return {
         "scene_id": str(scene.id),

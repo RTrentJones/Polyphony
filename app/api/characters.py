@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from uuid import UUID
@@ -28,8 +28,8 @@ class CharacterCreate(BaseModel):
     # another — ownership is carried by user_id either way.
     manuscript_id: Optional[UUID] = None
     description: Optional[str] = None
-    personality_traits: dict = {}
-    voice_characteristics: dict = {}
+    personality_traits: dict = Field(default_factory=dict)
+    voice_characteristics: dict = Field(default_factory=dict)
     role: Optional[str] = Field(None, max_length=100)
     goals: Optional[str] = None
     arc: Optional[str] = None
@@ -57,21 +57,10 @@ class VoiceTest(BaseModel):
     context: Optional[str] = None
 
 
-def _ownership_filter(current_user: UserORM):
-    """Rows the user owns: directly via user_id, or (legacy extracted rows
-    that predate user_id backfill) via the owning manuscript."""
-    return or_(
-        CharacterORM.user_id == current_user.id,
-        ManuscriptORM.user_id == current_user.id,
-    )
-
-
 def _owned_select(current_user: UserORM):
-    return (
-        select(CharacterORM)
-        .outerjoin(ManuscriptORM, CharacterORM.manuscript_id == ManuscriptORM.id)
-        .where(_ownership_filter(current_user))
-    )
+    # user_id is NOT NULL (backfilled by migration 0005), so direct ownership
+    # is the whole story — no legacy via-manuscript fallback needed.
+    return select(CharacterORM).where(CharacterORM.user_id == current_user.id)
 
 
 async def _owned_character(

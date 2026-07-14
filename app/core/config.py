@@ -1,7 +1,7 @@
 """Configuration management for Polyphony"""
 
 from pydantic import field_validator, model_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional, List
 
 
@@ -53,6 +53,14 @@ class Settings(BaseSettings):
 
     # Per-user LLM budget (tokens per rolling 24h; 0 disables the check)
     USER_DAILY_TOKEN_LIMIT: int = 200_000
+
+    # Durable background jobs (app/jobs). Disable the worker to pause
+    # execution without losing queued work.
+    JOB_WORKER_ENABLED: bool = True
+    JOB_POLL_INTERVAL_SECONDS: float = 2.0
+    # Scene generation + extraction can legitimately run for minutes; a
+    # 'running' job locked longer than this is presumed orphaned and reaped.
+    JOB_STALE_AFTER_SECONDS: int = 1800
 
     @field_validator("SECRET_KEY")
     @classmethod
@@ -117,9 +125,7 @@ class Settings(BaseSettings):
     CACHE_DIALOGUE: bool = True
     CACHE_MAX_ENTRIES: int = 2048
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
 
 # Create global settings instance
