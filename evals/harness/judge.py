@@ -62,28 +62,48 @@ class Judge:
         # Resolved eagerly so the report records the judge that will ACTUALLY
         # grade (post-fallback), not just the requested one.
         self.provider_id, self.fell_back = self._resolve()
+        primary = self._cfg.judge_provider.split(",")[0].strip()
+        # An explicit EVAL_JUDGE_MODEL names a model for the PRIMARY chain
+        # provider only — applying it to a different vendor would 404.
+        self.model_override = (
+            self._cfg.judge_model
+            if (self.provider_id == primary and not self.fell_back)
+            else None
+        )
 
     def _resolve(self) -> tuple[str, bool]:
-        """Pick the judge provider fail-soft: the requested one if its key is
-        set, else the app's own provider (self-grading beats no grading — CI
-        stays green while a judge key hasn't been minted yet)."""
+        """Pick the judge provider fail-soft. EVAL_JUDGE_PROVIDER may be a
+        comma-separated preference chain ("groq,openrouter"): the first
+        provider whose key is set grades. If none in the chain has a key, fall
+        back to the app's own provider (self-grading beats no grading — CI
+        stays green while judge keys haven't been minted yet)."""
         from app.llm.providers import PROVIDERS, provider_api_key
 
-        requested = self._cfg.judge_provider
-        provider = PROVIDERS.get(requested)
-        if provider is None:
-            raise RuntimeError(f"unknown judge provider {requested!r}")
-        if provider_api_key(provider):
-            return requested, False
+        chain = [p.strip() for p in self._cfg.judge_provider.split(",") if p.strip()]
+        if not chain:
+            raise RuntimeError("empty judge provider")
+        for name in chain:  # typo protection before any key check
+            if PROVIDERS.get(name) is None:
+                raise RuntimeError(f"unknown judge provider {name!r}")
+        for i, name in enumerate(chain):
+            if provider_api_key(PROVIDERS[name]):
+                if i > 0:
+                    print(
+                        f"eval judge: {chain[0]!r} has no key — using the next "
+                        f"provider in the chain, {name!r}"
+                    )
+                # fell_back stays False within the chain: any chain member is a
+                # deliberate, non-self judge choice.
+                return name, False
         fallback = self._cfg.app_provider
-        if fallback != requested and PROVIDERS.get(fallback):
+        if fallback not in chain and PROVIDERS.get(fallback):
             print(
-                f"eval judge: {requested!r} requested but {provider.env_key} is "
-                f"unset — falling back to the app provider {fallback!r} "
-                "(self-grading; scores may show self-preference bias)"
+                f"eval judge: no key set for any of {chain} — falling back to "
+                f"the app provider {fallback!r} (self-grading; scores may show "
+                "self-preference bias)"
             )
             return fallback, True
-        return requested, False
+        return chain[0], False
 
     @property
     def is_self(self) -> bool:
@@ -102,9 +122,6 @@ class Judge:
     async def score(self, rubric: str, content: str) -> Judgment:
         client = self._ensure()
         prompt = f"RUBRIC:\n{rubric}\n\nRESPONSE TO SCORE:\n{content}\n\nJSON:"
-        # An explicit EVAL_JUDGE_MODEL only applies when the requested provider
-        # actually grades — after a fallback it would name a foreign model.
-        model = None if self.fell_back else self._cfg.judge_model
         result = await client.generate(
             [
                 {"role": "system", "content": _SYSTEM},
@@ -113,7 +130,7 @@ class Judge:
             temperature=0.0,
             max_tokens=400,
             purpose="eval_judge",
-            model=model,
+            model=self.model_override,
         )
         score, explanation = _parse(result.text)
         return Judgment(

@@ -106,7 +106,7 @@ async def run(book: str, step_names: list[str], out: str, repeat: int = 1) -> di
         # self-graded in the report/Tracer.
         "judge": {
             "provider": ctx.judge.provider_id,
-            "model": cfg.judge_model if not ctx.judge.fell_back else None,
+            "model": ctx.judge.model_override,
             "self": ctx.judge.is_self,
             "requested": cfg.judge_provider,
             "fell_back": ctx.judge.fell_back,

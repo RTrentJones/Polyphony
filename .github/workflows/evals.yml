@@ -95,7 +95,7 @@ jobs:
       # self-preference bias and takes judge calls off the shared Gemini daily
       # budget. Fail-soft — until GROQ_API_KEY is set the judge falls back to
       # the app provider and the report labels the run self-graded.
-      EVAL_JUDGE_PROVIDER: ${{ vars.EVAL_JUDGE_PROVIDER || 'groq' }}
+      EVAL_JUDGE_PROVIDER: ${{ vars.EVAL_JUDGE_PROVIDER || 'groq,openrouter' }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
