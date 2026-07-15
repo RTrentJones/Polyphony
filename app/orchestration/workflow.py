@@ -16,7 +16,7 @@ from app.core.config import settings
 from app.core.database import get_async_session
 from app.core.logging_config import log_business_event, log_error, setup_logging
 from app.core.orm_models import Character, Scene, SceneBeat
-from app.core.sanitization import sanitize_for_llm
+from app.core.llm_text import clean_for_llm
 from app.llm.client import get_llm_client
 
 logger = setup_logging("orchestration.workflow")
@@ -27,9 +27,9 @@ async def plan_scene_beats(
 ) -> list[dict]:
     """Break the scene into 3-5 narrative beats via one planning call."""
     characters_str = ", ".join(scene_request["characters"])
-    scene_desc = sanitize_for_llm(scene_request["scene_description"], max_length=1000)
-    setting = sanitize_for_llm(scene_request["setting"], max_length=500)
-    emotional_tone = sanitize_for_llm(scene_request["emotional_tone"], max_length=100)
+    scene_desc = clean_for_llm(scene_request["scene_description"])
+    setting = clean_for_llm(scene_request["setting"])
+    emotional_tone = clean_for_llm(scene_request["emotional_tone"])
 
     prompt = f"""You are a narrative planner. Break down this scene into 3-5 narrative beats (smaller moments).
 

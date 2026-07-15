@@ -11,8 +11,8 @@ from uuid import UUID
 from sqlalchemy import select
 
 from app.core.database import get_async_session
+from app.core.llm_text import clean_for_llm
 from app.core.orm_models import Character
-from app.core.sanitization import sanitize_for_llm
 from app.rag.store import get_chunk_store
 
 
@@ -57,14 +57,18 @@ async def build_character_context(
     """One character's context block: bible summary + retrieved voice samples."""
     lines = [f"### {name}"]
     if character is not None:
+        # The bible arrives whole. These fields used to be sliced to 300/200/200
+        # chars — the same silent-truncation habit that cut the synopsis to 6.5%
+        # and cost the outline its cast (docs/BRD.md §1). A full cast entry is
+        # ~500 tokens against a 1M window.
         if character.role:
-            lines.append(f"Role: {character.role}")
+            lines.append(f"Role: {clean_for_llm(character.role)}")
         if character.description:
-            lines.append(f"Description: {character.description[:300]}")
+            lines.append(f"Description: {clean_for_llm(character.description)}")
         if character.goals:
-            lines.append(f"Goals: {character.goals[:200]}")
+            lines.append(f"Goals: {clean_for_llm(character.goals)}")
         if character.arc:
-            lines.append(f"Arc: {character.arc[:200]}")
+            lines.append(f"Arc: {clean_for_llm(character.arc)}")
         # Retrieve across ALL chunk types, not just "dialogue": the ingest-time
         # dialogue/action/thought classifier is heuristic and under-labels, so a
         # dialogue-only filter can starve voice grounding to nothing. Rank
@@ -78,10 +82,10 @@ async def build_character_context(
         samples.sort(key=lambda s: s.get("chunk_type") != "dialogue")
         if samples:
             lines.append("Voice samples (match this voice — cadence, diction, syntax):")
-            # Retrieved text is user content — sanitize before it enters the prompt.
-            lines.extend(
-                f'- "{sanitize_for_llm(s["text"], max_length=200)}"' for s in samples
-            )
+            # These samples ARE the voice grounding — the product's whole premise.
+            # They used to be cut to 200 chars, which severed most of them
+            # mid-sentence and taught the model half a cadence.
+            lines.extend(f'- "{clean_for_llm(s["text"])}"' for s in samples)
     else:
         lines.append("(No bible entry — infer a consistent voice.)")
     return "\n".join(lines)

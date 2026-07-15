@@ -62,11 +62,14 @@ Four defects compound:
 | 3 | Injection filter `r"--"` → `[FILTERED]` | `app/core/sanitization.py:46` | Rewrites the author's markdown `---` rules (12 occurrences in this document) as `[FILTERED]-`, corrupting the structure the model uses to parse sections. |
 | 4 | `html.escape()` applied **after** truncation | `app/core/sanitization.py:56-63` | The model reads `It&#x27;s like learning an instrument`. The cap isn't even honoured (2000 → 2079). |
 
-**These are one bug wearing four hats: the code treats the author's own prose as hostile
-third-party input.** Injection scrubbing and XSS escaping are controls for *untrusted content
-crossing a trust boundary*. Here the author's text goes to the author's own LLM call and returns
-to the author. There is no boundary. The LLM is not a browser, and React already escapes on
-render — so `&#x27;` exists purely to corrupt the model's input.
+**These are one bug wearing four hats: the code applies the wrong controls at the wrong sink.**
+XSS escaping is an *output-encoding* control and belongs at the HTML renderer, not on the way
+into a prompt — an LLM is not an HTML sink, so `&#x27;` bought nothing and corrupted the input.
+`r"--"` is a *SQL* control applied to a prompt. And a regex blocklist of injection phrases is a
+control that does not work: it is trivially bypassed by paraphrase or encoding, so it bought ~no
+security while demonstrably eating a book.
+
+**This is not an argument that the content is trusted.** It isn't — see §5.2.
 
 Defects 3 and 4 are **systemic, not outline-specific**. All nine `sanitize_for_llm` call sites
 carry first-party prose — including `app/characters/context.py:83`, which caps *retrieved voice
@@ -147,7 +150,7 @@ already written. The product's job is **fidelity and leverage**, in that order.
 ### 2.2 Non-goals
 
 - **Not a chatbot.** No open-ended "write me a story" surface. Everything is grounded in a book's canon.
-- **Not multi-tenant collaboration.** One author owns a book. No sharing, so no untrusted-content boundary (see §5.2).
+- **Not multi-tenant collaboration.** One author owns a book. This bounds an injection's blast radius to the injecting user's own book — it does **not** mean content is trusted (§5.2).
 - **Not a general RAG platform.** Retrieval exists to serve character voice, not document Q&A.
 - **Not a series/universe manager.** A character belongs to exactly one book. Reuse across books is an explicit copy, not a shared entity.
 - **Not replacing the author.** The machine proposes; the author disposes. Extraction proposes for review; it never commits silently.
@@ -228,9 +231,26 @@ silently cuts a string mid-sentence.
 
 ### 5.2 Text handling (G1)
 
-- **R2.1** First-party author content is passed to the model **unaltered** except for control-character stripping and newline normalisation.
-- **R2.2** **Overflow raises; it never truncates.** A silent cap is precisely what kept this bug invisible for its entire life. Callers needing a bound handle the error explicitly.
-- **R2.3** Prompt-injection defence is **structural, not lexical**: author content is fenced in a delimited block the model is told to treat as story material, never as instructions. Not one character of the author's prose is altered. *Rationale: there is no untrusted-content boundary in a single-author product (§2.2). Should sharing ever ship, this fence — not a regex that eats em-dashes — is the control that scales.*
+**Threat model, stated plainly: content reaching the model is NOT all trusted.** Polyphony
+ingests `.pdf`, `.html`, `.docx`, `.txt` (`ALLOWED_EXTENSIONS`), and nobody authors a PDF
+keystroke by keystroke — uploaded documents arrive from elsewhere and are untrusted. The service
+is publicly reachable. **The frontend is never a security control**: every requirement below is
+enforced server-side and holds regardless of what any client does.
+
+What makes permissiveness *safe* is not trust — it is **capability containment**:
+
+- These calls **generate text**. No tool use, no code execution, no privileged action is driven by model output.
+- Output passes **strict validators** into text fields (`validate_outline_nodes`, `extract_json_array`) — never eval'd, never shelled, never turned into SQL.
+- Everything is **scoped to one user's own book**, so an injected upload corrupts the outline of whoever uploaded it and cannot reach another tenant.
+
+Worst case is "your outline is weird" — self-inflicted and unprivileged. **If that stops being
+true — model output gains tools, drives privileged actions, or crosses tenants — this trade must
+be re-examined, not inherited.**
+
+- **R2.1** Content is passed to the model **structure-preserving**: control-character stripping, newline normalisation, and escaping of chat-template control tokens (escaped, never deleted). No HTML escaping (wrong sink — encode at the renderer). No phrase blocklists.
+- **R2.2** **Overflow raises; it never truncates.** A silent cap is precisely what kept this bug invisible for its entire life. Bounds are explicit, generous, per-purpose cost/DoS controls; callers handle the error in the open.
+- **R2.3** Injection defence is **structural, not lexical** (OWASP LLM01): untrusted content is fenced in a labelled block and the model is instructed to treat it as story material, never as instructions — *spotlighting*. Not one character of prose is altered. **Lexical blocklists are rejected on the merits**: trivially bypassed, so ~zero security, while this one rewrote every markdown `---` into `[FILTERED]-`. A control with no benefit and large collateral damage is not defence in depth; it is damage.
+- **R2.4** Model output is treated as untrusted at its point of use — validated against a schema before it becomes data.
 
 ### 5.3 Book as root (G2)
 

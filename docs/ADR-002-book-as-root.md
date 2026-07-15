@@ -58,25 +58,39 @@ tools: "Story Bible"/"Braindump" (Sudowrite), "Codex"/"Lore" (NovelCrafter), "Mu
 product — and is already the word the fidelity design reasons in (`canon_terms`). Worldbuilding
 becomes **canon entries** with a `category`, so extending needs data, not schema.
 
-### 4. First-party prose is not sanitized
-`sanitize_for_llm` conflated three unrelated jobs — injection defence against untrusted text,
-length control, and XSS escaping for HTML display — and applied all three to the author's own
-manuscript. All three are wrong there. The LLM is not a browser (React already escapes on
-render), so `&#x27;` only corrupts model input; the length control silently destroyed 93.5% of a
-book; and the injection filter rewrites `---`, `system:`, and other legitimate prose.
+### 4. Prompt defence becomes structural, not lexical
+`sanitize_for_llm` conflated three unrelated jobs — injection defence, length control, and XSS
+escaping for HTML display — and applied all three at the wrong sink. **Each is rejected on its
+own merits, not because the content is trusted:**
 
-Replacement: `clean_for_llm` in a new `app/core/llm_text.py` — control-character stripping and
-newline normalisation only. **Overflow raises rather than truncates**: a silent cap is exactly
-what kept this defect invisible for its whole life, so the structural fix is to make the failure
-loud. Injection defence becomes **structural, not lexical**: author content is fenced in a
-delimited block the model is told to treat as story material, never instructions — altering not
-one character of the prose.
+- **XSS escaping is output encoding.** It belongs at the HTML renderer, at the point of use. An LLM prompt is not an HTML sink, so escaping on the way *in* bought nothing and corrupted the input: the model read `It&#x27;s`. (This is *not* the "React escapes it" argument — that would lean on the frontend as a control, which we never do. It is that input-time escaping for a sink the text never enters is simply the wrong control in the wrong place.)
+- **The length control was a general-purpose 2000-char default** that silently destroyed 93.5% of a book.
+- **Regex blocklists of injection phrases do not work.** They are trivially bypassed by paraphrase or encoding — so ~zero security — while this one rewrote every markdown `---` into `[FILTERED]-` via `r"--"`, a *SQL* comment control. Zero benefit, large collateral damage.
 
-All nine `sanitize_for_llm` call sites are first-party, so all migrate and the function is
-**deleted** rather than left loaded. `sanitization.py` keeps its legitimate consumers
-(`sanitize_filename`, `sanitize_file_path`, `validate_file_upload`, `is_safe_redirect_url`, …).
-This is sound only because Polyphony is single-author (BRD §2.2); if sharing ever ships, the
-fence — not a regex that eats em-dashes — is the control that scales.
+**Untrusted content genuinely enters this system.** `ALLOWED_EXTENSIONS` covers `.pdf`, `.html`,
+`.docx`, `.txt`; nobody authors a PDF keystroke by keystroke, and the service is publicly
+reachable (`access: 'public'`). Every control here is server-side; the frontend is never relied
+upon.
+
+Replacement — `app/core/llm_text.py`, following OWASP LLM01:
+
+1. **Spotlighting** (`as_quoted_block` + `STORY_MATERIAL_NOTICE`) — the primary control. Untrusted content is fenced in a labelled block and the model is told it is data, never instructions. Alters no prose; only a literal closing tag is neutralised.
+2. **Frame integrity** — chat-template control tokens (`<|…|>`) are *escaped, never deleted*. Unlike a phrase blocklist this cannot fire on real prose: no novel contains `<|im_start|>`.
+3. **Tokenizer hygiene** — null bytes and non-printable control characters stripped.
+4. **Explicit, generous bounds that RAISE** — a cost/DoS control, not a content control. Silent truncation is what kept the defect invisible, so the fix is to make the failure loud.
+5. **Output validation** — model output stays untrusted until a strict validator accepts it.
+
+**What makes permissiveness safe is capability containment, not trust.** These calls generate
+text; no tool use, no code execution, no privileged action follows from model output; output is
+parsed by strict validators into text fields; everything is scoped to one user's own book. The
+worst case of an injected upload is a weird outline for the person who uploaded it. **If model
+output ever gains tools, drives privileged actions, or crosses tenants, this trade must be
+re-examined, not inherited.**
+
+All nine `sanitize_for_llm` call sites migrate, leaving it with zero callers, so it is **deleted**
+rather than left loaded. `sanitization.py` keeps its legitimate consumers — `sanitize_filename`,
+`sanitize_file_path`, `validate_file_upload`, `is_safe_redirect_url` — which guard real sinks
+(filesystem, redirects) where their controls are correct.
 
 ### 5. One generic `entity_versions` table; `scene_revisions` stays
 Five-plus types (plan, character, canon entry, style guide, source, synopsis) need identical

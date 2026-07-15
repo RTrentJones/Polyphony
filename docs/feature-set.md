@@ -97,11 +97,15 @@ product's whole history.
 
 | Feature | Req | Status | Notes |
 |---|---|---|---|
-| First-party prose passed unaltered | R2.1 | ⬜ | Today: HTML-escaped (`It&#x27;s`), markdown `---` rewritten to `[FILTERED]-` |
-| Overflow raises, never truncates | R2.2 | ⬜ | A silent cap is what kept this bug invisible for its entire life |
-| Structural injection fence | R2.3 | ⬜ | Replaces lexical scrubbing; alters zero characters of prose |
-| `sanitize_for_llm` deleted | — | ⬜ | All nine call sites are first-party ⇒ zero callers ⇒ delete. Don't leave a loaded gun |
-| Filename / path / upload / redirect validation | — | ✅ | Legitimate; untouched |
+| Prose passed through structure-preserving | R2.1 | 🚧 | `app/core/llm_text.py`. Today: HTML-escaped (`It&#x27;s`), markdown `---` rewritten to `[FILTERED]-` |
+| Overflow raises, never truncates | R2.2 | 🚧 | Explicit generous per-purpose bounds. A silent cap is what kept this bug invisible for its entire life |
+| Structural injection fence (spotlighting) | R2.3 | 🚧 | OWASP LLM01 primary control; alters zero characters of prose |
+| Chat-template control tokens escaped, not deleted | R2.1 | 🚧 | Cannot fire on real prose — no novel contains `<\|im_start\|>` |
+| Lexical phrase blocklist | R2.3 | ❌ | **Rejected on the merits**: trivially bypassed ⇒ ~zero security, and it ate a book |
+| `sanitize_for_llm` deleted | — | ⬜ | Nine call sites migrate ⇒ zero callers ⇒ delete. Don't leave a loaded gun |
+| Model output treated as untrusted at point of use | R2.4 | ✅ | Strict validators (`validate_outline_nodes`); never eval'd/shelled/SQL'd |
+| Capability containment (why permissiveness is safe) | — | ✅ | Text-only generation, no tool use, scoped to one user's book. **Re-open ADR-002 §4 if this changes** |
+| Filename / path / upload / redirect validation | — | ✅ | Legitimate — real sinks where those controls are correct; untouched |
 
 ## 8. Tiering & budget
 

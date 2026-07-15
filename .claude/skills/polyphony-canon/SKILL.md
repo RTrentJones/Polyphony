@@ -48,7 +48,8 @@ Break one and you reintroduce the incident.
 
 ## Traps this codebase has already sprung
 
-- **`sanitize_for_llm` is deleted.** Do not reintroduce lexical scrubbing of author prose. Injection defence is **structural** — fence the content and tell the model it's story material. There is no untrusted-content boundary in a single-author product; if sharing ever ships, the fence is what scales, not a regex that eats em-dashes. (ADR-002 §4)
+- **`sanitize_for_llm` is deleted. Do not reintroduce lexical scrubbing.** Injection defence is **structural**: fence content with `as_quoted_block` and tell the model it's story material (`STORY_MATERIAL_NOTICE`). Phrase blocklists are trivially bypassed — ~zero security — and this one rewrote every markdown `---` into `[FILTERED]-`. Escaping for HTML on the way *into* a prompt is the wrong control at the wrong sink; encode at the renderer instead. (ADR-002 §4)
+- **Content is NOT all trusted, and the frontend is never the control.** Uploads include `.pdf`/`.html`/`.docx` — nobody authors a PDF by hand — and the service is public. Permissiveness is safe because of **capability containment** (text-only generation, strict output validators, one user's own book), *not* because input is trusted. **If model output ever gains tools, drives privileged actions, or crosses tenants, re-open ADR-002 §4 — do not inherit the trade.**
 - **`characters.book_id` must be `CASCADE`, not `SET NULL`.** With `NOT NULL`, `SET NULL` violates the constraint and 500s book deletion.
 - **Source→character cascade has two halves.** The DB FK *and* the ORM `cascade="all, delete-orphan"`. Change both or neither, or SQLAlchemy still deletes the canon in Python. Deleting a source file must never delete the cast.
 - **Migration baseline drifts.** `0001` calls `Base.metadata.create_all`, so a fresh DB gets the current ORM shape and additive migrations run against already-correct state. This already bit `0006`. Guard every statement, or squash.
