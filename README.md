@@ -11,6 +11,11 @@ Deployed as a [Greenlight](https://github.com/RTrentJones/greenlight) tool of
 `polyphony.rtrentjones.dev` (single container on OCI behind a Cloudflare
 tunnel; Neon Postgres with pgvector; Gemini free tier by default).
 
+> **What the product is meant to do lives in [docs/BRD.md](docs/BRD.md)** — the source
+> of truth for Canon (a book's authored truth) and generation behaviour. Change it
+> first, then the code. The catalogue is [docs/feature-set.md](docs/feature-set.md);
+> the decisions are in [docs/ADR-002-book-as-root.md](docs/ADR-002-book-as-root.md).
+>
 > The original microservices design spec lives at
 > [docs/archive/DESIGN-SPEC-v1.md](docs/archive/DESIGN-SPEC-v1.md); the
 > consolidation decisions are recorded in
