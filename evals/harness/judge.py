@@ -122,21 +122,29 @@ class Judge:
     async def score(self, rubric: str, content: str) -> Judgment:
         client = self._ensure()
         prompt = f"RUBRIC:\n{rubric}\n\nRESPONSE TO SCORE:\n{content}\n\nJSON:"
-        result = await client.generate(
-            [
-                {"role": "system", "content": _SYSTEM},
-                {"role": "user", "content": prompt},
-            ],
+        messages = [
+            {"role": "system", "content": _SYSTEM},
+            {"role": "user", "content": prompt},
+        ]
+        common = dict(
             temperature=0.0,
             max_tokens=400,
             purpose="eval_judge",
             model=self.model_override,
-            # Structured-output mode: llama judges sometimes ignore the
-            # reply-only-JSON instruction (outline scores were regex-recovered
-            # from prose, losing the explanation). All registry vendors'
-            # OpenAI-compat endpoints support json_object.
-            response_format={"type": "json_object"},
         )
+        # Prefer structured-output mode (llama judges otherwise sometimes ignore
+        # the reply-only-JSON instruction → scores get regex-recovered, losing
+        # the explanation). But Groq's json_object is strict and 400s
+        # (json_validate_failed) on some inputs — so fall back to a plain call +
+        # the tolerant parser rather than dropping the whole step.
+        try:
+            result = await client.generate(
+                messages, response_format={"type": "json_object"}, **common
+            )
+        except Exception as e:  # noqa: BLE001
+            if "json_validate_failed" not in str(e) and "400" not in str(e):
+                raise
+            result = await client.generate(messages, **common)
         score, explanation = _parse(result.text)
         return Judgment(
             score=score,

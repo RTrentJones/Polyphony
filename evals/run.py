@@ -63,10 +63,15 @@ def _aggregate(passes: list[dict]) -> dict:
             for p in passes
             if name in p and isinstance(p[name].get("score"), (int, float))
         ]
-        if len(scored) <= 1:
-            # 0 or 1 numeric passes: report the last pass verbatim (a lone error
-            # or skip surfaces as-is; a single score needs no aggregation).
+        if len(scored) == 0:
+            # No numeric pass — a genuine error/skip. Surface it as-is.
             out[name] = passes[-1][name]
+            continue
+        if len(scored) == 1:
+            # One good pass among N: report THAT pass, not passes[-1] — a
+            # trailing error/quota-skip on a later repeat must not mask a real
+            # score (e.g. pass-2 generation flakiness hiding pass-1's result).
+            out[name] = scored[0]
             continue
         # Seed from the last SCORED pass (not passes[-1]) so a transient error on
         # the final repeat can't drag an "error" key onto a valid aggregated mean
@@ -126,7 +131,11 @@ async def run(book: str, step_names: list[str], out: str, repeat: int = 1) -> di
         for i in range(max(1, repeat)):
             # Salt the cache per pass so repeats actually re-generate (variance),
             # while a single pass keeps the shared, byte-identical cache keys.
-            ctx.cache = Cache(cfg.cache_dir, app_sha, salt=str(i) if repeat > 1 else "")
+            pass_salt = str(i) if repeat > 1 else ""
+            ctx.cache = Cache(cfg.cache_dir, app_sha, salt=pass_salt)
+            # Upload steps mix this into content/title so a re-run gets a fresh
+            # content_hash instead of 409-ing on the per-user manuscript dedup.
+            ctx.pass_salt = pass_salt
             one: dict = {}
             quota_exhausted = False
             for s in steps:

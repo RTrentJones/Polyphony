@@ -2,9 +2,35 @@
 
 import pytest
 
-from evals.run import _is_quota_error
+from evals.run import _aggregate, _is_quota_error
 
 pytestmark = pytest.mark.unit
+
+
+def test_aggregate_reports_scored_pass_over_trailing_error():
+    # One good pass + a later error/quota-skip: report the SCORE, not the error
+    # (pass-2 flakiness must not mask pass-1's real result).
+    passes = [
+        {"prose": {"score": 0.9, "words": 700}},
+        {"prose": {"error": "empty scene (status=failed)"}},
+    ]
+    out = _aggregate(passes)
+    assert out["prose"]["score"] == 0.9
+    assert "error" not in out["prose"]
+
+
+def test_aggregate_means_multiple_scored_passes():
+    passes = [{"s": {"score": 0.4}}, {"s": {"score": 0.6}}]
+    out = _aggregate(passes)
+    assert out["s"]["score"] == 0.5
+    assert out["s"]["score_std"] == 0.1
+    assert out["s"]["repeats"] == 2
+
+
+def test_aggregate_surfaces_pure_error():
+    passes = [{"s": {"error": "boom"}}, {"s": {"error": "boom"}}]
+    out = _aggregate(passes)
+    assert "error" in out["s"] and "score" not in out["s"]
 
 
 def test_quota_error_matches_gemini_429():

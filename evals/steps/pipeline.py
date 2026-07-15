@@ -34,8 +34,13 @@ def load_corpus(book: str) -> tuple[str, dict]:
 # --- Step 1: character extraction -----------------------------------------
 @step("extraction", needs_api=True)
 async def step_extraction(ctx: StepContext) -> dict:
+    # Per-pass marker so a --repeat re-upload gets a fresh content_hash (uploads
+    # dedup per-user, so an identical re-upload 409s). Nonce-only — doesn't
+    # affect extraction.
+    marker = f"\n\n[[eval-pass-{ctx.pass_salt}]]\n" if ctx.pass_salt else ""
+    title = f"eval-{ctx.book}" + (f"-{ctx.pass_salt}" if ctx.pass_salt else "")
     up = await ctx.client.upload_manuscript(
-        f"{ctx.book}.txt", ctx.corpus_text.encode("utf-8"), title=f"eval-{ctx.book}"
+        f"{ctx.book}.txt", (ctx.corpus_text + marker).encode("utf-8"), title=title
     )
     status = await ctx.client.wait_manuscript(up["id"])
     if status.get("status") != "completed":
@@ -59,10 +64,11 @@ async def step_ingestion(ctx: StepContext) -> dict:
     # Append a marker so the content hash differs from the extraction step's
     # upload of the same corpus (uploads are deduped per-user by content hash,
     # so an identical re-upload 409s). Doesn't affect the chunking measured here.
-    content = (ctx.corpus_text + "\n\n[[eval-ingestion-copy]]\n").encode("utf-8")
-    up = await ctx.client.upload_manuscript(
-        f"{ctx.book}-ing.txt", content, title=f"eval-ing-{ctx.book}"
-    )
+    content = (
+        ctx.corpus_text + f"\n\n[[eval-ingestion-copy-{ctx.pass_salt}]]\n"
+    ).encode("utf-8")
+    title = f"eval-ing-{ctx.book}" + (f"-{ctx.pass_salt}" if ctx.pass_salt else "")
+    up = await ctx.client.upload_manuscript(f"{ctx.book}-ing.txt", content, title=title)
     status = await ctx.client.wait_manuscript(up["id"])
     if status.get("status") != "completed":
         return {"error": f"manuscript status {status.get('status')}", "score": 0.0}

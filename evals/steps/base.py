@@ -27,6 +27,10 @@ class StepContext:
     cache: Cache
     judge: Judge
     client: Optional[PolyphonyClient] = None  # None for embedding-only steps
+    # Per-pass salt under --repeat (pass index; "" for a single pass). Upload
+    # steps mix it into content/title so a re-run gets a distinct content_hash
+    # instead of 409-ing on the per-user manuscript dedup.
+    pass_salt: str = ""
 
 
 @dataclass
