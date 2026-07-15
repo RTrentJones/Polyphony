@@ -1,2 +1,3 @@
-run 8 — post-remediation verification: durable job queue serves generation, tenant/ordering constraints live (PR #17)
-books: dracula frankenstein
+run 10 — noise band under json_object Groq judge (mean±std per step); post-remediation main
+books: dracula
+repeat: 2
