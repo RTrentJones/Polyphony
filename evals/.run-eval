@@ -1,3 +1,3 @@
-run 10 — noise band under json_object Groq judge (mean±std per step); post-remediation main
+run 11 — clean noise band, harness fixes live (e8e1ead)
 books: dracula
 repeat: 2
