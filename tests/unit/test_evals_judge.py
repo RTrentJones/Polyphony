@@ -44,6 +44,25 @@ def test_unknown_judge_provider_raises(monkeypatch):
         Judge(_cfg(monkeypatch, "nonsense"))
 
 
+def test_parse_prefers_clean_json():
+    from evals.harness.judge import _parse
+
+    score, expl = _parse('{"score": 0.7, "explanation": "recovers most beats"}')
+    assert score == 0.7 and expl == "recovers most beats"
+
+
+def test_parse_keeps_prose_explanation_on_unstructured_reply():
+    # The plain-retry (post json_object 400) reply is prose with the critique —
+    # keep it, don't collapse to a generic placeholder.
+    from evals.harness.judge import _parse
+
+    text = "score: 0.8 — the outline recovers the inciting incident but reorders the midpoint."
+    score, expl = _parse(text)
+    assert score == 0.8
+    assert "reorders the midpoint" in expl
+    assert expl != "recovered score from unstructured reply"
+
+
 def test_chain_uses_first_provider_with_key(monkeypatch):
     monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
     monkeypatch.setenv("OPENROUTER_API_KEY", "or_test")

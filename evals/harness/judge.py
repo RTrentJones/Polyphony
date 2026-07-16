@@ -48,10 +48,14 @@ def _parse(text: str) -> tuple[float, str]:
             return _clamp01(obj.get("score")), str(obj.get("explanation", ""))[:300]
         except json.JSONDecodeError:
             pass
-    # last resort: pull the first float that looks like a score.
+    # Last resort (e.g. the plain retry after a json_object 400): pull the first
+    # float that looks like a score, and KEEP the model's own prose as the
+    # explanation — that reply carries the actual critique; don't discard it for
+    # a generic placeholder.
     m = re.search(r'score"?\s*[:=]\s*([01](?:\.\d+)?)', t)
     if m:
-        return _clamp01(m.group(1)), "recovered score from unstructured reply"
+        prose = re.sub(r"\s+", " ", t).strip()
+        return _clamp01(m.group(1)), (prose[:300] or "recovered score, no prose")
     return 0.0, "unparseable judge reply"
 
 
