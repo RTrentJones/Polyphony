@@ -103,14 +103,12 @@ async def run_prose_scene_workflow(
 
         prose_parts: list[str] = []
         prior_tail = prior_scene_tail
-        manuscript_id = scene_request.get("manuscript_id")
 
         for beat in beats:
             cast_context = await build_cast_context(
                 beat["characters"],
                 beat["description"],
                 user_id=user_id,
-                manuscript_id=UUID(str(manuscript_id)) if manuscript_id else None,
                 book_id=book_id,
             )
             prose = await write_beat_prose(

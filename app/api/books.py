@@ -22,9 +22,9 @@ from app.core.database import get_db
 from app.core.orm_models import (
     Book as BookORM,
     Chapter as ChapterORM,
-    Manuscript as ManuscriptORM,
     Scene as SceneORM,
     SceneRevision as SceneRevisionORM,
+    Source as SourceORM,
     User as UserORM,
 )
 from app.core.security import get_current_active_user
@@ -80,7 +80,7 @@ class PositionUpdate(BaseModel):
 
 
 class ChapterSceneRequest(BaseModel):
-    manuscript_id: Optional[UUID] = None  # source of the character bible
+    source_id: Optional[UUID] = None  # provenance of the character bible
     characters: list[str] = Field(..., min_length=1)
     scene_description: str = Field(..., min_length=10)
     setting: str
@@ -452,18 +452,18 @@ async def generate_scene_into_chapter(
     """Prose-mode generation (one LLM call per beat) landing in the chapter."""
     chapter = await _owned_chapter(chapter_id, current_user, db)
 
-    if payload.manuscript_id:
+    if payload.source_id:
         owned = (
             await db.execute(
-                select(ManuscriptORM).where(
-                    ManuscriptORM.id == payload.manuscript_id,
-                    ManuscriptORM.user_id == current_user.id,
+                select(SourceORM).where(
+                    SourceORM.id == payload.source_id,
+                    SourceORM.user_id == current_user.id,
                 )
             )
         ).scalar_one_or_none()
         if not owned:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Manuscript not found"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Source not found"
             )
 
     await check_user_budget(db, current_user.id)
@@ -501,7 +501,7 @@ async def generate_scene_into_chapter(
         ).scalar_one() + 1
         scene = SceneORM(
             user_id=current_user.id,
-            manuscript_id=payload.manuscript_id,
+            source_id=payload.source_id,
             chapter_id=chapter_id,
             position=next_pos,
             setting=payload.setting,

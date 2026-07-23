@@ -19,7 +19,7 @@ from sqlalchemy import select
 
 from app.core.database import get_async_session
 from app.core.logging_config import log_business_event, setup_logging
-from app.core.orm_models import ContinuityReport, Manuscript, Scene
+from app.core.orm_models import ContinuityReport, Scene, Source
 
 logger = setup_logging("jobs.handlers")
 
@@ -60,22 +60,20 @@ async def _run_generate_prose_scene(payload: dict) -> None:
         raise JobExecutionError(result.get("error", "prose scene generation failed"))
 
 
-async def _run_process_manuscript(payload: dict) -> None:
-    from app.parsing.pipeline import process_manuscript
+async def _run_process_source(payload: dict) -> None:
+    from app.parsing.pipeline import process_source
 
-    manuscript_id = UUID(payload["manuscript_id"])
+    source_id = UUID(payload["source_id"])
     # text=None: the pipeline reads the durable content_text from the row.
-    await process_manuscript(manuscript_id, UUID(payload["user_id"]))
+    await process_source(source_id, UUID(payload["user_id"]))
     # The pipeline marks the row failed instead of raising; surface that to
     # the job so retries/backoff apply.
     async with get_async_session() as session:
         status = (
-            await session.execute(
-                select(Manuscript.status).where(Manuscript.id == manuscript_id)
-            )
+            await session.execute(select(Source.status).where(Source.id == source_id))
         ).scalar_one_or_none()
     if status == "failed":
-        raise JobExecutionError("manuscript processing failed")
+        raise JobExecutionError("source processing failed")
 
 
 async def _run_continuity(payload: dict) -> None:
@@ -127,8 +125,8 @@ async def _dead_scene(payload: dict) -> None:
     await _fail_row(Scene, payload["scene_id"], "scene_failed_dead_job")
 
 
-async def _dead_manuscript(payload: dict) -> None:
-    await _fail_row(Manuscript, payload["manuscript_id"], "manuscript_failed_dead_job")
+async def _dead_source(payload: dict) -> None:
+    await _fail_row(Source, payload["source_id"], "source_failed_dead_job")
 
 
 async def _dead_report(payload: dict) -> None:
@@ -138,8 +136,6 @@ async def _dead_report(payload: dict) -> None:
 HANDLERS: dict[str, Handler] = {
     "generate_scene": Handler(run=_run_generate_scene, on_dead=_dead_scene),
     "generate_prose_scene": Handler(run=_run_generate_prose_scene, on_dead=_dead_scene),
-    "process_manuscript": Handler(
-        run=_run_process_manuscript, on_dead=_dead_manuscript
-    ),
+    "process_source": Handler(run=_run_process_source, on_dead=_dead_source),
     "continuity_check": Handler(run=_run_continuity, on_dead=_dead_report),
 }

@@ -50,11 +50,17 @@ class ChunkStore:
         character_id: str,
         character_name: str,
         user_id: str,
+        book_id: str,
         chunks: list[dict],
-        book_id: Optional[str] = None,
         batch_size: int = 100,
     ) -> int:
-        """Index content chunks for a character. Returns count indexed."""
+        """Index content chunks for a character. Returns count indexed.
+
+        `book_id` is required (no default): voice chunks are book-rooted like
+        their character, and a missing book_id must fail loudly at the call site
+        (TypeError) rather than silently writing a NULL that the book-scoped
+        retrieval filter would then never match (docs/ADR-002-book-as-root.md §1).
+        """
         if not chunks:
             return 0
 
@@ -98,12 +104,14 @@ class ChunkStore:
         chunk_type: Optional[str] = None,
         score_threshold: Optional[float] = None,
         user_id: Optional[str] = None,
+        book_id: Optional[str] = None,
     ) -> list[dict]:
         """Retrieve a character's most similar chunks for voice grounding.
 
-        Pass user_id for defense-in-depth: even though character_id already
-        implies one owner, scoping the vector read by user_id too means a
-        mis-scoped caller can never read another tenant's voice.
+        Pass user_id and/or book_id for defense-in-depth: even though
+        character_id already implies one owner and one book, scoping the vector
+        read by them too means a mis-scoped caller can never read another
+        tenant's — or another book's — voice.
         """
         threshold = (
             settings.RAG_SCORE_THRESHOLD if score_threshold is None else score_threshold
@@ -124,6 +132,9 @@ class ChunkStore:
             if user_id:
                 sql += " AND user_id = :user_id"
                 params["user_id"] = user_id
+            if book_id:
+                sql += " AND book_id = :book_id"
+                params["book_id"] = book_id
             if chunk_type:
                 sql += " AND chunk_type = :chunk_type"
                 params["chunk_type"] = chunk_type

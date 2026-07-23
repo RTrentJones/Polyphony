@@ -45,9 +45,11 @@ class User(Base):
     )
 
     # Relationships
-    manuscripts = relationship(
-        "Manuscript", back_populates="user", cascade="all, delete-orphan"
-    )
+    # NOTE: no `sources`/`characters` collection here — Book is the root of every
+    # concept (docs/ADR-002-book-as-root.md §1), so they hang off Book and reach
+    # the user through it. Their `user_id` columns remain as a tenant guard
+    # (migration 0005's deliberate defence-in-depth), not as a second parent.
+    books = relationship("Book", back_populates="user", cascade="all, delete-orphan")
     scenes = relationship("Scene", back_populates="user", cascade="all, delete-orphan")
     api_usage = relationship(
         "APIUsage", back_populates="user", cascade="all, delete-orphan"
@@ -87,20 +89,42 @@ class RefreshToken(Base):
     __table_args__ = (Index("idx_refresh_tokens_user_id", "user_id"),)
 
 
-class Manuscript(Base):
-    __tablename__ = "manuscripts"
+class Source(Base):
+    """Raw input material attached to a book: an uploaded file or pasted text.
+
+    Was `Manuscript`, which was user-scoped and sat in a second tree beside Book
+    (docs/ADR-002-book-as-root.md §2). A manuscript and a pile of pasted notes
+    are the same thing — material that arrived somehow — so they are one entity
+    with a `kind`, and you upload INTO a book.
+
+    A Source is disposable; the Canon is not. Deleting the file you imported from
+    must never delete your cast, so `Character.source_id` is provenance only
+    (ON DELETE SET NULL) and this class deliberately does NOT cascade-delete
+    characters. See the note on `characters` below.
+    """
+
+    __tablename__ = "sources"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    book_id = Column(
+        UUID(as_uuid=True), ForeignKey("books.id", ondelete="CASCADE"), nullable=False
+    )
+    # Denormalized tenant guard (migration 0005's pattern), NOT a second parent.
+    # Invariant: user_id == book.user_id.
     user_id = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
+    kind = Column(
+        String(20), nullable=False, default="upload", server_default="upload"
+    )  # upload | paste
     title = Column(String(500), nullable=False)
     author = Column(String(255))
-    # content_hash is unique PER USER, not globally — a global unique both leaks
-    # a cross-tenant existence oracle and blocks two users holding the same file.
+    # content_hash is unique per BOOK, not globally — a global unique leaks a
+    # cross-tenant existence oracle (migration 0003). Per-book rather than
+    # per-user so the same reference text can feed two different books.
     content_hash = Column(String(64))
-    # The parsed manuscript text is stored here so (re)processing is driven from
-    # the DB, not a container-local file that dies on restart/idle-reclaim.
+    # The parsed text is stored here so (re)processing is driven from the DB, not
+    # a container-local file that dies on restart/idle-reclaim.
     content_text = Column(Text)
     file_path = Column(String(1000))
     word_count = Column(Integer)
@@ -111,17 +135,20 @@ class Manuscript(Base):
     )  # pending, processing, completed, failed
 
     # Relationships
-    user = relationship("User", back_populates="manuscripts")
-    characters = relationship(
-        "Character", back_populates="manuscript", cascade="all, delete-orphan"
-    )
-    scenes = relationship("Scene", back_populates="manuscript")
+    book = relationship("Book", back_populates="sources")
+    # NO cascade="all, delete-orphan" here — deliberate. The DB FK is
+    # ON DELETE SET NULL, and if this ORM side still cascaded, SQLAlchemy would
+    # delete the characters in Python anyway and the FK change would be a lie.
+    # Both halves must agree (docs/ADR-002-book-as-root.md §2).
+    characters = relationship("Character", back_populates="source")
+    scenes = relationship("Scene", back_populates="source")
 
     # Indexes
     __table_args__ = (
-        Index("idx_manuscripts_user_id", "user_id"),
-        Index("idx_manuscripts_status", "status"),
-        UniqueConstraint("user_id", "content_hash", name="uq_manuscripts_user_content"),
+        Index("idx_sources_book_id", "book_id"),
+        Index("idx_sources_user_id", "user_id"),
+        Index("idx_sources_status", "status"),
+        UniqueConstraint("book_id", "content_hash", name="uq_sources_book_content"),
     )
 
 
@@ -144,12 +171,29 @@ class Book(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    user = relationship("User")
+    user = relationship("User", back_populates="books")
     chapters = relationship(
         "Chapter",
         back_populates="book",
         cascade="all, delete-orphan",
         order_by="Chapter.position",
+    )
+    # The Canon. `characters` did not exist here at all until now: the column was
+    # on Character, nothing ever wrote it, and the outline's bible query filtered
+    # on it — so it always returned zero rows and the model never saw a cast.
+    # That silence is what produced "Elara" (docs/BRD.md §1).
+    characters = relationship(
+        "Character",
+        back_populates="book",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="Character.name",
+    )
+    sources = relationship(
+        "Source",
+        back_populates="book",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     plans = relationship(
         "BookPlan", back_populates="book", cascade="all, delete-orphan"
@@ -189,22 +233,34 @@ class Chapter(Base):
 
 
 class Character(Base):
+    """A character belongs to exactly ONE book. It is Canon.
+
+    This used to read "a character belongs to a user's bible… book_id scopes a
+    character to one book WHEN SET" — and nothing ever set it. The column was
+    nullable, written by no code path, and queried by two features that
+    therefore always saw an empty cast (docs/BRD.md §1). It is now NOT NULL and
+    the book is the real parent (docs/ADR-002-book-as-root.md §1).
+    """
+
     __tablename__ = "characters"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    # A character belongs to a user's bible. Manuscript extraction is one
-    # origin (manuscript_id set); manual creation is another (manuscript
-    # optional). book_id scopes a character to one book when set.
+    # CASCADE, not SET NULL: with book_id NOT NULL, SET NULL would violate the
+    # constraint and 500 the book-delete endpoint.
+    book_id = Column(
+        UUID(as_uuid=True), ForeignKey("books.id", ondelete="CASCADE"), nullable=False
+    )
+    # Denormalized tenant guard (migration 0005), NOT a second parent.
+    # Invariant: user_id == book.user_id.
     user_id = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    manuscript_id = Column(
+    # Provenance only: which Source this character was extracted from, if any.
+    # SET NULL — deleting an imported file must never delete the cast it seeded.
+    source_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("manuscripts.id", ondelete="CASCADE"),
+        ForeignKey("sources.id", ondelete="SET NULL"),
         nullable=True,
-    )
-    book_id = Column(
-        UUID(as_uuid=True), ForeignKey("books.id", ondelete="SET NULL"), nullable=True
     )
     name = Column(String(255), nullable=False)
     description = Column(Text)
@@ -220,16 +276,23 @@ class Character(Base):
     indexed_at = Column(DateTime(timezone=True))
 
     # Relationships
-    manuscript = relationship("Manuscript", back_populates="characters")
+    book = relationship("Book", back_populates="characters")
+    source = relationship("Source", back_populates="characters")
     chunks = relationship(
         "CharacterChunk", back_populates="character", cascade="all, delete-orphan"
     )
 
     # Indexes and constraints
     __table_args__ = (
-        Index("idx_characters_manuscript_id", "manuscript_id"),
-        Index("idx_characters_name", "manuscript_id", "name", unique=True),
+        Index("idx_characters_book_id", "book_id"),
+        Index("idx_characters_source_id", "source_id"),
         Index("idx_characters_user_id", "user_id"),
+        # Names are unique within a BOOK. The old index keyed on manuscript_id,
+        # which is NULL for every manually-created character — and NULLs are
+        # distinct in Postgres, so manual characters had NO uniqueness at all.
+        # Cast-fidelity checking (docs/BRD.md R1.4) needs a name to mean one
+        # person, so this is load-bearing, not tidiness.
+        UniqueConstraint("book_id", "name", name="uq_characters_book_name"),
     )
 
 
@@ -262,7 +325,11 @@ class Scene(Base):
     user_id = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    manuscript_id = Column(UUID(as_uuid=True), ForeignKey("manuscripts.id"))
+    # Provenance only, like Character.source_id: deleting the imported file must
+    # not delete scenes drafted from it.
+    source_id = Column(
+        UUID(as_uuid=True), ForeignKey("sources.id", ondelete="SET NULL"), nullable=True
+    )
     # Book placement (nullable: standalone scenes exist outside any chapter)
     chapter_id = Column(
         UUID(as_uuid=True),
@@ -290,7 +357,7 @@ class Scene(Base):
 
     # Relationships
     user = relationship("User", back_populates="scenes")
-    manuscript = relationship("Manuscript", back_populates="scenes")
+    source = relationship("Source", back_populates="scenes")
     chapter = relationship("Chapter", back_populates="scenes")
     beats = relationship(
         "SceneBeat", back_populates="scene", cascade="all, delete-orphan"
@@ -305,7 +372,7 @@ class Scene(Base):
     # Indexes
     __table_args__ = (
         Index("idx_scenes_user_id", "user_id"),
-        Index("idx_scenes_manuscript_id", "manuscript_id"),
+        Index("idx_scenes_source_id", "source_id"),
         Index("idx_scenes_chapter_id", "chapter_id"),
         Index("idx_scenes_status", "status"),
         Index(

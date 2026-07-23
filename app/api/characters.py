@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from uuid import UUID
@@ -11,9 +12,10 @@ from datetime import datetime, timezone
 from app.characters.dialogue import generate_dialogue
 from app.core.database import get_db
 from app.core.orm_models import (
+    Book as BookORM,
     Character as CharacterORM,
     CharacterChunk as CharacterChunkORM,
-    Manuscript as ManuscriptORM,
+    Source as SourceORM,
     User as UserORM,
 )
 from app.core.security import get_current_active_user
@@ -24,9 +26,11 @@ router = APIRouter()
 
 class CharacterCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    # Manuscript extraction is one origin; manual creation (no manuscript) is
-    # another — ownership is carried by user_id either way.
-    manuscript_id: Optional[UUID] = None
+    # Book is the root: every character belongs to exactly one book
+    # (docs/ADR-002-book-as-root.md §1). `source_id` is optional provenance —
+    # which uploaded/pasted Source this character was extracted from, if any.
+    book_id: UUID
+    source_id: Optional[UUID] = None
     description: Optional[str] = None
     personality_traits: dict = Field(default_factory=dict)
     voice_characteristics: dict = Field(default_factory=dict)
@@ -93,8 +97,8 @@ async def list_characters(
                 "name": c.name,
                 "description": c.description,
                 "role": c.role,
-                "manuscript_id": str(c.manuscript_id) if c.manuscript_id else None,
-                "book_id": str(c.book_id) if c.book_id else None,
+                "book_id": str(c.book_id),
+                "source_id": str(c.source_id) if c.source_id else None,
                 "dialogue_count": c.dialogue_count,
                 "indexed_at": c.indexed_at.isoformat() if c.indexed_at else None,
             }
@@ -109,24 +113,41 @@ async def create_character(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a character manually (no manuscript required)."""
-    if payload.manuscript_id is not None:
-        manuscript = (
+    """Create a character in a book (manual authoring, no source required)."""
+    # The book is the parent — verify the caller owns it.
+    book = (
+        await db.execute(
+            select(BookORM).where(
+                BookORM.id == payload.book_id,
+                BookORM.user_id == current_user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not book:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
+        )
+    # If a provenance Source is named, it must belong to the same book.
+    if payload.source_id is not None:
+        source = (
             await db.execute(
-                select(ManuscriptORM).where(
-                    ManuscriptORM.id == payload.manuscript_id,
-                    ManuscriptORM.user_id == current_user.id,
+                select(SourceORM).where(
+                    SourceORM.id == payload.source_id,
+                    SourceORM.book_id == payload.book_id,
+                    SourceORM.user_id == current_user.id,
                 )
             )
         ).scalar_one_or_none()
-        if not manuscript:
+        if not source:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Manuscript not found"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Source not found in this book",
             )
 
     character = CharacterORM(
         user_id=current_user.id,
-        manuscript_id=payload.manuscript_id,
+        book_id=payload.book_id,
+        source_id=payload.source_id,
         name=payload.name,
         description=payload.description,
         personality_traits=payload.personality_traits,
@@ -137,7 +158,15 @@ async def create_character(
         notes=payload.notes,
     )
     db.add(character)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # uq_characters_book_name: a character name is unique within a book.
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A character with this name already exists in this book",
+        )
     await db.refresh(character)
     return {"id": str(character.id), "name": character.name}
 
@@ -153,9 +182,8 @@ async def get_character(
     stats = await get_chunk_store().character_statistics(str(character.id))
     return {
         "id": str(character.id),
-        "manuscript_id": (
-            str(character.manuscript_id) if character.manuscript_id else None
-        ),
+        "book_id": str(character.book_id),
+        "source_id": (str(character.source_id) if character.source_id else None),
         "name": character.name,
         "description": character.description,
         "personality_traits": character.personality_traits or {},

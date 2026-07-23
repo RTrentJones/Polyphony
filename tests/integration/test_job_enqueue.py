@@ -23,12 +23,12 @@ async def _jobs(async_session, kind):
 class TestGenerateSceneEnqueues:
     @pytest.mark.asyncio
     async def test_scene_generate_creates_job(
-        self, client, auth_headers, test_manuscript, test_user, async_session
+        self, client, auth_headers, test_source, test_user, async_session
     ):
         r = await client.post(
             "/api/v1/scenes/generate",
             json={
-                "manuscript_id": str(test_manuscript.id),
+                "source_id": str(test_source.id),
                 "characters": ["Mina"],
                 "scene_description": "A quiet talk at dusk on the terrace.",
                 "setting": "terrace",
@@ -94,13 +94,14 @@ class TestChapterSceneGenerateEnqueues:
 
 
 @pytest.mark.integration
-class TestManuscriptEnqueues:
+class TestSourceEnqueues:
     @pytest.mark.asyncio
     async def test_upload_creates_process_job(
         self, client, auth_headers, test_user, async_session
     ):
+        # No book_id given → the endpoint auto-creates a book for the upload.
         r = await client.post(
-            "/api/v1/manuscripts/upload",
+            "/api/v1/sources/upload",
             files={"file": ("story.txt", b"Once upon a time.", "text/plain")},
             headers=auth_headers,
         )
@@ -108,40 +109,39 @@ class TestManuscriptEnqueues:
         body = r.json()
         assert body["status"] == "processing"
 
-        jobs = await _jobs(async_session, "process_manuscript")
+        jobs = await _jobs(async_session, "process_source")
         assert len(jobs) == 1
         job = jobs[0]
         assert job.max_attempts == 2
         assert job.payload == {
-            "manuscript_id": body["id"],
+            "source_id": body["id"],
             "user_id": str(test_user.id),
         }
 
     @pytest.mark.asyncio
     async def test_reprocess_creates_job(
-        self, client, auth_headers, test_user, async_session
+        self, client, auth_headers, test_user, test_book, async_session
     ):
-        from app.core.orm_models import Manuscript
+        from app.core.orm_models import Source
 
-        ms = Manuscript(
+        src = Source(
             user_id=test_user.id,
+            book_id=test_book.id,
             title="M",
             content_hash="deadbeef",
             content_text="Some prose.",
             status="failed",
         )
-        async_session.add(ms)
+        async_session.add(src)
         await async_session.commit()
 
-        r = await client.post(
-            f"/api/v1/manuscripts/{ms.id}/process", headers=auth_headers
-        )
+        r = await client.post(f"/api/v1/sources/{src.id}/process", headers=auth_headers)
         assert r.status_code == 200
         assert r.json()["status"] == "processing"
 
-        jobs = await _jobs(async_session, "process_manuscript")
+        jobs = await _jobs(async_session, "process_source")
         assert len(jobs) == 1
-        assert jobs[0].payload["manuscript_id"] == str(ms.id)
+        assert jobs[0].payload["source_id"] == str(src.id)
 
 
 @pytest.mark.integration

@@ -160,7 +160,7 @@ async def run_scene_workflow(
     started = datetime.now(timezone.utc)
     try:
         character_ids = await _resolve_character_ids(
-            scene_request["manuscript_id"], scene_request["characters"]
+            scene_request["book_id"], scene_request["characters"]
         )
 
         beats = await plan_scene_beats(scene_request, user_id)
@@ -221,12 +221,16 @@ async def run_scene_workflow(
 
 
 async def _resolve_character_ids(
-    manuscript_id: str, character_names: list[str]
+    book_id: str, character_names: list[str]
 ) -> dict[str, str]:
-    """Map character names to their DB ids (for RAG payload filtering)."""
+    """Map character names to their DB ids (for RAG payload filtering).
+
+    Scoped by book — the book is the root of the cast
+    (docs/ADR-002-book-as-root.md §1).
+    """
     async with get_async_session() as session:
         result = await session.execute(
-            select(Character).where(Character.manuscript_id == UUID(str(manuscript_id)))
+            select(Character).where(Character.book_id == UUID(str(book_id)))
         )
         rows = result.scalars().all()
     by_name = {c.name: str(c.id) for c in rows}

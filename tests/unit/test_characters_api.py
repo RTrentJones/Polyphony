@@ -1,4 +1,9 @@
-"""Characters API: manual creation (no manuscript), listing, ownership."""
+"""Characters API: creation into a book, listing, ownership.
+
+Book is the root (docs/ADR-002-book-as-root.md §1): a character always belongs
+to exactly one book (`book_id` required), and `source_id` is optional
+provenance.
+"""
 
 from unittest.mock import AsyncMock, patch
 
@@ -10,12 +15,13 @@ from app.core.security import create_access_token, get_password_hash
 
 @pytest.mark.unit
 class TestCharacterCreation:
-    async def test_create_without_manuscript(self, client, auth_headers):
-        """A fresh account can create a character before uploading anything."""
+    async def test_create_in_book(self, client, auth_headers, test_book):
+        """A character is created directly in a book, no source required."""
         resp = await client.post(
             "/api/v1/characters/",
             json={
                 "name": "Imogen",
+                "book_id": str(test_book.id),
                 "description": "A cartographer",
                 "role": "protagonist",
             },
@@ -25,19 +31,21 @@ class TestCharacterCreation:
         body = resp.json()
         assert body["name"] == "Imogen"
 
-    async def test_create_with_owned_manuscript(
-        self, client, auth_headers, test_manuscript
+    async def test_create_with_owned_source(
+        self, client, auth_headers, test_book, test_source
     ):
         resp = await client.post(
             "/api/v1/characters/",
-            json={"name": "Quill", "manuscript_id": str(test_manuscript.id)},
+            json={
+                "name": "Quill",
+                "book_id": str(test_book.id),
+                "source_id": str(test_source.id),
+            },
             headers=auth_headers,
         )
         assert resp.status_code == 201, resp.text
 
-    async def test_create_with_foreign_manuscript_404s(
-        self, client, async_session, test_manuscript
-    ):
+    async def test_create_in_foreign_book_404s(self, client, async_session, test_book):
         other = User(
             email="other@example.com",
             hashed_password=get_password_hash("otherpassword1"),
@@ -51,7 +59,7 @@ class TestCharacterCreation:
         }
         resp = await client.post(
             "/api/v1/characters/",
-            json={"name": "Thief", "manuscript_id": str(test_manuscript.id)},
+            json={"name": "Thief", "book_id": str(test_book.id)},
             headers=headers,
         )
         assert resp.status_code == 404
@@ -60,21 +68,27 @@ class TestCharacterCreation:
 @pytest.mark.unit
 class TestCharacterListing:
     async def test_list_includes_manual_and_extracted(
-        self, client, auth_headers, async_session, test_user, test_character
+        self, client, auth_headers, async_session, test_user, test_book, test_character
     ):
-        manual = Character(user_id=test_user.id, name="Manual Marta")
+        manual = Character(
+            user_id=test_user.id, book_id=test_book.id, name="Manual Marta"
+        )
         async_session.add(manual)
         await async_session.commit()
 
         resp = await client.get("/api/v1/characters/", headers=auth_headers)
         assert resp.status_code == 200, resp.text
         names = {c["name"] for c in resp.json()["characters"]}
-        # test_character is owned via its manuscript (legacy path, no user_id);
-        # Manual Marta directly via user_id — both must appear.
+        # test_character came from a source; Manual Marta was authored directly —
+        # both belong to the book and both must appear.
         assert {"Manual Marta", "Test Character"} <= names
 
-    async def test_list_excludes_other_users(self, client, async_session, test_user):
-        mine = Character(user_id=test_user.id, name="Mine")
+    async def test_list_excludes_other_users(
+        self, client, async_session, test_user, test_book
+    ):
+        from app.core.orm_models import Book
+
+        mine = Character(user_id=test_user.id, book_id=test_book.id, name="Mine")
         other = User(
             email="stranger@example.com",
             hashed_password=get_password_hash("strangerpass1"),
@@ -83,7 +97,13 @@ class TestCharacterListing:
         async_session.add_all([mine, other])
         await async_session.commit()
         await async_session.refresh(other)
-        async_session.add(Character(user_id=other.id, name="Not Mine"))
+        other_book = Book(user_id=other.id, title="Stranger's Book")
+        async_session.add(other_book)
+        await async_session.commit()
+        await async_session.refresh(other_book)
+        async_session.add(
+            Character(user_id=other.id, book_id=other_book.id, name="Not Mine")
+        )
         await async_session.commit()
 
         headers = {
@@ -98,11 +118,11 @@ class TestCharacterListing:
 @pytest.mark.unit
 class TestManualCharacterLifecycle:
     async def test_get_patch_delete_manual_character(
-        self, client, auth_headers, async_session, test_user
+        self, client, auth_headers, async_session, test_user, test_book
     ):
         created = await client.post(
             "/api/v1/characters/",
-            json={"name": "Ephemeral"},
+            json={"name": "Ephemeral", "book_id": str(test_book.id)},
             headers=auth_headers,
         )
         cid = created.json()["id"]
@@ -112,7 +132,8 @@ class TestManualCharacterLifecycle:
             store.return_value.character_statistics = AsyncMock(return_value=stats)
             got = await client.get(f"/api/v1/characters/{cid}", headers=auth_headers)
         assert got.status_code == 200, got.text
-        assert got.json()["manuscript_id"] is None
+        assert got.json()["source_id"] is None
+        assert got.json()["book_id"] == str(test_book.id)
 
         patched = await client.patch(
             f"/api/v1/characters/{cid}",

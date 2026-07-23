@@ -16,33 +16,31 @@ from app.core.orm_models import Character
 from app.rag.store import get_chunk_store
 
 
-async def load_characters_for_book_or_manuscript(
+async def load_characters_for_book(
     names: list[str],
     user_id: UUID,
-    manuscript_id: Optional[UUID] = None,
-    book_id: Optional[UUID] = None,
+    book_id: UUID,
 ) -> dict[str, Character]:
-    """Character rows by name, scoped to the requesting user.
+    """Character rows by name, scoped to one book and the requesting user.
 
-    ownership is ALWAYS enforced (directly via user_id, or via the owning
-    manuscript for legacy extracted rows that predate user_id backfill) — the
-    book/manuscript filters only narrow within the user's own bible. Without
-    the user scope, book_id-is-null characters would match across all tenants.
+    The book filter is now strict equality. It used to read
+
+        (Character.book_id == book_id) | (Character.book_id.is_(None))
+
+    which "worked" only because the IS NULL branch matched everything —
+    `book_id` was never written, so every character was NULL-scoped and the
+    filter was a no-op wearing a filter's clothes. With `book_id` NOT NULL there
+    is nothing to fall back to, and the cast for a book is exactly its cast
+    (docs/ADR-002-book-as-root.md §1).
+
+    `user_id` stays as defence in depth even though `book_id` already implies an
+    owner — the tenant guard from migration 0005.
     """
     async with get_async_session() as session:
-        from app.core.orm_models import Manuscript
-
-        query = (
-            select(Character)
-            .outerjoin(Manuscript, Character.manuscript_id == Manuscript.id)
-            .where((Character.user_id == user_id) | (Manuscript.user_id == user_id))
+        query = select(Character).where(
+            Character.book_id == book_id,
+            Character.user_id == user_id,
         )
-        if book_id is not None:
-            query = query.where(
-                (Character.book_id == book_id) | (Character.book_id.is_(None))
-            )
-        if manuscript_id is not None:
-            query = query.where(Character.manuscript_id == manuscript_id)
         rows = (await session.execute(query)).scalars().all()
     by_name = {c.name: c for c in rows}
     return {name: by_name[name] for name in names if name in by_name}
@@ -78,6 +76,7 @@ async def build_character_context(
             query=beat_description,
             k=max_samples,
             user_id=str(character.user_id) if character.user_id else None,
+            book_id=str(character.book_id) if character.book_id else None,
         )
         samples.sort(key=lambda s: s.get("chunk_type") != "dialogue")
         if samples:
@@ -95,13 +94,10 @@ async def build_cast_context(
     names: list[str],
     beat_description: str,
     user_id: UUID,
-    manuscript_id: Optional[UUID] = None,
-    book_id: Optional[UUID] = None,
+    book_id: UUID,
 ) -> str:
-    """Context blocks for every character in a beat (scoped to the user)."""
-    characters = await load_characters_for_book_or_manuscript(
-        names, user_id=user_id, manuscript_id=manuscript_id, book_id=book_id
-    )
+    """Context blocks for every character in a beat, scoped to one book."""
+    characters = await load_characters_for_book(names, user_id=user_id, book_id=book_id)
     blocks = []
     for name in names:
         blocks.append(
