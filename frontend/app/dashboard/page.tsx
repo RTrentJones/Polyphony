@@ -10,14 +10,14 @@ import { FileText, Users, Wand2, TrendingUp, Plus } from 'lucide-react'
 import Card from '@/components/Card'
 import Button from '@/components/Button'
 import Loading from '@/components/Loading'
-import { useManuscriptStore, useSceneStore } from '@/lib/store'
+import { useSourceStore, useSceneStore } from '@/lib/store'
 
 export default function DashboardPage() {
   const router = useRouter()
-  const { manuscripts, isLoading: manuscriptsLoading, fetchManuscripts } = useManuscriptStore()
+  const { sources, isLoading: sourcesLoading, fetchSources } = useSourceStore()
   const { scenes, isLoading: scenesLoading, fetchScenes } = useSceneStore()
   const [stats, setStats] = useState({
-    totalManuscripts: 0,
+    totalSources: 0,
     totalCharacters: 0,
     totalScenes: 0,
     recentActivity: 0,
@@ -26,33 +26,33 @@ export default function DashboardPage() {
   useEffect(() => {
     const loadData = async () => {
       await Promise.all([
-        fetchManuscripts(),
+        fetchSources(),
         fetchScenes(),
       ])
     }
     loadData()
-  }, [fetchManuscripts, fetchScenes])
+  }, [fetchSources, fetchScenes])
 
   useEffect(() => {
-    if (manuscripts) {
-      const totalCharacters = manuscripts.reduce(
+    if (sources) {
+      const totalCharacters = sources.reduce(
         (sum, m) => sum + (m.character_count || 0),
         0
       )
       setStats({
-        totalManuscripts: manuscripts.length,
+        totalSources: sources.length,
         totalCharacters,
         totalScenes: scenes?.length || 0,
-        recentActivity: manuscripts.filter(
+        recentActivity: sources.filter(
           (m) =>
             new Date(m.created_at).getTime() >
             Date.now() - 7 * 24 * 60 * 60 * 1000
         ).length,
       })
     }
-  }, [manuscripts, scenes])
+  }, [sources, scenes])
 
-  if (manuscriptsLoading || scenesLoading) {
+  if (sourcesLoading || scenesLoading) {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
         <Loading size="lg" text="Loading dashboard..." />
@@ -62,8 +62,8 @@ export default function DashboardPage() {
 
   const statCards = [
     {
-      title: 'Manuscripts',
-      value: stats.totalManuscripts,
+      title: 'Sources',
+      value: stats.totalSources,
       icon: FileText,
       color: 'text-blue-600',
       bgColor: 'bg-blue-50',
@@ -75,7 +75,7 @@ export default function DashboardPage() {
       icon: Users,
       color: 'text-green-600',
       bgColor: 'bg-green-50',
-      change: 'Across all manuscripts',
+      change: 'Across all sources',
     },
     {
       title: 'Scenes Generated',
@@ -130,11 +130,11 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <Button
             variant="outline"
-            onClick={() => router.push('/manuscripts')}
+            onClick={() => router.push('/sources')}
             className="justify-start"
           >
             <Plus className="h-5 w-5 mr-2" />
-            Upload Manuscript
+            Upload Source
           </Button>
           <Button
             variant="outline"
@@ -146,45 +146,45 @@ export default function DashboardPage() {
           </Button>
           <Button
             variant="outline"
-            onClick={() => router.push('/manuscripts')}
+            onClick={() => router.push('/sources')}
             className="justify-start"
           >
             <FileText className="h-5 w-5 mr-2" />
-            View Manuscripts
+            View Sources
           </Button>
         </div>
       </Card>
 
-      {/* Recent Manuscripts */}
+      {/* Recent Sources */}
       <Card>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold text-gray-900">
-            Recent Manuscripts
+            Recent Sources
           </h2>
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => router.push('/manuscripts')}
+            onClick={() => router.push('/sources')}
           >
             View All
           </Button>
         </div>
 
-        {!manuscripts || manuscripts.length === 0 ? (
+        {!sources || sources.length === 0 ? (
           <div className="text-center py-12">
             <FileText className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-            <p className="text-gray-600 mb-4">No manuscripts yet</p>
-            <Button onClick={() => router.push('/manuscripts')}>
+            <p className="text-gray-600 mb-4">No sources yet</p>
+            <Button onClick={() => router.push('/sources')}>
               <Plus className="h-4 w-4 mr-2" />
-              Upload Your First Manuscript
+              Upload Your First Source
             </Button>
           </div>
         ) : (
           <div className="space-y-3">
-            {manuscripts.slice(0, 5).map((manuscript) => (
+            {sources.slice(0, 5).map((source) => (
               <div
-                key={manuscript.id}
-                onClick={() => router.push(`/manuscripts/detail?id=${manuscript.id}`)}
+                key={source.id}
+                onClick={() => router.push(`/sources/detail?id=${source.id}`)}
                 className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-colors cursor-pointer"
               >
                 <div className="flex items-center space-x-4">
@@ -193,25 +193,25 @@ export default function DashboardPage() {
                   </div>
                   <div>
                     <h3 className="font-medium text-gray-900">
-                      {manuscript.title}
+                      {source.title}
                     </h3>
                     <p className="text-sm text-gray-500">
-                      {manuscript.character_count || 0} characters •{' '}
-                      {new Date(manuscript.created_at).toLocaleDateString()}
+                      {source.character_count || 0} characters •{' '}
+                      {new Date(source.created_at).toLocaleDateString()}
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">
                   <span
                     className={`px-2 py-1 text-xs font-medium rounded-full ${
-                      manuscript.processing_status === 'completed'
+                      source.processing_status === 'completed'
                         ? 'bg-green-100 text-green-700'
-                        : manuscript.processing_status === 'processing'
+                        : source.processing_status === 'processing'
                         ? 'bg-yellow-100 text-yellow-700'
                         : 'bg-red-100 text-red-700'
                     }`}
                   >
-                    {manuscript.processing_status}
+                    {source.processing_status}
                   </span>
                 </div>
               </div>

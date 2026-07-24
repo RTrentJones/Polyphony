@@ -1,5 +1,5 @@
 /**
- * Zustand stores (auth, manuscripts, scenes).
+ * Zustand stores (auth, sources, scenes).
  *
  * Security: the access token and user live in memory only — nothing is
  * persisted to localStorage. Sessions survive reloads via the backend's
@@ -8,20 +8,20 @@
  */
 
 import { create } from 'zustand'
-import apiClient, { normalizeManuscript, toApiError } from './api-client'
+import apiClient, { normalizeSource, toApiError } from './api-client'
 import type {
   AuthTokenResponse,
   Character,
   LoginCredentials,
-  Manuscript,
-  ManuscriptCharactersResponse,
-  ManuscriptListResponse,
-  ManuscriptUploadResponse,
   RegisterData,
   Scene,
   SceneGenerateResponse,
   SceneListResponse,
   SceneRequest,
+  Source,
+  SourceCharactersResponse,
+  SourceListResponse,
+  SourceUploadResponse,
   User,
 } from './types'
 
@@ -117,29 +117,37 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 }))
 
 // ---------------------------------------------------------------------------
-// Manuscripts
+// Sources (was Manuscripts; book-rooted — docs/ADR-002-book-as-root.md §2)
 // ---------------------------------------------------------------------------
 
-interface ManuscriptState {
-  manuscripts: Manuscript[]
+interface SourceState {
+  sources: Source[]
   isLoading: boolean
   error: string | null
-  fetchManuscripts: () => Promise<void>
-  uploadManuscript: (file: File, title: string, author?: string) => Promise<Manuscript>
-  deleteManuscript: (id: string) => Promise<void>
-  fetchCharacters: (manuscriptId: string) => Promise<Character[]>
+  fetchSources: (bookId?: string) => Promise<void>
+  /** Upload into a book; omitting bookId auto-creates one server-side. */
+  uploadSource: (
+    file: File,
+    title: string,
+    author?: string,
+    bookId?: string
+  ) => Promise<Source>
+  deleteSource: (id: string) => Promise<void>
+  fetchCharacters: (sourceId: string) => Promise<Character[]>
 }
 
-export const useManuscriptStore = create<ManuscriptState>((set) => ({
-  manuscripts: [],
+export const useSourceStore = create<SourceState>((set) => ({
+  sources: [],
   isLoading: false,
   error: null,
 
-  fetchManuscripts: async () => {
+  fetchSources: async (bookId) => {
     set({ isLoading: true, error: null })
     try {
-      const { data } = await apiClient.get<ManuscriptListResponse>('/manuscripts/')
-      set({ manuscripts: data.manuscripts.map(normalizeManuscript), isLoading: false })
+      const { data } = await apiClient.get<SourceListResponse>('/sources/', {
+        params: bookId ? { book_id: bookId } : undefined,
+      })
+      set({ sources: data.sources.map(normalizeSource), isLoading: false })
     } catch (err) {
       const apiError = toApiError(err)
       set({ isLoading: false, error: apiError.message })
@@ -147,39 +155,45 @@ export const useManuscriptStore = create<ManuscriptState>((set) => ({
     }
   },
 
-  uploadManuscript: async (file, title, author) => {
+  uploadSource: async (file, title, author, bookId) => {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      // title/author are query parameters on the backend endpoint.
-      const { data } = await apiClient.post<ManuscriptUploadResponse>(
-        '/manuscripts/upload',
+      // title/author/book_id are query parameters on the backend endpoint.
+      const { data } = await apiClient.post<SourceUploadResponse>(
+        '/sources/upload',
         formData,
-        { params: { title, ...(author ? { author } : {}) } }
+        {
+          params: {
+            title,
+            ...(author ? { author } : {}),
+            ...(bookId ? { book_id: bookId } : {}),
+          },
+        }
       )
-      const manuscript = normalizeManuscript({ ...data, uploaded_at: null })
-      set((state) => ({ manuscripts: [manuscript, ...state.manuscripts] }))
-      return manuscript
+      const source = normalizeSource({ ...data, uploaded_at: null })
+      set((state) => ({ sources: [source, ...state.sources] }))
+      return source
     } catch (err) {
       throw toApiError(err)
     }
   },
 
-  deleteManuscript: async (id) => {
+  deleteSource: async (id) => {
     try {
-      await apiClient.delete(`/manuscripts/${id}`)
+      await apiClient.delete(`/sources/${id}`)
       set((state) => ({
-        manuscripts: state.manuscripts.filter((m) => m.id !== id),
+        sources: state.sources.filter((s) => s.id !== id),
       }))
     } catch (err) {
       throw toApiError(err)
     }
   },
 
-  fetchCharacters: async (manuscriptId) => {
+  fetchCharacters: async (sourceId) => {
     try {
-      const { data } = await apiClient.get<ManuscriptCharactersResponse>(
-        `/manuscripts/${manuscriptId}/characters`
+      const { data } = await apiClient.get<SourceCharactersResponse>(
+        `/sources/${sourceId}/characters`
       )
       return data.characters
     } catch (err) {
@@ -197,7 +211,7 @@ interface SceneState {
   currentScene: Scene | null
   isLoading: boolean
   error: string | null
-  fetchScenes: (manuscriptId?: string) => Promise<void>
+  fetchScenes: (sourceId?: string) => Promise<void>
   fetchScene: (id: string) => Promise<Scene>
   generateScene: (request: SceneRequest) => Promise<SceneGenerateResponse>
   deleteScene: (id: string) => Promise<void>
@@ -209,11 +223,11 @@ export const useSceneStore = create<SceneState>((set) => ({
   isLoading: false,
   error: null,
 
-  fetchScenes: async (manuscriptId) => {
+  fetchScenes: async (sourceId) => {
     set({ isLoading: true, error: null })
     try {
       const { data } = await apiClient.get<SceneListResponse>('/scenes/', {
-        params: manuscriptId ? { manuscript_id: manuscriptId } : undefined,
+        params: sourceId ? { source_id: sourceId } : undefined,
       })
       set({ scenes: data.scenes, isLoading: false })
     } catch (err) {

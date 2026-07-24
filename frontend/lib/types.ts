@@ -57,53 +57,58 @@ export interface RegisterData {
 }
 
 // ---------------------------------------------------------------------------
-// Manuscripts (app/api/manuscripts.py)
+// Sources (app/api/sources.py) — was Manuscript; book-rooted now.
 // ---------------------------------------------------------------------------
 
-export type ManuscriptStatus = 'pending' | 'processing' | 'completed' | 'failed'
+export type SourceStatus = 'pending' | 'processing' | 'completed' | 'failed'
 
-/** Raw manuscript item as returned by the API (list + detail). */
-export interface ApiManuscript {
+export type SourceKind = 'upload' | 'paste'
+
+/** Raw source item as returned by the API (list + detail). Book-scoped. */
+export interface ApiSource {
   id: string
+  book_id: string
+  kind?: SourceKind | string
   title: string
   author?: string | null
   word_count: number
-  status: ManuscriptStatus
+  status: SourceStatus
   uploaded_at: string | null
   processed_at?: string | null
 }
 
 /**
- * Manuscript as consumed by the UI: the raw API fields plus normalized
+ * Source as consumed by the UI: the raw API fields plus normalized
  * aliases (`created_at` <- uploaded_at, `processing_status` <- status).
  */
-export interface Manuscript extends ApiManuscript {
+export interface Source extends ApiSource {
   created_at: string
-  processing_status: ManuscriptStatus
+  processing_status: SourceStatus
   /** Not returned by the list/detail endpoints today; populated when known. */
   character_count?: number
 }
 
-/** GET /manuscripts/ */
-export interface ManuscriptListResponse {
-  manuscripts: ApiManuscript[]
+/** GET /sources/ */
+export interface SourceListResponse {
+  sources: ApiSource[]
   total: number
   skip: number
   limit: number
 }
 
-/** POST /manuscripts/upload */
-export interface ManuscriptUploadResponse {
+/** POST /sources/upload — auto-creates a book when no book_id is given. */
+export interface SourceUploadResponse {
   id: string
+  book_id: string
   title: string
   author?: string | null
   word_count: number
-  status: ManuscriptStatus
+  status: SourceStatus
   message: string
 }
 
 // ---------------------------------------------------------------------------
-// Characters (GET /manuscripts/{id}/characters)
+// Characters (GET /sources/{id}/characters). A character belongs to one book.
 // ---------------------------------------------------------------------------
 
 export interface Character {
@@ -111,8 +116,9 @@ export interface Character {
   name: string
   description?: string | null
   role?: string | null
-  manuscript_id?: string | null
   book_id?: string | null
+  /** Provenance: the source this character was extracted from, if any. */
+  source_id?: string | null
   dialogue_count?: number
   indexed_at?: string | null
   /** Optional enrichments some views render when present. */
@@ -120,8 +126,8 @@ export interface Character {
   total_chunks?: number
 }
 
-export interface ManuscriptCharactersResponse {
-  manuscript_id: string
+export interface SourceCharactersResponse {
+  source_id: string
   characters: Character[]
 }
 
@@ -131,7 +137,7 @@ export interface ManuscriptCharactersResponse {
 
 /** POST /scenes/generate body (app/core/models.py SceneRequest). */
 export interface SceneRequest {
-  manuscript_id: string
+  source_id: string
   characters: string[]
   scene_description: string
   setting: string
@@ -151,7 +157,7 @@ export type SceneStatus = 'processing' | 'completed' | 'failed' | string
  */
 export interface Scene {
   id: string
-  manuscript_id: string | null
+  source_id: string | null
   characters: string[]
   status: SceneStatus
   created_at: string | null
@@ -270,7 +276,7 @@ export interface ChapterDetail extends BookChapter {
 
 /** POST /books/chapters/{id}/scenes/generate body. */
 export interface ChapterSceneRequest {
-  manuscript_id?: string
+  source_id?: string
   characters: string[]
   scene_description: string
   setting: string
