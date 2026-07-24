@@ -11,7 +11,6 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
-    Form,
     HTTPException,
     UploadFile,
     status,
@@ -76,9 +75,9 @@ async def _resolve_book(
 @router.post("/upload", response_model=dict)
 async def upload_source(
     file: UploadFile = File(...),
-    title: str = Form(""),
-    author: str = Form(""),
-    book_id: Optional[UUID] = Form(None),
+    title: str = "",
+    author: str = "",
+    book_id: Optional[UUID] = None,
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
