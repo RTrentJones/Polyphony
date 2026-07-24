@@ -6,7 +6,6 @@ from pydantic import ValidationError
 
 from app.core.models import (
     UserCreate,
-    ManuscriptCreate,
     SceneRequest,
     DialogueRequest,
     ChunkType,
@@ -46,32 +45,13 @@ class TestUserModels:
 
 
 @pytest.mark.unit
-class TestManuscriptModels:
-    """Test Manuscript-related models"""
-
-    def test_manuscript_create_valid(self):
-        """Test creating valid manuscript"""
-        manuscript = ManuscriptCreate(title="Test Manuscript", author="Test Author")
-
-        assert manuscript.title == "Test Manuscript"
-        assert manuscript.author == "Test Author"
-
-    def test_manuscript_create_without_author(self):
-        """Test creating manuscript without author"""
-        manuscript = ManuscriptCreate(title="Test Manuscript")
-
-        assert manuscript.title == "Test Manuscript"
-        assert manuscript.author is None
-
-
-@pytest.mark.unit
 class TestSceneModels:
     """Test Scene-related models"""
 
     def test_scene_request_valid(self):
         """Test creating valid scene request"""
         scene = SceneRequest(
-            manuscript_id=uuid4(),
+            source_id=uuid4(),
             characters=["Alice", "Bob"],
             scene_description="A tense confrontation",
             setting="Dark alley",
@@ -86,7 +66,7 @@ class TestSceneModels:
     def test_scene_request_default_word_count(self):
         """Test default target word count"""
         scene = SceneRequest(
-            manuscript_id=uuid4(),
+            source_id=uuid4(),
             characters=["Alice"],
             scene_description="Test scene",
             setting="Test setting",
@@ -98,7 +78,7 @@ class TestSceneModels:
     def test_scene_request_custom_word_count(self):
         """Test custom target word count"""
         scene = SceneRequest(
-            manuscript_id=uuid4(),
+            source_id=uuid4(),
             characters=["Alice"],
             scene_description="Test scene",
             setting="Test setting",
@@ -113,7 +93,7 @@ class TestSceneModels:
         # Too low
         with pytest.raises(ValidationError):
             SceneRequest(
-                manuscript_id=uuid4(),
+                source_id=uuid4(),
                 characters=["Alice"],
                 scene_description="Test scene",
                 setting="Test setting",
@@ -124,7 +104,7 @@ class TestSceneModels:
         # Too high
         with pytest.raises(ValidationError):
             SceneRequest(
-                manuscript_id=uuid4(),
+                source_id=uuid4(),
                 characters=["Alice"],
                 scene_description="Test scene",
                 setting="Test setting",
@@ -136,7 +116,7 @@ class TestSceneModels:
         """Test that at least one character is required"""
         with pytest.raises(ValidationError):
             SceneRequest(
-                manuscript_id=uuid4(),
+                source_id=uuid4(),
                 characters=[],  # Empty list
                 scene_description="Test scene",
                 setting="Test setting",
@@ -147,7 +127,7 @@ class TestSceneModels:
         """Test that scene description has minimum length"""
         with pytest.raises(ValidationError):
             SceneRequest(
-                manuscript_id=uuid4(),
+                source_id=uuid4(),
                 characters=["Alice"],
                 scene_description="Short",  # Less than 10 characters
                 setting="Test setting",

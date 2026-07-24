@@ -1,0 +1,80 @@
+{
+  "_comment": "Fully SYNTHETIC corpus (no public-domain source, no rename). Purpose-built to reproduce the 'Elara' incident for the outline-fidelity eval: a ~17k-char synopsis whose leads (Milo Voss, Zara Okafor, Edric Thane) first appear past char 4,000, and an in-world term 'the CEL' = Chief Executive Lich that reads like a company. synopsis.txt is the editable source; ground_truth.json is generated from it.",
+  "book": "cel",
+  "title": "Bored to Undeath",
+  "synthetic": true,
+  "cast": [
+    "Milo Voss",
+    "Zara Okafor",
+    "Edric Thane"
+  ],
+  "canonical_beats": [
+    {
+      "title": "Milo Voss is retained and onboarded into Reconciliations",
+      "kind": "inciting"
+    },
+    {
+      "title": "Zara Okafor trains Milo and begins recruiting him",
+      "kind": "rising"
+    },
+    {
+      "title": "The Chief Executive Lich is revealed as Edric Thane, once a clerk",
+      "kind": "midpoint"
+    },
+    {
+      "title": "Milo finds the ledger discrepancy funnelling tenure to the CEL",
+      "kind": "rising"
+    },
+    {
+      "title": "Zara proposes a work stoppage — a union of the dead",
+      "kind": "crisis"
+    },
+    {
+      "title": "Milo resigns and reconciles Edric Thane's account, undoing the Lich",
+      "kind": "climax"
+    }
+  ],
+  "fidelity": {
+    "principals": [
+      {
+        "name": "Milo Voss",
+        "aliases": [
+          "Milo"
+        ]
+      },
+      {
+        "name": "Zara Okafor",
+        "aliases": [
+          "Zara"
+        ]
+      },
+      {
+        "name": "Edric Thane",
+        "aliases": [
+          "Edric",
+          "Chief Executive Lich",
+          "the Lich"
+        ]
+      }
+    ],
+    "known": [
+      "Aeon Holdings",
+      "Aeon",
+      "Undeath Pipeline",
+      "Marrow District",
+      "CEL",
+      "Reconciliations",
+      "Records",
+      "Retention",
+      "Intake",
+      "Orientation",
+      "Assignment",
+      "Management",
+      "Prava",
+      "Old Fen",
+      "Fen",
+      "Tuesday",
+      "Monday"
+    ]
+  }
+}

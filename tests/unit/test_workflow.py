@@ -11,7 +11,7 @@ from app.orchestration.workflow import (
 )
 
 SCENE_REQUEST = {
-    "manuscript_id": "00000000-0000-0000-0000-000000000001",
+    "book_id": "00000000-0000-0000-0000-000000000001",
     "characters": ["Alice", "Bob"],
     "scene_description": "Two old friends argue about a hidden letter.",
     "setting": "A rain-soaked porch",

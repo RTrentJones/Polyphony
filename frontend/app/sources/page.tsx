@@ -1,5 +1,5 @@
 /**
- * Manuscripts Page
+ * Sources Page
  */
 
 'use client'
@@ -13,18 +13,18 @@ import Input from '@/components/Input'
 import Modal from '@/components/Modal'
 import FileUpload from '@/components/FileUpload'
 import Loading from '@/components/Loading'
-import { useManuscriptStore } from '@/lib/store'
+import { useSourceStore } from '@/lib/store'
 import { formatRelativeTime } from '@/lib/utils'
 
-export default function ManuscriptsPage() {
+export default function SourcesPage() {
   const router = useRouter()
   const {
-    manuscripts,
+    sources,
     isLoading,
-    fetchManuscripts,
-    uploadManuscript,
-    deleteManuscript,
-  } = useManuscriptStore()
+    fetchSources,
+    uploadSource,
+    deleteSource,
+  } = useSourceStore()
 
   const [uploadModalOpen, setUploadModalOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -36,8 +36,8 @@ export default function ManuscriptsPage() {
   const [uploading, setUploading] = useState(false)
 
   useEffect(() => {
-    fetchManuscripts()
-  }, [fetchManuscripts])
+    fetchSources()
+  }, [fetchSources])
 
   const handleUploadSubmit = async () => {
     if (!uploadData.file || !uploadData.title) {
@@ -49,10 +49,10 @@ export default function ManuscriptsPage() {
     setUploading(true)
 
     try {
-      await uploadManuscript(uploadData.file, uploadData.title)
+      await uploadSource(uploadData.file, uploadData.title)
       setUploadModalOpen(false)
       setUploadData({ file: null, title: '' })
-      await fetchManuscripts()
+      await fetchSources()
     } catch (err: any) {
       setUploadError(err.message || 'Upload failed. Please try again.')
     } finally {
@@ -63,22 +63,22 @@ export default function ManuscriptsPage() {
   const handleDelete = async (id: string, title: string) => {
     if (confirm(`Are you sure you want to delete "${title}"?`)) {
       try {
-        await deleteManuscript(id)
-        await fetchManuscripts()
+        await deleteSource(id)
+        await fetchSources()
       } catch (err: any) {
-        alert(err.message || 'Failed to delete manuscript')
+        alert(err.message || 'Failed to delete source')
       }
     }
   }
 
-  const filteredManuscripts = manuscripts?.filter((m) =>
+  const filteredSources = sources?.filter((m) =>
     m.title.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
-        <Loading size="lg" text="Loading manuscripts..." />
+        <Loading size="lg" text="Loading sources..." />
       </div>
     )
   }
@@ -88,51 +88,51 @@ export default function ManuscriptsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Manuscripts</h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Sources</h1>
           <p className="text-gray-600">
             Manage your creative writing projects
           </p>
         </div>
         <Button onClick={() => setUploadModalOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
-          Upload Manuscript
+          Upload Source
         </Button>
       </div>
 
       {/* Search */}
       <div className="mb-6">
         <Input
-          placeholder="Search manuscripts..."
+          placeholder="Search sources..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="max-w-md"
         />
       </div>
 
-      {/* Manuscripts Grid */}
-      {!filteredManuscripts || filteredManuscripts.length === 0 ? (
+      {/* Sources Grid */}
+      {!filteredSources || filteredSources.length === 0 ? (
         <Card className="text-center py-12">
           <FileText className="h-16 w-16 text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">
-            {searchQuery ? 'No manuscripts found' : 'No manuscripts yet'}
+            {searchQuery ? 'No sources found' : 'No sources yet'}
           </h3>
           <p className="text-gray-600 mb-6">
             {searchQuery
               ? 'Try adjusting your search query'
-              : 'Upload your first manuscript to get started with character analysis'}
+              : 'Upload your first source to get started with character analysis'}
           </p>
           {!searchQuery && (
             <Button onClick={() => setUploadModalOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
-              Upload Manuscript
+              Upload Source
             </Button>
           )}
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredManuscripts.map((manuscript) => (
+          {filteredSources.map((source) => (
             <Card
-              key={manuscript.id}
+              key={source.id}
               hover
               className="flex flex-col"
             >
@@ -143,28 +143,28 @@ export default function ManuscriptsPage() {
                   </div>
                   <span
                     className={`px-2 py-1 text-xs font-medium rounded-full ${
-                      manuscript.processing_status === 'completed'
+                      source.processing_status === 'completed'
                         ? 'bg-green-100 text-green-700'
-                        : manuscript.processing_status === 'processing'
+                        : source.processing_status === 'processing'
                         ? 'bg-yellow-100 text-yellow-700'
                         : 'bg-red-100 text-red-700'
                     }`}
                   >
-                    {manuscript.processing_status}
+                    {source.processing_status}
                   </span>
                 </div>
 
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                  {manuscript.title}
+                  {source.title}
                 </h3>
 
                 <div className="space-y-1 text-sm text-gray-600 mb-4">
                   <p>
-                    {manuscript.character_count || 0} characters •{' '}
-                    {manuscript.word_count || 0} words
+                    {source.character_count || 0} characters •{' '}
+                    {source.word_count || 0} words
                   </p>
                   <p>
-                    Uploaded {formatRelativeTime(new Date(manuscript.created_at))}
+                    Uploaded {formatRelativeTime(new Date(source.created_at))}
                   </p>
                 </div>
               </div>
@@ -174,7 +174,7 @@ export default function ManuscriptsPage() {
                   variant="outline"
                   size="sm"
                   fullWidth
-                  onClick={() => router.push(`/manuscripts/detail?id=${manuscript.id}`)}
+                  onClick={() => router.push(`/sources/detail?id=${source.id}`)}
                 >
                   <Eye className="h-4 w-4 mr-2" />
                   View
@@ -184,7 +184,7 @@ export default function ManuscriptsPage() {
                   size="sm"
                   onClick={(e) => {
                     e.stopPropagation()
-                    handleDelete(manuscript.id, manuscript.title)
+                    handleDelete(source.id, source.title)
                   }}
                 >
                   <Trash2 className="h-4 w-4 text-red-500" />
@@ -203,7 +203,7 @@ export default function ManuscriptsPage() {
           setUploadData({ file: null, title: '' })
           setUploadError(null)
         }}
-        title="Upload Manuscript"
+        title="Upload Source"
         size="md"
       >
         <div className="space-y-4">
@@ -214,8 +214,8 @@ export default function ManuscriptsPage() {
           )}
 
           <Input
-            label="Manuscript Title"
-            placeholder="Enter a title for your manuscript"
+            label="Source Title"
+            placeholder="Enter a title for your source"
             value={uploadData.title}
             onChange={(e) =>
               setUploadData({ ...uploadData, title: e.target.value })
@@ -224,7 +224,7 @@ export default function ManuscriptsPage() {
           />
 
           <FileUpload
-            label="Manuscript File"
+            label="Source File"
             accept=".txt,.doc,.docx,.pdf"
             maxSize={10 * 1024 * 1024} // 10MB
             onFileSelect={(file) => setUploadData({ ...uploadData, file })}

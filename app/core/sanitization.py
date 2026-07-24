@@ -1,67 +1,22 @@
 """
 Input sanitization utilities
 
-Prevents prompt injection, XSS, and other injection attacks
-by sanitizing user input before use in LLMs, databases, and APIs.
+Guards real sinks: the filesystem (filenames, paths), uploads, redirects,
+email, and HTML *rendering*. Each control here is matched to the sink it
+protects.
+
+NOTE: there is deliberately no `sanitize_for_llm` here any more. Prompt text is
+built by `app.core.llm_text` instead. The old function applied HTML escaping and
+a SQL/phrase blocklist to author prose bound for an LLM — controls for sinks the
+text never entered — and silently truncated it to a 2000-char default, which
+discarded 93.5% of a book and cost an outline its entire cast. See
+docs/ADR-002-book-as-root.md §4. Do not reintroduce it: injection defence for
+prompts is structural (fencing + capability containment), not lexical.
 """
 
 import re
 import html
 from typing import Optional
-
-
-def sanitize_for_llm(text: str, max_length: int = 2000) -> str:
-    """
-    Sanitize user input for use in LLM prompts (P2-7 fix)
-
-    Prevents prompt injection attacks by:
-    - Removing control characters
-    - Limiting length
-    - Escaping special characters
-    - Removing potentially malicious patterns
-
-    Args:
-        text: User input to sanitize
-        max_length: Maximum allowed length
-
-    Returns:
-        Sanitized text safe for LLM prompts
-    """
-    if not text:
-        return ""
-
-    # Remove null bytes and control characters (except newline, tab, carriage return)
-    text = "".join(char for char in text if char.isprintable() or char in "\n\r\t")
-
-    # Remove potentially malicious patterns
-    # Remove things that look like they're trying to break out of prompts
-    dangerous_patterns = [
-        r"ignore\s+previous\s+(instructions?|commands?)",  # Prompt injection attempts
-        r"disregard\s+(previous|above)",  # Alternative injection phrases
-        r"system:\s*",  # System role injection
-        r"<\|.*?\|>",  # Special tokens
-        r"\[INST\]|\[\/INST\]",  # Instruction tokens
-        r"<s>|</s>",  # Special tokens
-        r"```[^`]*ignore[^`]*```",  # Code block injection
-        r"--",  # SQL comment markers (defense in depth)
-        r"/\*.*?\*/",  # C-style comments
-    ]
-
-    for pattern in dangerous_patterns:
-        text = re.sub(pattern, "[FILTERED]", text, flags=re.IGNORECASE)
-
-    # Limit consecutive newlines
-    text = re.sub(r"\n{4,}", "\n\n\n", text)
-
-    # Truncate to max length
-    if len(text) > max_length:
-        text = text[:max_length]
-
-    # Escape HTML to prevent XSS if output is displayed
-    # This converts < > & " ' to HTML entities
-    text = html.escape(text)
-
-    return text.strip()
 
 
 def sanitize_filename(filename: str) -> str:

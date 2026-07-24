@@ -1,5 +1,5 @@
 /**
- * Manuscripts Layout
+ * Sources Layout
  */
 
 'use client'
@@ -7,7 +7,7 @@
 import Navbar from '@/components/Navbar'
 import ProtectedRoute from '@/components/ProtectedRoute'
 
-export default function ManuscriptsLayout({
+export default function SourcesLayout({
   children,
 }: {
   children: React.ReactNode

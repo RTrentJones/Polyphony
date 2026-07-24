@@ -1,5 +1,5 @@
 /**
- * Manuscript Detail Page
+ * Source Detail Page
  */
 
 'use client'
@@ -11,59 +11,59 @@ import Card from '@/components/Card'
 import Button from '@/components/Button'
 import Loading from '@/components/Loading'
 import apiClient from '@/lib/api-client'
-import { Manuscript, Character } from '@/lib/types'
+import { Source, Character } from '@/lib/types'
 import { formatRelativeTime } from '@/lib/utils'
 
-function ManuscriptDetailContent() {
+function SourceDetailContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const manuscriptId = searchParams.get('id') as string
+  const sourceId = searchParams.get('id') as string
 
-  const [manuscript, setManuscript] = useState<Manuscript | null>(null)
+  const [source, setSource] = useState<Source | null>(null)
   const [characters, setCharacters] = useState<Character[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const loadManuscript = async () => {
+    const loadSource = async () => {
       try {
         setIsLoading(true)
-        const [manuscriptData, charactersData] = await Promise.all([
-          apiClient.getManuscript(manuscriptId),
-          apiClient.getManuscriptCharacters(manuscriptId),
+        const [sourceData, charactersData] = await Promise.all([
+          apiClient.getSource(sourceId),
+          apiClient.getSourceCharacters(sourceId),
         ])
-        setManuscript(manuscriptData)
+        setSource(sourceData)
         setCharacters(charactersData)
       } catch (err: any) {
-        setError(err.message || 'Failed to load manuscript')
+        setError(err.message || 'Failed to load source')
       } finally {
         setIsLoading(false)
       }
     }
 
-    loadManuscript()
-  }, [manuscriptId])
+    loadSource()
+  }, [sourceId])
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
-        <Loading size="lg" text="Loading manuscript..." />
+        <Loading size="lg" text="Loading source..." />
       </div>
     )
   }
 
-  if (error || !manuscript) {
+  if (error || !source) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Card className="text-center py-12">
           <FileText className="h-16 w-16 text-red-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">
-            Error Loading Manuscript
+            Error Loading Source
           </h3>
           <p className="text-gray-600 mb-6">{error}</p>
-          <Button onClick={() => router.push('/manuscripts')}>
+          <Button onClick={() => router.push('/sources')}>
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Manuscripts
+            Back to Sources
           </Button>
         </Card>
       </div>
@@ -77,32 +77,32 @@ function ManuscriptDetailContent() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => router.push('/manuscripts')}
+          onClick={() => router.push('/sources')}
           className="mb-4"
         >
           <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Manuscripts
+          Back to Sources
         </Button>
 
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">
-              {manuscript.title}
+              {source.title}
             </h1>
             <p className="text-gray-600">
-              Uploaded {formatRelativeTime(new Date(manuscript.created_at))}
+              Uploaded {formatRelativeTime(new Date(source.created_at))}
             </p>
           </div>
           <span
             className={`px-3 py-1 text-sm font-medium rounded-full ${
-              manuscript.processing_status === 'completed'
+              source.processing_status === 'completed'
                 ? 'bg-green-100 text-green-700'
-                : manuscript.processing_status === 'processing'
+                : source.processing_status === 'processing'
                 ? 'bg-yellow-100 text-yellow-700'
                 : 'bg-red-100 text-red-700'
             }`}
           >
-            {manuscript.processing_status}
+            {source.processing_status}
           </span>
         </div>
       </div>
@@ -117,7 +117,7 @@ function ManuscriptDetailContent() {
             <div>
               <p className="text-sm text-gray-600">Words</p>
               <p className="text-2xl font-bold text-gray-900">
-                {manuscript.word_count?.toLocaleString() || 0}
+                {source.word_count?.toLocaleString() || 0}
               </p>
             </div>
           </div>
@@ -131,7 +131,7 @@ function ManuscriptDetailContent() {
             <div>
               <p className="text-sm text-gray-600">Characters</p>
               <p className="text-2xl font-bold text-gray-900">
-                {manuscript.character_count || 0}
+                {source.character_count || 0}
               </p>
             </div>
           </div>
@@ -147,9 +147,9 @@ function ManuscriptDetailContent() {
               <Button
                 size="sm"
                 onClick={() =>
-                  router.push(`/generate?manuscript=${manuscript.id}`)
+                  router.push(`/generate?source=${source.id}`)
                 }
-                disabled={manuscript.processing_status !== 'completed'}
+                disabled={source.processing_status !== 'completed'}
               >
                 New Scene
               </Button>
@@ -164,18 +164,18 @@ function ManuscriptDetailContent() {
           Characters
         </h2>
 
-        {manuscript.processing_status === 'processing' ? (
+        {source.processing_status === 'processing' ? (
           <div className="text-center py-8">
             <Loading text="Processing characters..." />
             <p className="text-sm text-gray-600 mt-4">
-              This may take a few minutes depending on the manuscript size
+              This may take a few minutes depending on the source size
             </p>
           </div>
         ) : !characters || characters.length === 0 ? (
           <div className="text-center py-8">
             <Users className="h-12 w-12 text-gray-400 mx-auto mb-3" />
             <p className="text-gray-600">
-              No characters found in this manuscript
+              No characters found in this source
             </p>
           </div>
         ) : (
@@ -226,10 +226,10 @@ function ManuscriptDetailContent() {
   )
 }
 
-export default function ManuscriptDetailPage() {
+export default function SourceDetailPage() {
   return (
     <Suspense fallback={null}>
-      <ManuscriptDetailContent />
+      <SourceDetailContent />
     </Suspense>
   )
 }

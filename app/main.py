@@ -86,7 +86,7 @@ async def lifespan(app: FastAPI):
 
     await bootstrap_admin()
 
-    # Durable-jobs worker: claims queued jobs (scene generation, manuscript
+    # Durable-jobs worker: claims queued jobs (scene generation, source
     # processing, continuity) from Postgres; single consumer per process.
     worker = None
     if settings.JOB_WORKER_ENABLED:
@@ -171,7 +171,7 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-# Sized above MAX_UPLOAD_SIZE so manuscript uploads pass the outer gate and
+# Sized above MAX_UPLOAD_SIZE so source uploads pass the outer gate and
 # get the parser's own size error instead of a blunt 413.
 app.add_middleware(
     RequestSizeLimitMiddleware, max_size=settings.MAX_UPLOAD_SIZE + 10 * 1024 * 1024
@@ -360,9 +360,9 @@ async def metrics():
 from app.api import auth as auth_router  # noqa: E402
 from app.api import books as books_router  # noqa: E402
 from app.api import characters as characters_router  # noqa: E402
-from app.api import manuscripts as manuscripts_router  # noqa: E402
 from app.api import plans as plans_router  # noqa: E402
 from app.api import scenes as scenes_router  # noqa: E402
+from app.api import sources as sources_router  # noqa: E402
 
 app.include_router(
     auth_router.router,
@@ -371,9 +371,9 @@ app.include_router(
     responses={401: {"description": "Unauthorized"}},
 )
 app.include_router(
-    manuscripts_router.router,
-    prefix="/api/v1/manuscripts",
-    tags=["Manuscripts"],
+    sources_router.router,
+    prefix="/api/v1/sources",
+    tags=["Sources"],
     responses={401: {"description": "Unauthorized"}},
 )
 app.include_router(

@@ -7,7 +7,7 @@ exercised in the local end-to-end dry run, not here.
 
 import pytest
 
-from evals.graders import attribution, continuity, extraction, retrieval
+from evals.graders import attribution, continuity, extraction, fidelity, retrieval
 
 pytestmark = pytest.mark.unit
 
@@ -316,3 +316,163 @@ class TestContinuity:
             expected, [], [{"detail": "spurious"}, {"detail": "spurious2"}]
         )
         assert score.false_positive_rate > 0
+
+
+# The canon of *Bored to Undeath*: leads Milo Voss & Zara Okafor vs the
+# antagonist Edric Thane — "the CEL", the Chief Executive Lich — at Aeon Holdings.
+# Edric's aliases are the DISAMBIGUATED forms only. The bare acronym "CEL" is
+# deliberately NOT here: it is the ambiguous token the bug misread as a company
+# ("Corporeal Energy Logistics"), so its mere presence must not count as the
+# antagonist being present. "CEL" lives in the allowlist below (so it isn't
+# flagged as an unknown invention), not in the principal's identity.
+_PRINCIPALS = [
+    {"name": "Milo Voss", "aliases": ["Milo"]},
+    {"name": "Zara Okafor", "aliases": ["Zara"]},
+    {"name": "Edric Thane", "aliases": ["Edric", "Chief Executive Lich", "the Lich"]},
+]
+_KNOWN = {"Aeon Holdings", "Aeon", "Undeath Pipeline", "Marrow District", "CEL"}
+
+# The outline the model actually produced: a generic chosen-one rebellion whose
+# hero, "Elara", is nowhere in the source, reading "the CEL" as a company,
+# "Corporeal Energy Logistics".
+_ELARA_OUTLINE = [
+    {"title": f"Chapter {i}: {t}", "summary": s}
+    for i, (t, s) in enumerate(
+        [
+            (
+                "The Awakening",
+                "Elara discovers her hidden power in the village of Ashford.",
+            ),
+            (
+                "The Call",
+                "Elara leaves home to join the Resistance against the Dark Lord.",
+            ),
+            (
+                "Corporeal Energy Logistics",
+                "The Resistance uncovers the CEL, the corporation draining the realm.",
+            ),
+            ("Allies", "Elara meets the rogue Kael and the mage Lyra."),
+            ("The First Trial", "Elara's powers are tested in the Whispering Woods."),
+            ("Betrayal", "A member of the Resistance sells Elara to the Dark Lord."),
+            (
+                "Captured",
+                "Elara is imprisoned in the fortress of Corporeal Energy Logistics.",
+            ),
+            ("Escape", "Kael and Lyra break Elara free."),
+            ("The Prophecy", "An oracle reveals Elara is the Chosen One."),
+            ("Gathering the Army", "Elara rallies the free peoples of the realm."),
+            ("The Siege", "The Resistance storms the Dark Lord's citadel."),
+            ("The Chosen One", "Elara defeats the Dark Lord and frees the realm."),
+        ],
+        start=1,
+    )
+]
+
+# A faithful outline of the real book: quiet corporate-satire, right people.
+_FAITHFUL_OUTLINE = [
+    {
+        "title": "Act I: The Onboarding",
+        "summary": "Milo Voss, newly dead, is processed into the Undeath Pipeline at Aeon Holdings.",
+        "children": [
+            {
+                "title": "Chapter 1: Exit Interview",
+                "summary": "Milo Voss meets his afterlife caseworker.",
+            },
+            {
+                "title": "Chapter 2: The Cubicle",
+                "summary": "Zara Okafor shows Milo the ropes of undead labor.",
+            },
+        ],
+    },
+    {
+        "title": "Act II: The CEL",
+        "summary": "Milo and Zara realize the Chief Executive Lich, Edric Thane, runs Aeon Holdings.",
+        "children": [
+            {
+                "title": "Chapter 3: Quarterly Review",
+                "summary": "Edric Thane addresses the workforce of the Marrow District.",
+            },
+            {
+                "title": "Chapter 4: The Pipeline",
+                "summary": "Zara Okafor uncovers what the Undeath Pipeline really does.",
+            },
+        ],
+    },
+    {
+        "title": "Act III: Resignation",
+        "summary": "Milo Voss and Zara Okafor confront the CEL and unionize the dead against Edric Thane.",
+        "children": [
+            {
+                "title": "Chapter 5: Notice",
+                "summary": "Milo hands the Chief Executive Lich his resignation.",
+            },
+        ],
+    },
+]
+
+
+class TestFidelityElaraDetector:
+    """The regression test for the actual incident, at zero API cost."""
+
+    def test_elara_outline_scores_near_zero(self):
+        fs = fidelity.grade_fidelity(_ELARA_OUTLINE, _PRINCIPALS, _KNOWN)
+        assert fs.principal_recall == 0.0  # none of the three real leads appear
+        assert fs.score == 0.0
+        assert set(fs.missing) == {"Milo Voss", "Zara Okafor", "Edric Thane"}
+
+    def test_faithful_outline_scores_high(self):
+        fs = fidelity.grade_fidelity(_FAITHFUL_OUTLINE, _PRINCIPALS, _KNOWN)
+        assert fs.principal_recall == 1.0
+        assert fs.missing == []
+        assert fs.score >= 0.8, fs.as_dict()
+
+    def test_faithful_beats_elara_decisively(self):
+        faithful = fidelity.grade_fidelity(_FAITHFUL_OUTLINE, _PRINCIPALS, _KNOWN).score
+        elara = fidelity.grade_fidelity(_ELARA_OUTLINE, _PRINCIPALS, _KNOWN).score
+        assert faithful - elara >= 0.8
+
+
+class TestPrincipalRecall:
+    def test_alias_counts_as_present(self):
+        nodes = [{"title": "T", "summary": "Milo and Zara flee; Edric laughs."}]
+        recall, _, missing = fidelity.principal_recall(
+            fidelity.flatten_outline(nodes), _PRINCIPALS
+        )
+        assert recall == 1.0 and missing == []
+
+    def test_word_boundary_no_false_positive(self):
+        # "Frederick" contains "edric"; "Zarahemla" contains "zara" — but not as
+        # whole words, so neither counts.
+        nodes = [
+            {"title": "T", "summary": "Frederick walked with Milomir to Zarahemla."}
+        ]
+        recall, _, missing = fidelity.principal_recall(
+            fidelity.flatten_outline(nodes), _PRINCIPALS
+        )
+        assert recall == 0.0
+        assert set(missing) == {"Milo Voss", "Zara Okafor", "Edric Thane"}
+
+    def test_the_cel_read_as_lich_is_a_hit(self):
+        nodes = [
+            {"title": "The CEL", "summary": "The Chief Executive Lich signs the memo."}
+        ]
+        _, present, _ = fidelity.principal_recall(
+            fidelity.flatten_outline(nodes), _PRINCIPALS
+        )
+        assert "Edric Thane" in present
+
+
+class TestUnknownRate:
+    def test_invented_names_raise_the_rate(self):
+        rate, unknown = fidelity.unknown_rate(
+            "Milo Voss met Grognak in Xanadu.", {"Milo Voss", "Milo"}
+        )
+        assert rate > 0.0
+        assert any("Grognak" in u or "Xanadu" in u for u in unknown)
+
+    def test_all_known_is_zero(self):
+        rate, unknown = fidelity.unknown_rate(
+            "Milo Voss and Zara Okafor work at Aeon Holdings.",
+            {"Milo Voss", "Zara Okafor", "Aeon Holdings"},
+        )
+        assert rate == 0.0 and unknown == []

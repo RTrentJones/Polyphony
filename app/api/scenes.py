@@ -15,8 +15,8 @@ from app.core.budget import check_user_budget
 from app.core.database import get_db
 from app.core.models import SceneRequest
 from app.core.orm_models import (
-    Manuscript as ManuscriptORM,
     Scene as SceneORM,
+    Source as SourceORM,
     User as UserORM,
 )
 from app.core.security import get_current_active_user
@@ -32,24 +32,29 @@ async def generate_scene(
     db: AsyncSession = Depends(get_db),
 ):
     """Start scene generation; poll GET /api/v1/scenes/{scene_id} for the result."""
-    manuscript_result = await db.execute(
-        select(ManuscriptORM).where(
-            ManuscriptORM.id == scene_request.manuscript_id,
-            ManuscriptORM.user_id == current_user.id,
+    source = (
+        await db.execute(
+            select(SourceORM).where(
+                SourceORM.id == scene_request.source_id,
+                SourceORM.user_id == current_user.id,
+            )
         )
-    )
-    if not manuscript_result.scalar_one_or_none():
+    ).scalar_one_or_none()
+    if not source:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Manuscript not found or access denied",
+            detail="Source not found or access denied",
         )
 
     await check_user_budget(db, current_user.id)
 
     request_dict = scene_request.model_dump(mode="json")
+    # The workflow resolves the cast by book (book is the root); carry the
+    # source's book_id through the job payload so it never has to re-derive it.
+    request_dict["book_id"] = str(source.book_id)
     scene = SceneORM(
         user_id=current_user.id,
-        manuscript_id=scene_request.manuscript_id,
+        source_id=scene_request.source_id,
         setting=scene_request.setting,
         emotional_tone=scene_request.emotional_tone,
         characters=scene_request.characters,
@@ -87,7 +92,7 @@ async def generate_scene(
 
 @router.get("/", response_model=dict)
 async def list_scenes(
-    manuscript_id: UUID | None = None,
+    source_id: UUID | None = None,
     skip: int = Query(0, ge=0, le=1000),
     limit: int = Query(20, ge=1, le=100),
     current_user: UserORM = Depends(get_current_active_user),
@@ -100,9 +105,9 @@ async def list_scenes(
         .select_from(SceneORM)
         .where(SceneORM.user_id == current_user.id)
     )
-    if manuscript_id:
-        query = query.where(SceneORM.manuscript_id == manuscript_id)
-        count_query = count_query.where(SceneORM.manuscript_id == manuscript_id)
+    if source_id:
+        query = query.where(SceneORM.source_id == source_id)
+        count_query = count_query.where(SceneORM.source_id == source_id)
 
     query = query.order_by(SceneORM.created_at.desc()).offset(skip).limit(limit)
     scenes = (await db.execute(query)).scalars().all()
@@ -112,7 +117,7 @@ async def list_scenes(
         "scenes": [
             {
                 "id": str(s.id),
-                "manuscript_id": str(s.manuscript_id) if s.manuscript_id else None,
+                "source_id": str(s.source_id) if s.source_id else None,
                 "characters": s.characters,
                 "status": s.status,
                 "preview": (
@@ -151,7 +156,7 @@ async def get_scene(
 
     return {
         "id": str(scene.id),
-        "manuscript_id": str(scene.manuscript_id) if scene.manuscript_id else None,
+        "source_id": str(scene.source_id) if scene.source_id else None,
         "status": scene.status,
         "content": scene.generated_content,
         "characters": scene.characters,

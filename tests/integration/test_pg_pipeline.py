@@ -1,9 +1,9 @@
 """Postgres-only integration tests — coverage sqlite structurally can't give.
 
-Runs the real Alembic migration chain against a pgvector Postgres, then
-exercises the two paths that pass on sqlite but failed on Postgres:
+Runs the real Alembic baseline against a pgvector Postgres, then exercises the
+two paths that pass on sqlite but failed on Postgres:
   * pgvector index → retrieve round-trip
-  * manuscript processing, which must COMMIT characters before indexing their
+  * source processing, which must COMMIT characters before indexing their
     voice chunks (voice_chunks→characters FK lives on a separate connection).
 
 Skipped unless RUN_PG_TESTS is set (CI provides a pgvector service).
@@ -53,7 +53,7 @@ async def pg(monkeypatch):
         await engine.dispose()
 
 
-async def test_migrations_built_vector_and_manuscript_columns(pg):
+async def test_baseline_built_vector_and_source_columns(pg):
     async with pg() as s:
         assert (
             await s.execute(text("SELECT 1 FROM pg_extension WHERE extname='vector'"))
@@ -71,19 +71,25 @@ async def test_migrations_built_vector_and_manuscript_columns(pg):
             .all()
         )
         assert "embedding" in vc
-        ms = (
+        assert "book_id" in vc  # voice chunks are book-rooted now
+        # `manuscripts` is gone; the book-rooted `sources` table replaces it.
+        src = (
             (
                 await s.execute(
                     text(
                         "SELECT column_name FROM information_schema.columns "
-                        "WHERE table_name='manuscripts'"
+                        "WHERE table_name='sources'"
                     )
                 )
             )
             .scalars()
             .all()
         )
-        assert "content_text" in ms  # migration 0003 applied
+        assert "content_text" in src
+        assert "book_id" in src
+        assert (
+            await s.execute(text("SELECT to_regclass('public.manuscripts')"))
+        ).scalar() is None
 
 
 async def test_jobs_table_schema(pg):
@@ -184,9 +190,9 @@ async def test_claim_one_skip_locked_across_sessions(pg):
         await s.commit()
 
 
-async def test_process_manuscript_commits_before_indexing(pg, monkeypatch):
+async def test_process_source_commits_before_indexing(pg, monkeypatch):
     """The FK regression: this raised on Postgres before the commit-first fix."""
-    from app.core.orm_models import Manuscript, User
+    from app.core.orm_models import Book, Source, User
     from app.core.security import get_password_hash
     from app.rag.store import get_chunk_store
     import app.parsing.pipeline as pipeline
@@ -227,21 +233,27 @@ async def test_process_manuscript_commits_before_indexing(pg, monkeypatch):
         s.add(u)
         await s.commit()
         await s.refresh(u)
-        ms = Manuscript(
-            user_id=u.id, title="M", content_hash=uuid.uuid4().hex, content_text="body"
-        )
-        s.add(ms)
+        book = Book(user_id=u.id, title="M")
+        s.add(book)
         await s.commit()
-        await s.refresh(ms)
-        uid, mid = u.id, ms.id
+        await s.refresh(book)
+        src = Source(
+            user_id=u.id,
+            book_id=book.id,
+            title="M",
+            content_hash=uuid.uuid4().hex,
+            content_text="body",
+        )
+        s.add(src)
+        await s.commit()
+        await s.refresh(src)
+        uid, sid = u.id, src.id
 
-    await pipeline.process_manuscript(mid, uid, text="body")
+    await pipeline.process_source(sid, uid, text="body")
 
     async with pg() as s:
         assert (
-            await s.execute(
-                text("SELECT status FROM manuscripts WHERE id=:i"), {"i": mid}
-            )
+            await s.execute(text("SELECT status FROM sources WHERE id=:i"), {"i": sid})
         ).scalar() == "completed"
         assert (
             await s.execute(
@@ -250,7 +262,7 @@ async def test_process_manuscript_commits_before_indexing(pg, monkeypatch):
         ).scalar() == 2
         cid = (
             await s.execute(
-                text("SELECT id FROM characters WHERE manuscript_id=:m"), {"m": mid}
+                text("SELECT id FROM characters WHERE source_id=:s"), {"s": sid}
             )
         ).scalar()
 

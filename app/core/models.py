@@ -8,7 +8,7 @@ from enum import Enum
 
 
 # Enums
-class ManuscriptStatus(str, Enum):
+class SourceStatus(str, Enum):
     PENDING = "pending"
     PROCESSING = "processing"
     COMPLETED = "completed"
@@ -39,45 +39,9 @@ class User(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-# Manuscript models
-class ManuscriptCreate(BaseModel):
-    title: str
-    author: Optional[str] = None
-
-
-class Manuscript(BaseModel):
-    id: UUID
-    user_id: UUID
-    title: str
-    author: Optional[str]
-    word_count: Optional[int]
-    status: ManuscriptStatus
-    uploaded_at: datetime
-    processed_at: Optional[datetime]
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-# Character models
-class CharacterProfile(BaseModel):
-    name: str
-    description: Optional[str] = None
-    personality_traits: Dict[str, Any] = Field(default_factory=dict)
-    voice_characteristics: Dict[str, Any] = Field(default_factory=dict)
-
-
-class Character(CharacterProfile):
-    id: UUID
-    manuscript_id: UUID
-    dialogue_count: int = 0
-    indexed_at: Optional[datetime]
-
-    model_config = ConfigDict(from_attributes=True)
-
-
 # Scene request models
 class SceneRequest(BaseModel):
-    manuscript_id: UUID
+    source_id: UUID
     characters: List[str] = Field(..., min_length=1)
     scene_description: str = Field(..., min_length=10)
     setting: str
@@ -150,14 +114,3 @@ class StreamEvent(BaseModel):
     )
     data: Dict[str, Any]
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-
-# Vector-store chunk metadata
-class CharacterChunkMetadata(BaseModel):
-    character_id: str
-    character_name: str
-    manuscript_id: str
-    chunk_type: ChunkType
-    source_location: Optional[str]
-    word_count: int
-    created_at: datetime

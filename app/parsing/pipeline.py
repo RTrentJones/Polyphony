@@ -1,9 +1,12 @@
-"""Manuscript ingestion pipeline.
+"""Source ingestion pipeline.
 
 Was the document-parser service + the TODO stub in the gateway's background
 task. Now one in-process pipeline: validate/save the upload, parse it, extract
 characters via the LLM, persist Character + CharacterChunk rows, and index the
 chunks into the pgvector store (same database).
+
+A Source is book-rooted (docs/ADR-002-book-as-root.md §2), so every character
+and voice chunk it produces inherits the Source's `book_id`.
 """
 
 import hashlib
@@ -17,7 +20,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.database import get_async_session
 from app.core.logging_config import log_business_event, log_error, setup_logging
-from app.core.orm_models import Character, CharacterChunk, Manuscript
+from app.core.orm_models import Character, CharacterChunk, Source
 from app.rag.store import get_chunk_store
 
 from .character_extractor import CharacterExtractor
@@ -54,7 +57,7 @@ def _sniff_mime(content: bytes) -> str:
 
 
 async def save_upload(filename: str, content: bytes) -> dict:
-    """Validate and persist an uploaded manuscript file.
+    """Validate and persist an uploaded source file.
 
     Returns dict with file_id, file_path, content_hash, text, word_count.
     """
@@ -97,34 +100,36 @@ async def save_upload(filename: str, content: bytes) -> dict:
     }
 
 
-async def process_manuscript(
-    manuscript_id: UUID, user_id: UUID, text: str | None = None
+async def process_source(
+    source_id: UUID, user_id: UUID, text: str | None = None
 ) -> None:
     """Background pipeline: extract characters, persist them, index their voices.
 
-    Text is read from the manuscript row (durable) — restart-safe, unlike a
+    Text is read from the source row (durable) — restart-safe, unlike a
     container-local file. Characters + chunks are COMMITTED before any pgvector
     indexing, so the voice_chunks FK to characters is satisfied on Postgres (the
     vector store commits on its own connection and can't see an uncommitted
     parent).
+
+    Every character and voice chunk inherits the Source's `book_id`: the book is
+    the root (docs/ADR-002-book-as-root.md §1).
     """
     try:
         # Load the parsed text + reset prior characters (reprocess-safe) in one txn.
         async with get_async_session() as session:
-            manuscript = await session.get(Manuscript, manuscript_id)
-            if manuscript is None:
+            source = await session.get(Source, source_id)
+            if source is None:
                 return
-            source_text = text if text is not None else (manuscript.content_text or "")
+            book_id = source.book_id
+            source_text = text if text is not None else (source.content_text or "")
             if not source_text:
-                raise ValueError("manuscript has no stored content to process")
-            # Reprocess: drop existing characters (vectors cascade) so re-extraction
-            # can't collide with the unique (manuscript_id, name) index.
+                raise ValueError("source has no stored content to process")
+            # Reprocess: drop the characters THIS source previously seeded (vectors
+            # cascade) so re-extraction can't collide with uq_characters_book_name.
             existing = (
                 (
                     await session.execute(
-                        select(Character).where(
-                            Character.manuscript_id == manuscript_id
-                        )
+                        select(Character).where(Character.source_id == source_id)
                     )
                 )
                 .scalars()
@@ -133,7 +138,7 @@ async def process_manuscript(
             for c in existing:
                 await get_chunk_store().delete_character(str(c.id))
                 await session.delete(c)
-            manuscript.status = "processing"
+            source.status = "processing"
 
         character_names = await char_extractor.extract_characters(
             source_text, user_id=user_id
@@ -150,7 +155,8 @@ async def process_manuscript(
             async with get_async_session() as session:
                 character = Character(
                     user_id=user_id,
-                    manuscript_id=manuscript_id,
+                    book_id=book_id,
+                    source_id=source_id,
                     name=name,
                     dialogue_count=stats["dialogue_count"],
                 )
@@ -171,6 +177,7 @@ async def process_manuscript(
                 character_id=str(character_id),
                 character_name=name,
                 user_id=str(user_id),
+                book_id=str(book_id),
                 chunks=chunks,
             )
             if indexed:
@@ -181,15 +188,15 @@ async def process_manuscript(
             indexed_total += indexed
 
         async with get_async_session() as session:
-            manuscript = await session.get(Manuscript, manuscript_id)
-            if manuscript is not None:
-                manuscript.status = "completed"
-                manuscript.processed_at = datetime.now(timezone.utc)
+            source = await session.get(Source, source_id)
+            if source is not None:
+                source.status = "completed"
+                source.processed_at = datetime.now(timezone.utc)
 
         log_business_event(
             logger,
-            "manuscript_processed",
-            manuscript_id=str(manuscript_id),
+            "source_processed",
+            source_id=str(source_id),
             characters=len(character_names),
             chunks_indexed=indexed_total,
         )
@@ -199,14 +206,14 @@ async def process_manuscript(
             logger,
             e,
             context={
-                "manuscript_id": str(manuscript_id),
-                "event": "manuscript_processing_failed",
+                "source_id": str(source_id),
+                "event": "source_processing_failed",
             },
         )
         try:
             async with get_async_session() as session:
-                manuscript = await session.get(Manuscript, manuscript_id)
-                if manuscript is not None:
-                    manuscript.status = "failed"
+                source = await session.get(Source, source_id)
+                if source is not None:
+                    source.status = "failed"
         except Exception:
             pass

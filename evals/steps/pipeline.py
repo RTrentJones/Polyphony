@@ -34,13 +34,13 @@ def load_corpus(book: str) -> tuple[str, dict]:
 # --- Step 1: character extraction -----------------------------------------
 @step("extraction", needs_api=True)
 async def step_extraction(ctx: StepContext) -> dict:
-    up = await ctx.client.upload_manuscript(
+    up = await ctx.client.upload_source(
         f"{ctx.book}.txt", ctx.corpus_text.encode("utf-8"), title=f"eval-{ctx.book}"
     )
-    status = await ctx.client.wait_manuscript(up["id"])
+    status = await ctx.client.wait_source(up["id"])
     if status.get("status") != "completed":
-        return {"error": f"manuscript status {status.get('status')}", "score": 0.0}
-    predicted = [c["name"] for c in await ctx.client.manuscript_characters(up["id"])]
+        return {"error": f"source status {status.get('status')}", "score": 0.0}
+    predicted = [c["name"] for c in await ctx.client.source_characters(up["id"])]
     score = extraction.grade_extraction(predicted, ctx.ground_truth["cast"])
     return {"predicted": predicted, **score.as_dict(), "score": score.f1}
 
@@ -60,13 +60,13 @@ async def step_ingestion(ctx: StepContext) -> dict:
     # upload of the same corpus (uploads are deduped per-user by content hash,
     # so an identical re-upload 409s). Doesn't affect the chunking measured here.
     content = (ctx.corpus_text + "\n\n[[eval-ingestion-copy]]\n").encode("utf-8")
-    up = await ctx.client.upload_manuscript(
+    up = await ctx.client.upload_source(
         f"{ctx.book}-ing.txt", content, title=f"eval-ing-{ctx.book}"
     )
-    status = await ctx.client.wait_manuscript(up["id"])
+    status = await ctx.client.wait_source(up["id"])
     if status.get("status") != "completed":
-        return {"error": f"manuscript status {status.get('status')}", "score": 0.0}
-    chars = await ctx.client.manuscript_characters(up["id"])
+        return {"error": f"source status {status.get('status')}", "score": 0.0}
+    chars = await ctx.client.source_characters(up["id"])
     if not chars:
         return {"score": 0.0, "reason": "no characters extracted", "n_characters": 0}
 

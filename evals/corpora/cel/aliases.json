@@ -1,0 +1,13 @@
+{
+  "_comment": "Fully SYNTHETIC corpus — no public-domain source, so there is no original->invented rename map (contrast dracula/frankenstein). This file is the human-readable canon reference for `cel`: every in-world alias mapped to its canonical entity. The machine-readable allowlist the fidelity grader actually consumes lives in ground_truth.json under `fidelity` (principals + known). NOTE: the bare acronym 'CEL' is an allowlisted KNOWN entity but is deliberately NOT a principal-identity alias of Edric Thane — it is precisely the ambiguous token the 'Elara' incident misread as a company ('Corporeal Energy Logistics'), so its mere presence must never count as the antagonist being present (see evals/graders/fidelity.py).",
+  "sections": [],
+  "aliases": {
+    "Milo": "Milo Voss",
+    "Zara": "Zara Okafor",
+    "Edric": "Edric Thane",
+    "Chief Executive Lich": "Edric Thane",
+    "the Lich": "Edric Thane",
+    "Fen": "Old Fen"
+  },
+  "known_institutions": ["Aeon Holdings", "Undeath Pipeline", "Marrow District", "CEL"]
+}
