@@ -1,10 +1,11 @@
 # Polyphony
 
-A multi-user, multi-character AI book-writing platform. Upload a manuscript
-(or build a character bible by hand), index each character's voice into a
-vector store, then generate scene drafts where every character speaks in their
-own retrieval-grounded voice — and revise, structure, and export the result as
-a book.
+A multi-user, multi-character AI book-writing platform. The **book is the root
+of every concept** (docs/ADR-002-book-as-root.md): you create a book, add
+**sources** (uploaded files or pasted text) and characters to it, index each
+character's voice into a vector store, then generate scene drafts where every
+character speaks in their own retrieval-grounded voice — and revise, structure,
+and export the result as a book.
 
 Deployed as a [Greenlight](https://github.com/RTrentJones/greenlight) tool of
 [rtrentjones.dev](https://github.com/RTrentJones/RTrentJones.dev) at
@@ -37,7 +38,7 @@ app/
   characters/      # character-voice dialogue generation (characters = data)
   orchestration/   # scene workflow: plan beats -> dialogue -> assemble
   parsing/         # document parsing + character extraction pipeline
-  api/             # routers: auth, manuscripts, scenes, characters
+  api/             # routers: auth, books, sources, scenes, characters
 alembic/           # migrations (run automatically at container start)
 frontend/          # Next.js 15 App Router -> static export
 ```
