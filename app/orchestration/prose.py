@@ -19,6 +19,7 @@ from app.core.logging_config import log_business_event, log_error, setup_logging
 from app.core.orm_models import Scene, SceneBeat
 from app.core.llm_text import clean_for_llm
 from app.llm.client import get_llm_client
+from app.llm.errors import QuotaExhaustedError
 
 from .workflow import plan_scene_beats
 
@@ -168,6 +169,11 @@ async def run_prose_scene_workflow(
             "beats_count": len(beats),
         }
 
+    except QuotaExhaustedError:
+        # Not a failure — the quota is temporarily gone. Leave the scene in
+        # 'processing' and let the error propagate so the worker PAUSES the job
+        # and resumes it when quota returns (docs/BRD.md R7.2). No lost work.
+        raise
     except Exception as e:
         log_error(
             logger,

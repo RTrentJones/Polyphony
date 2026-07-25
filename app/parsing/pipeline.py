@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.core.database import get_async_session
 from app.core.logging_config import log_business_event, log_error, setup_logging
 from app.core.orm_models import Character, CharacterChunk, Source
+from app.llm.errors import QuotaExhaustedError
 from app.rag.store import get_chunk_store
 
 from .character_extractor import CharacterExtractor
@@ -201,6 +202,9 @@ async def process_source(
             chunks_indexed=indexed_total,
         )
 
+    except QuotaExhaustedError:
+        # Pause, don't fail — leave the source 'processing' for resume.
+        raise
     except Exception as e:
         log_error(
             logger,

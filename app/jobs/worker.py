@@ -12,11 +12,14 @@ import socket
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from app.core.config import settings
 from app.core.database import get_async_session
 from app.core.logging_config import log_business_event, log_error, setup_logging
 from app.core.orm_models import Job
 from app.jobs import repository as jobs_repo
 from app.jobs.handlers import HANDLERS
+from app.llm.errors import QuotaExhaustedError
+from app.llm.tier import get_tier
 
 logger = setup_logging("jobs.worker")
 
@@ -114,11 +117,18 @@ class JobWorker:
 
         handler = HANDLERS.get(kind)
         error: str | None = None
+        pause_after: float | None = None  # set => quota pause, not a failure
         if handler is None:
             error = f"unknown job kind: {kind}"
         else:
             try:
                 await handler.run(payload)
+            except QuotaExhaustedError as e:
+                # Free tier: pause and resume; paid: a 429 is a real error.
+                if get_tier().on_quota == "pause":
+                    pause_after = e.reset_after or settings.QUOTA_PAUSE_SECONDS
+                else:
+                    error = str(e) or "quota exhausted"
             except Exception as e:
                 error = str(e) or type(e).__name__
 
@@ -126,6 +136,20 @@ class JobWorker:
             # Re-attach the job in this session.
             db_job = await session.get(Job, job_id)
             if db_job is None:  # deleted underneath us (user cascade)
+                return True
+            if pause_after is not None:
+                resume_at = datetime.now(timezone.utc) + timedelta(seconds=pause_after)
+                await jobs_repo.pause(
+                    session, db_job, available_at=resume_at, reason="quota exhausted"
+                )
+                await session.commit()
+                log_business_event(
+                    logger,
+                    "job_paused",
+                    job_id=str(job_id),
+                    kind=kind,
+                    resume_at=resume_at.isoformat(),
+                )
                 return True
             if error is None:
                 await jobs_repo.mark_succeeded(session, db_job)

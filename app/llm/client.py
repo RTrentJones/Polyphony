@@ -28,6 +28,7 @@ from app.core.metrics import (
 )
 from app.core.resilience import CircuitBreaker, CircuitBreakerError
 
+from .errors import QuotaExhaustedError
 from .pacing import backoff_after_429, get_pacer
 from .providers import (
     GenResult,
@@ -169,6 +170,13 @@ class LLMClient:
         llm_requests_total.labels(
             service="app", model=resolved_model, status="error"
         ).inc()
+        # Classify the give-up: a persistent 429 is QUOTA (the job may pause and
+        # resume), distinct from a transient connection/timeout failure. This is
+        # what lets the free tier never lose work (docs/BRD.md R7.2).
+        if isinstance(last_error, RateLimitError):
+            raise QuotaExhaustedError(
+                str(last_error), reset_after=_retry_after_seconds(last_error)
+            )
         raise last_error if last_error else RuntimeError("LLM generation failed")
 
     async def _account(

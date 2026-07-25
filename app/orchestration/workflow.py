@@ -17,6 +17,7 @@ from app.core.database import get_async_session
 from app.core.logging_config import log_business_event, log_error, setup_logging
 from app.core.orm_models import Character, Scene, SceneBeat
 from app.core.llm_text import clean_for_llm
+from app.llm.errors import QuotaExhaustedError
 from app.llm.client import get_llm_client
 
 logger = setup_logging("orchestration.workflow")
@@ -114,6 +115,10 @@ async def generate_beat_dialogue(
                 previous_dialogue=dialogue_history,
                 user_id=user_id,
             )
+        except QuotaExhaustedError:
+            # Quota pause must bubble up (worker re-queues the job), not degrade
+            # into a silently-empty turn.
+            raise
         except Exception as e:
             logger.warning(
                 f"Dialogue generation failed for {current}: {e}",
@@ -206,6 +211,9 @@ async def run_scene_workflow(
             "beats_count": len(completed_beats),
         }
 
+    except QuotaExhaustedError:
+        # Pause, don't fail — leave the scene 'processing' for resume.
+        raise
     except Exception as e:
         log_error(
             logger, e, context={"scene_id": str(scene_id), "event": "scene_failed"}
