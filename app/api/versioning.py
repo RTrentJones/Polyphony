@@ -19,7 +19,9 @@ from app.core.database import get_db
 from app.core.orm_models import (
     Book as BookORM,
     BookPlan as BookPlanORM,
+    CanonEntry as CanonEntryORM,
     Character as CharacterORM,
+    StyleGuide as StyleGuideORM,
     User as UserORM,
 )
 from app.core.security import get_current_active_user
@@ -28,7 +30,8 @@ from app.versioning import repository as versions_repo
 
 router = APIRouter()
 
-_ENTITY_TYPES = {"book_plan", "character"}
+# Simple field-set entities (name -> ORM, restorable fields). book_plan restores
+# specially (its content is re-validated), so it is handled outside this table.
 _CHARACTER_FIELDS = (
     "name",
     "description",
@@ -40,6 +43,14 @@ _CHARACTER_FIELDS = (
     "relationships",
     "notes",
 )
+_CANON_FIELDS = ("name", "category", "content", "position")
+_STYLE_FIELDS = ("pov", "tense", "tone", "comps", "sample_prose")
+_FIELD_ENTITIES = {
+    "character": (CharacterORM, _CHARACTER_FIELDS),
+    "canon_entry": (CanonEntryORM, _CANON_FIELDS),
+    "style_guide": (StyleGuideORM, _STYLE_FIELDS),
+}
+_ENTITY_TYPES = {"book_plan", *_FIELD_ENTITIES}
 
 
 async def _owned_book(
@@ -173,24 +184,23 @@ async def restore_entity_version(
         plan.content = validated
         snapshot_content = {"kind": plan.kind, "content": validated}
         live_id = plan.id
-    else:  # character
-        character = (
+    else:  # field-set entities: character | canon_entry | style_guide
+        model, fields = _FIELD_ENTITIES[entity_type]
+        row = (
             await db.execute(
-                select(CharacterORM).where(
-                    CharacterORM.id == entity_id, CharacterORM.book_id == book_id
-                )
+                select(model).where(model.id == entity_id, model.book_id == book_id)
             )
         ).scalar_one_or_none()
-        if character is None:
+        if row is None:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Character not found"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Entity not found"
             )
         content = version.content or {}
-        for field_name in _CHARACTER_FIELDS:
+        for field_name in fields:
             if field_name in content:
-                setattr(character, field_name, content[field_name])
-        snapshot_content = {f: getattr(character, f) for f in _CHARACTER_FIELDS}
-        live_id = character.id
+                setattr(row, field_name, content[field_name])
+        snapshot_content = {f: getattr(row, f) for f in fields}
+        live_id = row.id
 
     await versions_repo.snapshot(
         db,

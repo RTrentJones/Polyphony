@@ -20,17 +20,20 @@ from app.core.logging_config import setup_logging
 from app.core.orm_models import (
     Book as BookORM,
     BookPlan as BookPlanORM,
+    CanonEntry as CanonEntryORM,
     Chapter as ChapterORM,
     Character as CharacterORM,
     ContinuityReport as ContinuityReportORM,
     PlotThread as PlotThreadORM,
     PlotThreadEvent as PlotThreadEventORM,
     Scene as SceneORM,
+    StyleGuide as StyleGuideORM,
     User as UserORM,
 )
 from app.core.security import get_current_active_user
 from app.exports.builder import scene_text
 from app.jobs import repository as jobs_repo
+from app.planning.canon import render_bible
 from app.planning.outline import generate_outline, validate_outline_nodes
 from app.versioning import repository as versions_repo
 
@@ -182,9 +185,24 @@ async def generate_plan(
         .scalars()
         .all()
     )
-    bible = "\n".join(
-        f"- {c.name}: {c.role or ''} {c.description or ''}".strip() for c in characters
+    canon_entries = (
+        (
+            await db.execute(
+                select(CanonEntryORM)
+                .where(CanonEntryORM.book_id == book.id)
+                .order_by(CanonEntryORM.position)
+            )
+        )
+        .scalars()
+        .all()
     )
+    style = (
+        await db.execute(select(StyleGuideORM).where(StyleGuideORM.book_id == book.id))
+    ).scalar_one_or_none()
+    # The FULL canon reaches the model — every cast field (render_characters),
+    # plus canon entries and style. Was a one-line `name: role description` slice
+    # that dropped goals/arc/relationships and the entire world (docs/BRD.md §1).
+    bible = render_bible(characters, canon_entries, style)
 
     try:
         nodes = await generate_outline(

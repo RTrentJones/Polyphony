@@ -201,6 +201,18 @@ class Book(Base):
     threads = relationship(
         "PlotThread", back_populates="book", cascade="all, delete-orphan"
     )
+    canon_entries = relationship(
+        "CanonEntry",
+        back_populates="book",
+        cascade="all, delete-orphan",
+        order_by="CanonEntry.position",
+    )
+    style_guide = relationship(
+        "StyleGuide",
+        back_populates="book",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (Index("idx_books_user_id", "user_id"),)
 
@@ -632,4 +644,70 @@ class EntityVersion(Base):
         ),
         Index("idx_entity_versions_lookup", "entity_type", "entity_id", "version_no"),
         Index("idx_entity_versions_book_id", "book_id"),
+    )
+
+
+class CanonEntry(Base):
+    """One categorized worldbuilding fact of a book's Canon (docs/BRD.md R3).
+
+    Book is the root, and until now Character was the *only* canon entity — so the
+    magic system, the Undeath Pipeline, Aeon Holdings had nowhere to live but the
+    synopsis field. One categorized table beats branded section names and is more
+    flexible. Versioned via entity_versions (entity_type='canon_entry').
+    """
+
+    __tablename__ = "canon_entries"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    book_id = Column(
+        UUID(as_uuid=True), ForeignKey("books.id", ondelete="CASCADE"), nullable=False
+    )
+    name = Column(String(255), nullable=False)
+    # world | location | faction | item | concept | org
+    category = Column(String(20), nullable=False, default="concept")
+    content = Column(Text)
+    position = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    book = relationship("Book", back_populates="canon_entries")
+
+    __table_args__ = (
+        Index("idx_canon_entries_book_id", "book_id"),
+        # A name means one entry within a book — load-bearing for canon_terms
+        # (the alias/known-noun allowlist the fidelity grader consumes).
+        UniqueConstraint("book_id", "name", name="uq_canon_entries_book_name"),
+    )
+
+
+class StyleGuide(Base):
+    """A book's prose style: POV, tense, tone, comps, a sample. One per book.
+
+    Feeds staged generation so drafts match the author's intended voice
+    (docs/BRD.md R3). Versioned via entity_versions (entity_type='style_guide').
+    """
+
+    __tablename__ = "style_guides"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    book_id = Column(
+        UUID(as_uuid=True), ForeignKey("books.id", ondelete="CASCADE"), nullable=False
+    )
+    pov = Column(String(50))  # first | third-limited | third-omniscient | ...
+    tense = Column(String(20))  # past | present
+    tone = Column(Text)
+    comps = Column(Text)  # comparable titles / influences
+    sample_prose = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    book = relationship("Book", back_populates="style_guide")
+
+    __table_args__ = (
+        # Exactly one style guide per book.
+        UniqueConstraint("book_id", name="uq_style_guides_book"),
     )

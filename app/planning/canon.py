@@ -94,6 +94,89 @@ def render_characters(characters: Iterable[Any]) -> str:
     return "\n\n".join(e for e in entries if e.strip())
 
 
+# Canon-entry categories, ordered as an author reads a world: the big shape
+# first (world), then places, powers, things, ideas, institutions.
+_CATEGORY_LABELS: list[tuple[str, str]] = [
+    ("world", "World"),
+    ("location", "Locations"),
+    ("faction", "Factions"),
+    ("item", "Items"),
+    ("concept", "Concepts"),
+    ("org", "Organizations"),
+]
+
+
+def render_canon_entries(entries: Iterable[Any]) -> str:
+    """Canon entries grouped by category, in full. "" when there are none."""
+    entries = list(entries or [])
+    if not entries:
+        return ""
+    by_cat: dict[str, list[Any]] = {}
+    for e in entries:
+        by_cat.setdefault(e.category or "concept", []).append(e)
+
+    parts: list[str] = []
+    seen: set[str] = set()
+    for cat, label in _CATEGORY_LABELS:
+        items = by_cat.get(cat)
+        if not items:
+            continue
+        seen.add(cat)
+        parts.append(f"## {label}")
+        for e in items:
+            body = clean_for_llm(getattr(e, "content", None)) or ""
+            parts.append(f"### {clean_for_llm(e.name)}\n{body}".rstrip())
+    # Any unknown categories still render, so nothing is silently dropped.
+    for cat, items in by_cat.items():
+        if cat in seen:
+            continue
+        parts.append(f"## {cat.title()}")
+        for e in items:
+            body = clean_for_llm(getattr(e, "content", None)) or ""
+            parts.append(f"### {clean_for_llm(e.name)}\n{body}".rstrip())
+    return "\n\n".join(parts)
+
+
+def render_style(style: Any) -> str:
+    """The book's style guide as readable lines. "" when unset."""
+    if style is None:
+        return ""
+    fields = [
+        ("POV", getattr(style, "pov", None)),
+        ("Tense", getattr(style, "tense", None)),
+        ("Tone", getattr(style, "tone", None)),
+        ("Comps", getattr(style, "comps", None)),
+        ("Sample prose", getattr(style, "sample_prose", None)),
+    ]
+    lines = [f"{label}: {clean_for_llm(v)}" for label, v in fields if v]
+    return "\n".join(lines)
+
+
+def render_bible(
+    characters: Optional[Iterable[Any]] = None,
+    canon_entries: Optional[Iterable[Any]] = None,
+    style: Any = None,
+) -> str:
+    """The non-synopsis canon (cast + worldbuilding + style) as one bible block.
+
+    This is what the outline's `character_bible` argument should carry: the FULL
+    cast (every field, via render_characters) plus canon entries and style —
+    never the old one-line `name: role description` slice that dropped goals,
+    arc, relationships, and the entire world.
+    """
+    sections: list[str] = []
+    cast = render_characters(characters or [])
+    if cast:
+        sections.append("# Characters\n\n" + cast)
+    entries = render_canon_entries(canon_entries or [])
+    if entries:
+        sections.append("# Canon\n\n" + entries)
+    style_text = render_style(style)
+    if style_text:
+        sections.append("# Style\n\n" + style_text)
+    return "\n\n".join(sections)
+
+
 def render_canon(
     *,
     title: str,

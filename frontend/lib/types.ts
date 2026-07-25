@@ -321,6 +321,68 @@ export interface SceneRevisionsResponse {
 export type BookExportFormat = 'md' | 'docx' | 'epub'
 
 // ---------------------------------------------------------------------------
+// Canon entities (app/api/canon.py) — worldbuilding + style, per book.
+// ---------------------------------------------------------------------------
+
+export type CanonCategory =
+  | 'world'
+  | 'location'
+  | 'faction'
+  | 'item'
+  | 'concept'
+  | 'org'
+
+/** A categorized worldbuilding fact. */
+export interface CanonEntry {
+  id: string
+  name: string
+  category: CanonCategory | string
+  content?: string | null
+  position: number
+}
+
+/** A book's prose style guide (one per book). */
+export interface StyleGuide {
+  id: string
+  pov?: string | null
+  tense?: string | null
+  tone?: string | null
+  comps?: string | null
+  sample_prose?: string | null
+}
+
+/** GET /books/{id}/canon */
+export interface CanonResponse {
+  entries: CanonEntry[]
+  style: StyleGuide | null
+}
+
+// ---------------------------------------------------------------------------
+// Versioning (app/api/versioning.py)
+// ---------------------------------------------------------------------------
+
+export type VersionedEntityType =
+  | 'book_plan'
+  | 'character'
+  | 'canon_entry'
+  | 'style_guide'
+
+/** One entry in an entity's version history (newest first; max == live). */
+export interface EntityVersionSummary {
+  version_no: number
+  reason: string | null
+  created_at: string | null
+  created_by?: string | null
+}
+
+/** GET /books/{id}/versions/{type}/{entity_id} */
+export interface EntityVersionListResponse {
+  entity_type: VersionedEntityType | string
+  entity_id: string
+  versions: EntityVersionSummary[]
+}
+
+// ---------------------------------------------------------------------------
 // Plans, threads, continuity (app/api/plans.py)
 // ---------------------------------------------------------------------------
 

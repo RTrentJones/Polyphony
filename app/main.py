@@ -359,6 +359,7 @@ async def metrics():
 # API routers
 from app.api import auth as auth_router  # noqa: E402
 from app.api import books as books_router  # noqa: E402
+from app.api import canon as canon_router  # noqa: E402
 from app.api import characters as characters_router  # noqa: E402
 from app.api import plans as plans_router  # noqa: E402
 from app.api import scenes as scenes_router  # noqa: E402
@@ -405,6 +406,12 @@ app.include_router(
     versioning_router.router,
     prefix="/api/v1",
     tags=["Versioning"],
+    responses={401: {"description": "Unauthorized"}},
+)
+app.include_router(
+    canon_router.router,
+    prefix="/api/v1",
+    tags=["Canon"],
     responses={401: {"description": "Unauthorized"}},
 )
 
