@@ -12,9 +12,10 @@ from app.rag.store import ChunkStore, _vector_literal
 class FakeSession:
     """Records executed statements; returns canned rows for SELECTs."""
 
-    def __init__(self, rows=None, fail=False):
+    def __init__(self, rows=None, fail=False, rowcount=1):
         self.rows = rows or []
         self.fail = fail
+        self.rowcount = rowcount
         self.executed: list[tuple[str, dict]] = []
         self.committed = False
 
@@ -25,14 +26,15 @@ class FakeSession:
         result = MagicMock()
         result.mappings.return_value.all.return_value = self.rows
         result.first.return_value = self.rows[0] if self.rows else None
+        result.rowcount = self.rowcount
         return result
 
     async def commit(self):
         self.committed = True
 
 
-def make_store(rows=None, fail=False) -> tuple[ChunkStore, FakeSession]:
-    session = FakeSession(rows=rows, fail=fail)
+def make_store(rows=None, fail=False, rowcount=1) -> tuple[ChunkStore, FakeSession]:
+    session = FakeSession(rows=rows, fail=fail, rowcount=rowcount)
 
     @asynccontextmanager
     async def factory():

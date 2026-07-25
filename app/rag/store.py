@@ -198,6 +198,77 @@ class ChunkStore:
             "total_words": sum(int(row["words"]) for row in rows),
         }
 
+    async def list_chunks(self, character_id: str) -> list[dict]:
+        """All of a character's voice chunks for the browser/editor (Phase 7)."""
+        async with self._session() as session:
+            rows = (
+                (
+                    await session.execute(
+                        text("""
+                            SELECT id, chunk_type, text, source_location, word_count
+                            FROM voice_chunks
+                            WHERE character_id = :character_id
+                            ORDER BY created_at
+                            """),
+                        {"character_id": character_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [
+            {
+                "id": str(row["id"]),
+                "chunk_type": row["chunk_type"],
+                "text": row["text"],
+                "source": row["source_location"] or "",
+                "word_count": row["word_count"] or 0,
+            }
+            for row in rows
+        ]
+
+    async def update_chunk(
+        self, chunk_id: str, character_id: str, text_value: str
+    ) -> bool:
+        """Edit a chunk's text and RE-EMBED it (Phase 7).
+
+        Vectors were write-only: the only fix for a bad sample was deleting the
+        whole character. Editing must re-embed, or retrieval would rank the new
+        text by the old vector. Returns False if the chunk isn't this character's.
+        """
+        embedding = _vector_literal(await self.embedder.aencode_one(text_value))
+        async with self._session() as session:
+            result = await session.execute(
+                text("""
+                    UPDATE voice_chunks
+                    SET text = :text, word_count = :wc,
+                        embedding = CAST(:embedding AS vector)
+                    WHERE id = :id AND character_id = :character_id
+                    """),
+                {
+                    "id": chunk_id,
+                    "character_id": character_id,
+                    "text": text_value,
+                    "wc": len(text_value.split()),
+                    "embedding": embedding,
+                },
+            )
+            await session.commit()
+        return (result.rowcount or 0) > 0
+
+    async def delete_chunk(self, chunk_id: str, character_id: str) -> bool:
+        """Remove one voice chunk (scoped to its character)."""
+        async with self._session() as session:
+            result = await session.execute(
+                text(
+                    "DELETE FROM voice_chunks "
+                    "WHERE id = :id AND character_id = :character_id"
+                ),
+                {"id": chunk_id, "character_id": character_id},
+            )
+            await session.commit()
+        return (result.rowcount or 0) > 0
+
     async def delete_character(self, character_id: str) -> None:
         """Remove a character's vectors (explicit re-index; CASCADE covers deletes)."""
         async with self._session() as session:

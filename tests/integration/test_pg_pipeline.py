@@ -270,3 +270,55 @@ async def test_process_source_commits_before_indexing(pg, monkeypatch):
         character_id=str(cid), query="creatures of the night", k=2, user_id=str(uid)
     )
     assert isinstance(hits, list) and len(hits) >= 1
+
+
+async def test_chunk_browser_edit_delete_roundtrip(pg):
+    """Phase 7: list / re-embed-on-edit / delete voice chunks against real pgvector."""
+    import uuid as _uuid
+
+    from app.core.orm_models import Book, Character, User
+    from app.core.security import get_password_hash
+    from app.rag.store import get_chunk_store
+
+    async with pg() as s:
+        u = User(
+            email=f"pg-{_uuid.uuid4()}@ex.com",
+            hashed_password=get_password_hash("password123"),
+            full_name="pg",
+        )
+        s.add(u)
+        await s.commit()
+        await s.refresh(u)
+        book = Book(user_id=u.id, title="B")
+        s.add(book)
+        await s.commit()
+        await s.refresh(book)
+        ch = Character(user_id=u.id, book_id=book.id, name="Mina")
+        s.add(ch)
+        await s.commit()
+        await s.refresh(ch)
+        cid, bid = str(ch.id), str(book.id)
+
+    store = get_chunk_store()
+    await store.index_chunks(
+        character_id=cid,
+        character_name="Mina",
+        user_id=str(u.id),
+        book_id=bid,
+        chunks=[
+            {"text": "The dead travel fast.", "chunk_type": "dialogue"},
+            {"text": "Children of the night.", "chunk_type": "dialogue"},
+        ],
+    )
+    chunks = await store.list_chunks(cid)
+    assert len(chunks) == 2
+
+    target = chunks[0]["id"]
+    assert await store.update_chunk(target, cid, "Listen to them, the music they make.")
+    listed = {c["id"]: c["text"] for c in await store.list_chunks(cid)}
+    assert listed[target] == "Listen to them, the music they make."
+
+    assert await store.delete_chunk(target, cid)
+    assert len(await store.list_chunks(cid)) == 1
+    # wrong-character scoping: cannot delete another id
+    assert await store.delete_chunk(target, cid) is False

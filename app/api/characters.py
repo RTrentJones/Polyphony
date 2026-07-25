@@ -76,6 +76,15 @@ class VoiceSamples(BaseModel):
     chunk_type: str = "dialogue"
 
 
+class ChunkUpdate(BaseModel):
+    text: str = Field(..., min_length=1)
+
+
+class RetrieveQuery(BaseModel):
+    query: str = Field(..., min_length=1, max_length=2000)
+    k: int = Field(default=5, ge=1, le=20)
+
+
 class VoiceTest(BaseModel):
     prompt: str = Field(..., min_length=3, max_length=1000)
     context: Optional[str] = None
@@ -308,6 +317,7 @@ async def add_voice_samples(
         character_id=str(character.id),
         character_name=character.name,
         user_id=str(current_user.id),
+        book_id=str(character.book_id),
         chunks=chunks,
     )
     for chunk in chunks:
@@ -346,3 +356,84 @@ async def test_dialogue(
         user_id=current_user.id,
     )
     return response
+
+
+# --- Voice-chunk browser / editor + retrieval inspector (Phase 7) ----------------
+
+
+@router.get("/{character_id}/chunks", response_model=dict)
+async def list_character_chunks(
+    character_id: UUID,
+    current_user: UserORM = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Browse a character's indexed voice chunks (the vector-store contents)."""
+    character = await _owned_character(character_id, current_user, db)
+    chunks = await get_chunk_store().list_chunks(str(character.id))
+    return {"character_id": str(character.id), "chunks": chunks}
+
+
+@router.patch("/{character_id}/chunks/{chunk_id}", response_model=dict)
+async def update_character_chunk(
+    character_id: UUID,
+    chunk_id: UUID,
+    payload: ChunkUpdate,
+    current_user: UserORM = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Edit a voice chunk's text — RE-EMBEDS it so retrieval reflects the edit."""
+    character = await _owned_character(character_id, current_user, db)
+    ok = await get_chunk_store().update_chunk(
+        str(chunk_id), str(character.id), payload.text
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Chunk not found"
+        )
+    return {"id": str(chunk_id), "updated": True}
+
+
+@router.delete(
+    "/{character_id}/chunks/{chunk_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def delete_character_chunk(
+    character_id: UUID,
+    chunk_id: UUID,
+    current_user: UserORM = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete one voice chunk (fix a bad sample without nuking the whole cast)."""
+    character = await _owned_character(character_id, current_user, db)
+    ok = await get_chunk_store().delete_chunk(str(chunk_id), str(character.id))
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Chunk not found"
+        )
+    return None
+
+
+@router.post("/{character_id}/retrieve", response_model=dict)
+async def inspect_retrieval(
+    character_id: UUID,
+    payload: RetrieveQuery,
+    current_user: UserORM = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieval inspector: what would ground a generation for this query, scored.
+
+    The store already computes a similarity score per chunk and used to discard
+    it; this surfaces it so an author can see WHY a voice sample was chosen.
+    """
+    character = await _owned_character(character_id, current_user, db)
+    results = await get_chunk_store().retrieve_similar(
+        character_id=str(character.id),
+        query=payload.query,
+        k=payload.k,
+        user_id=str(current_user.id),
+        book_id=str(character.book_id),
+    )
+    return {
+        "character_id": str(character.id),
+        "query": payload.query,
+        "results": results,
+    }

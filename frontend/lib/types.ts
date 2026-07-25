@@ -380,6 +380,28 @@ export interface ExtractionProposals {
   synopsis: string
 }
 
+// ---------------------------------------------------------------------------
+// Voice-chunk browser + retrieval inspector (app/api/characters.py, Phase 7)
+// ---------------------------------------------------------------------------
+
+/** A character's indexed voice chunk (GET /characters/{id}/chunks). */
+export interface VoiceChunk {
+  id: string
+  chunk_type: string
+  text: string
+  source: string
+  word_count: number
+}
+
+/** A scored retrieval hit (POST /characters/{id}/retrieve). */
+export interface RetrievalHit {
+  text: string
+  score: number | null
+  chunk_type: string
+  source: string
+  word_count: number
+}
+
 /** GET /books/{id}/extractions/{run_id} */
 export interface ExtractionRun {
   id: string
