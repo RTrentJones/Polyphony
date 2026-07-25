@@ -586,3 +586,50 @@ class APIUsage(Base):
     # The rolling-24h budget check filters WHERE user_id = ? AND timestamp >= ?
     # on every LLM-spending request — keep that hot path indexed.
     __table_args__ = (Index("idx_api_usage_user_time", "user_id", "timestamp"),)
+
+
+class EntityVersion(Base):
+    """Append-only version log for canon entities (docs/ADR-002-book-as-root.md §5).
+
+    ONE generic table for every versioned type (book_plan, character, ...). Every
+    query is (entity_type, entity_id) -> version_no DESC — never a cross-type
+    join — so a SOFT (entity_type, entity_id) pointer is right, while `book_id`
+    carries a HARD FK (real cascade) because the book is the root.
+
+    INVARIANT — and it DIVERGES from SceneRevision, so read this before assuming:
+    this is an append-only log of every state INCLUDING the current one, so
+    max(version_no) for an entity ALWAYS equals its live row. Create -> v1, edit
+    -> v2, regenerate -> v3, restore v2 -> APPEND v4 (reason='restored_from:2')
+    and set the live row. Restore is forward-only and never deletes.
+    (SceneRevision stores history EXCLUDING head — the opposite.) Snapshots are
+    full JSON, never diffs; canon is kilobytes and diffs make restore fragile.
+    """
+
+    __tablename__ = "entity_versions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Hard FK — a version cannot outlive its book.
+    book_id = Column(
+        UUID(as_uuid=True), ForeignKey("books.id", ondelete="CASCADE"), nullable=False
+    )
+    # Soft polymorphic pointer: which entity, of which type. No FK.
+    entity_type = Column(String(50), nullable=False)  # book_plan | character | ...
+    entity_id = Column(UUID(as_uuid=True), nullable=False)
+    version_no = Column(Integer, nullable=False)
+    content = Column(JSON, nullable=False)  # full snapshot, never a diff
+    # 'created' | 'edited' | 'generated' | 'imported' | 'restored_from:N'
+    reason = Column(String(255))
+    created_by = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        # The real guard against a version_no race — coalesce(max)+1 can collide
+        # under concurrency, and this turns that into a retryable IntegrityError.
+        UniqueConstraint(
+            "entity_type", "entity_id", "version_no", name="uq_entity_versions_ver"
+        ),
+        Index("idx_entity_versions_lookup", "entity_type", "entity_id", "version_no"),
+        Index("idx_entity_versions_book_id", "book_id"),
+    )

@@ -363,6 +363,7 @@ from app.api import characters as characters_router  # noqa: E402
 from app.api import plans as plans_router  # noqa: E402
 from app.api import scenes as scenes_router  # noqa: E402
 from app.api import sources as sources_router  # noqa: E402
+from app.api import versioning as versioning_router  # noqa: E402
 
 app.include_router(
     auth_router.router,
@@ -398,6 +399,12 @@ app.include_router(
     plans_router.router,
     prefix="/api/v1",
     tags=["Planning"],
+    responses={401: {"description": "Unauthorized"}},
+)
+app.include_router(
+    versioning_router.router,
+    prefix="/api/v1",
+    tags=["Versioning"],
     responses={401: {"description": "Unauthorized"}},
 )
 

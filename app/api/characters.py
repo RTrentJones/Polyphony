@@ -20,8 +20,28 @@ from app.core.orm_models import (
 )
 from app.core.security import get_current_active_user
 from app.rag.store import get_chunk_store
+from app.versioning import repository as versions_repo
 
 router = APIRouter()
+
+
+def _character_content(c: CharacterORM) -> dict:
+    """Authored fields only — the versioned snapshot (docs/ADR-002 §5).
+
+    Excludes dialogue_count / indexed_at deliberately: those change on every
+    re-index, and versioning them would spawn a new version per re-embed.
+    """
+    return {
+        "name": c.name,
+        "description": c.description,
+        "personality_traits": c.personality_traits,
+        "voice_characteristics": c.voice_characteristics,
+        "role": c.role,
+        "goals": c.goals,
+        "arc": c.arc,
+        "relationships": c.relationships,
+        "notes": c.notes,
+    }
 
 
 class CharacterCreate(BaseModel):
@@ -159,6 +179,16 @@ async def create_character(
     )
     db.add(character)
     try:
+        await db.flush()
+        await versions_repo.snapshot(
+            db,
+            book_id=character.book_id,
+            entity_type="character",
+            entity_id=character.id,
+            content=_character_content(character),
+            reason="created",
+            created_by=current_user.id,
+        )
         await db.commit()
     except IntegrityError:
         # uq_characters_book_name: a character name is unique within a book.
@@ -222,7 +252,23 @@ async def update_character(
         value = getattr(payload, field_name)
         if value is not None:
             setattr(character, field_name, value)
-    await db.commit()
+    await versions_repo.snapshot(
+        db,
+        book_id=character.book_id,
+        entity_type="character",
+        entity_id=character.id,
+        content=_character_content(character),
+        reason="edited",
+        created_by=current_user.id,
+    )
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A character with this name already exists in this book",
+        )
     return {"id": str(character.id), "name": character.name}
 
 

@@ -32,10 +32,30 @@ from app.core.security import get_current_active_user
 from app.exports.builder import scene_text
 from app.jobs import repository as jobs_repo
 from app.planning.outline import generate_outline, validate_outline_nodes
+from app.versioning import repository as versions_repo
 
 logger = setup_logging("api.plans")
 
 router = APIRouter()
+
+
+async def _snapshot_plan(db, book, plan, content, reason, user_id) -> None:
+    """Append a version of a plan's new state (docs/ADR-002 §5). Never commits.
+
+    Runs after the plan row is flushed (so plan.id exists) and before the
+    caller's commit, so the version and the live row land atomically —
+    regeneration/edit can never clobber a prior outline.
+    """
+    await db.flush()
+    await versions_repo.snapshot(
+        db,
+        book_id=book.id,
+        entity_type="book_plan",
+        entity_id=plan.id,
+        content={"kind": plan.kind, "content": content},
+        reason=reason,
+        created_by=user_id,
+    )
 
 
 # --- Payloads -------------------------------------------------------------------
@@ -131,8 +151,11 @@ async def upsert_plan(
     if plan is None:
         plan = BookPlanORM(book_id=book.id, kind=payload.kind, content=content)
         db.add(plan)
+        reason = "created"
     else:
         plan.content = content
+        reason = "edited"
+    await _snapshot_plan(db, book, plan, content, reason, current_user.id)
     await db.commit()
     await db.refresh(plan)
     return _plan_dict(plan)
@@ -188,6 +211,7 @@ async def generate_plan(
         db.add(plan)
     else:
         plan.content = nodes
+    await _snapshot_plan(db, book, plan, nodes, "generated", current_user.id)
     await db.commit()
     await db.refresh(plan)
     return _plan_dict(plan)
