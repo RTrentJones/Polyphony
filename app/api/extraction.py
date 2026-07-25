@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.characters.serialize import character_snapshot
 from app.core.budget import check_user_budget
 from app.core.database import get_db
 from app.core.orm_models import (
@@ -221,16 +222,14 @@ async def commit_extraction(
         )
         db.add(row)
         await db.flush()
+        # FULL snapshot (not name/role/description only) so an imported v1 stays a
+        # complete-state restore after later enrichment (PR review #3).
         await versions_repo.snapshot(
             db,
             book_id=book.id,
             entity_type="character",
             entity_id=row.id,
-            content={
-                "name": row.name,
-                "role": row.role,
-                "description": row.description,
-            },
+            content=character_snapshot(row),
             reason="imported",
             created_by=current_user.id,
         )

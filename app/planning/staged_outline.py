@@ -70,8 +70,20 @@ JSON:"""
     return extract_json_object(result.text)
 
 
-async def _stage_chapters(canon: Canon, skeleton: dict, user_id) -> list[dict]:
+async def _stage_chapters(
+    canon: Canon, skeleton: dict, user_id, repair_missing: Optional[list[str]] = None
+) -> list[dict]:
     cast_names = ", ".join(c.name for c in canon.characters) or "(none named)"
+    repair = ""
+    if repair_missing:
+        # The chapter stage is where structural cast (pov, characters[]) is chosen,
+        # so a recall failure is repaired HERE, not only at the beat stage
+        # (PR review #5).
+        repair = (
+            "\n\nThe previous attempt OMITTED these principal characters entirely. "
+            "You MUST give each of them a role across the chapters, present in the "
+            f"`pov` or `characters` of specific chapters: {', '.join(repair_missing)}"
+        )
     prompt = f"""{STORY_MATERIAL_NOTICE}
 
 {canon.full_block()}
@@ -81,7 +93,7 @@ Central conflict: {skeleton.get("central_conflict", "")}
 Acts: {skeleton.get("acts", [])}
 
 Break the acts into chapters. Every name you use for a character MUST be one of
-the canon cast: {cast_names}. Do not introduce new principal characters.
+the canon cast: {cast_names}. Do not introduce new principal characters.{repair}
 
 Return ONLY a JSON array of chapters:
 [
@@ -192,6 +204,13 @@ async def generate_staged_outline(
                 "recall": audit.principal_recall,
             },
         )
+        # Repair at the CHAPTER stage (where cast is chosen) with the missing
+        # principals as explicit feedback, then re-derive beats (PR review #5).
+        await _emit("chapters")
+        chapters = await _stage_chapters(
+            canon, skeleton, user_id, repair_missing=audit.missing
+        )
+        await _emit("beats")
         nodes = await _stage_beats(canon, chapters, user_id)
         audit = audit_outline(nodes, principals, known)
 

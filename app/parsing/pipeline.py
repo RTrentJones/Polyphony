@@ -20,9 +20,11 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.database import get_async_session
 from app.core.logging_config import log_business_event, log_error, setup_logging
+from app.characters.serialize import character_snapshot
 from app.core.orm_models import Character, CharacterChunk, Source
 from app.llm.errors import QuotaExhaustedError
 from app.rag.store import get_chunk_store
+from app.versioning import repository as versions_repo
 
 from .character_extractor import CharacterExtractor
 from .parser import DocumentParser
@@ -114,9 +116,15 @@ async def process_source(
 
     Every character and voice chunk inherits the Source's `book_id`: the book is
     the root (docs/ADR-002-book-as-root.md §1).
+
+    NON-DESTRUCTIVE (PR review #1): this NEVER deletes existing canon. Only names
+    not already in the book are created — an author's manually enriched character
+    (goals/relationships/voice) is preserved on reprocess, and every auto-created
+    character is versioned so nothing here is an unrecoverable write. Authors who
+    want a full review-then-commit flow use POST /books/{id}/sources/{sid}/extract.
     """
     try:
-        # Load the parsed text + reset prior characters (reprocess-safe) in one txn.
+        # Load the parsed text + the book's existing cast (by name) in one txn.
         async with get_async_session() as session:
             source = await session.get(Source, source_id)
             if source is None:
@@ -125,30 +133,28 @@ async def process_source(
             source_text = text if text is not None else (source.content_text or "")
             if not source_text:
                 raise ValueError("source has no stored content to process")
-            # Reprocess: drop the characters THIS source previously seeded (vectors
-            # cascade) so re-extraction can't collide with uq_characters_book_name.
-            existing = (
+            existing_names = set(
                 (
                     await session.execute(
-                        select(Character).where(Character.source_id == source_id)
+                        select(Character.name).where(Character.book_id == book_id)
                     )
                 )
                 .scalars()
                 .all()
             )
-            for c in existing:
-                await get_chunk_store().delete_character(str(c.id))
-                await session.delete(c)
             source.status = "processing"
 
         character_names = await char_extractor.extract_characters(
             source_text, user_id=user_id
         )
+        # Only genuinely new names — never overwrite or delete an existing one.
+        new_names = list(dict.fromkeys(character_names))
+        new_names = [n for n in new_names if n not in existing_names]
 
         store = get_chunk_store()
         indexed_total = 0
 
-        for name in character_names:
+        for name in new_names:
             chunks = char_extractor.extract_character_content(source_text, name)
             stats = char_extractor.get_character_statistics(chunks)
 
@@ -173,6 +179,17 @@ async def process_source(
                             source_location=chunk.get("source_location"),
                         )
                     )
+                # Version the imported character (full snapshot) so an auto-created
+                # entity is restorable like any other (PR review #1).
+                await versions_repo.snapshot(
+                    session,
+                    book_id=book_id,
+                    entity_type="character",
+                    entity_id=character_id,
+                    content=character_snapshot(character),
+                    reason="imported",
+                    created_by=user_id,
+                )
             # 2) Index into pgvector now that the parent row is committed.
             indexed = await store.index_chunks(
                 character_id=str(character_id),

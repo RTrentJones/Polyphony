@@ -10,6 +10,7 @@ from uuid import UUID
 from datetime import datetime, timezone
 
 from app.characters.dialogue import generate_dialogue
+from app.characters.serialize import character_snapshot as _character_content
 from app.core.database import get_db
 from app.core.orm_models import (
     Book as BookORM,
@@ -23,25 +24,6 @@ from app.rag.store import get_chunk_store
 from app.versioning import repository as versions_repo
 
 router = APIRouter()
-
-
-def _character_content(c: CharacterORM) -> dict:
-    """Authored fields only — the versioned snapshot (docs/ADR-002 §5).
-
-    Excludes dialogue_count / indexed_at deliberately: those change on every
-    re-index, and versioning them would spawn a new version per re-embed.
-    """
-    return {
-        "name": c.name,
-        "description": c.description,
-        "personality_traits": c.personality_traits,
-        "voice_characteristics": c.voice_characteristics,
-        "role": c.role,
-        "goals": c.goals,
-        "arc": c.arc,
-        "relationships": c.relationships,
-        "notes": c.notes,
-    }
 
 
 class CharacterCreate(BaseModel):

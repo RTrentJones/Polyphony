@@ -171,7 +171,9 @@ class TestStagedOrchestration:
         nodes, warnings = await so.generate_staged_outline(
             self._canon(), chapters_target=1, user_id=None
         )
-        # beats generated twice (original + one repair)
+        # Repair regenerates CHAPTERS (where cast is chosen) AND beats, not just
+        # beats (PR review #5) — so both stages run twice.
+        assert fake.calls.count("outline:chapters") == 2
         assert fake.calls.count("outline:beats") == 2
         assert "Milo Voss" in nodes[0]["summary"]
         assert warnings == []  # repair recovered the cast

@@ -56,7 +56,35 @@ jobs:
         run: pip install 'black==26.5.1' 'ruff==0.15.21'
 
       - name: Black
-        run: black --check app tests alembic
+        run: black --check app tests alembic evals
 
       - name: Ruff
-        run: ruff check app tests alembic
+        run: ruff check app tests alembic evals
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Lint
+        run: npm run lint
+
+      # A red build here means the static export the container serves is broken.
+      - name: Build (static export)
+        run: npm run build

@@ -24,6 +24,7 @@ from app.core.orm_models import (
     StyleGuide as StyleGuideORM,
     User as UserORM,
 )
+from app.characters.serialize import CHARACTER_FIELDS
 from app.core.security import get_current_active_user
 from app.planning.outline import validate_outline_nodes
 from app.versioning import repository as versions_repo
@@ -32,17 +33,7 @@ router = APIRouter()
 
 # Simple field-set entities (name -> ORM, restorable fields). book_plan restores
 # specially (its content is re-validated), so it is handled outside this table.
-_CHARACTER_FIELDS = (
-    "name",
-    "description",
-    "personality_traits",
-    "voice_characteristics",
-    "role",
-    "goals",
-    "arc",
-    "relationships",
-    "notes",
-)
+_CHARACTER_FIELDS = CHARACTER_FIELDS
 _CANON_FIELDS = ("name", "category", "content", "position")
 _STYLE_FIELDS = ("pov", "tense", "tone", "comps", "sample_prose")
 _FIELD_ENTITIES = {
@@ -50,7 +41,8 @@ _FIELD_ENTITIES = {
     "canon_entry": (CanonEntryORM, _CANON_FIELDS),
     "style_guide": (StyleGuideORM, _STYLE_FIELDS),
 }
-_ENTITY_TYPES = {"book_plan", *_FIELD_ENTITIES}
+# synopsis is a field on Book (entity_id == book_id); book_plan restores specially.
+_ENTITY_TYPES = {"book_plan", "synopsis", *_FIELD_ENTITIES}
 
 
 async def _owned_book(
@@ -184,6 +176,12 @@ async def restore_entity_version(
         plan.content = validated
         snapshot_content = {"kind": plan.kind, "content": validated}
         live_id = plan.id
+    elif entity_type == "synopsis":
+        # The synopsis lives on Book (entity_id == book_id); restore sets it.
+        content = version.content or {}
+        book.synopsis = content.get("synopsis")
+        snapshot_content = {"synopsis": book.synopsis}
+        live_id = book.id
     else:  # field-set entities: character | canon_entry | style_guide
         model, fields = _FIELD_ENTITIES[entity_type]
         row = (
@@ -191,14 +189,21 @@ async def restore_entity_version(
                 select(model).where(model.id == entity_id, model.book_id == book_id)
             )
         ).scalar_one_or_none()
-        if row is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Entity not found"
-            )
         content = version.content or {}
-        for field_name in fields:
-            if field_name in content:
-                setattr(row, field_name, content[field_name])
+        if row is None:
+            # RECREATE a deleted entity, preserving its identity (PR review #4) —
+            # deletion is no longer permanent; restore brings it back. The
+            # (book_id, name) uniqueness check still applies (409 on collision).
+            extra = {"user_id": book.user_id} if entity_type == "character" else {}
+            row = model(id=entity_id, book_id=book_id, **extra)
+            for field_name in fields:
+                if field_name in content:
+                    setattr(row, field_name, content[field_name])
+            db.add(row)
+        else:
+            for field_name in fields:
+                if field_name in content:
+                    setattr(row, field_name, content[field_name])
         snapshot_content = {f: getattr(row, f) for f in fields}
         live_id = row.id
 

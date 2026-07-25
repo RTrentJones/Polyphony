@@ -40,6 +40,7 @@ from app.exports.builder import (
 )
 from app.jobs import repository as jobs_repo
 from app.llm.tier import get_tier
+from app.versioning import repository as versions_repo
 
 router = APIRouter()
 
@@ -256,10 +257,25 @@ async def update_book(
     db: AsyncSession = Depends(get_db),
 ):
     book = await _owned_book(book_id, current_user, db)
+    # The synopsis is Canon (docs/BRD.md §3) — version it before overwriting so an
+    # edit is never a destructive, unrecoverable loss (PR review #2).
+    synopsis_changed = payload.synopsis is not None and payload.synopsis != (
+        book.synopsis or ""
+    )
     for field_name in ("title", "author", "synopsis", "genre", "status"):
         value = getattr(payload, field_name)
         if value is not None:
             setattr(book, field_name, value)
+    if synopsis_changed:
+        await versions_repo.snapshot(
+            db,
+            book_id=book.id,
+            entity_type="synopsis",
+            entity_id=book.id,
+            content={"synopsis": book.synopsis},
+            reason="edited",
+            created_by=current_user.id,
+        )
     await db.commit()
     return {"id": str(book.id), "title": book.title, "status": book.status}
 

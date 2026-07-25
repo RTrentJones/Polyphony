@@ -110,14 +110,30 @@ async def narrate(
     canon_context: str,
     prior_tail: str,
     user_id,
+    present: Optional[list[str]] = None,
 ) -> str:
-    """Narrator: synthesize the proposals into prose (full canon + beat)."""
+    """Narrator: synthesize the proposals into prose (full canon + beat).
+
+    `present` is the FULL cast of the beat. Characters with a proposal drive their
+    own actions; any present character WITHOUT one (a context-only character over
+    the tier's agent cap) must still be given something to do — never silently
+    dropped (PR review #6).
+    """
+    proposed_names = {p["character"] for p in proposals}
+    present = present or list(proposed_names)
+    context_only = [n for n in present if n not in proposed_names]
     cast_block = "\n\n".join(
         f"{p['character']} — intent: {p['intent']}\n"
         f"  actions: {'; '.join(p['actions'])}\n"
         f"  lines: {'; '.join(p['lines']) or '(none)'}\n"
         f"  interiority: {p['interiority'] or '(none)'}"
         for p in proposals
+    )
+    context_note = (
+        f"\nAlso present (give them something to DO, though they didn't propose): "
+        f"{', '.join(context_only)}"
+        if context_only
+        else ""
     )
     prompt = f"""{STORY_MATERIAL_NOTICE}
 
@@ -126,12 +142,14 @@ async def narrate(
 Setting: {clean_for_llm(str(scene_request.get("setting", "")))}
 Prior scene tail: {clean_for_llm(prior_tail)[:600]}
 
+Characters present in this beat: {", ".join(present)}
+
 Each character has proposed how they act and speak in this beat:
-{clean_for_llm(cast_block)}
+{clean_for_llm(cast_block)}{context_note}
 
 Weave these into a single continuous passage of prose. Honor each character's
-actions AND lines — every character who is present must visibly DO something, not
-merely speak. Keep everyone in their established voice.
+actions AND lines — EVERY character present must visibly DO something, not merely
+speak. Keep everyone in their established voice.
 
 Prose:"""
     result = await get_llm_client().generate(
@@ -222,12 +240,14 @@ async def run_ensemble(
     """Run the ensemble loop for one beat. Returns {prose, evaluation, rounds}.
 
     Tier-gated: rounds and agent count come from the Tier; free tier is 1 round,
-    <=3 character agents (the rest are context-only). Convergence is measured;
-    non-convergence keeps the best draft with objections (never a hard fail).
+    <=3 proposal agents. Characters over that cap are context-only — they still
+    appear in narration AND editor validation, never silently dropped (PR review
+    #6). Convergence is measured; non-convergence keeps the best draft with
+    objections (never a hard fail).
     """
     tier = get_tier()
-    names = list(scene_request.get("characters") or [])
-    agents = names[: tier.max_agents]  # the rest are context-only this scene
+    present = list(dict.fromkeys(scene_request.get("characters") or []))  # dedup, order
+    agents = present[: tier.max_agents]  # only these get their own proposal agent
 
     characters = await load_characters_for_book(
         agents, user_id=user_id, book_id=book_id
@@ -244,10 +264,17 @@ async def run_ensemble(
             for name in agents
         ]
         draft = await narrate(
-            proposals, scene_request, canon_context, prior_tail, user_id
+            proposals,
+            scene_request,
+            canon_context,
+            prior_tail,
+            user_id,
+            present=present,
         )
+        # Editor validates the FULL present cast, so a context-only character who
+        # vanished is caught as a blocking objection, not reported as converged.
         review = await editor_review(
-            draft, canon_context, beat_description, agents, user_id
+            draft, canon_context, beat_description, present, user_id
         )
         candidate = {"prose": draft, "evaluation": review, "rounds": round_no}
         if best is None or _score(review) > _score(best["evaluation"]):
