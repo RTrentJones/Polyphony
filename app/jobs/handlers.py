@@ -134,6 +134,42 @@ async def _run_generate_outline(payload: dict) -> None:
         await session.commit()
 
 
+async def _run_extract_canon(payload: dict) -> None:
+    """Extract a Source into proposed canon, held on the run for review (Phase 6).
+
+    Writes proposals, never real entities. QuotaExhaustedError propagates so the
+    worker pauses (free tier). Extraction is reprocess-idempotent (re-runnable).
+    """
+    from app.core.orm_models import ExtractionRun, Source
+    from app.parsing.canon_extractor import extract_canon
+
+    run_id = UUID(payload["run_id"])
+    source_id = UUID(payload["source_id"])
+    user_id = UUID(payload["user_id"])
+
+    async with get_async_session() as session:
+        source = await session.get(Source, source_id)
+        text = source.content_text if source is not None else ""
+    if not text:
+        async with get_async_session() as session:
+            run = await session.get(ExtractionRun, run_id)
+            if run is not None:
+                run.status = "failed"
+                run.error = "source has no stored content"
+                await session.commit()
+        return
+
+    proposals = await extract_canon(text, user_id=user_id)
+
+    async with get_async_session() as session:
+        run = await session.get(ExtractionRun, run_id)
+        if run is not None:
+            run.proposals = proposals
+            run.status = "ready"
+            run.error = None
+            await session.commit()
+
+
 async def _run_continuity(payload: dict) -> None:
     # Lazy imports: plans (router module) imports app.jobs.repository, so
     # importing it at module scope here would be a cycle.
@@ -191,6 +227,20 @@ async def _dead_report(payload: dict) -> None:
     await _fail_row(ContinuityReport, payload["report_id"], "report_failed_dead_job")
 
 
+async def _dead_extraction(payload: dict) -> None:
+    from app.core.orm_models import ExtractionRun
+
+    async with get_async_session() as session:
+        run = await session.get(ExtractionRun, UUID(payload["run_id"]))
+        if run is not None and run.status in ("pending", "processing"):
+            run.status = "failed"
+            run.error = "extraction failed"
+            await session.commit()
+            log_business_event(
+                logger, "extraction_failed_dead_job", id=payload["run_id"]
+            )
+
+
 async def _dead_plan(payload: dict) -> None:
     from app.core.orm_models import BookPlan
 
@@ -209,5 +259,6 @@ HANDLERS: dict[str, Handler] = {
     "generate_prose_scene": Handler(run=_run_generate_prose_scene, on_dead=_dead_scene),
     "process_source": Handler(run=_run_process_source, on_dead=_dead_source),
     "generate_outline": Handler(run=_run_generate_outline, on_dead=_dead_plan),
+    "extract_canon": Handler(run=_run_extract_canon, on_dead=_dead_extraction),
     "continuity_check": Handler(run=_run_continuity, on_dead=_dead_report),
 }

@@ -358,6 +358,46 @@ export interface CanonResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Extraction (app/api/extraction.py) — Source -> proposed Canon -> commit
+// ---------------------------------------------------------------------------
+
+export interface CharacterProposal {
+  name: string
+  role?: string | null
+  description?: string | null
+}
+
+export interface CanonEntryProposal {
+  name: string
+  category: CanonCategory | string
+  content?: string | null
+}
+
+export interface ExtractionProposals {
+  characters: CharacterProposal[]
+  canon_entries: CanonEntryProposal[]
+  style: Partial<StyleGuide>
+  synopsis: string
+}
+
+/** GET /books/{id}/extractions/{run_id} */
+export interface ExtractionRun {
+  id: string
+  source_id: string | null
+  status: 'pending' | 'ready' | 'failed' | 'committed' | string
+  proposals: ExtractionProposals | Record<string, never>
+  error?: string | null
+}
+
+/** POST /books/{id}/extractions/{run_id}/commit body — the reviewed selection. */
+export interface ExtractionCommit {
+  characters?: CharacterProposal[]
+  canon_entries?: CanonEntryProposal[]
+  style?: Partial<StyleGuide>
+  synopsis?: string
+}
+
+// ---------------------------------------------------------------------------
 // Versioning (app/api/versioning.py)
 // ---------------------------------------------------------------------------
 

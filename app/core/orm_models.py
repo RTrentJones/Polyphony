@@ -720,3 +720,36 @@ class StyleGuide(Base):
         # Exactly one style guide per book.
         UniqueConstraint("book_id", name="uq_style_guides_book"),
     )
+
+
+class ExtractionRun(Base):
+    """A Source -> proposed Canon extraction, held for review before commit.
+
+    Extraction PROPOSES; it never writes canon directly (docs/BRD.md R6). The
+    LLM's typed candidates (characters / canon entries / style / synopsis) live
+    here as JSON until the author edits/approves them, at which point commit
+    writes the real entities plus an 'imported' version (Phase 2). Book-rooted.
+    """
+
+    __tablename__ = "extraction_runs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    book_id = Column(
+        UUID(as_uuid=True), ForeignKey("books.id", ondelete="CASCADE"), nullable=False
+    )
+    # Provenance — deleting the source must not delete an in-flight review.
+    source_id = Column(
+        UUID(as_uuid=True), ForeignKey("sources.id", ondelete="SET NULL"), nullable=True
+    )
+    user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    status = Column(
+        String(20), nullable=False, default="pending"
+    )  # pending | ready | failed | committed
+    # {characters:[...], canon_entries:[...], style:{...}, synopsis:"..."}
+    proposals = Column(JSON)
+    error = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("idx_extraction_runs_book_id", "book_id"),)

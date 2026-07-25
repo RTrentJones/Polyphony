@@ -361,6 +361,7 @@ from app.api import auth as auth_router  # noqa: E402
 from app.api import books as books_router  # noqa: E402
 from app.api import canon as canon_router  # noqa: E402
 from app.api import characters as characters_router  # noqa: E402
+from app.api import extraction as extraction_router  # noqa: E402
 from app.api import plans as plans_router  # noqa: E402
 from app.api import scenes as scenes_router  # noqa: E402
 from app.api import sources as sources_router  # noqa: E402
@@ -419,6 +420,12 @@ app.include_router(
     usage_router.router,
     prefix="/api/v1",
     tags=["Usage"],
+    responses={401: {"description": "Unauthorized"}},
+)
+app.include_router(
+    extraction_router.router,
+    prefix="/api/v1",
+    tags=["Extraction"],
     responses={401: {"description": "Unauthorized"}},
 )
 
