@@ -14,7 +14,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.books import _owned_book, _owned_chapter
-from app.core.budget import check_user_budget
+from app.core.budget import (
+    check_user_budget,
+    estimate_tokens,
+    remaining_budget_24h,
+)
 from app.core.database import get_db
 from app.core.logging_config import setup_logging
 from app.core.orm_models import (
@@ -33,6 +37,7 @@ from app.core.orm_models import (
 from app.core.security import get_current_active_user
 from app.exports.builder import scene_text
 from app.jobs import repository as jobs_repo
+from app.llm.tier import get_tier
 from app.planning.canon import render_bible
 from app.planning.outline import generate_outline, validate_outline_nodes
 from app.versioning import repository as versions_repo
@@ -111,6 +116,10 @@ def _plan_dict(p: BookPlanORM) -> dict:
         "book_id": str(p.book_id),
         "kind": p.kind,
         "content": p.content or [],
+        "status": getattr(p, "status", "ready"),
+        "stage": getattr(p, "stage", None),
+        "warnings": getattr(p, "warnings", None) or [],
+        "error": getattr(p, "error", None),
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
     }
 
@@ -171,7 +180,14 @@ async def generate_plan(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """LLM-draft an outline/beat sheet from the synopsis + character bible."""
+    """Draft an outline/beat sheet from the canon.
+
+    kind='outline' on a staged-capable tier with budget to spare runs the STAGED,
+    canon-grounded, fidelity-gated generator as a background job (~6 calls) and
+    returns {plan_id, job_id, status:'generating'} — poll GET /books/{id}/plans.
+    Otherwise (beat_sheet, staged disabled, or budget too low to finish) it
+    degrades to a single synchronous call (docs/BRD.md R5, R7.3).
+    """
     book = await _owned_book(book_id, current_user, db)
     if not book.synopsis:
         raise HTTPException(
@@ -203,6 +219,47 @@ async def generate_plan(
     # plus canon entries and style. Was a one-line `name: role description` slice
     # that dropped goals/arc/relationships and the entire world (docs/BRD.md §1).
     bible = render_bible(characters, canon_entries, style)
+
+    # Preflight: the staged path is ~6 calls over the whole canon. Only take it if
+    # the tier allows it AND the remaining budget can plausibly finish it;
+    # otherwise degrade to the single call rather than half-write a doomed job.
+    tier = get_tier()
+    canon_chars = len(book.synopsis or "") + len(bible)
+    staged_estimate = 6 * estimate_tokens(canon_chars)
+    remaining = await remaining_budget_24h(db, current_user.id)
+    if (
+        payload.kind == "outline"
+        and tier.allow_staged_outline
+        and remaining >= staged_estimate
+    ):
+        plan = (
+            await db.execute(
+                select(BookPlanORM).where(
+                    BookPlanORM.book_id == book.id, BookPlanORM.kind == payload.kind
+                )
+            )
+        ).scalar_one_or_none()
+        if plan is None:
+            plan = BookPlanORM(book_id=book.id, kind=payload.kind, content=[])
+            db.add(plan)
+        plan.status = "generating"
+        plan.stage = "skeleton"
+        plan.error = None
+        await db.flush()
+        job = await jobs_repo.enqueue(
+            db,
+            kind="generate_outline",
+            payload={
+                "plan_id": str(plan.id),
+                "book_id": str(book.id),
+                "user_id": str(current_user.id),
+                "chapters_target": payload.chapters_target,
+            },
+            user_id=current_user.id,
+            max_attempts=1,  # a retry re-spends ~6 calls; the user can re-trigger
+        )
+        await db.commit()
+        return {"plan_id": str(plan.id), "job_id": str(job.id), "status": "generating"}
 
     try:
         nodes = await generate_outline(

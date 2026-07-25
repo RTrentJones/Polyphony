@@ -86,23 +86,59 @@ async def offline_extraction(corpus_text: str, gt: dict) -> dict:
 
 
 async def offline_outline(gt: dict) -> dict:
+    from types import SimpleNamespace
+
+    from app.planning.canon import render_characters
     from app.planning.outline import generate_outline
+
+    from evals.graders.fidelity import grade_fidelity
+
+    # Pass the CAST — the eval never having characters is precisely why the bug
+    # survived (docs/BRD.md §"Why the evals stayed green"). Build the bible from
+    # gt['cast'] via the app's own renderer.
+    cast_objs = [
+        SimpleNamespace(
+            name=n,
+            role="",
+            description="",
+            goals="",
+            arc="",
+            notes="",
+            personality_traits=None,
+            voice_characteristics=None,
+            relationships=None,
+        )
+        for n in gt.get("cast", [])
+    ]
+    bible = render_characters(cast_objs)
 
     nodes = await generate_outline(
         title=f"eval-{gt['book']}",
         synopsis=gt["synopsis"],
+        character_bible=bible,
         chapters_target=len(gt["canonical_beats"]),
     )
     structural = bool(nodes) and all(n.get("title") for n in nodes)
     recall = beat_recall(nodes, gt["canonical_beats"])
-    return {
+
+    # Fidelity-gate the score when the corpus declares principals (cel): a
+    # beautiful outline about the WRONG story now scores ~0. beat_recall is
+    # demoted to a secondary structural signal (docs/BRD.md §Phase 5).
+    fid = gt.get("fidelity")
+    out: dict = {
         "n_nodes": len(nodes),
         "structural_ok": structural,
         "beat_recall": recall,
-        # score = the deterministic beat-recall (structural-gated), the signal
-        # to iterate on without an LLM judge.
-        "score": recall if structural else 0.0,
     }
+    if fid:
+        fs = grade_fidelity(nodes, fid["principals"], set(fid["known"]))
+        out["cast_fidelity"] = fs.principal_recall
+        out["unknown_rate"] = fs.unknown_rate
+        out["missing_principals"] = fs.missing
+        out["score"] = round(fs.principal_recall * recall, 4) if structural else 0.0
+    else:
+        out["score"] = recall if structural else 0.0
+    return out
 
 
 async def run(book: str, steps: list[str]) -> dict:

@@ -21,9 +21,27 @@ There is no truncation in this module. A large canon is ~10k tokens against a
 category and say so (Phase 5) — we never cut a string mid-sentence.
 """
 
+from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional
+from uuid import UUID
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm_text import MAX_CANON_CHARS, as_quoted_block, clean_for_llm
+
+# Roles that make a character a PRINCIPAL — the hard-gate cast that must appear
+# in a faithful outline (docs/BRD.md R1.4).
+_PRINCIPAL_ROLES = {
+    "protagonist",
+    "antagonist",
+    "deuteragonist",
+    "main",
+    "lead",
+    "villain",
+    "hero",
+    "narrator",
+}
 
 # Bible fields rendered for every character, in the order an author would want
 # them read: who they are, what they want, how they change, how they sound.
@@ -211,3 +229,117 @@ def render_canon(
     # Bound the assembled whole, not each part: this is the cost/DoS ceiling.
     clean_for_llm(canon, max_chars=MAX_CANON_CHARS, label="canon")
     return canon
+
+
+def _name_aliases(name: str) -> list[str]:
+    """A name plus its individual tokens ("Milo Voss" -> Milo, Voss) as aliases,
+    so a chapter that refers to a character by first name still counts as present.
+    Single-letter tokens are dropped to avoid spurious matches."""
+    toks = [t for t in (name or "").split() if len(t) > 1]
+    return [name, *toks] if len(toks) > 1 else [name]
+
+
+@dataclass
+class Canon:
+    """A book's assembled Canon — S0 of the staged outline (docs/BRD.md R5).
+
+    Holds the whole authored truth (title, genre, synopsis, cast, canon entries,
+    style) plus the derived grounding a fidelity check needs: canon_terms (the
+    known-proper-noun allowlist) and principals (the hard-gate cast).
+    """
+
+    title: str
+    genre: str = ""
+    synopsis: str = ""
+    characters: list = field(default_factory=list)
+    canon_entries: list = field(default_factory=list)
+    style: Any = None
+
+    def bible(self) -> str:
+        return render_bible(self.characters, self.canon_entries, self.style)
+
+    def full_block(self) -> str:
+        """The whole canon as one fenced prompt block — untruncated.
+
+        Raises TextTooLargeError above MAX_CANON_CHARS (loud by design); callers
+        may summarize a category and retry (staged degrade).
+        """
+        blocks: list[str] = [f"Title: {clean_for_llm(self.title)}"]
+        if self.genre:
+            blocks.append(f"Genre: {clean_for_llm(self.genre)}")
+        syn = as_quoted_block(self.synopsis, "synopsis")
+        if syn:
+            blocks.append(syn)
+        bible_block = as_quoted_block(self.bible(), "canon")
+        if bible_block:
+            blocks.append(bible_block)
+        canon = "\n\n".join(blocks)
+        clean_for_llm(canon, max_chars=MAX_CANON_CHARS, label="canon")
+        return canon
+
+    def canon_terms(self) -> set[str]:
+        """Known proper nouns: character names (+ tokens) + canon-entry names."""
+        terms: set[str] = set()
+        for c in self.characters:
+            if getattr(c, "name", None):
+                terms.update(_name_aliases(c.name))
+        for e in self.canon_entries:
+            if getattr(e, "name", None):
+                terms.add(e.name)
+        return terms
+
+    def principals(self) -> list[dict]:
+        """The hard-gate cast as [{name, aliases}]. Characters whose role marks
+        them principal; if none are marked, the whole (hand-authored) cast."""
+        marked = [
+            c
+            for c in self.characters
+            if any(
+                r in (getattr(c, "role", "") or "").lower() for r in _PRINCIPAL_ROLES
+            )
+        ]
+        chosen = marked or list(self.characters)
+        return [{"name": c.name, "aliases": _name_aliases(c.name)} for c in chosen]
+
+
+async def build_canon(session: AsyncSession, book_id: UUID) -> Canon:
+    """S0: assemble a book's whole Canon from the DB (no LLM). Book is the root,
+    so every piece is queried by book_id."""
+    from app.core.orm_models import Book, CanonEntry, Character, StyleGuide
+
+    book = await session.get(Book, book_id)
+    if book is None:
+        raise ValueError(f"book {book_id} not found")
+    characters = list(
+        (
+            await session.execute(
+                select(Character)
+                .where(Character.book_id == book_id)
+                .order_by(Character.name)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    canon_entries = list(
+        (
+            await session.execute(
+                select(CanonEntry)
+                .where(CanonEntry.book_id == book_id)
+                .order_by(CanonEntry.position)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    style = (
+        await session.execute(select(StyleGuide).where(StyleGuide.book_id == book_id))
+    ).scalar_one_or_none()
+    return Canon(
+        title=book.title,
+        genre=book.genre or "",
+        synopsis=book.synopsis or "",
+        characters=characters,
+        canon_entries=canon_entries,
+        style=style,
+    )

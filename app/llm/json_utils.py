@@ -71,6 +71,44 @@ def extract_json_array(text: str) -> list:
     raise ValueError("Reply contains no parseable JSON array")
 
 
+def extract_json_object(text: str) -> dict:
+    """Best-effort extraction of a JSON object from an LLM reply.
+
+    Handles code fences and leading/trailing prose. Raises ValueError when no
+    object parses. Used by the staged-outline stages (skeleton, audit) and the
+    ensemble, which return objects rather than arrays.
+    """
+    t = (text or "").replace("```json", "").replace("```", "").strip()
+    try:
+        whole = json.loads(t)
+        if isinstance(whole, dict):
+            return whole
+    except json.JSONDecodeError:
+        pass
+
+    start = t.find("{")
+    while start != -1:
+        seg = t[start:]
+        # Whole tail, then trimmed to its last '}' (drops trailing prose).
+        for cand in _dedup([seg, _to_last_brace(seg)]):
+            if cand is None:
+                continue
+            try:
+                obj = json.loads(cand)
+                if isinstance(obj, dict):
+                    return obj
+            except json.JSONDecodeError:
+                pass
+        start = t.find("{", start + 1)
+
+    raise ValueError("Reply contains no parseable JSON object")
+
+
+def _to_last_brace(seg: str) -> str | None:
+    end = seg.rfind("}")
+    return seg[: end + 1] if end != -1 else None
+
+
 def _as_list(s: str | None):
     if not s:
         return None

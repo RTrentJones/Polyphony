@@ -447,6 +447,15 @@ class BookPlan(Base):
     kind = Column(String(20), nullable=False, default="outline")  # outline | beat_sheet
     # Ordered plan nodes: [{"title", "summary", "children": [...]}, ...]
     content = Column(JSON, nullable=False, default=list)
+    # Staged generation is a background job (Phase 5): status/stage let the
+    # frontend poll GET /books/{id}/plans for progress; warnings carry the
+    # fidelity audit's soft findings (never a hard fail).
+    status = Column(
+        String(20), nullable=False, default="ready"
+    )  # ready|generating|failed
+    stage = Column(String(30))  # skeleton | chapters | beats | audit
+    warnings = Column(JSON)
+    error = Column(Text)
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
