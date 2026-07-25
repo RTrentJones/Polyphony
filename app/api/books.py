@@ -39,6 +39,7 @@ from app.exports.builder import (
     to_markdown,
 )
 from app.jobs import repository as jobs_repo
+from app.llm.tier import get_tier
 
 router = APIRouter()
 
@@ -88,6 +89,9 @@ class ChapterSceneRequest(BaseModel):
     pov_character: Optional[str] = None
     target_word_count: int = Field(default=800, ge=100, le=3000)
     style_notes: Optional[str] = None
+    # Generation mode (docs/BRD.md §8). prose = one call per beat (default);
+    # ensemble = narrator/character/editor loop, opt-in and tier-gated.
+    mode: str = Field(default="prose", pattern="^(prose|ensemble)$")
 
 
 class SceneContentUpdate(BaseModel):
@@ -513,11 +517,18 @@ async def generate_scene_into_chapter(
         )
         db.add(scene)
         await db.flush()
+        # Ensemble is opt-in AND tier-gated (docs/BRD.md §8): on the free tier it
+        # isn't allowed, so fall back to prose rather than reject the request.
+        job_kind = (
+            "generate_ensemble_scene"
+            if payload.mode == "ensemble" and get_tier().allow_ensemble
+            else "generate_prose_scene"
+        )
         # Job + scene commit atomically: no 'processing' scene without a
         # durable job.
         await jobs_repo.enqueue(
             db,
-            kind="generate_prose_scene",
+            kind=job_kind,
             payload={
                 "scene_id": str(scene.id),
                 "request": request_dict,

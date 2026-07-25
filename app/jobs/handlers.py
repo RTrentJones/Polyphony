@@ -60,6 +60,22 @@ async def _run_generate_prose_scene(payload: dict) -> None:
         raise JobExecutionError(result.get("error", "prose scene generation failed"))
 
 
+async def _run_generate_ensemble_scene(payload: dict) -> None:
+    from app.orchestration.ensemble import run_ensemble_scene_workflow
+
+    book_id = payload.get("book_id")
+    result = await run_ensemble_scene_workflow(
+        UUID(payload["scene_id"]),
+        payload["request"],
+        UUID(payload["user_id"]),
+        book_id=UUID(book_id) if book_id else None,
+        chapter_summary=payload.get("chapter_summary", ""),
+        prior_scene_tail=payload.get("prior_tail", ""),
+    )
+    if result.get("status") == "failed":
+        raise JobExecutionError(result.get("error", "ensemble scene generation failed"))
+
+
 async def _run_process_source(payload: dict) -> None:
     from app.parsing.pipeline import process_source
 
@@ -257,6 +273,9 @@ async def _dead_plan(payload: dict) -> None:
 HANDLERS: dict[str, Handler] = {
     "generate_scene": Handler(run=_run_generate_scene, on_dead=_dead_scene),
     "generate_prose_scene": Handler(run=_run_generate_prose_scene, on_dead=_dead_scene),
+    "generate_ensemble_scene": Handler(
+        run=_run_generate_ensemble_scene, on_dead=_dead_scene
+    ),
     "process_source": Handler(run=_run_process_source, on_dead=_dead_source),
     "generate_outline": Handler(run=_run_generate_outline, on_dead=_dead_plan),
     "extract_canon": Handler(run=_run_extract_canon, on_dead=_dead_extraction),
