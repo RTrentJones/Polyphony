@@ -220,6 +220,68 @@ async def test_source_characters_cascade_preserves_cast(pg):
         ).scalar() == 1
 
 
+async def test_startup_migrator_resets_legacy_manuscript_schema(pg):
+    """app/migrate.py fingerprints + resets a LEGACY database — stamped at the
+    REUSED revision id '0006' with the old `manuscripts` table — then rebuilds to
+    head; a second run does NOT reset again (PR review, final).
+
+    Revision membership cannot detect this (both the old and new chains have a
+    '0006'), so the migrator keys on the schema shape instead.
+    """
+    import app.migrate as migrate_mod
+    from alembic import command
+
+    # Replace the fixture's up-to-date schema with the legacy one, stamped '0006'.
+    async with pg() as s:
+        await s.execute(text("DROP SCHEMA public CASCADE"))
+        await s.execute(text("CREATE SCHEMA public"))
+        await s.execute(text("CREATE TABLE manuscripts (id integer)"))  # old-only
+        await s.execute(
+            text("CREATE TABLE alembic_version (version_num varchar(32) NOT NULL)")
+        )
+        await s.execute(
+            text("INSERT INTO alembic_version VALUES ('0006')")
+        )  # reused id
+        await s.commit()
+
+    cfg = migrate_mod._alembic_config()
+    await migrate_mod.reset_if_legacy(cfg)
+    await asyncio.to_thread(command.upgrade, cfg, "head")
+
+    async with pg() as s:
+        # legacy table gone, new baseline present, chain at head
+        assert (
+            await s.scalar(
+                text("SELECT count(*) FROM pg_tables WHERE tablename = 'manuscripts'")
+            )
+        ) == 0
+        assert (
+            await s.scalar(
+                text("SELECT count(*) FROM pg_tables WHERE tablename = 'sources'")
+            )
+        ) == 1
+        assert (
+            await s.scalar(text("SELECT version_num FROM alembic_version"))
+        ) == "0007"
+        # a sentinel to prove the SECOND run does not drop the schema again
+        await s.execute(text("CREATE TABLE reset_sentinel (x integer)"))
+        await s.commit()
+
+    await migrate_mod.reset_if_legacy(cfg)  # up-to-date now -> must NOT reset
+    await asyncio.to_thread(command.upgrade, cfg, "head")
+
+    async with pg() as s:
+        assert (
+            await s.scalar(
+                text(
+                    "SELECT count(*) FROM pg_tables WHERE tablename = 'reset_sentinel'"
+                )
+            )
+        ) == 1  # survived the second run -> no reset
+        await s.execute(text("DROP TABLE reset_sentinel"))
+        await s.commit()
+
+
 async def test_claim_one_skip_locked_across_sessions(pg):
     """Two concurrent claimers must get distinct jobs (FOR UPDATE SKIP LOCKED)."""
     from app.core.orm_models import User

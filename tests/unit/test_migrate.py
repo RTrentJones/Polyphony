@@ -1,10 +1,10 @@
 """The startup migrator's self-heal decision (app/migrate.py).
 
-The destructive branch (DROP SCHEMA on an orphaned database) is verified against
-real Postgres manually; here we lock the *decision inputs* so a healthy database is
-never reset: the current head must be recognized, and a pre-squash revision must
-read as orphaned. If a future rename made head unrecognized, this catches it before
-it could nuke a live database on deploy.
+The destructive reset itself is exercised against real Postgres in
+tests/integration/test_pg_pipeline.py. Here we lock the fact that makes the
+DESIGN necessary: the old and new chains reuse revision ids, so revision
+membership cannot distinguish a legacy database from an up-to-date one — hence the
+migrator fingerprints the schema (`manuscripts` vs `sources`) instead.
 """
 
 import pytest
@@ -21,13 +21,17 @@ def _known_revisions() -> set[str]:
     return {s.revision for s in ScriptDirectory.from_config(cfg).walk_revisions()}
 
 
-def test_current_head_is_recognized_so_a_healthy_db_is_never_reset():
+def test_head_is_recognized():
     known = _known_revisions()
-    assert "0007" in known  # current head -> migrate up, no reset
+    assert "0007" in known  # current head
     assert "0001" in known  # frozen baseline
 
 
-def test_a_pre_squash_revision_reads_as_orphaned():
-    # This is exactly the stamp a beta/prod DB carries before the reset; it must
-    # NOT resolve, so the migrator resets and rebuilds (docs migration 0007).
-    assert "0006_old_presquash_gone" not in _known_revisions()
+def test_revision_ids_are_reused_so_membership_cannot_detect_legacy():
+    # The old `main` head AND a new-chain migration are both named '0006' (off
+    # '0005'). A legacy DB stamped '0006' therefore passes a membership check and
+    # would be missed — which is exactly why reset detection fingerprints the
+    # schema shape, not the revision id (PR review, final).
+    known = _known_revisions()
+    assert "0006" in known
+    assert "0005" in known
