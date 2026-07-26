@@ -49,10 +49,14 @@ export default function SourcesPage() {
     setUploading(true)
 
     try {
-      await uploadSource(uploadData.file, uploadData.title)
+      const res = await uploadSource(uploadData.file, uploadData.title)
       setUploadModalOpen(false)
       setUploadData({ file: null, title: '' })
-      await fetchSources()
+      // Upload PROPOSES canon; send the author straight to review + commit
+      // (docs/BRD.md R4.4). Nothing is written until they approve.
+      router.push(
+        `/sources/review?book=${res.book_id}&run=${res.extraction_run_id}`
+      )
     } catch (err: any) {
       setUploadError(err.message || 'Upload failed. Please try again.')
     } finally {

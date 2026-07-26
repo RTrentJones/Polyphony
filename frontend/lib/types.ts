@@ -96,7 +96,8 @@ export interface SourceListResponse {
   limit: number
 }
 
-/** POST /sources/upload — auto-creates a book when no book_id is given. */
+/** POST /sources/upload — auto-creates a book when no book_id is given, and
+ *  starts an extraction run whose proposals the author reviews before commit. */
 export interface SourceUploadResponse {
   id: string
   book_id: string
@@ -104,6 +105,8 @@ export interface SourceUploadResponse {
   author?: string | null
   word_count: number
   status: SourceStatus
+  /** Handle to the extraction whose proposals must be reviewed + committed. */
+  extraction_run_id: string
   message: string
 }
 

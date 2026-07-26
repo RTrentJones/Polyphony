@@ -76,15 +76,16 @@ async def _run_generate_ensemble_scene(payload: dict) -> None:
         raise JobExecutionError(result.get("error", "ensemble scene generation failed"))
 
 
-async def _run_index_source_voices(payload: dict) -> None:
-    from app.parsing.pipeline import index_source_voices
+async def _run_index_characters_voice(payload: dict) -> None:
+    from app.parsing.pipeline import index_characters_voice
 
-    # Idempotent + retryable: indexes only characters with indexed_at IS NULL, so
-    # a transient failure re-queues and re-processes just the incomplete ones.
-    await index_source_voices(
+    # Explicit approved character IDs (not source_id rediscovery), so merged
+    # existing characters are indexed too. Idempotent + retryable per source.
+    await index_characters_voice(
         UUID(payload["source_id"]),
         UUID(payload["book_id"]),
         UUID(payload["user_id"]),
+        payload.get("character_ids", []),
     )
 
 
@@ -268,7 +269,7 @@ HANDLERS: dict[str, Handler] = {
     "generate_ensemble_scene": Handler(
         run=_run_generate_ensemble_scene, on_dead=_dead_scene
     ),
-    "index_source_voices": Handler(run=_run_index_source_voices),
+    "index_characters_voice": Handler(run=_run_index_characters_voice),
     "generate_outline": Handler(run=_run_generate_outline, on_dead=_dead_plan),
     "extract_canon": Handler(run=_run_extract_canon, on_dead=_dead_extraction),
     "continuity_check": Handler(run=_run_continuity, on_dead=_dead_report),

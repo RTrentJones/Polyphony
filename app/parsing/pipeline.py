@@ -99,18 +99,22 @@ async def save_upload(filename: str, content: bytes) -> dict:
     }
 
 
-async def index_source_voices(source_id: UUID, book_id: UUID, user_id: UUID) -> None:
-    """Index voice chunks for a source's committed characters — RETRYABLE.
+async def index_characters_voice(
+    source_id: UUID, book_id: UUID, user_id: UUID, character_ids: list
+) -> None:
+    """Index voice for the EXPLICIT approved characters from a source — RETRYABLE.
 
     Canon is written only by the reviewed extraction commit (docs/BRD.md R4.4);
-    voice indexing is a separate job over the source-linked characters that are
-    not yet indexed (`indexed_at IS NULL`). That predicate makes it idempotent
-    and retryable: if a transient vector failure leaves a character unindexed, the
-    job re-queues and re-processes ONLY the incomplete ones — a character can
-    never end up permanently voice-blind while its source reports success
-    (PR review #3). Each character's vectors are cleared before (re)indexing, so a
-    retry after a partial write never duplicates chunks.
+    voice indexing is a separate job. It takes EXPLICIT character IDs (not a
+    `Character.source_id` rediscovery) so a MERGED existing character — whose own
+    source_id may be None or another source — is still indexed from the approved
+    source (PR review #2). Idempotent PER SOURCE: only this source's chunks are
+    cleared before re-indexing, so a retry never duplicates and never erases a
+    character's manual or other-source voice.
     """
+    if not character_ids:
+        return
+    ids = [UUID(str(x)) for x in character_ids]
     async with get_async_session() as session:
         source = await session.get(Source, source_id)
         source_text = source.content_text if source is not None else ""
@@ -121,9 +125,7 @@ async def index_source_voices(source_id: UUID, book_id: UUID, user_id: UUID) -> 
             for c in (
                 await session.execute(
                     select(Character).where(
-                        Character.book_id == book_id,
-                        Character.source_id == source_id,
-                        Character.indexed_at.is_(None),
+                        Character.id.in_(ids), Character.book_id == book_id
                     )
                 )
             )
@@ -135,24 +137,31 @@ async def index_source_voices(source_id: UUID, book_id: UUID, user_id: UUID) -> 
     for character_id, name in targets:
         chunks = char_extractor.extract_character_content(source_text, name)
         stats = char_extractor.get_character_statistics(chunks)
-        # Clear any partial vectors from a prior failed attempt (idempotent retry).
-        await store.delete_character(str(character_id))
+        # Per-source idempotency: clear ONLY this source's chunks (never
+        # delete_character, which would erase manual/other-source voice).
+        await store.delete_source_chunks(str(character_id), str(source_id))
         if chunks:
-            # QuotaExhaustedError here propagates -> the worker pauses (free tier).
             await store.index_chunks(
                 character_id=str(character_id),
                 character_name=name,
                 user_id=str(user_id),
                 book_id=str(book_id),
+                source_id=str(source_id),
                 chunks=chunks,
             )
-        # Mark indexed LAST — only now is this character excluded from retries.
         async with get_async_session() as session:
             c = await session.get(Character, character_id)
             if c is not None:
                 c.indexed_at = datetime.now(timezone.utc)
                 if stats.get("dialogue_count"):
                     c.dialogue_count = stats["dialogue_count"]
+
+    log_business_event(
+        logger,
+        "characters_voice_indexed",
+        source_id=str(source_id),
+        characters=len(targets),
+    )
 
     log_business_event(
         logger,

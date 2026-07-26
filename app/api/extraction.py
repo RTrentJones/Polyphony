@@ -301,17 +301,19 @@ async def commit_extraction(
         )
         created["synopsis"] = True
 
-    # Voice indexing is a RETRYABLE job over source-linked characters whose
-    # indexing is incomplete (indexed_at IS NULL) — so a transient vector failure
-    # is retried, not silently skipped (PR review #3). Enqueued in-txn.
-    if run.source_id and (created["characters"] or created["updated_characters"]):
+    # Voice indexing is a RETRYABLE job over the EXPLICIT approved character IDs
+    # (created + merged), so a merged existing character is indexed too, and a
+    # transient vector failure is retried per-source, not skipped (PR review #2/#3).
+    target_ids = created["characters"] + created["updated_characters"]
+    if run.source_id and target_ids:
         await jobs_repo.enqueue(
             db,
-            kind="index_source_voices",
+            kind="index_characters_voice",
             payload={
                 "source_id": str(run.source_id),
                 "book_id": str(book.id),
                 "user_id": str(current_user.id),
+                "character_ids": target_ids,
             },
             user_id=current_user.id,
             max_attempts=3,

@@ -243,19 +243,26 @@ async def test_index_source_voices_indexes_committed_characters(pg, monkeypatch)
         s.add(src)
         await s.commit()
         await s.refresh(src)
-        # a committed character with no voice yet (indexed_at IS NULL)
-        ch = Character(user_id=u.id, book_id=book.id, source_id=src.id, name="Mina")
+        # A MERGED character: source_id is None (it did not originate from this
+        # source), but the explicit-id job must still index it (PR review #2).
+        ch = Character(user_id=u.id, book_id=book.id, source_id=None, name="Mina")
         s.add(ch)
         await s.commit()
         await s.refresh(ch)
         uid, bid, sid, cid = u.id, book.id, src.id, ch.id
 
-    await pipeline.index_source_voices(sid, bid, uid)
+    await pipeline.index_characters_voice(sid, bid, uid, [str(cid)])
 
     async with pg() as s:
         assert (
             await s.execute(
                 text("SELECT count(*) FROM voice_chunks WHERE user_id=:u"), {"u": uid}
+            )
+        ).scalar() == 2
+        # provenance recorded on the chunk
+        assert (
+            await s.execute(
+                text("SELECT count(*) FROM voice_chunks WHERE source_id=:s"), {"s": sid}
             )
         ).scalar() == 2
         assert (
@@ -264,6 +271,15 @@ async def test_index_source_voices_indexes_committed_characters(pg, monkeypatch)
                 {"c": cid},
             )
         ).scalar() is True
+
+    # Re-running is idempotent per source (still 2 chunks, not 4).
+    await pipeline.index_characters_voice(sid, bid, uid, [str(cid)])
+    async with pg() as s:
+        assert (
+            await s.execute(
+                text("SELECT count(*) FROM voice_chunks WHERE source_id=:s"), {"s": sid}
+            )
+        ).scalar() == 2
 
     hits = await get_chunk_store().retrieve_similar(
         character_id=str(cid), query="creatures of the night", k=2, user_id=str(uid)

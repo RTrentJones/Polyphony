@@ -259,6 +259,19 @@ class TestUploadRoutesThroughReview:
         assert v1["content"]["role"] == "protagonist"
         assert v1["content"]["description"] == "a dead analyst"
 
+        # and the merged character (source_id=None) is enqueued for voice indexing
+        # by EXPLICIT id — not rediscovered via Character.source_id (PR review #2).
+        from sqlalchemy import select
+
+        from app.core.orm_models import Job
+
+        job = (
+            await async_session.execute(
+                select(Job).where(Job.kind == "index_characters_voice")
+            )
+        ).scalar_one()
+        assert cid in job.payload["character_ids"]
+
 
 class TestVoiceIndexingRetryable:
     """#3: voice indexing retries incomplete (indexed_at IS NULL) characters."""
@@ -309,8 +322,8 @@ class TestVoiceIndexingRetryable:
 
         # first attempt fails at index_chunks -> raises (job would retry)
         with pytest.raises(RuntimeError):
-            await pipeline.index_source_voices(
-                test_source.id, test_book.id, test_book.user_id
+            await pipeline.index_characters_voice(
+                test_source.id, test_book.id, test_book.user_id, [str(cid)]
             )
         # the character is STILL unindexed, so a retry will re-process it
         await async_session.refresh(char)
@@ -319,8 +332,8 @@ class TestVoiceIndexingRetryable:
         # retry succeeds
         store.index_chunks.side_effect = None
         store.index_chunks.return_value = 1
-        await pipeline.index_source_voices(
-            test_source.id, test_book.id, test_book.user_id
+        await pipeline.index_characters_voice(
+            test_source.id, test_book.id, test_book.user_id, [str(cid)]
         )
         await async_session.refresh(char)
         assert char.indexed_at is not None  # now complete

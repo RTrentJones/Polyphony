@@ -52,6 +52,7 @@ class ChunkStore:
         user_id: str,
         book_id: str,
         chunks: list[dict],
+        source_id: Optional[str] = None,
         batch_size: int = 100,
     ) -> int:
         """Index content chunks for a character. Returns count indexed.
@@ -60,6 +61,10 @@ class ChunkStore:
         their character, and a missing book_id must fail loudly at the call site
         (TypeError) rather than silently writing a NULL that the book-scoped
         retrieval filter would then never match (docs/ADR-002-book-as-root.md §1).
+
+        `source_id` records voice PROVENANCE on the chunk so a character can carry
+        voice from multiple sources and each source is re-indexable in isolation
+        (PR review #2).
         """
         if not chunks:
             return 0
@@ -73,11 +78,12 @@ class ChunkStore:
                     await session.execute(
                         text("""
                             INSERT INTO voice_chunks
-                              (id, character_id, user_id, book_id, chunk_type,
-                               text, source_location, word_count, embedding)
+                              (id, character_id, user_id, book_id, source_id,
+                               chunk_type, text, source_location, word_count,
+                               embedding)
                             VALUES
-                              (:id, :character_id, :user_id, :book_id, :chunk_type,
-                               :text, :source_location, :word_count,
+                              (:id, :character_id, :user_id, :book_id, :source_id,
+                               :chunk_type, :text, :source_location, :word_count,
                                CAST(:embedding AS vector))
                             """),
                         {
@@ -85,6 +91,7 @@ class ChunkStore:
                             "character_id": character_id,
                             "user_id": user_id,
                             "book_id": book_id,
+                            "source_id": source_id,
                             "chunk_type": chunk.get("chunk_type", "unknown"),
                             "text": chunk["text"],
                             "source_location": chunk.get("source_location", ""),
@@ -95,6 +102,19 @@ class ChunkStore:
                 total += len(batch)
             await session.commit()
         return total
+
+    async def delete_source_chunks(self, character_id: str, source_id: str) -> None:
+        """Remove only THIS source's chunks for a character — idempotent per-source
+        re-indexing that preserves manual and other-source voice (PR review #2)."""
+        async with self._session() as session:
+            await session.execute(
+                text(
+                    "DELETE FROM voice_chunks "
+                    "WHERE character_id = :character_id AND source_id = :source_id"
+                ),
+                {"character_id": character_id, "source_id": source_id},
+            )
+            await session.commit()
 
     async def retrieve_similar(
         self,

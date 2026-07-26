@@ -12,6 +12,8 @@ import apiClient, { normalizeSource, toApiError } from './api-client'
 import type {
   AuthTokenResponse,
   Character,
+  ExtractionCommit,
+  ExtractionRun,
   LoginCredentials,
   RegisterData,
   Scene,
@@ -125,13 +127,14 @@ interface SourceState {
   isLoading: boolean
   error: string | null
   fetchSources: (bookId?: string) => Promise<void>
-  /** Upload into a book; omitting bookId auto-creates one server-side. */
+  /** Upload into a book; omitting bookId auto-creates one server-side. Returns
+   *  the raw response (carries extraction_run_id for the review workflow). */
   uploadSource: (
     file: File,
     title: string,
     author?: string,
     bookId?: string
-  ) => Promise<Source>
+  ) => Promise<SourceUploadResponse>
   deleteSource: (id: string) => Promise<void>
   fetchCharacters: (sourceId: string) => Promise<Character[]>
 }
@@ -173,7 +176,7 @@ export const useSourceStore = create<SourceState>((set) => ({
       )
       const source = normalizeSource({ ...data, uploaded_at: null })
       set((state) => ({ sources: [source, ...state.sources] }))
-      return source
+      return data
     } catch (err) {
       throw toApiError(err)
     }
@@ -196,6 +199,44 @@ export const useSourceStore = create<SourceState>((set) => ({
         `/sources/${sourceId}/characters`
       )
       return data.characters
+    } catch (err) {
+      throw toApiError(err)
+    }
+  },
+}))
+
+// ---------------------------------------------------------------------------
+// Extraction review (Source -> proposals -> reviewed commit; docs/BRD.md R4.4)
+// ---------------------------------------------------------------------------
+
+interface ExtractionState {
+  fetchExtraction: (bookId: string, runId: string) => Promise<ExtractionRun>
+  commitExtraction: (
+    bookId: string,
+    runId: string,
+    payload: ExtractionCommit
+  ) => Promise<Record<string, unknown>>
+}
+
+export const useExtractionStore = create<ExtractionState>(() => ({
+  fetchExtraction: async (bookId, runId) => {
+    try {
+      const { data } = await apiClient.get<ExtractionRun>(
+        `/books/${bookId}/extractions/${runId}`
+      )
+      return data
+    } catch (err) {
+      throw toApiError(err)
+    }
+  },
+
+  commitExtraction: async (bookId, runId, payload) => {
+    try {
+      const { data } = await apiClient.post<Record<string, unknown>>(
+        `/books/${bookId}/extractions/${runId}/commit`,
+        payload
+      )
+      return data
     } catch (err) {
       throw toApiError(err)
     }
