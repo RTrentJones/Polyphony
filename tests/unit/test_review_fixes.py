@@ -47,19 +47,20 @@ class TestFullImportedSnapshot:
 
 
 class TestSynopsisVersioning:
-    """#2: the synopsis is Canon — versioned and restorable."""
+    """#2: the synopsis is Canon — create -> v1, edit -> v2, original recoverable."""
 
-    async def test_edit_versions_and_restores(self, client, auth_headers, test_book):
-        bid = str(test_book.id)
-        # test_book already has a synopsis; edit it (v1)
+    async def test_create_v1_edit_v2_restore(self, client, auth_headers):
+        book = (
+            await client.post(
+                "/api/v1/books/",
+                json={"title": "B", "synopsis": "Version A."},
+                headers=auth_headers,
+            )
+        ).json()
+        bid = book["id"]
         await client.patch(
             f"/api/v1/books/{bid}",
-            json={"synopsis": "First version."},
-            headers=auth_headers,
-        )
-        await client.patch(
-            f"/api/v1/books/{bid}",
-            json={"synopsis": "Second version."},
+            json={"synopsis": "Version B."},
             headers=auth_headers,
         )
         versions = (
@@ -67,20 +68,41 @@ class TestSynopsisVersioning:
                 f"/api/v1/books/{bid}/versions/synopsis/{bid}", headers=auth_headers
             )
         ).json()["versions"]
-        assert [v["version_no"] for v in versions] == [2, 1]
+        assert [v["version_no"] for v in versions] == [2, 1]  # create->v1, edit->v2
+        v1 = (
+            await client.get(
+                f"/api/v1/books/{bid}/versions/synopsis/{bid}/1", headers=auth_headers
+            )
+        ).json()
+        assert v1["content"]["synopsis"] == "Version A."  # the ORIGINAL is kept
 
-        # restore v1 -> synopsis reverts
-        rr = await client.post(
+        # restore v1 -> synopsis reverts to A
+        await client.post(
             f"/api/v1/books/{bid}/versions/synopsis/{bid}/restore/1",
             headers=auth_headers,
         )
-        assert rr.status_code == 200, rr.text
         v3 = (
             await client.get(
                 f"/api/v1/books/{bid}/versions/synopsis/{bid}/3", headers=auth_headers
             )
         ).json()
-        assert v3["content"]["synopsis"] == "First version."
+        assert v3["content"]["synopsis"] == "Version A."
+
+    async def test_preexisting_unversioned_synopsis_is_preserved(
+        self, client, auth_headers, test_book
+    ):
+        # test_book's fixture set a synopsis directly (unversioned). The first edit
+        # must preserve that original as v1 before writing the new value.
+        bid = str(test_book.id)
+        await client.patch(
+            f"/api/v1/books/{bid}", json={"synopsis": "Edited."}, headers=auth_headers
+        )
+        v1 = (
+            await client.get(
+                f"/api/v1/books/{bid}/versions/synopsis/{bid}/1", headers=auth_headers
+            )
+        ).json()
+        assert v1["content"]["synopsis"] == "A test synopsis."  # not lost
 
 
 class TestDeletedCanonRestore:
@@ -185,59 +207,121 @@ class TestEnsembleFullCast:
         assert {"D", "E"} <= flagged
 
 
-class TestReprocessNonDestructive:
-    """#1: reprocessing a source never deletes existing (edited) canon."""
+class TestUploadRoutesThroughReview:
+    """#1: upload/reprocess propose via ExtractionRun; commit MERGES, never drops
+    reviewed fields onto an existing name-only character."""
 
-    async def test_existing_character_is_preserved(
+    async def test_commit_merges_into_existing_name_only_character(
+        self, client, auth_headers, async_session, test_book, test_source
+    ):
+        from app.core.orm_models import Character, ExtractionRun
+
+        # a name-only character (as a prior commit / seed might create)
+        existing = Character(
+            user_id=test_book.user_id, book_id=test_book.id, name="Milo Voss"
+        )
+        run = ExtractionRun(
+            book_id=test_book.id,
+            source_id=test_source.id,
+            user_id=test_book.user_id,
+            status="ready",
+            proposals={},
+        )
+        async_session.add_all([existing, run])
+        await async_session.commit()
+        cid = str(existing.id)
+
+        commit = await client.post(
+            f"/api/v1/books/{test_book.id}/extractions/{run.id}/commit",
+            json={
+                "characters": [
+                    {
+                        "name": "Milo Voss",
+                        "role": "protagonist",
+                        "description": "a dead analyst",
+                    }
+                ]
+            },
+            headers=auth_headers,
+        )
+        assert commit.status_code == 200, commit.text
+        # merged (updated), not silently skipped
+        assert cid in commit.json()["created"]["updated_characters"]
+        assert commit.json()["created"]["characters"] == []
+
+        # the reviewed role + description were applied AND versioned
+        v1 = (
+            await client.get(
+                f"/api/v1/books/{test_book.id}/versions/character/{cid}/1",
+                headers=auth_headers,
+            )
+        ).json()
+        assert v1["content"]["role"] == "protagonist"
+        assert v1["content"]["description"] == "a dead analyst"
+
+
+class TestVoiceIndexingRetryable:
+    """#3: voice indexing retries incomplete (indexed_at IS NULL) characters."""
+
+    async def test_failed_index_is_retried_not_skipped(
         self, async_session, test_book, test_source, monkeypatch
     ):
         import app.parsing.pipeline as pipeline
         from app.core.orm_models import Character
 
-        # an author's enriched character, already in the book
-        existing = Character(
+        char = Character(
             user_id=test_book.user_id,
             book_id=test_book.id,
             source_id=test_source.id,
-            name="Milo Voss",
-            goals="quit the afterlife",  # hand-authored enrichment
-        )
-        async_session.add(existing)
-        test_source.content_text = "Milo Voss and a new one, Zara Okafor, talk."
+            name="Mina",
+        )  # indexed_at is NULL
+        test_source.content_text = "Mina speaks."
+        async_session.add(char)
         await async_session.commit()
-        existing_id = existing.id
+        cid = char.id
 
-        # extractor "re-finds" Milo (existing) + Zara (new); store is mocked
         monkeypatch.setattr(
             pipeline.char_extractor,
-            "extract_characters",
-            AsyncMock(return_value=["Milo Voss", "Zara Okafor"]),
-        )
-        monkeypatch.setattr(
-            pipeline.char_extractor, "extract_character_content", lambda t, n: []
+            "extract_character_content",
+            lambda t, n: [{"chunk_type": "dialogue", "text": "The dead travel fast."}],
         )
         monkeypatch.setattr(
             pipeline.char_extractor,
             "get_character_statistics",
-            lambda c: {"dialogue_count": 0},
+            lambda c: {"dialogue_count": 1},
         )
 
         class _Ctx:
             async def __aenter__(self_):
                 return async_session
 
-            async def __aexit__(self_, *a):
+            async def __aexit__(self_, exc_type, *a):
+                # Mirror the real session factory: commit on clean exit.
+                if exc_type is None:
+                    await async_session.commit()
                 return False
 
-        monkeypatch.setattr(pipeline, "get_async_session", lambda: _Ctx(async_session))
+        monkeypatch.setattr(pipeline, "get_async_session", lambda: _Ctx())
+
         store = AsyncMock()
-        store.index_chunks.return_value = 0
+        store.index_chunks.side_effect = RuntimeError("vector store down")
         monkeypatch.setattr(pipeline, "get_chunk_store", lambda: store)
 
-        await pipeline.process_source(test_source.id, test_book.user_id, text=None)
+        # first attempt fails at index_chunks -> raises (job would retry)
+        with pytest.raises(RuntimeError):
+            await pipeline.index_source_voices(
+                test_source.id, test_book.id, test_book.user_id
+            )
+        # the character is STILL unindexed, so a retry will re-process it
+        await async_session.refresh(char)
+        assert char.indexed_at is None
 
-        # Milo (edited) survives with goals intact; Zara was added
-        preserved = await async_session.get(Character, existing_id)
-        assert preserved is not None
-        assert preserved.goals == "quit the afterlife"  # NOT clobbered
-        store.delete_character.assert_not_called()  # nothing was deleted
+        # retry succeeds
+        store.index_chunks.side_effect = None
+        store.index_chunks.return_value = 1
+        await pipeline.index_source_voices(
+            test_source.id, test_book.id, test_book.user_id
+        )
+        await async_session.refresh(char)
+        assert char.indexed_at is not None  # now complete
+        assert cid == char.id

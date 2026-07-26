@@ -19,7 +19,7 @@ from sqlalchemy import select
 
 from app.core.database import get_async_session
 from app.core.logging_config import log_business_event, setup_logging
-from app.core.orm_models import ContinuityReport, Scene, Source
+from app.core.orm_models import ContinuityReport, Scene
 
 logger = setup_logging("jobs.handlers")
 
@@ -76,20 +76,16 @@ async def _run_generate_ensemble_scene(payload: dict) -> None:
         raise JobExecutionError(result.get("error", "ensemble scene generation failed"))
 
 
-async def _run_process_source(payload: dict) -> None:
-    from app.parsing.pipeline import process_source
+async def _run_index_source_voices(payload: dict) -> None:
+    from app.parsing.pipeline import index_source_voices
 
-    source_id = UUID(payload["source_id"])
-    # text=None: the pipeline reads the durable content_text from the row.
-    await process_source(source_id, UUID(payload["user_id"]))
-    # The pipeline marks the row failed instead of raising; surface that to
-    # the job so retries/backoff apply.
-    async with get_async_session() as session:
-        status = (
-            await session.execute(select(Source.status).where(Source.id == source_id))
-        ).scalar_one_or_none()
-    if status == "failed":
-        raise JobExecutionError("source processing failed")
+    # Idempotent + retryable: indexes only characters with indexed_at IS NULL, so
+    # a transient failure re-queues and re-processes just the incomplete ones.
+    await index_source_voices(
+        UUID(payload["source_id"]),
+        UUID(payload["book_id"]),
+        UUID(payload["user_id"]),
+    )
 
 
 async def _run_generate_outline(payload: dict) -> None:
@@ -235,10 +231,6 @@ async def _dead_scene(payload: dict) -> None:
     await _fail_row(Scene, payload["scene_id"], "scene_failed_dead_job")
 
 
-async def _dead_source(payload: dict) -> None:
-    await _fail_row(Source, payload["source_id"], "source_failed_dead_job")
-
-
 async def _dead_report(payload: dict) -> None:
     await _fail_row(ContinuityReport, payload["report_id"], "report_failed_dead_job")
 
@@ -276,7 +268,7 @@ HANDLERS: dict[str, Handler] = {
     "generate_ensemble_scene": Handler(
         run=_run_generate_ensemble_scene, on_dead=_dead_scene
     ),
-    "process_source": Handler(run=_run_process_source, on_dead=_dead_source),
+    "index_source_voices": Handler(run=_run_index_source_voices),
     "generate_outline": Handler(run=_run_generate_outline, on_dead=_dead_plan),
     "extract_canon": Handler(run=_run_extract_canon, on_dead=_dead_extraction),
     "continuity_check": Handler(run=_run_continuity, on_dead=_dead_report),

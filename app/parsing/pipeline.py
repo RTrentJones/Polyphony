@@ -1,12 +1,11 @@
-"""Source ingestion pipeline.
+"""Source ingestion: upload validation/parsing + voice indexing.
 
-Was the document-parser service + the TODO stub in the gateway's background
-task. Now one in-process pipeline: validate/save the upload, parse it, extract
-characters via the LLM, persist Character + CharacterChunk rows, and index the
-chunks into the pgvector store (same database).
-
-A Source is book-rooted (docs/ADR-002-book-as-root.md §2), so every character
-and voice chunk it produces inherits the Source's `book_id`.
+Two responsibilities, deliberately split (docs/BRD.md R4.4, PR review #1):
+- `save_upload` validates and parses an uploaded file into durable text.
+- `index_source_voices` indexes voice chunks for a source's ALREADY-COMMITTED
+  characters. It does NOT write canon — canon is created only by the reviewed
+  extraction commit (app/api/extraction.py). Voice indexing is a separate,
+  retryable job.
 """
 
 import hashlib
@@ -19,12 +18,9 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.database import get_async_session
-from app.core.logging_config import log_business_event, log_error, setup_logging
-from app.characters.serialize import character_snapshot
-from app.core.orm_models import Character, CharacterChunk, Source
-from app.llm.errors import QuotaExhaustedError
+from app.core.logging_config import log_business_event, setup_logging
+from app.core.orm_models import Character, Source
 from app.rag.store import get_chunk_store
-from app.versioning import repository as versions_repo
 
 from .character_extractor import CharacterExtractor
 from .parser import DocumentParser
@@ -103,138 +99,64 @@ async def save_upload(filename: str, content: bytes) -> dict:
     }
 
 
-async def process_source(
-    source_id: UUID, user_id: UUID, text: str | None = None
-) -> None:
-    """Background pipeline: extract characters, persist them, index their voices.
+async def index_source_voices(source_id: UUID, book_id: UUID, user_id: UUID) -> None:
+    """Index voice chunks for a source's committed characters — RETRYABLE.
 
-    Text is read from the source row (durable) — restart-safe, unlike a
-    container-local file. Characters + chunks are COMMITTED before any pgvector
-    indexing, so the voice_chunks FK to characters is satisfied on Postgres (the
-    vector store commits on its own connection and can't see an uncommitted
-    parent).
-
-    Every character and voice chunk inherits the Source's `book_id`: the book is
-    the root (docs/ADR-002-book-as-root.md §1).
-
-    NON-DESTRUCTIVE (PR review #1): this NEVER deletes existing canon. Only names
-    not already in the book are created — an author's manually enriched character
-    (goals/relationships/voice) is preserved on reprocess, and every auto-created
-    character is versioned so nothing here is an unrecoverable write. Authors who
-    want a full review-then-commit flow use POST /books/{id}/sources/{sid}/extract.
+    Canon is written only by the reviewed extraction commit (docs/BRD.md R4.4);
+    voice indexing is a separate job over the source-linked characters that are
+    not yet indexed (`indexed_at IS NULL`). That predicate makes it idempotent
+    and retryable: if a transient vector failure leaves a character unindexed, the
+    job re-queues and re-processes ONLY the incomplete ones — a character can
+    never end up permanently voice-blind while its source reports success
+    (PR review #3). Each character's vectors are cleared before (re)indexing, so a
+    retry after a partial write never duplicates chunks.
     """
-    try:
-        # Load the parsed text + the book's existing cast (by name) in one txn.
-        async with get_async_session() as session:
-            source = await session.get(Source, source_id)
-            if source is None:
-                return
-            book_id = source.book_id
-            source_text = text if text is not None else (source.content_text or "")
-            if not source_text:
-                raise ValueError("source has no stored content to process")
-            existing_names = set(
-                (
-                    await session.execute(
-                        select(Character.name).where(Character.book_id == book_id)
+    async with get_async_session() as session:
+        source = await session.get(Source, source_id)
+        source_text = source.content_text if source is not None else ""
+        if not source_text:
+            return
+        targets = [
+            (c.id, c.name)
+            for c in (
+                await session.execute(
+                    select(Character).where(
+                        Character.book_id == book_id,
+                        Character.source_id == source_id,
+                        Character.indexed_at.is_(None),
                     )
                 )
-                .scalars()
-                .all()
             )
-            source.status = "processing"
+            .scalars()
+            .all()
+        ]
 
-        character_names = await char_extractor.extract_characters(
-            source_text, user_id=user_id
-        )
-        # Only genuinely new names — never overwrite or delete an existing one.
-        new_names = list(dict.fromkeys(character_names))
-        new_names = [n for n in new_names if n not in existing_names]
-
-        store = get_chunk_store()
-        indexed_total = 0
-
-        for name in new_names:
-            chunks = char_extractor.extract_character_content(source_text, name)
-            stats = char_extractor.get_character_statistics(chunks)
-
-            # 1) Persist + COMMIT the character (and its chunk rows) first.
-            async with get_async_session() as session:
-                character = Character(
-                    user_id=user_id,
-                    book_id=book_id,
-                    source_id=source_id,
-                    name=name,
-                    dialogue_count=stats["dialogue_count"],
-                )
-                session.add(character)
-                await session.flush()
-                character_id = character.id
-                for chunk in chunks:
-                    session.add(
-                        CharacterChunk(
-                            character_id=character_id,
-                            chunk_type=chunk["chunk_type"],
-                            content=chunk["text"],
-                            source_location=chunk.get("source_location"),
-                        )
-                    )
-                # Version the imported character (full snapshot) so an auto-created
-                # entity is restorable like any other (PR review #1).
-                await versions_repo.snapshot(
-                    session,
-                    book_id=book_id,
-                    entity_type="character",
-                    entity_id=character_id,
-                    content=character_snapshot(character),
-                    reason="imported",
-                    created_by=user_id,
-                )
-            # 2) Index into pgvector now that the parent row is committed.
-            indexed = await store.index_chunks(
+    store = get_chunk_store()
+    for character_id, name in targets:
+        chunks = char_extractor.extract_character_content(source_text, name)
+        stats = char_extractor.get_character_statistics(chunks)
+        # Clear any partial vectors from a prior failed attempt (idempotent retry).
+        await store.delete_character(str(character_id))
+        if chunks:
+            # QuotaExhaustedError here propagates -> the worker pauses (free tier).
+            await store.index_chunks(
                 character_id=str(character_id),
                 character_name=name,
                 user_id=str(user_id),
                 book_id=str(book_id),
                 chunks=chunks,
             )
-            if indexed:
-                async with get_async_session() as session:
-                    c = await session.get(Character, character_id)
-                    if c is not None:
-                        c.indexed_at = datetime.now(timezone.utc)
-            indexed_total += indexed
-
+        # Mark indexed LAST — only now is this character excluded from retries.
         async with get_async_session() as session:
-            source = await session.get(Source, source_id)
-            if source is not None:
-                source.status = "completed"
-                source.processed_at = datetime.now(timezone.utc)
+            c = await session.get(Character, character_id)
+            if c is not None:
+                c.indexed_at = datetime.now(timezone.utc)
+                if stats.get("dialogue_count"):
+                    c.dialogue_count = stats["dialogue_count"]
 
-        log_business_event(
-            logger,
-            "source_processed",
-            source_id=str(source_id),
-            characters=len(character_names),
-            chunks_indexed=indexed_total,
-        )
-
-    except QuotaExhaustedError:
-        # Pause, don't fail — leave the source 'processing' for resume.
-        raise
-    except Exception as e:
-        log_error(
-            logger,
-            e,
-            context={
-                "source_id": str(source_id),
-                "event": "source_processing_failed",
-            },
-        )
-        try:
-            async with get_async_session() as session:
-                source = await session.get(Source, source_id)
-                if source is not None:
-                    source.status = "failed"
-        except Exception:
-            pass
+    log_business_event(
+        logger,
+        "source_voices_indexed",
+        source_id=str(source_id),
+        characters=len(targets),
+    )

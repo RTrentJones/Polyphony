@@ -190,18 +190,14 @@ async def test_claim_one_skip_locked_across_sessions(pg):
         await s.commit()
 
 
-async def test_process_source_commits_before_indexing(pg, monkeypatch):
-    """The FK regression: this raised on Postgres before the commit-first fix."""
-    from app.core.orm_models import Book, Source, User
+async def test_index_source_voices_indexes_committed_characters(pg, monkeypatch):
+    """index_source_voices indexes an already-committed character's voice on real
+    pgvector (the FK: voice_chunks -> characters, committed first)."""
+    from app.core.orm_models import Book, Character, Source, User
     from app.core.security import get_password_hash
     from app.rag.store import get_chunk_store
     import app.parsing.pipeline as pipeline
 
-    monkeypatch.setattr(
-        pipeline.char_extractor,
-        "extract_characters",
-        lambda body, user_id=None: _val(["Mina"]),
-    )
     monkeypatch.setattr(
         pipeline.char_extractor,
         "extract_character_content",
@@ -247,24 +243,27 @@ async def test_process_source_commits_before_indexing(pg, monkeypatch):
         s.add(src)
         await s.commit()
         await s.refresh(src)
-        uid, sid = u.id, src.id
+        # a committed character with no voice yet (indexed_at IS NULL)
+        ch = Character(user_id=u.id, book_id=book.id, source_id=src.id, name="Mina")
+        s.add(ch)
+        await s.commit()
+        await s.refresh(ch)
+        uid, bid, sid, cid = u.id, book.id, src.id, ch.id
 
-    await pipeline.process_source(sid, uid, text="body")
+    await pipeline.index_source_voices(sid, bid, uid)
 
     async with pg() as s:
-        assert (
-            await s.execute(text("SELECT status FROM sources WHERE id=:i"), {"i": sid})
-        ).scalar() == "completed"
         assert (
             await s.execute(
                 text("SELECT count(*) FROM voice_chunks WHERE user_id=:u"), {"u": uid}
             )
         ).scalar() == 2
-        cid = (
+        assert (
             await s.execute(
-                text("SELECT id FROM characters WHERE source_id=:s"), {"s": sid}
+                text("SELECT indexed_at IS NOT NULL FROM characters WHERE id=:c"),
+                {"c": cid},
             )
-        ).scalar()
+        ).scalar() is True
 
     hits = await get_chunk_store().retrieve_similar(
         character_id=str(cid), query="creatures of the night", k=2, user_id=str(uid)

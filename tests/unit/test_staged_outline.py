@@ -27,9 +27,11 @@ class FakeLLM:
             k: list(v) if isinstance(v, list) else v for k, v in responses.items()
         }
         self.calls: list[str] = []
+        self.prompts: dict[str, list[str]] = {}
 
     async def generate(self, messages, *, purpose, **kw):
         self.calls.append(purpose)
+        self.prompts.setdefault(purpose, []).append(messages[0]["content"])
         val = self.responses.get(purpose)
         text = val.pop(0) if isinstance(val, list) else val
         return types.SimpleNamespace(text=text, tokens_in=1, tokens_out=1)
@@ -148,11 +150,22 @@ class TestStagedOrchestration:
         assert warnings == []  # faithful → no missing-principal warning
 
     async def test_missing_principal_triggers_one_repair(self, monkeypatch):
-        missing = (
-            '[{"title":"Ch1","summary":"Elara fights the Dark Lord",'
+        # The CHAPTER stage is where the failure originates and must be repaired:
+        # first chapter result omits the cast, the repair result includes them.
+        cast_empty_chapters = (
+            '[{"title":"Ch1","summary":"a chapter","act_index":0,'
+            '"pov":"","characters":[],"threads":[]}]'
+        )
+        repaired_chapters = (
+            '[{"title":"Ch1","summary":"Milo Voss and Zara Okafor vs Edric Thane",'
+            '"act_index":0,"pov":"Milo Voss",'
+            '"characters":["Milo Voss","Zara Okafor","Edric Thane"],"threads":[]}]'
+        )
+        missing_beats = (
+            '[{"title":"Ch1","summary":"nobody named",'
             '"children":[{"title":"b","summary":"x","children":[]}]}]'
         )
-        faithful = (
+        faithful_beats = (
             '[{"title":"Ch1","summary":"Milo Voss and Zara Okafor face Edric Thane",'
             '"children":[{"title":"b","summary":"x","children":[]}]}]'
         )
@@ -160,10 +173,9 @@ class TestStagedOrchestration:
             {
                 "outline:skeleton": '{"premise_restated":"p","central_conflict":"c",'
                 '"acts":[{"title":"A","goal":"g","turn":"t","chapters_planned":1}]}',
-                "outline:chapters": '[{"title":"Ch1","summary":"s","act_index":0,'
-                '"pov":"","characters":[],"threads":[]}]',
-                # first beats pass misses the cast; the repair pass is faithful.
-                "outline:beats": [missing, faithful],
+                # first chapter pass omits the cast; the repair pass includes them.
+                "outline:chapters": [cast_empty_chapters, repaired_chapters],
+                "outline:beats": [missing_beats, faithful_beats],
             }
         )
         monkeypatch.setattr(so, "get_llm_client", lambda: fake)
@@ -171,10 +183,14 @@ class TestStagedOrchestration:
         nodes, warnings = await so.generate_staged_outline(
             self._canon(), chapters_target=1, user_id=None
         )
-        # Repair regenerates CHAPTERS (where cast is chosen) AND beats, not just
-        # beats (PR review #5) — so both stages run twice.
+        # Repair regenerates CHAPTERS (where cast is chosen) AND beats (PR review
+        # #5) — both stages run twice, and the SECOND chapter request carries the
+        # missing principals as explicit feedback.
         assert fake.calls.count("outline:chapters") == 2
         assert fake.calls.count("outline:beats") == 2
+        repair_prompt = fake.prompts["outline:chapters"][1]
+        assert "Milo Voss" in repair_prompt and "Edric Thane" in repair_prompt
+        assert "OMITTED" in repair_prompt  # the repair-feedback marker
         assert "Milo Voss" in nodes[0]["summary"]
         assert warnings == []  # repair recovered the cast
 

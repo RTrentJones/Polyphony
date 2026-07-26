@@ -179,7 +179,7 @@ class TestJobAndCommit:
         assert any(e["name"] == "Aeon Holdings" for e in canon["entries"])
         assert canon["style"]["pov"] == "third-limited"
 
-    async def test_commit_skips_duplicate_names(
+    async def test_commit_merges_duplicate_names(
         self, client, auth_headers, test_book, test_source, async_session
     ):
         from app.core.orm_models import ExtractionRun
@@ -193,11 +193,13 @@ class TestJobAndCommit:
         )
         async_session.add(run)
         # pre-existing character with the same name
-        await client.post(
-            "/api/v1/characters/",
-            json={"name": "Milo Voss", "book_id": str(test_book.id)},
-            headers=auth_headers,
-        )
+        cid = (
+            await client.post(
+                "/api/v1/characters/",
+                json={"name": "Milo Voss", "book_id": str(test_book.id)},
+                headers=auth_headers,
+            )
+        ).json()["id"]
         await async_session.commit()
 
         commit = await client.post(
@@ -206,4 +208,6 @@ class TestJobAndCommit:
             headers=auth_headers,
         )
         assert commit.status_code == 200
-        assert commit.json()["created"]["characters"] == []  # skipped, no 409
+        # MERGED (updated), not created and not 409'd (PR review #1)
+        assert commit.json()["created"]["characters"] == []
+        assert cid in commit.json()["created"]["updated_characters"]

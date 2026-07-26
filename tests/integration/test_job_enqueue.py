@@ -96,10 +96,10 @@ class TestChapterSceneGenerateEnqueues:
 @pytest.mark.integration
 class TestSourceEnqueues:
     @pytest.mark.asyncio
-    async def test_upload_creates_process_job(
+    async def test_upload_starts_extraction_run(
         self, client, auth_headers, test_user, async_session
     ):
-        # No book_id given → the endpoint auto-creates a book for the upload.
+        # Upload PROPOSES via an extraction run — never a direct write (R4.4).
         r = await client.post(
             "/api/v1/sources/upload",
             files={"file": ("story.txt", b"Once upon a time.", "text/plain")},
@@ -107,19 +107,15 @@ class TestSourceEnqueues:
         )
         assert r.status_code == 200
         body = r.json()
-        assert body["status"] == "processing"
+        assert "extraction_run_id" in body
 
-        jobs = await _jobs(async_session, "process_source")
+        jobs = await _jobs(async_session, "extract_canon")
         assert len(jobs) == 1
-        job = jobs[0]
-        assert job.max_attempts == 2
-        assert job.payload == {
-            "source_id": body["id"],
-            "user_id": str(test_user.id),
-        }
+        assert jobs[0].payload["run_id"] == body["extraction_run_id"]
+        assert jobs[0].payload["source_id"] == body["id"]
 
     @pytest.mark.asyncio
-    async def test_reprocess_creates_job(
+    async def test_reprocess_starts_extraction_run(
         self, client, auth_headers, test_user, test_book, async_session
     ):
         from app.core.orm_models import Source
@@ -130,16 +126,16 @@ class TestSourceEnqueues:
             title="M",
             content_hash="deadbeef",
             content_text="Some prose.",
-            status="failed",
+            status="completed",
         )
         async_session.add(src)
         await async_session.commit()
 
         r = await client.post(f"/api/v1/sources/{src.id}/process", headers=auth_headers)
         assert r.status_code == 200
-        assert r.json()["status"] == "processing"
+        assert "extraction_run_id" in r.json()
 
-        jobs = await _jobs(async_session, "process_source")
+        jobs = await _jobs(async_session, "extract_canon")
         assert len(jobs) == 1
         assert jobs[0].payload["source_id"] == str(src.id)
 

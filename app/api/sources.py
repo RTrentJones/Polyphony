@@ -30,7 +30,7 @@ from app.core.orm_models import (
     User as UserORM,
 )
 from app.core.security import get_current_active_user
-from app.jobs import repository as jobs_repo
+from app.parsing.extraction_service import enqueue_extraction
 from app.parsing.pipeline import (
     UploadValidationError,
     save_upload,
@@ -122,21 +122,15 @@ async def upload_source(
         content_hash=saved["content_hash"],
         content_text=saved["text"],
         word_count=saved["word_count"],
-        status=SourceStatus.PROCESSING.value,
+        status=SourceStatus.COMPLETED.value,  # the file is stored + parsed
     )
     db.add(source)
     await db.flush()
-    # Job + source row commit atomically; the pipeline reads the durable
-    # content_text from the row, so the payload is just the ids.
-    await jobs_repo.enqueue(
-        db,
-        kind="process_source",
-        payload={
-            "source_id": str(source.id),
-            "user_id": str(current_user.id),
-        },
-        user_id=current_user.id,
-        max_attempts=2,  # extraction is cheap and reprocess-idempotent
+    # Extraction PROPOSES; the author approves before any canon is written
+    # (docs/BRD.md R4.4, PR review #1). Upload starts an extraction run, never a
+    # direct write — canon is created only via the reviewed commit.
+    run = await enqueue_extraction(
+        db, book_id=book.id, source_id=source.id, user_id=current_user.id
     )
     await db.commit()
     await db.refresh(source)
@@ -148,7 +142,8 @@ async def upload_source(
         "author": source.author,
         "word_count": source.word_count,
         "status": source.status,
-        "message": "Source uploaded successfully. Processing started.",
+        "extraction_run_id": str(run.id),
+        "message": "Source uploaded. Extracting canon for your review.",
     }
 
 
@@ -294,7 +289,7 @@ async def reprocess_source(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Re-run character extraction/indexing (e.g. after a failed run)."""
+    """Re-run extraction — proposes canon again for review, never a direct write."""
     source = await _owned_source(source_id, current_user, db)
     if not source.content_text:
         raise HTTPException(
@@ -302,16 +297,12 @@ async def reprocess_source(
             detail="Source has no stored content to process",
         )
     await check_user_budget(db, current_user.id)
-    source.status = SourceStatus.PROCESSING.value
-    await jobs_repo.enqueue(
-        db,
-        kind="process_source",
-        payload={
-            "source_id": str(source.id),
-            "user_id": str(current_user.id),
-        },
-        user_id=current_user.id,
-        max_attempts=2,
+    run = await enqueue_extraction(
+        db, book_id=source.book_id, source_id=source.id, user_id=current_user.id
     )
     await db.commit()
-    return {"id": str(source.id), "status": source.status}
+    return {
+        "id": str(source.id),
+        "extraction_run_id": str(run.id),
+        "status": run.status,
+    }
