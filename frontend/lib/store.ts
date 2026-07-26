@@ -24,6 +24,7 @@ import type {
   Source,
   SourceCharactersResponse,
   SourceListResponse,
+  SourceMutateResponse,
   SourceUploadResponse,
   User,
 } from './types'
@@ -142,6 +143,12 @@ interface SourceState {
     contentText: string,
     bookId?: string
   ) => Promise<SourceUploadResponse>
+  /** Edit a source's title and/or content. A content change re-extracts
+   *  (returns extraction_run_id to review); title-only returns null. */
+  editSource: (
+    id: string,
+    data: { title?: string; content_text?: string }
+  ) => Promise<SourceMutateResponse>
   deleteSource: (id: string) => Promise<void>
   fetchCharacters: (sourceId: string) => Promise<Character[]>
 }
@@ -199,6 +206,18 @@ export const useSourceStore = create<SourceState>((set) => ({
       const source = normalizeSource({ ...data, uploaded_at: null })
       set((state) => ({ sources: [source, ...state.sources] }))
       return data
+    } catch (err) {
+      throw toApiError(err)
+    }
+  },
+
+  editSource: async (id, data) => {
+    try {
+      const { data: res } = await apiClient.patch<SourceMutateResponse>(
+        `/sources/${id}`,
+        data
+      )
+      return res
     } catch (err) {
       throw toApiError(err)
     }

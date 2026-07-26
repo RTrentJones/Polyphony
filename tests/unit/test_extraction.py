@@ -299,3 +299,25 @@ class TestPasteSource:
         assert r2.status_code == 200, r2.text
         assert r2.json()["extraction_run_id"]
         assert r2.json()["extraction_run_id"] != created["extraction_run_id"]
+
+    async def test_source_list_surfaces_latest_extraction(
+        self, client, auth_headers, test_book
+    ):
+        await client.post(
+            "/api/v1/sources/paste",
+            json={
+                "title": "N",
+                "content_text": "some material",
+                "book_id": str(test_book.id),
+            },
+            headers=auth_headers,
+        )
+        listing = (
+            await client.get(
+                f"/api/v1/sources/?book_id={test_book.id}", headers=auth_headers
+            )
+        ).json()["sources"]
+        assert listing
+        latest = listing[0]["latest_extraction"]
+        assert latest is not None  # so the Sources tab can offer "Review"
+        assert latest["status"] in ("pending", "ready")

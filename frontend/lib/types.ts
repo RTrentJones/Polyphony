@@ -82,8 +82,23 @@ export interface ApiSource {
   status: SourceStatus
   uploaded_at: string | null
   processed_at?: string | null
-  /** Only the detail endpoint (GET /sources/{id}) returns this. */
+  /** The list and detail endpoints both return the latest extraction run. */
   latest_extraction?: SourceLatestExtraction | null
+  /** The stored text — returned by GET /sources/{id}; lets a paste source be
+   *  viewed and edited in place. */
+  content_text?: string | null
+}
+
+/** POST /sources/paste and PATCH /sources/{id} response. `extraction_run_id` is
+ *  null when an edit changed only the title (no re-extraction). */
+export interface SourceMutateResponse {
+  id: string
+  book_id: string
+  title: string
+  word_count: number
+  status: SourceStatus
+  extraction_run_id: string | null
+  message: string
 }
 
 /**
