@@ -11,7 +11,13 @@ os.environ["POSTGRES_PASSWORD"] = "test_password_12345"
 os.environ["SECRET_KEY"] = "test_secret_key_minimum_32_characters_long_12345"
 
 from app.core.database import Base
-from app.core.orm_models import Book, User, Source, Character
+from app.core.orm_models import (
+    Book,
+    User,
+    Source,
+    Character,
+    source_characters,
+)
 
 # Test database URL
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -139,6 +145,17 @@ async def test_character(
     async_session.add(character)
     await async_session.commit()
     await async_session.refresh(character)
+
+    # A character that arrived via a source is linked to it — the same M2M row
+    # the reviewed commit writes, which is how source-scoped queries reach the
+    # cast (docs/ADR-002-book-as-root.md §2; Character.source_id is only single
+    # provenance and goes NULL on file delete).
+    await async_session.execute(
+        source_characters.insert().values(
+            source_id=test_source.id, character_id=character.id
+        )
+    )
+    await async_session.commit()
 
     return character
 

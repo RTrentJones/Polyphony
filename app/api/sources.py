@@ -26,8 +26,10 @@ from app.core.models import SourceStatus
 from app.core.orm_models import (
     Book as BookORM,
     Character as CharacterORM,
+    ExtractionRun as ExtractionRunORM,
     Source as SourceORM,
     User as UserORM,
+    source_characters,
 )
 from app.core.security import get_current_active_user
 from app.parsing.extraction_service import enqueue_extraction
@@ -217,8 +219,19 @@ async def get_source(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get source details."""
+    """Get source details, incl. the latest extraction run so a review that was
+    navigated away from is recoverable (PR review #3). The source is marked
+    `completed` on upload, so without surfacing the run the pending proposals would
+    be stranded and re-uploading would double-spend extraction."""
     source = await _owned_source(source_id, current_user, db)
+    latest_run = (
+        await db.execute(
+            select(ExtractionRunORM)
+            .where(ExtractionRunORM.source_id == source_id)
+            .order_by(ExtractionRunORM.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
     return {
         "id": str(source.id),
         "book_id": str(source.book_id),
@@ -231,6 +244,11 @@ async def get_source(
         "processed_at": (
             source.processed_at.isoformat() if source.processed_at else None
         ),
+        "latest_extraction": (
+            {"id": str(latest_run.id), "status": latest_run.status}
+            if latest_run
+            else None
+        ),
     }
 
 
@@ -240,11 +258,23 @@ async def get_source_characters(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List characters extracted from a source."""
+    """List the characters this source contributed to (its cast).
+
+    Resolved through the `source_characters` association, NOT `Character.source_id`
+    (which is single-valued and goes NULL when the file is deleted). A character
+    re-proposed and merged from this source has source_id=None yet is genuinely
+    part of the cast; querying the association returns it (PR review #2).
+    """
     await _owned_source(source_id, current_user, db)
 
     characters_result = await db.execute(
-        select(CharacterORM).where(CharacterORM.source_id == source_id)
+        select(CharacterORM)
+        .join(
+            source_characters,
+            source_characters.c.character_id == CharacterORM.id,
+        )
+        .where(source_characters.c.source_id == source_id)
+        .order_by(CharacterORM.name)
     )
     characters = characters_result.scalars().all()
 

@@ -34,7 +34,7 @@ class TestFullImportedSnapshot:
             json={"characters": [{"name": "Milo", "role": "protagonist"}]},
             headers=auth_headers,
         )
-        cid = commit.json()["created"]["characters"][0]
+        cid = commit.json()["result"]["characters"]["created"][0]
         v1 = (
             await client.get(
                 f"/api/v1/books/{test_book.id}/versions/character/{cid}/1",
@@ -246,8 +246,8 @@ class TestUploadRoutesThroughReview:
         )
         assert commit.status_code == 200, commit.text
         # merged (updated), not silently skipped
-        assert cid in commit.json()["created"]["updated_characters"]
-        assert commit.json()["created"]["characters"] == []
+        assert cid in commit.json()["result"]["characters"]["updated"]
+        assert commit.json()["result"]["characters"]["created"] == []
 
         # the reviewed role + description were applied AND versioned
         v1 = (
@@ -271,6 +271,153 @@ class TestUploadRoutesThroughReview:
             )
         ).scalar_one()
         assert cid in job.payload["character_ids"]
+
+
+class TestCommitContractHonored:
+    """Round 5 #1: the review screen's contract is consistent — an approved
+    existing canon entry / synopsis is MERGED, never silently dropped."""
+
+    async def test_existing_canon_entry_edit_is_applied(
+        self, client, auth_headers, async_session, test_book, test_source
+    ):
+        from app.core.orm_models import CanonEntry, ExtractionRun
+
+        entry = CanonEntry(
+            book_id=test_book.id, name="Aeon Holdings", category="org", content="old"
+        )
+        run = ExtractionRun(
+            book_id=test_book.id,
+            source_id=test_source.id,
+            user_id=test_book.user_id,
+            status="ready",
+            proposals={},
+        )
+        async_session.add_all([entry, run])
+        await async_session.commit()
+        eid = str(entry.id)
+
+        commit = await client.post(
+            f"/api/v1/books/{test_book.id}/extractions/{run.id}/commit",
+            json={
+                "canon_entries": [
+                    {
+                        "name": "Aeon Holdings",
+                        "category": "faction",
+                        "content": "the new firm",
+                    }
+                ]
+            },
+            headers=auth_headers,
+        )
+        assert commit.status_code == 200, commit.text
+        # applied as an UPDATE, not silently skipped
+        assert eid in commit.json()["result"]["canon_entries"]["updated"]
+        assert commit.json()["result"]["canon_entries"]["created"] == []
+
+        canon = (
+            await client.get(
+                f"/api/v1/books/{test_book.id}/canon", headers=auth_headers
+            )
+        ).json()
+        row = next(e for e in canon["entries"] if e["id"] == eid)
+        assert row["content"] == "the new firm"
+        assert row["category"] == "faction"
+
+    async def test_existing_synopsis_edit_is_applied(
+        self, client, auth_headers, async_session, test_book, test_source
+    ):
+        from app.core.orm_models import ExtractionRun
+
+        # test_book's fixture already set a synopsis. Committing a new one must
+        # APPLY (the old code only wrote when the book had none) and be versioned.
+        run = ExtractionRun(
+            book_id=test_book.id,
+            source_id=test_source.id,
+            user_id=test_book.user_id,
+            status="ready",
+            proposals={},
+        )
+        async_session.add(run)
+        await async_session.commit()
+
+        commit = await client.post(
+            f"/api/v1/books/{test_book.id}/extractions/{run.id}/commit",
+            json={"synopsis": "A corporate afterlife, revised."},
+            headers=auth_headers,
+        )
+        assert commit.status_code == 200, commit.text
+        assert commit.json()["result"]["synopsis"] == "updated"
+        book = (
+            await client.get(f"/api/v1/books/{test_book.id}", headers=auth_headers)
+        ).json()
+        assert book["synopsis"] == "A corporate afterlife, revised."
+
+
+class TestSourceCastReachable:
+    """Round 5 #2: a merged/multi-source character (source_id != this source) is
+    still reachable from the source, via the source_characters association."""
+
+    async def test_merged_character_appears_in_source_cast(
+        self, client, auth_headers, async_session, test_book, test_source
+    ):
+        from app.core.orm_models import Character, ExtractionRun
+
+        # An existing character with NO originating source (manual, or older file).
+        existing = Character(
+            user_id=test_book.user_id, book_id=test_book.id, name="Milo Voss"
+        )
+        run = ExtractionRun(
+            book_id=test_book.id,
+            source_id=test_source.id,
+            user_id=test_book.user_id,
+            status="ready",
+            proposals={},
+        )
+        async_session.add_all([existing, run])
+        await async_session.commit()
+        cid = str(existing.id)
+        assert existing.source_id is None  # merged, not owned by this source
+
+        commit = await client.post(
+            f"/api/v1/books/{test_book.id}/extractions/{run.id}/commit",
+            json={"characters": [{"name": "Milo Voss", "role": "protagonist"}]},
+            headers=auth_headers,
+        )
+        assert commit.status_code == 200, commit.text
+
+        # reachable from the source despite source_id staying NULL (PR review #2)
+        chars = (
+            await client.get(
+                f"/api/v1/sources/{test_source.id}/characters", headers=auth_headers
+            )
+        ).json()["characters"]
+        assert any(c["id"] == cid for c in chars)
+
+
+class TestExtractionResumable:
+    """Round 5 #3: the source exposes its latest extraction run so a review that
+    was navigated away from can be resumed, not stranded."""
+
+    async def test_get_source_exposes_latest_extraction(
+        self, client, auth_headers, async_session, test_book, test_source
+    ):
+        from app.core.orm_models import ExtractionRun
+
+        run = ExtractionRun(
+            book_id=test_book.id,
+            source_id=test_source.id,
+            user_id=test_book.user_id,
+            status="ready",
+            proposals={},
+        )
+        async_session.add(run)
+        await async_session.commit()
+
+        src = (
+            await client.get(f"/api/v1/sources/{test_source.id}", headers=auth_headers)
+        ).json()
+        assert src["latest_extraction"]["id"] == str(run.id)
+        assert src["latest_extraction"]["status"] == "ready"
 
 
 class TestVoiceIndexingRetryable:

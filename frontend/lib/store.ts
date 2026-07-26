@@ -13,6 +13,7 @@ import type {
   AuthTokenResponse,
   Character,
   ExtractionCommit,
+  ExtractionCommitResponse,
   ExtractionRun,
   LoginCredentials,
   RegisterData,
@@ -215,7 +216,7 @@ interface ExtractionState {
     bookId: string,
     runId: string,
     payload: ExtractionCommit
-  ) => Promise<Record<string, unknown>>
+  ) => Promise<ExtractionCommitResponse>
 }
 
 export const useExtractionStore = create<ExtractionState>(() => ({
@@ -232,7 +233,7 @@ export const useExtractionStore = create<ExtractionState>(() => ({
 
   commitExtraction: async (bookId, runId, payload) => {
     try {
-      const { data } = await apiClient.post<Record<string, unknown>>(
+      const { data } = await apiClient.post<ExtractionCommitResponse>(
         `/books/${bookId}/extractions/${runId}/commit`,
         payload
       )

@@ -7,6 +7,7 @@ from sqlalchemy import (
     Integer,
     DateTime,
     ForeignKey,
+    Table,
     Text,
     JSON,
     DECIMAL,
@@ -306,6 +307,33 @@ class Character(Base):
         # person, so this is load-bearing, not tidiness.
         UniqueConstraint("book_id", "name", name="uq_characters_book_name"),
     )
+
+
+# A character can receive material from MANY sources: an existing character is
+# often re-proposed (and merged) by a later source, and voice chunks now carry
+# their own `source_id` provenance. `Character.source_id` records only the FIRST
+# source and goes NULL when that file is deleted, so it cannot answer "which
+# characters belong to this source's cast?" — a merged character has
+# source_id=None yet is genuinely part of the new source. This M2M is the real
+# answer, written for every reviewed-commit character (created OR merged), so
+# source-detail and the source-scoped generation picker reach them (PR review #2).
+source_characters = Table(
+    "source_characters",
+    Base.metadata,
+    Column(
+        "source_id",
+        UUID(as_uuid=True),
+        ForeignKey("sources.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "character_id",
+        UUID(as_uuid=True),
+        ForeignKey("characters.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Index("idx_source_characters_character_id", "character_id"),
+)
 
 
 class CharacterChunk(Base):

@@ -24,6 +24,7 @@ from app.core.orm_models import (
     Source as SourceORM,
     StyleGuide as StyleGuideORM,
     User as UserORM,
+    source_characters,
 )
 from app.core.security import get_current_active_user
 from app.jobs import repository as jobs_repo
@@ -168,20 +169,29 @@ async def commit_extraction(
 ):
     """Write the author's reviewed selection as real canon + 'imported' versions.
 
-    This is the ONLY path that writes canon (docs/BRD.md R4.4). An approved
-    character whose name already exists (e.g. seeded name-only by a prior commit)
-    is MERGED, not skipped — the reviewed role/description are applied and
-    versioned, never silently dropped (PR review #1).
+    This is the ONLY path that writes canon (docs/BRD.md R4.4). The review screen's
+    contract is honored consistently: an approved item is NEVER silently dropped.
+    Every approved character, canon entry, style, and synopsis whose name already
+    exists is MERGED (reviewed fields applied + versioned), not skipped — the only
+    non-applied items are blank-named ones, and those are reported in `skipped` so
+    the UI can surface them rather than redirecting as if all succeeded (PR review
+    findings #1 across three rounds).
+
+    The response reports `created` / `updated` per type plus `skipped`, and each
+    committed character is linked to this source (`source_characters`) so a merged
+    or multi-source character stays reachable from the source (PR review #2).
     """
     book = await _owned_book(book_id, current_user, db)
     run = await _owned_run(book_id, run_id, current_user, db)
-    created = {
-        "characters": [],
-        "updated_characters": [],
-        "canon_entries": [],
-        "style": False,
-        "synopsis": False,
+    result = {
+        "characters": {"created": [], "updated": []},
+        "canon_entries": {"created": [], "updated": []},
+        "style": None,  # None | "created" | "updated"
+        "synopsis": None,  # None | "created" | "updated"
+        "skipped": [],  # [{type, name, reason}] — nothing is silently dropped
     }
+    # Every character committed here (created OR merged) is linked to the source.
+    committed_char_ids: list[str] = []
 
     existing_chars = {
         c.name: c
@@ -193,17 +203,23 @@ async def commit_extraction(
         .scalars()
         .all()
     }
-    existing_entry_names = set(
-        (
+    existing_entries = {
+        e.name: e
+        for e in (
             await db.execute(
-                select(CanonEntryORM.name).where(CanonEntryORM.book_id == book_id)
+                select(CanonEntryORM).where(CanonEntryORM.book_id == book_id)
             )
         )
         .scalars()
         .all()
-    )
+    }
 
     for c in payload.characters:
+        if not c.name or not c.name.strip():
+            result["skipped"].append(
+                {"type": "character", "name": c.name, "reason": "blank name"}
+            )
+            continue
         row = existing_chars.get(c.name)
         is_new = row is None
         if is_new:
@@ -235,20 +251,31 @@ async def commit_extraction(
             reason="imported",
             created_by=current_user.id,
         )
-        (created["characters"] if is_new else created["updated_characters"]).append(
-            str(row.id)
-        )
+        result["characters"]["created" if is_new else "updated"].append(str(row.id))
+        committed_char_ids.append(str(row.id))
 
     for e in payload.canon_entries:
-        if e.name in existing_entry_names:
+        if not e.name or not e.name.strip():
+            result["skipped"].append(
+                {"type": "canon_entry", "name": e.name, "reason": "blank name"}
+            )
             continue
         if e.category not in CATEGORIES:
             e.category = "concept"
-        existing_entry_names.add(e.name)
-        row = CanonEntryORM(
-            book_id=book.id, name=e.name, category=e.category, content=e.content
-        )
-        db.add(row)
+        row = existing_entries.get(e.name)
+        is_new = row is None
+        if is_new:
+            row = CanonEntryORM(
+                book_id=book.id, name=e.name, category=e.category, content=e.content
+            )
+            db.add(row)
+            existing_entries[e.name] = row
+        else:
+            # MERGE: an approved edit to an EXISTING entry must apply, not be
+            # silently skipped — the review screen checks it by default and the
+            # author expects their change written (PR review #1, round 3).
+            row.category = e.category
+            row.content = e.content
         await db.flush()
         await versions_repo.snapshot(
             db,
@@ -264,7 +291,7 @@ async def commit_extraction(
             reason="imported",
             created_by=current_user.id,
         )
-        created["canon_entries"].append(str(row.id))
+        result["canon_entries"]["created" if is_new else "updated"].append(str(row.id))
 
     if payload.style is not None:
         style = (
@@ -272,6 +299,7 @@ async def commit_extraction(
                 select(StyleGuideORM).where(StyleGuideORM.book_id == book_id)
             )
         ).scalar_one_or_none()
+        style_existed = style is not None
         if style is None:
             style = StyleGuideORM(book_id=book.id)
             db.add(style)
@@ -292,19 +320,46 @@ async def commit_extraction(
             reason="imported",
             created_by=current_user.id,
         )
-        created["style"] = True
+        result["style"] = "updated" if style_existed else "created"
 
-    if payload.synopsis and not book.synopsis:
-        # Versioned like every synopsis mutation (PR review #2).
+    if payload.synopsis:
+        # Always versioned, and applied whether or not a synopsis already exists —
+        # an approved synopsis edit must not be silently dropped just because the
+        # book already had one (PR review #1, round 3). record_synopsis snapshots
+        # the prior value first, so nothing is lost.
+        had_synopsis = bool(book.synopsis)
         await record_synopsis(
             db, book, payload.synopsis, reason="imported", created_by=current_user.id
         )
-        created["synopsis"] = True
+        result["synopsis"] = "updated" if had_synopsis else "created"
+
+    # Link every committed character to this source (idempotent). This M2M — not
+    # Character.source_id, which is single and goes NULL on file delete — is what
+    # makes a merged/multi-source character reachable from the source (review #2).
+    if run.source_id and committed_char_ids:
+        already_linked = set(
+            (
+                await db.execute(
+                    select(source_characters.c.character_id).where(
+                        source_characters.c.source_id == run.source_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        new_links = [
+            {"source_id": run.source_id, "character_id": UUID(cid)}
+            for cid in committed_char_ids
+            if UUID(cid) not in already_linked
+        ]
+        if new_links:
+            await db.execute(source_characters.insert(), new_links)
 
     # Voice indexing is a RETRYABLE job over the EXPLICIT approved character IDs
     # (created + merged), so a merged existing character is indexed too, and a
     # transient vector failure is retried per-source, not skipped (PR review #2/#3).
-    target_ids = created["characters"] + created["updated_characters"]
+    target_ids = result["characters"]["created"] + result["characters"]["updated"]
     if run.source_id and target_ids:
         await jobs_repo.enqueue(
             db,
@@ -328,4 +383,4 @@ async def commit_extraction(
             status_code=status.HTTP_409_CONFLICT,
             detail="Commit conflicted with existing canon; review and retry",
         )
-    return {"run_id": str(run.id), "status": run.status, "created": created}
+    return {"run_id": str(run.id), "status": run.status, "result": result}

@@ -155,7 +155,7 @@ class TestJobAndCommit:
             headers=auth_headers,
         )
         assert commit.status_code == 200, commit.text
-        assert len(commit.json()["created"]["characters"]) == 1
+        assert len(commit.json()["result"]["characters"]["created"]) == 1
 
         # the character exists, book-scoped, with an 'imported' version
         chars = (await client.get("/api/v1/characters/", headers=auth_headers)).json()[
@@ -209,5 +209,5 @@ class TestJobAndCommit:
         )
         assert commit.status_code == 200
         # MERGED (updated), not created and not 409'd (PR review #1)
-        assert commit.json()["created"]["characters"] == []
-        assert cid in commit.json()["created"]["updated_characters"]
+        assert commit.json()["result"]["characters"]["created"] == []
+        assert cid in commit.json()["result"]["characters"]["updated"]

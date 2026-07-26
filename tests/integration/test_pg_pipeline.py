@@ -151,6 +151,75 @@ async def test_position_unique_constraints_in_schema(pg):
         ]
 
 
+async def test_source_characters_cascade_preserves_cast(pg):
+    """Migration 0007: a merged character (source_id NULL) is reachable from its
+    source via the association, and deleting the source drops the association but
+    NOT the character — the Canon survives the file it arrived in (PR review #2)."""
+    from app.core.orm_models import Book, Character, Source, User, source_characters
+    from app.core.security import get_password_hash
+
+    async with pg() as s:
+        u = User(
+            email=f"pg-{uuid.uuid4()}@ex.com",
+            hashed_password=get_password_hash("password123"),
+            full_name="pg",
+        )
+        s.add(u)
+        await s.flush()
+        book = Book(user_id=u.id, title="B")
+        s.add(book)
+        await s.flush()
+        src = Source(book_id=book.id, user_id=u.id, title="S", status="completed")
+        s.add(src)
+        await s.flush()
+        # Merged: source_id stays NULL, but linked to the source via the M2M.
+        char = Character(book_id=book.id, user_id=u.id, name="Milo")
+        s.add(char)
+        await s.flush()
+        await s.execute(
+            source_characters.insert().values(source_id=src.id, character_id=char.id)
+        )
+        await s.commit()
+        src_id, char_id = src.id, char.id
+        assert char.source_id is None
+
+        # reachable from the source despite source_id being NULL
+        linked = (
+            (
+                await s.execute(
+                    text(
+                        "SELECT character_id FROM source_characters "
+                        "WHERE source_id = :sid"
+                    ),
+                    {"sid": src_id},
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert char_id in linked
+
+    # delete the source at the DB level -> the FK cascade removes the association
+    async with pg() as s:
+        await s.execute(text("DELETE FROM sources WHERE id = :sid"), {"sid": src_id})
+        await s.commit()
+
+    async with pg() as s:
+        assert (
+            await s.execute(
+                text("SELECT count(*) FROM source_characters WHERE source_id = :sid"),
+                {"sid": src_id},
+            )
+        ).scalar() == 0
+        # the character (Canon) survives the deleted source
+        assert (
+            await s.execute(
+                text("SELECT count(*) FROM characters WHERE id = :cid"),
+                {"cid": char_id},
+            )
+        ).scalar() == 1
+
+
 async def test_claim_one_skip_locked_across_sessions(pg):
     """Two concurrent claimers must get distinct jobs (FOR UPDATE SKIP LOCKED)."""
     from app.core.orm_models import User

@@ -22,6 +22,7 @@ import type {
   CanonEntryProposal,
   CharacterProposal,
   ExtractionCommit,
+  ExtractionSkipped,
 } from '@/lib/types'
 
 const CATEGORIES: CanonCategory[] = [
@@ -46,6 +47,7 @@ function ReviewContent() {
   const [status, setStatus] = useState<string>('pending')
   const [error, setError] = useState<string | null>(null)
   const [committing, setCommitting] = useState(false)
+  const [skipped, setSkipped] = useState<ExtractionSkipped[]>([])
 
   const [chars, setChars] = useState<CharRow[]>([])
   const [entries, setEntries] = useState<EntryRow[]>([])
@@ -96,6 +98,7 @@ function ReviewContent() {
   const commit = async () => {
     setCommitting(true)
     setError(null)
+    setSkipped([])
     const payload: ExtractionCommit = {
       characters: chars
         .filter((c) => c.approved && c.name.trim())
@@ -111,7 +114,14 @@ function ReviewContent() {
         : {}),
     }
     try {
-      await commitExtraction(bookId, runId, payload)
+      const res = await commitExtraction(bookId, runId, payload)
+      if (res.result.skipped.length > 0) {
+        // Some approved items weren't applied — surface them instead of
+        // redirecting as if everything succeeded (PR review #1).
+        setSkipped(res.result.skipped)
+        setCommitting(false)
+        return
+      }
       router.push(`/books/detail?id=${bookId}`)
     } catch (err: any) {
       setError(err.message || 'Commit failed.')
@@ -157,6 +167,25 @@ function ReviewContent() {
         </p>
       </div>
       {error && <p className="text-red-600">{error}</p>}
+
+      {skipped.length > 0 && (
+        <div className="border border-amber-300 bg-amber-50 rounded p-4 space-y-2">
+          <p className="font-semibold text-amber-800">
+            Committed, but {skipped.length} item
+            {skipped.length > 1 ? 's were' : ' was'} not applied:
+          </p>
+          <ul className="list-disc list-inside text-sm text-amber-800">
+            {skipped.map((s, i) => (
+              <li key={i}>
+                {s.type} “{s.name || '(unnamed)'}” — {s.reason}
+              </li>
+            ))}
+          </ul>
+          <Button onClick={() => router.push(`/books/detail?id=${bookId}`)}>
+            Continue to book
+          </Button>
+        </div>
+      )}
 
       <Card>
         <h2 className="font-semibold mb-3">Characters ({chars.length})</h2>

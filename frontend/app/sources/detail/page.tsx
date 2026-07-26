@@ -107,6 +107,30 @@ function SourceDetailContent() {
         </div>
       </div>
 
+      {/* Resume an extraction whose proposals were never committed — otherwise
+          the review is stranded and re-uploading double-spends (PR review #3). */}
+      {source.latest_extraction &&
+        (source.latest_extraction.status === 'ready' ||
+          source.latest_extraction.status === 'pending') && (
+          <div className="mb-8 border border-primary-300 bg-primary-50 rounded-lg p-4 flex items-center justify-between">
+            <p className="text-sm text-primary-800">
+              {source.latest_extraction.status === 'ready'
+                ? 'This source has extracted canon waiting for your review.'
+                : 'This source is still being extracted.'}
+            </p>
+            <Button
+              size="sm"
+              onClick={() =>
+                router.push(
+                  `/sources/review?book=${source.book_id}&run=${source.latest_extraction!.id}`
+                )
+              }
+            >
+              Resume review
+            </Button>
+          </div>
+        )}
+
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <Card>

@@ -265,6 +265,9 @@ be re-examined, not inherited.**
 - **R4.2** Regeneration appends; it never overwrites. The prior generation stays browsable.
 - **R4.3** Restore is **forward-only**: restoring v2 appends v4 carrying v2's content. History is never rewritten or deleted.
 - **R4.4** Extraction proposes; the author approves per item before anything is written.
+- **R4.5** An approved item is **never silently dropped**. An approved character, canon entry, style, or synopsis whose name already exists is **merged** — the reviewed change is applied and versioned — and the commit response reports `created` / `updated` / `skipped` per type. The review UI must not signal success for an item the commit discarded; only blank-named items are skipped, and those are surfaced. *(The first pass merged characters but silently skipped existing canon entries and applied a synopsis only when the book had none.)*
+- **R4.6** A character a source contributed to stays **reachable from that source** even when it was merged into an existing (differently-sourced or manually-created) character. Source→character provenance is a **many-to-many association written at reviewed commit**, not the single-valued `Character.source_id` (which records only the first source and goes NULL when that file is deleted). The source-scoped cast query and the generation picker both resolve through the association. *(Deleting a source still never deletes the cast — R3-consistent — the association row simply cascades away.)*
+- **R4.7** An extraction whose proposals were not yet committed is **resumable from its source**: the source exposes its latest extraction run and status, and navigating away from the review never strands the run or forces a duplicate extraction.
 
 ### 5.5 Visibility and control (G4)
 

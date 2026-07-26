@@ -64,6 +64,13 @@ export type SourceStatus = 'pending' | 'processing' | 'completed' | 'failed'
 
 export type SourceKind = 'upload' | 'paste'
 
+/** The latest extraction run attached to a source — lets a review that was
+ *  navigated away from be resumed rather than stranded (PR review #3). */
+export interface SourceLatestExtraction {
+  id: string
+  status: 'pending' | 'ready' | 'failed' | 'committed' | string
+}
+
 /** Raw source item as returned by the API (list + detail). Book-scoped. */
 export interface ApiSource {
   id: string
@@ -75,6 +82,8 @@ export interface ApiSource {
   status: SourceStatus
   uploaded_at: string | null
   processed_at?: string | null
+  /** Only the detail endpoint (GET /sources/{id}) returns this. */
+  latest_extraction?: SourceLatestExtraction | null
 }
 
 /**
@@ -420,6 +429,31 @@ export interface ExtractionCommit {
   canon_entries?: CanonEntryProposal[]
   style?: Partial<StyleGuide>
   synopsis?: string
+}
+
+/** A skipped item the commit did NOT apply (e.g. a blank name). The UI must
+ *  surface these rather than redirect as if everything succeeded (PR review #1). */
+export interface ExtractionSkipped {
+  type: string
+  name: string
+  reason: string
+}
+
+/** Per-type commit outcome. Approved existing items are MERGED (updated), never
+ *  silently dropped; only `skipped` items were not applied (PR review #1). */
+export interface ExtractionCommitResult {
+  characters: { created: string[]; updated: string[] }
+  canon_entries: { created: string[]; updated: string[] }
+  style: 'created' | 'updated' | null
+  synopsis: 'created' | 'updated' | null
+  skipped: ExtractionSkipped[]
+}
+
+/** POST /books/{id}/extractions/{run_id}/commit response. */
+export interface ExtractionCommitResponse {
+  run_id: string
+  status: string
+  result: ExtractionCommitResult
 }
 
 // ---------------------------------------------------------------------------
