@@ -9,10 +9,13 @@ source-scoped generation picker reach merged/multi-source characters.
 
 Additive on the frozen baseline. **No backfill from `characters.source_id`** by
 deployment decision: this change ships with a full DB reset (drop + recreate),
-consistent with "live data is disposable" (docs/ADR-002-book-as-root.md). On the
-reset databases `characters` is empty when this runs, so a backfill would be a
-no-op; existing casts are (re)linked when their sources are re-extracted and
-committed. If a future change must preserve live data, add:
+consistent with "live data is disposable" (docs/ADR-002-book-as-root.md). The
+reset is automatic — `app/migrate.py` (the container's startup migrator) drops +
+recreates the schema once when it finds a database stamped at a pre-squash
+revision, so there is no manual step and `characters` is empty when this runs (a
+backfill would be a no-op). Existing casts are (re)linked when their sources are
+re-extracted and committed. If a future change must preserve live data, disable
+the auto-reset (`POLYPHONY_ORPHAN_RESET=0`) and add:
 `INSERT INTO source_characters (source_id, character_id)
  SELECT source_id, id FROM characters WHERE source_id IS NOT NULL
  ON CONFLICT DO NOTHING;`
