@@ -295,14 +295,13 @@ async def general_exception_handler(request: Request, exc: Exception):
         "message": "An unexpected error occurred. Please try again later.",
         # The exception CLASS NAME is safe to surface and invaluable for triage
         # (a 429 vs a safety block vs a real bug vs a DB/connection error) without
-        # container-log access. The full message can carry data/schema detail, so
-        # it stays gated behind DEBUG.
+        # container-log access.
         "error_type": type(exc).__name__,
-        # TEMP DIAGNOSTIC (diag/surface-500-error): the message is exposed in prod
-        # too, only to pin down an unreproducible canon-save 500 on Neon. Revert
-        # this one line (fold back under `if settings.DEBUG`) once diagnosed.
-        "error_detail": str(exc)[:500],
     }
+    # The full message can carry data/schema detail, so it stays gated behind
+    # DEBUG (never production).
+    if settings.DEBUG:
+        content["error_detail"] = str(exc)[:500]
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content=content,

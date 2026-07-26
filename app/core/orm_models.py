@@ -732,8 +732,11 @@ class StyleGuide(Base):
     book_id = Column(
         UUID(as_uuid=True), ForeignKey("books.id", ondelete="CASCADE"), nullable=False
     )
-    pov = Column(String(50))  # first | third-limited | third-omniscient | ...
-    tense = Column(String(20))  # past | present
+    # Free-form, not an enum: the UI takes prose ("third-person limited, close on
+    # the protagonist, shifting to first in the interludes"), so these are TEXT
+    # like their siblings — a short VARCHAR here 500'd on any descriptive POV.
+    pov = Column(Text)  # e.g. first | third-limited | third-omniscient | prose
+    tense = Column(Text)  # e.g. past | present
     tone = Column(Text)
     comps = Column(Text)  # comparable titles / influences
     sample_prose = Column(Text)
