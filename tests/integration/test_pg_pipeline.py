@@ -260,9 +260,12 @@ async def test_startup_migrator_resets_legacy_manuscript_schema(pg):
                 text("SELECT count(*) FROM pg_tables WHERE tablename = 'sources'")
             )
         ) == 1
+        from alembic.script import ScriptDirectory
+
+        head = ScriptDirectory.from_config(cfg).get_current_head()
         assert (
             await s.scalar(text("SELECT version_num FROM alembic_version"))
-        ) == "0007"
+        ) == head  # rebuilt to the current head, whatever it is
         # a sentinel to prove the SECOND run does not drop the schema again
         await s.execute(text("CREATE TABLE reset_sentinel (x integer)"))
         await s.commit()
@@ -284,18 +287,23 @@ async def test_startup_migrator_resets_legacy_manuscript_schema(pg):
 
 async def test_startup_migrator_does_not_wipe_valid_schema_on_rollback(pg):
     """A rollback to an older image must NOT erase a valid database. A DB on the
-    new `sources` schema but stamped at an UNKNOWN future revision ('0008') — the
-    state after a later release migrated ahead and deployment rolled back to this
-    image — is left intact: auto-detection does not reset, and the subsequent
-    upgrade fails LOUDLY instead of wiping it (PR review, final)."""
+    new `sources` schema but stamped at an UNKNOWN future revision — the state
+    after a later release migrated ahead and deployment rolled back to this image
+    — is left intact: auto-detection does not reset, and the subsequent upgrade
+    fails LOUDLY instead of wiping it (PR review, final)."""
     import app.migrate as migrate_mod
     from alembic import command
 
     cfg = migrate_mod._alembic_config()
+    # An id that is not (and won't become) a real revision, so it stays "unknown".
+    future_rev = "zz_future_unknown"
     try:
         async with pg() as s:  # fixture already migrated to head (has `sources`)
             await s.execute(text("CREATE TABLE rollback_sentinel (x integer)"))
-            await s.execute(text("UPDATE alembic_version SET version_num = '0008'"))
+            await s.execute(
+                text("UPDATE alembic_version SET version_num = :r"),
+                {"r": future_rev},
+            )
             await s.commit()
 
         await migrate_mod.reset_if_legacy()  # must NOT reset a valid schema
@@ -330,10 +338,50 @@ async def test_startup_migrator_does_not_wipe_valid_schema_on_rollback(pg):
             ) == 1  # database intact
     finally:
         # restore a clean head so later tests' fixture upgrade succeeds
+        from alembic.script import ScriptDirectory
+
+        head = ScriptDirectory.from_config(cfg).get_current_head()
         async with pg() as s:
-            await s.execute(text("UPDATE alembic_version SET version_num = '0007'"))
+            await s.execute(
+                text("UPDATE alembic_version SET version_num = :h"), {"h": head}
+            )
             await s.execute(text("DROP TABLE IF EXISTS rollback_sentinel"))
             await s.commit()
+
+
+async def test_style_guide_pov_accepts_long_free_text(pg):
+    """style_guides.pov/tense are TEXT, not a short VARCHAR (migration 0008).
+
+    The UI takes free-form prose; a descriptive POV overflowed VARCHAR(50) and
+    Postgres raised StringDataRightTruncationError -> a 500 on saving the style
+    guide. sqlite doesn't enforce VARCHAR length, so only a Postgres test catches
+    this (which is why it reached prod).
+    """
+    from app.core.orm_models import Book, StyleGuide, User
+    from app.core.security import get_password_hash
+
+    long_pov = "third-person limited, past tense, close on the protagonist, " * 5
+    long_tense = "past tense throughout, shifting to present in the interludes " * 2
+    async with pg() as s:
+        u = User(
+            email=f"pg-{uuid.uuid4()}@ex.com",
+            hashed_password=get_password_hash("password123"),
+            full_name="pg",
+        )
+        s.add(u)
+        await s.flush()
+        book = Book(user_id=u.id, title="B")
+        s.add(book)
+        await s.flush()
+        sg = StyleGuide(book_id=book.id, pov=long_pov, tense=long_tense)
+        s.add(sg)
+        await s.commit()  # raised StringDataRightTruncationError on VARCHAR(50)
+        sid = sg.id
+
+    async with pg() as s:
+        got = await s.get(StyleGuide, sid)
+        assert got.pov == long_pov  # round-trips intact
+        assert got.tense == long_tense
 
 
 async def test_claim_one_skip_locked_across_sessions(pg):
