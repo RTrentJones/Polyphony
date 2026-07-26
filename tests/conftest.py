@@ -11,7 +11,13 @@ os.environ["POSTGRES_PASSWORD"] = "test_password_12345"
 os.environ["SECRET_KEY"] = "test_secret_key_minimum_32_characters_long_12345"
 
 from app.core.database import Base
-from app.core.orm_models import User, Manuscript, Character
+from app.core.orm_models import (
+    Book,
+    User,
+    Source,
+    Character,
+    source_characters,
+)
 
 # Test database URL
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -83,31 +89,54 @@ async def auth_headers(test_user: User) -> dict:
 
 
 @pytest.fixture
-async def test_manuscript(async_session: AsyncSession, test_user: User) -> Manuscript:
-    """Create a test manuscript"""
-    manuscript = Manuscript(
+async def test_book(async_session: AsyncSession, test_user: User) -> Book:
+    """A book. The root of every concept — nothing exists outside one."""
+    book = Book(
         user_id=test_user.id,
-        title="Test Manuscript",
+        title="Test Book",
+        author="Test Author",
+        synopsis="A test synopsis.",
+        genre="fiction",
+    )
+
+    async_session.add(book)
+    await async_session.commit()
+    await async_session.refresh(book)
+
+    return book
+
+
+@pytest.fixture
+async def test_source(
+    async_session: AsyncSession, test_user: User, test_book: Book
+) -> Source:
+    """A source (was `test_manuscript`): raw material uploaded INTO a book."""
+    source = Source(
+        book_id=test_book.id,
+        user_id=test_user.id,
+        kind="upload",
+        title="Test Source",
         author="Test Author",
         word_count=1000,
         status="completed",
     )
 
-    async_session.add(manuscript)
+    async_session.add(source)
     await async_session.commit()
-    await async_session.refresh(manuscript)
+    await async_session.refresh(source)
 
-    return manuscript
+    return source
 
 
 @pytest.fixture
 async def test_character(
-    async_session: AsyncSession, test_user: User, test_manuscript: Manuscript
+    async_session: AsyncSession, test_user: User, test_book: Book, test_source: Source
 ) -> Character:
-    """Create a test character"""
+    """A character. Belongs to exactly one book; the source is provenance only."""
     character = Character(
+        book_id=test_book.id,
         user_id=test_user.id,
-        manuscript_id=test_manuscript.id,
+        source_id=test_source.id,
         name="Test Character",
         description="A test character",
         dialogue_count=10,
@@ -116,6 +145,17 @@ async def test_character(
     async_session.add(character)
     await async_session.commit()
     await async_session.refresh(character)
+
+    # A character that arrived via a source is linked to it — the same M2M row
+    # the reviewed commit writes, which is how source-scoped queries reach the
+    # cast (docs/ADR-002-book-as-root.md §2; Character.source_id is only single
+    # provenance and goes NULL on file delete).
+    await async_session.execute(
+        source_characters.insert().values(
+            source_id=test_source.id, character_id=character.id
+        )
+    )
+    await async_session.commit()
 
     return character
 
@@ -129,10 +169,10 @@ def mock_groq_response():
 
 
 @pytest.fixture
-def sample_scene_request(test_manuscript: Manuscript):
+def sample_scene_request(test_source: Source):
     """Sample scene generation request"""
     return {
-        "manuscript_id": str(test_manuscript.id),
+        "source_id": str(test_source.id),
         "characters": ["Hermione", "Harry", "Ron"],
         "scene_description": "Study session in library",
         "setting": "Hogwarts library",

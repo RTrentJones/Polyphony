@@ -7,6 +7,7 @@ from sqlalchemy import (
     Integer,
     DateTime,
     ForeignKey,
+    Table,
     Text,
     JSON,
     DECIMAL,
@@ -45,9 +46,11 @@ class User(Base):
     )
 
     # Relationships
-    manuscripts = relationship(
-        "Manuscript", back_populates="user", cascade="all, delete-orphan"
-    )
+    # NOTE: no `sources`/`characters` collection here — Book is the root of every
+    # concept (docs/ADR-002-book-as-root.md §1), so they hang off Book and reach
+    # the user through it. Their `user_id` columns remain as a tenant guard
+    # (migration 0005's deliberate defence-in-depth), not as a second parent.
+    books = relationship("Book", back_populates="user", cascade="all, delete-orphan")
     scenes = relationship("Scene", back_populates="user", cascade="all, delete-orphan")
     api_usage = relationship(
         "APIUsage", back_populates="user", cascade="all, delete-orphan"
@@ -87,20 +90,42 @@ class RefreshToken(Base):
     __table_args__ = (Index("idx_refresh_tokens_user_id", "user_id"),)
 
 
-class Manuscript(Base):
-    __tablename__ = "manuscripts"
+class Source(Base):
+    """Raw input material attached to a book: an uploaded file or pasted text.
+
+    Was `Manuscript`, which was user-scoped and sat in a second tree beside Book
+    (docs/ADR-002-book-as-root.md §2). A manuscript and a pile of pasted notes
+    are the same thing — material that arrived somehow — so they are one entity
+    with a `kind`, and you upload INTO a book.
+
+    A Source is disposable; the Canon is not. Deleting the file you imported from
+    must never delete your cast, so `Character.source_id` is provenance only
+    (ON DELETE SET NULL) and this class deliberately does NOT cascade-delete
+    characters. See the note on `characters` below.
+    """
+
+    __tablename__ = "sources"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    book_id = Column(
+        UUID(as_uuid=True), ForeignKey("books.id", ondelete="CASCADE"), nullable=False
+    )
+    # Denormalized tenant guard (migration 0005's pattern), NOT a second parent.
+    # Invariant: user_id == book.user_id.
     user_id = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
+    kind = Column(
+        String(20), nullable=False, default="upload", server_default="upload"
+    )  # upload | paste
     title = Column(String(500), nullable=False)
     author = Column(String(255))
-    # content_hash is unique PER USER, not globally — a global unique both leaks
-    # a cross-tenant existence oracle and blocks two users holding the same file.
+    # content_hash is unique per BOOK, not globally — a global unique leaks a
+    # cross-tenant existence oracle (migration 0003). Per-book rather than
+    # per-user so the same reference text can feed two different books.
     content_hash = Column(String(64))
-    # The parsed manuscript text is stored here so (re)processing is driven from
-    # the DB, not a container-local file that dies on restart/idle-reclaim.
+    # The parsed text is stored here so (re)processing is driven from the DB, not
+    # a container-local file that dies on restart/idle-reclaim.
     content_text = Column(Text)
     file_path = Column(String(1000))
     word_count = Column(Integer)
@@ -111,17 +136,20 @@ class Manuscript(Base):
     )  # pending, processing, completed, failed
 
     # Relationships
-    user = relationship("User", back_populates="manuscripts")
-    characters = relationship(
-        "Character", back_populates="manuscript", cascade="all, delete-orphan"
-    )
-    scenes = relationship("Scene", back_populates="manuscript")
+    book = relationship("Book", back_populates="sources")
+    # NO cascade="all, delete-orphan" here — deliberate. The DB FK is
+    # ON DELETE SET NULL, and if this ORM side still cascaded, SQLAlchemy would
+    # delete the characters in Python anyway and the FK change would be a lie.
+    # Both halves must agree (docs/ADR-002-book-as-root.md §2).
+    characters = relationship("Character", back_populates="source")
+    scenes = relationship("Scene", back_populates="source")
 
     # Indexes
     __table_args__ = (
-        Index("idx_manuscripts_user_id", "user_id"),
-        Index("idx_manuscripts_status", "status"),
-        UniqueConstraint("user_id", "content_hash", name="uq_manuscripts_user_content"),
+        Index("idx_sources_book_id", "book_id"),
+        Index("idx_sources_user_id", "user_id"),
+        Index("idx_sources_status", "status"),
+        UniqueConstraint("book_id", "content_hash", name="uq_sources_book_content"),
     )
 
 
@@ -144,18 +172,47 @@ class Book(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    user = relationship("User")
+    user = relationship("User", back_populates="books")
     chapters = relationship(
         "Chapter",
         back_populates="book",
         cascade="all, delete-orphan",
         order_by="Chapter.position",
     )
+    # The Canon. `characters` did not exist here at all until now: the column was
+    # on Character, nothing ever wrote it, and the outline's bible query filtered
+    # on it — so it always returned zero rows and the model never saw a cast.
+    # That silence is what produced "Elara" (docs/BRD.md §1).
+    characters = relationship(
+        "Character",
+        back_populates="book",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="Character.name",
+    )
+    sources = relationship(
+        "Source",
+        back_populates="book",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
     plans = relationship(
         "BookPlan", back_populates="book", cascade="all, delete-orphan"
     )
     threads = relationship(
         "PlotThread", back_populates="book", cascade="all, delete-orphan"
+    )
+    canon_entries = relationship(
+        "CanonEntry",
+        back_populates="book",
+        cascade="all, delete-orphan",
+        order_by="CanonEntry.position",
+    )
+    style_guide = relationship(
+        "StyleGuide",
+        back_populates="book",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
 
     __table_args__ = (Index("idx_books_user_id", "user_id"),)
@@ -189,22 +246,34 @@ class Chapter(Base):
 
 
 class Character(Base):
+    """A character belongs to exactly ONE book. It is Canon.
+
+    This used to read "a character belongs to a user's bible… book_id scopes a
+    character to one book WHEN SET" — and nothing ever set it. The column was
+    nullable, written by no code path, and queried by two features that
+    therefore always saw an empty cast (docs/BRD.md §1). It is now NOT NULL and
+    the book is the real parent (docs/ADR-002-book-as-root.md §1).
+    """
+
     __tablename__ = "characters"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    # A character belongs to a user's bible. Manuscript extraction is one
-    # origin (manuscript_id set); manual creation is another (manuscript
-    # optional). book_id scopes a character to one book when set.
+    # CASCADE, not SET NULL: with book_id NOT NULL, SET NULL would violate the
+    # constraint and 500 the book-delete endpoint.
+    book_id = Column(
+        UUID(as_uuid=True), ForeignKey("books.id", ondelete="CASCADE"), nullable=False
+    )
+    # Denormalized tenant guard (migration 0005), NOT a second parent.
+    # Invariant: user_id == book.user_id.
     user_id = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    manuscript_id = Column(
+    # Provenance only: which Source this character was extracted from, if any.
+    # SET NULL — deleting an imported file must never delete the cast it seeded.
+    source_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("manuscripts.id", ondelete="CASCADE"),
+        ForeignKey("sources.id", ondelete="SET NULL"),
         nullable=True,
-    )
-    book_id = Column(
-        UUID(as_uuid=True), ForeignKey("books.id", ondelete="SET NULL"), nullable=True
     )
     name = Column(String(255), nullable=False)
     description = Column(Text)
@@ -220,17 +289,51 @@ class Character(Base):
     indexed_at = Column(DateTime(timezone=True))
 
     # Relationships
-    manuscript = relationship("Manuscript", back_populates="characters")
+    book = relationship("Book", back_populates="characters")
+    source = relationship("Source", back_populates="characters")
     chunks = relationship(
         "CharacterChunk", back_populates="character", cascade="all, delete-orphan"
     )
 
     # Indexes and constraints
     __table_args__ = (
-        Index("idx_characters_manuscript_id", "manuscript_id"),
-        Index("idx_characters_name", "manuscript_id", "name", unique=True),
+        Index("idx_characters_book_id", "book_id"),
+        Index("idx_characters_source_id", "source_id"),
         Index("idx_characters_user_id", "user_id"),
+        # Names are unique within a BOOK. The old index keyed on manuscript_id,
+        # which is NULL for every manually-created character — and NULLs are
+        # distinct in Postgres, so manual characters had NO uniqueness at all.
+        # Cast-fidelity checking (docs/BRD.md R1.4) needs a name to mean one
+        # person, so this is load-bearing, not tidiness.
+        UniqueConstraint("book_id", "name", name="uq_characters_book_name"),
     )
+
+
+# A character can receive material from MANY sources: an existing character is
+# often re-proposed (and merged) by a later source, and voice chunks now carry
+# their own `source_id` provenance. `Character.source_id` records only the FIRST
+# source and goes NULL when that file is deleted, so it cannot answer "which
+# characters belong to this source's cast?" — a merged character has
+# source_id=None yet is genuinely part of the new source. This M2M is the real
+# answer, written for every reviewed-commit character (created OR merged), so
+# source-detail and the source-scoped generation picker reach them (PR review #2).
+source_characters = Table(
+    "source_characters",
+    Base.metadata,
+    Column(
+        "source_id",
+        UUID(as_uuid=True),
+        ForeignKey("sources.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "character_id",
+        UUID(as_uuid=True),
+        ForeignKey("characters.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Index("idx_source_characters_character_id", "character_id"),
+)
 
 
 class CharacterChunk(Base):
@@ -262,7 +365,11 @@ class Scene(Base):
     user_id = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    manuscript_id = Column(UUID(as_uuid=True), ForeignKey("manuscripts.id"))
+    # Provenance only, like Character.source_id: deleting the imported file must
+    # not delete scenes drafted from it.
+    source_id = Column(
+        UUID(as_uuid=True), ForeignKey("sources.id", ondelete="SET NULL"), nullable=True
+    )
     # Book placement (nullable: standalone scenes exist outside any chapter)
     chapter_id = Column(
         UUID(as_uuid=True),
@@ -290,7 +397,7 @@ class Scene(Base):
 
     # Relationships
     user = relationship("User", back_populates="scenes")
-    manuscript = relationship("Manuscript", back_populates="scenes")
+    source = relationship("Source", back_populates="scenes")
     chapter = relationship("Chapter", back_populates="scenes")
     beats = relationship(
         "SceneBeat", back_populates="scene", cascade="all, delete-orphan"
@@ -305,7 +412,7 @@ class Scene(Base):
     # Indexes
     __table_args__ = (
         Index("idx_scenes_user_id", "user_id"),
-        Index("idx_scenes_manuscript_id", "manuscript_id"),
+        Index("idx_scenes_source_id", "source_id"),
         Index("idx_scenes_chapter_id", "chapter_id"),
         Index("idx_scenes_status", "status"),
         Index(
@@ -368,6 +475,15 @@ class BookPlan(Base):
     kind = Column(String(20), nullable=False, default="outline")  # outline | beat_sheet
     # Ordered plan nodes: [{"title", "summary", "children": [...]}, ...]
     content = Column(JSON, nullable=False, default=list)
+    # Staged generation is a background job (Phase 5): status/stage let the
+    # frontend poll GET /books/{id}/plans for progress; warnings carry the
+    # fidelity audit's soft findings (never a hard fail).
+    status = Column(
+        String(20), nullable=False, default="ready"
+    )  # ready|generating|failed
+    stage = Column(String(30))  # skeleton | chapters | beats | audit
+    warnings = Column(JSON)
+    error = Column(Text)
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -519,3 +635,149 @@ class APIUsage(Base):
     # The rolling-24h budget check filters WHERE user_id = ? AND timestamp >= ?
     # on every LLM-spending request — keep that hot path indexed.
     __table_args__ = (Index("idx_api_usage_user_time", "user_id", "timestamp"),)
+
+
+class EntityVersion(Base):
+    """Append-only version log for canon entities (docs/ADR-002-book-as-root.md §5).
+
+    ONE generic table for every versioned type (book_plan, character, ...). Every
+    query is (entity_type, entity_id) -> version_no DESC — never a cross-type
+    join — so a SOFT (entity_type, entity_id) pointer is right, while `book_id`
+    carries a HARD FK (real cascade) because the book is the root.
+
+    INVARIANT — and it DIVERGES from SceneRevision, so read this before assuming:
+    this is an append-only log of every state INCLUDING the current one, so
+    max(version_no) for an entity ALWAYS equals its live row. Create -> v1, edit
+    -> v2, regenerate -> v3, restore v2 -> APPEND v4 (reason='restored_from:2')
+    and set the live row. Restore is forward-only and never deletes.
+    (SceneRevision stores history EXCLUDING head — the opposite.) Snapshots are
+    full JSON, never diffs; canon is kilobytes and diffs make restore fragile.
+    """
+
+    __tablename__ = "entity_versions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Hard FK — a version cannot outlive its book.
+    book_id = Column(
+        UUID(as_uuid=True), ForeignKey("books.id", ondelete="CASCADE"), nullable=False
+    )
+    # Soft polymorphic pointer: which entity, of which type. No FK.
+    entity_type = Column(String(50), nullable=False)  # book_plan | character | ...
+    entity_id = Column(UUID(as_uuid=True), nullable=False)
+    version_no = Column(Integer, nullable=False)
+    content = Column(JSON, nullable=False)  # full snapshot, never a diff
+    # 'created' | 'edited' | 'generated' | 'imported' | 'restored_from:N'
+    reason = Column(String(255))
+    created_by = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        # The real guard against a version_no race — coalesce(max)+1 can collide
+        # under concurrency, and this turns that into a retryable IntegrityError.
+        UniqueConstraint(
+            "entity_type", "entity_id", "version_no", name="uq_entity_versions_ver"
+        ),
+        Index("idx_entity_versions_lookup", "entity_type", "entity_id", "version_no"),
+        Index("idx_entity_versions_book_id", "book_id"),
+    )
+
+
+class CanonEntry(Base):
+    """One categorized worldbuilding fact of a book's Canon (docs/BRD.md R3).
+
+    Book is the root, and until now Character was the *only* canon entity — so the
+    magic system, the Undeath Pipeline, Aeon Holdings had nowhere to live but the
+    synopsis field. One categorized table beats branded section names and is more
+    flexible. Versioned via entity_versions (entity_type='canon_entry').
+    """
+
+    __tablename__ = "canon_entries"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    book_id = Column(
+        UUID(as_uuid=True), ForeignKey("books.id", ondelete="CASCADE"), nullable=False
+    )
+    name = Column(String(255), nullable=False)
+    # world | location | faction | item | concept | org
+    category = Column(String(20), nullable=False, default="concept")
+    content = Column(Text)
+    position = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    book = relationship("Book", back_populates="canon_entries")
+
+    __table_args__ = (
+        Index("idx_canon_entries_book_id", "book_id"),
+        # A name means one entry within a book — load-bearing for canon_terms
+        # (the alias/known-noun allowlist the fidelity grader consumes).
+        UniqueConstraint("book_id", "name", name="uq_canon_entries_book_name"),
+    )
+
+
+class StyleGuide(Base):
+    """A book's prose style: POV, tense, tone, comps, a sample. One per book.
+
+    Feeds staged generation so drafts match the author's intended voice
+    (docs/BRD.md R3). Versioned via entity_versions (entity_type='style_guide').
+    """
+
+    __tablename__ = "style_guides"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    book_id = Column(
+        UUID(as_uuid=True), ForeignKey("books.id", ondelete="CASCADE"), nullable=False
+    )
+    pov = Column(String(50))  # first | third-limited | third-omniscient | ...
+    tense = Column(String(20))  # past | present
+    tone = Column(Text)
+    comps = Column(Text)  # comparable titles / influences
+    sample_prose = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    book = relationship("Book", back_populates="style_guide")
+
+    __table_args__ = (
+        # Exactly one style guide per book.
+        UniqueConstraint("book_id", name="uq_style_guides_book"),
+    )
+
+
+class ExtractionRun(Base):
+    """A Source -> proposed Canon extraction, held for review before commit.
+
+    Extraction PROPOSES; it never writes canon directly (docs/BRD.md R6). The
+    LLM's typed candidates (characters / canon entries / style / synopsis) live
+    here as JSON until the author edits/approves them, at which point commit
+    writes the real entities plus an 'imported' version (Phase 2). Book-rooted.
+    """
+
+    __tablename__ = "extraction_runs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    book_id = Column(
+        UUID(as_uuid=True), ForeignKey("books.id", ondelete="CASCADE"), nullable=False
+    )
+    # Provenance — deleting the source must not delete an in-flight review.
+    source_id = Column(
+        UUID(as_uuid=True), ForeignKey("sources.id", ondelete="SET NULL"), nullable=True
+    )
+    user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    status = Column(
+        String(20), nullable=False, default="pending"
+    )  # pending | ready | failed | committed
+    # {characters:[...], canon_entries:[...], style:{...}, synopsis:"..."}
+    proposals = Column(JSON)
+    error = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("idx_extraction_runs_book_id", "book_id"),)

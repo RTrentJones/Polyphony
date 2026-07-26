@@ -16,7 +16,8 @@ from app.core.config import settings
 from app.core.database import get_async_session
 from app.core.logging_config import log_business_event, log_error, setup_logging
 from app.core.orm_models import Character, Scene, SceneBeat
-from app.core.sanitization import sanitize_for_llm
+from app.core.llm_text import clean_for_llm
+from app.llm.errors import QuotaExhaustedError
 from app.llm.client import get_llm_client
 
 logger = setup_logging("orchestration.workflow")
@@ -27,9 +28,9 @@ async def plan_scene_beats(
 ) -> list[dict]:
     """Break the scene into 3-5 narrative beats via one planning call."""
     characters_str = ", ".join(scene_request["characters"])
-    scene_desc = sanitize_for_llm(scene_request["scene_description"], max_length=1000)
-    setting = sanitize_for_llm(scene_request["setting"], max_length=500)
-    emotional_tone = sanitize_for_llm(scene_request["emotional_tone"], max_length=100)
+    scene_desc = clean_for_llm(scene_request["scene_description"])
+    setting = clean_for_llm(scene_request["setting"])
+    emotional_tone = clean_for_llm(scene_request["emotional_tone"])
 
     prompt = f"""You are a narrative planner. Break down this scene into 3-5 narrative beats (smaller moments).
 
@@ -114,6 +115,10 @@ async def generate_beat_dialogue(
                 previous_dialogue=dialogue_history,
                 user_id=user_id,
             )
+        except QuotaExhaustedError:
+            # Quota pause must bubble up (worker re-queues the job), not degrade
+            # into a silently-empty turn.
+            raise
         except Exception as e:
             logger.warning(
                 f"Dialogue generation failed for {current}: {e}",
@@ -160,7 +165,7 @@ async def run_scene_workflow(
     started = datetime.now(timezone.utc)
     try:
         character_ids = await _resolve_character_ids(
-            scene_request["manuscript_id"], scene_request["characters"]
+            scene_request["book_id"], scene_request["characters"]
         )
 
         beats = await plan_scene_beats(scene_request, user_id)
@@ -206,6 +211,9 @@ async def run_scene_workflow(
             "beats_count": len(completed_beats),
         }
 
+    except QuotaExhaustedError:
+        # Pause, don't fail — leave the scene 'processing' for resume.
+        raise
     except Exception as e:
         log_error(
             logger, e, context={"scene_id": str(scene_id), "event": "scene_failed"}
@@ -221,12 +229,16 @@ async def run_scene_workflow(
 
 
 async def _resolve_character_ids(
-    manuscript_id: str, character_names: list[str]
+    book_id: str, character_names: list[str]
 ) -> dict[str, str]:
-    """Map character names to their DB ids (for RAG payload filtering)."""
+    """Map character names to their DB ids (for RAG payload filtering).
+
+    Scoped by book — the book is the root of the cast
+    (docs/ADR-002-book-as-root.md §1).
+    """
     async with get_async_session() as session:
         result = await session.execute(
-            select(Character).where(Character.manuscript_id == UUID(str(manuscript_id)))
+            select(Character).where(Character.book_id == UUID(str(book_id)))
         )
         rows = result.scalars().all()
     by_name = {c.name: str(c.id) for c in rows}

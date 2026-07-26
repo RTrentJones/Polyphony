@@ -34,7 +34,7 @@ import Modal from '@/components/Modal'
 import { ToastContainer, type ToastType } from '@/components/Toast'
 import apiClient from '@/lib/api-client'
 import { booksApi, useBookStore, usePlanningStore } from '@/lib/books-store'
-import { useManuscriptStore } from '@/lib/store'
+import { useSourceStore } from '@/lib/store'
 import type {
   BookChapter,
   BookExportFormat,
@@ -122,10 +122,10 @@ function GenerateSceneModal({
   onGenerated: (sceneId: string, chapterId: string) => void
 }) {
   const { generateScene } = useBookStore()
-  const { manuscripts, fetchManuscripts } = useManuscriptStore()
+  const { sources, fetchSources } = useSourceStore()
 
-  const [manuscriptId, setManuscriptId] = useState('')
-  const [manuscriptCharacters, setManuscriptCharacters] = useState<Character[]>([])
+  const [sourceId, setSourceId] = useState('')
+  const [sourceCharacters, setSourceCharacters] = useState<Character[]>([])
   const [loadingCharacters, setLoadingCharacters] = useState(false)
   const [charactersInput, setCharactersInput] = useState('')
   const [description, setDescription] = useState('')
@@ -138,25 +138,25 @@ function GenerateSceneModal({
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetchManuscripts().catch(() => {
-      // manuscripts are optional here — comma input still works
+    fetchSources().catch(() => {
+      // sources are optional here — comma input still works
     })
-  }, [fetchManuscripts])
+  }, [fetchSources])
 
   useEffect(() => {
-    if (!manuscriptId) {
-      setManuscriptCharacters([])
+    if (!sourceId) {
+      setSourceCharacters([])
       return
     }
     let cancelled = false
     setLoadingCharacters(true)
     apiClient
-      .getManuscriptCharacters(manuscriptId)
+      .getSourceCharacters(sourceId)
       .then((chars) => {
-        if (!cancelled) setManuscriptCharacters(chars)
+        if (!cancelled) setSourceCharacters(chars)
       })
       .catch(() => {
-        if (!cancelled) setManuscriptCharacters([])
+        if (!cancelled) setSourceCharacters([])
       })
       .finally(() => {
         if (!cancelled) setLoadingCharacters(false)
@@ -164,7 +164,7 @@ function GenerateSceneModal({
     return () => {
       cancelled = true
     }
-  }, [manuscriptId])
+  }, [sourceId])
 
   const characterNames = charactersInput
     .split(',')
@@ -194,7 +194,7 @@ function GenerateSceneModal({
     }
 
     const request: ChapterSceneRequest = {
-      ...(manuscriptId ? { manuscript_id: manuscriptId } : {}),
+      ...(sourceId ? { source_id: sourceId } : {}),
       characters: characterNames,
       scene_description: description.trim(),
       setting: setting.trim(),
@@ -216,7 +216,7 @@ function GenerateSceneModal({
     }
   }
 
-  const completedManuscripts = manuscripts.filter(
+  const completedSources = sources.filter(
     (m) => m.processing_status === 'completed'
   )
 
@@ -234,18 +234,18 @@ function GenerateSceneModal({
           </div>
         )}
 
-        {/* Optional character bible from a manuscript */}
+        {/* Optional character bible from a source */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
             Character bible (optional)
           </label>
           <select
-            value={manuscriptId}
-            onChange={(e) => setManuscriptId(e.target.value)}
+            value={sourceId}
+            onChange={(e) => setSourceId(e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
           >
-            <option value="">No manuscript — use character names only</option>
-            {completedManuscripts.map((m) => (
+            <option value="">No source — use character names only</option>
+            {completedSources.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.title}
               </option>
@@ -253,12 +253,12 @@ function GenerateSceneModal({
           </select>
         </div>
 
-        {manuscriptId &&
+        {sourceId &&
           (loadingCharacters ? (
             <Loading size="sm" text="Loading characters..." />
-          ) : manuscriptCharacters.length > 0 ? (
+          ) : sourceCharacters.length > 0 ? (
             <div className="flex flex-wrap gap-2">
-              {manuscriptCharacters.map((c) => (
+              {sourceCharacters.map((c) => (
                 <button
                   key={c.id}
                   type="button"
@@ -275,7 +275,7 @@ function GenerateSceneModal({
             </div>
           ) : (
             <p className="text-sm text-gray-500">
-              No characters found in this manuscript
+              No characters found in this source
             </p>
           ))}
 

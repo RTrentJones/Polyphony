@@ -3,30 +3,36 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from uuid import UUID
 from datetime import datetime, timezone
 
 from app.characters.dialogue import generate_dialogue
+from app.characters.serialize import character_snapshot as _character_content
 from app.core.database import get_db
 from app.core.orm_models import (
+    Book as BookORM,
     Character as CharacterORM,
     CharacterChunk as CharacterChunkORM,
-    Manuscript as ManuscriptORM,
+    Source as SourceORM,
     User as UserORM,
 )
 from app.core.security import get_current_active_user
 from app.rag.store import get_chunk_store
+from app.versioning import repository as versions_repo
 
 router = APIRouter()
 
 
 class CharacterCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    # Manuscript extraction is one origin; manual creation (no manuscript) is
-    # another — ownership is carried by user_id either way.
-    manuscript_id: Optional[UUID] = None
+    # Book is the root: every character belongs to exactly one book
+    # (docs/ADR-002-book-as-root.md §1). `source_id` is optional provenance —
+    # which uploaded/pasted Source this character was extracted from, if any.
+    book_id: UUID
+    source_id: Optional[UUID] = None
     description: Optional[str] = None
     personality_traits: dict = Field(default_factory=dict)
     voice_characteristics: dict = Field(default_factory=dict)
@@ -50,6 +56,15 @@ class CharacterUpdate(BaseModel):
 class VoiceSamples(BaseModel):
     samples: list[str] = Field(..., min_length=1, max_length=500)
     chunk_type: str = "dialogue"
+
+
+class ChunkUpdate(BaseModel):
+    text: str = Field(..., min_length=1)
+
+
+class RetrieveQuery(BaseModel):
+    query: str = Field(..., min_length=1, max_length=2000)
+    k: int = Field(default=5, ge=1, le=20)
 
 
 class VoiceTest(BaseModel):
@@ -93,8 +108,8 @@ async def list_characters(
                 "name": c.name,
                 "description": c.description,
                 "role": c.role,
-                "manuscript_id": str(c.manuscript_id) if c.manuscript_id else None,
-                "book_id": str(c.book_id) if c.book_id else None,
+                "book_id": str(c.book_id),
+                "source_id": str(c.source_id) if c.source_id else None,
                 "dialogue_count": c.dialogue_count,
                 "indexed_at": c.indexed_at.isoformat() if c.indexed_at else None,
             }
@@ -109,24 +124,41 @@ async def create_character(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a character manually (no manuscript required)."""
-    if payload.manuscript_id is not None:
-        manuscript = (
+    """Create a character in a book (manual authoring, no source required)."""
+    # The book is the parent — verify the caller owns it.
+    book = (
+        await db.execute(
+            select(BookORM).where(
+                BookORM.id == payload.book_id,
+                BookORM.user_id == current_user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not book:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
+        )
+    # If a provenance Source is named, it must belong to the same book.
+    if payload.source_id is not None:
+        source = (
             await db.execute(
-                select(ManuscriptORM).where(
-                    ManuscriptORM.id == payload.manuscript_id,
-                    ManuscriptORM.user_id == current_user.id,
+                select(SourceORM).where(
+                    SourceORM.id == payload.source_id,
+                    SourceORM.book_id == payload.book_id,
+                    SourceORM.user_id == current_user.id,
                 )
             )
         ).scalar_one_or_none()
-        if not manuscript:
+        if not source:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Manuscript not found"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Source not found in this book",
             )
 
     character = CharacterORM(
         user_id=current_user.id,
-        manuscript_id=payload.manuscript_id,
+        book_id=payload.book_id,
+        source_id=payload.source_id,
         name=payload.name,
         description=payload.description,
         personality_traits=payload.personality_traits,
@@ -137,7 +169,25 @@ async def create_character(
         notes=payload.notes,
     )
     db.add(character)
-    await db.commit()
+    try:
+        await db.flush()
+        await versions_repo.snapshot(
+            db,
+            book_id=character.book_id,
+            entity_type="character",
+            entity_id=character.id,
+            content=_character_content(character),
+            reason="created",
+            created_by=current_user.id,
+        )
+        await db.commit()
+    except IntegrityError:
+        # uq_characters_book_name: a character name is unique within a book.
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A character with this name already exists in this book",
+        )
     await db.refresh(character)
     return {"id": str(character.id), "name": character.name}
 
@@ -153,9 +203,8 @@ async def get_character(
     stats = await get_chunk_store().character_statistics(str(character.id))
     return {
         "id": str(character.id),
-        "manuscript_id": (
-            str(character.manuscript_id) if character.manuscript_id else None
-        ),
+        "book_id": str(character.book_id),
+        "source_id": (str(character.source_id) if character.source_id else None),
         "name": character.name,
         "description": character.description,
         "personality_traits": character.personality_traits or {},
@@ -194,7 +243,23 @@ async def update_character(
         value = getattr(payload, field_name)
         if value is not None:
             setattr(character, field_name, value)
-    await db.commit()
+    await versions_repo.snapshot(
+        db,
+        book_id=character.book_id,
+        entity_type="character",
+        entity_id=character.id,
+        content=_character_content(character),
+        reason="edited",
+        created_by=current_user.id,
+    )
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A character with this name already exists in this book",
+        )
     return {"id": str(character.id), "name": character.name}
 
 
@@ -234,6 +299,7 @@ async def add_voice_samples(
         character_id=str(character.id),
         character_name=character.name,
         user_id=str(current_user.id),
+        book_id=str(character.book_id),
         chunks=chunks,
     )
     for chunk in chunks:
@@ -272,3 +338,84 @@ async def test_dialogue(
         user_id=current_user.id,
     )
     return response
+
+
+# --- Voice-chunk browser / editor + retrieval inspector (Phase 7) ----------------
+
+
+@router.get("/{character_id}/chunks", response_model=dict)
+async def list_character_chunks(
+    character_id: UUID,
+    current_user: UserORM = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Browse a character's indexed voice chunks (the vector-store contents)."""
+    character = await _owned_character(character_id, current_user, db)
+    chunks = await get_chunk_store().list_chunks(str(character.id))
+    return {"character_id": str(character.id), "chunks": chunks}
+
+
+@router.patch("/{character_id}/chunks/{chunk_id}", response_model=dict)
+async def update_character_chunk(
+    character_id: UUID,
+    chunk_id: UUID,
+    payload: ChunkUpdate,
+    current_user: UserORM = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Edit a voice chunk's text — RE-EMBEDS it so retrieval reflects the edit."""
+    character = await _owned_character(character_id, current_user, db)
+    ok = await get_chunk_store().update_chunk(
+        str(chunk_id), str(character.id), payload.text
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Chunk not found"
+        )
+    return {"id": str(chunk_id), "updated": True}
+
+
+@router.delete(
+    "/{character_id}/chunks/{chunk_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def delete_character_chunk(
+    character_id: UUID,
+    chunk_id: UUID,
+    current_user: UserORM = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete one voice chunk (fix a bad sample without nuking the whole cast)."""
+    character = await _owned_character(character_id, current_user, db)
+    ok = await get_chunk_store().delete_chunk(str(chunk_id), str(character.id))
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Chunk not found"
+        )
+    return None
+
+
+@router.post("/{character_id}/retrieve", response_model=dict)
+async def inspect_retrieval(
+    character_id: UUID,
+    payload: RetrieveQuery,
+    current_user: UserORM = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieval inspector: what would ground a generation for this query, scored.
+
+    The store already computes a similarity score per chunk and used to discard
+    it; this surfaces it so an author can see WHY a voice sample was chosen.
+    """
+    character = await _owned_character(character_id, current_user, db)
+    results = await get_chunk_store().retrieve_similar(
+        character_id=str(character.id),
+        query=payload.query,
+        k=payload.k,
+        user_id=str(current_user.id),
+        book_id=str(character.book_id),
+    )
+    return {
+        "character_id": str(character.id),
+        "query": payload.query,
+        "results": results,
+    }

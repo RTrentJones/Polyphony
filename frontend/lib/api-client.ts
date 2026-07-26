@@ -19,11 +19,11 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import type {
   ApiError,
-  ApiManuscript,
+  ApiSource,
   AuthTokenResponse,
   Character,
-  Manuscript,
-  ManuscriptCharactersResponse,
+  Source,
+  SourceCharactersResponse,
 } from './types'
 
 const AUTH_PATHS_WITHOUT_REFRESH = ['/auth/login', '/auth/register', '/auth/refresh']
@@ -54,12 +54,12 @@ export function toApiError(err: unknown): ApiError {
 }
 
 /**
- * Map a raw API manuscript to the shape the UI reads
+ * Map a raw API source to the shape the UI reads
  * (created_at <- uploaded_at, processing_status <- status).
  */
-export function normalizeManuscript(
-  raw: ApiManuscript & Partial<Pick<Manuscript, 'character_count'>>
-): Manuscript {
+export function normalizeSource(
+  raw: ApiSource & Partial<Pick<Source, 'character_count'>>
+): Source {
   return {
     ...raw,
     created_at: raw.uploaded_at ?? new Date().toISOString(),
@@ -135,19 +135,19 @@ api.interceptors.response.use(
 // Typed convenience methods (used directly by pages)
 // ---------------------------------------------------------------------------
 
-async function getManuscript(manuscriptId: string): Promise<Manuscript> {
+async function getSource(sourceId: string): Promise<Source> {
   try {
-    const { data } = await api.get<ApiManuscript>(`/manuscripts/${manuscriptId}`)
-    return normalizeManuscript(data)
+    const { data } = await api.get<ApiSource>(`/sources/${sourceId}`)
+    return normalizeSource(data)
   } catch (err) {
     throw toApiError(err)
   }
 }
 
-async function getManuscriptCharacters(manuscriptId: string): Promise<Character[]> {
+async function getSourceCharacters(sourceId: string): Promise<Character[]> {
   try {
-    const { data } = await api.get<ManuscriptCharactersResponse>(
-      `/manuscripts/${manuscriptId}/characters`
+    const { data } = await api.get<SourceCharactersResponse>(
+      `/sources/${sourceId}/characters`
     )
     return data.characters
   } catch (err) {
@@ -157,8 +157,8 @@ async function getManuscriptCharacters(manuscriptId: string): Promise<Character[
 
 /** The axios instance, augmented with typed helpers the pages call. */
 const apiClient = Object.assign(api, {
-  getManuscript,
-  getManuscriptCharacters,
+  getSource,
+  getSourceCharacters,
 })
 
 export default apiClient

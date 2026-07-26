@@ -91,69 +91,68 @@ class TestAuthEndpoints:
 
 
 @pytest.mark.integration
-class TestManuscriptEndpoints:
-    """Test manuscript endpoints"""
+class TestSourceEndpoints:
+    """Test source endpoints (was Manuscript; docs/ADR-002-book-as-root.md §2)."""
 
     @pytest.mark.asyncio
-    async def test_list_manuscripts_empty(self, client, auth_headers):
-        """Test listing manuscripts when user has none"""
-        response = await client.get("/api/v1/manuscripts/", headers=auth_headers)
+    async def test_list_sources_empty(self, client, auth_headers):
+        """Test listing sources when user has none"""
+        response = await client.get("/api/v1/sources/", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
 
-        assert data["manuscripts"] == []
+        assert data["sources"] == []
         assert data["total"] == 0
 
     @pytest.mark.asyncio
-    async def test_list_manuscripts(self, client, auth_headers, test_manuscript):
-        """Test listing manuscripts"""
-        response = await client.get("/api/v1/manuscripts/", headers=auth_headers)
+    async def test_list_sources(self, client, auth_headers, test_source):
+        """Test listing sources"""
+        response = await client.get("/api/v1/sources/", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
 
-        assert len(data["manuscripts"]) == 1
+        assert len(data["sources"]) == 1
         assert data["total"] == 1
-        assert data["manuscripts"][0]["title"] == test_manuscript.title
+        assert data["sources"][0]["title"] == test_source.title
 
     @pytest.mark.asyncio
-    async def test_get_manuscript(self, client, auth_headers, test_manuscript):
-        """Test getting specific manuscript"""
+    async def test_get_source(self, client, auth_headers, test_source):
+        """Test getting specific source"""
         response = await client.get(
-            f"/api/v1/manuscripts/{test_manuscript.id}", headers=auth_headers
+            f"/api/v1/sources/{test_source.id}", headers=auth_headers
         )
 
         assert response.status_code == 200
         data = response.json()
 
-        assert data["id"] == str(test_manuscript.id)
-        assert data["title"] == test_manuscript.title
+        assert data["id"] == str(test_source.id)
+        assert data["title"] == test_source.title
+        assert data["book_id"] == str(test_source.book_id)
 
     @pytest.mark.asyncio
-    async def test_get_nonexistent_manuscript(self, client, auth_headers):
-        """Test getting non-existent manuscript"""
+    async def test_get_nonexistent_source(self, client, auth_headers):
+        """Test getting non-existent source"""
         fake_id = uuid4()
-        response = await client.get(
-            f"/api/v1/manuscripts/{fake_id}", headers=auth_headers
-        )
+        response = await client.get(f"/api/v1/sources/{fake_id}", headers=auth_headers)
 
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_get_manuscript_no_auth(self, client, test_manuscript):
-        """Test getting manuscript without authentication"""
-        response = await client.get(f"/api/v1/manuscripts/{test_manuscript.id}")
+    async def test_get_source_no_auth(self, client, test_source):
+        """Test getting source without authentication"""
+        response = await client.get(f"/api/v1/sources/{test_source.id}")
 
         assert response.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_get_manuscript_characters(
-        self, client, auth_headers, test_manuscript, test_character
+    async def test_get_source_characters(
+        self, client, auth_headers, test_source, test_character
     ):
-        """Test getting manuscript characters"""
+        """Test getting characters extracted from a source"""
         response = await client.get(
-            f"/api/v1/manuscripts/{test_manuscript.id}/characters", headers=auth_headers
+            f"/api/v1/sources/{test_source.id}/characters", headers=auth_headers
         )
 
         assert response.status_code == 200

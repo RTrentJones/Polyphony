@@ -96,12 +96,12 @@ class PolyphonyClient:
             await asyncio.sleep(interval)
         raise EvalClientError(f"poll timed out: {path}")
 
-    # -- manuscripts / characters ------------------------------------------
-    async def upload_manuscript(
-        self, filename: str, content: bytes, title: str
-    ) -> dict:
+    # -- sources / characters ----------------------------------------------
+    async def upload_source(self, filename: str, content: bytes, title: str) -> dict:
+        # No book_id → the endpoint auto-creates a book for the upload. The
+        # returned dict carries both the source id and its book_id.
         r = await self._post(
-            "/api/v1/manuscripts/upload",
+            "/api/v1/sources/upload",
             files={"file": (filename, content, "text/plain")},
             params={"title": title},
         )
@@ -109,15 +109,15 @@ class PolyphonyClient:
             raise EvalClientError(f"upload failed ({r.status_code}): {r.text[:400]}")
         return r.json()
 
-    async def wait_manuscript(self, manuscript_id: str, timeout: float = 300) -> dict:
+    async def wait_source(self, source_id: str, timeout: float = 300) -> dict:
         return await self.poll(
-            f"/api/v1/manuscripts/{manuscript_id}",
+            f"/api/v1/sources/{source_id}",
             lambda b: b.get("status") in ("completed", "failed"),
             timeout=timeout,
         )
 
-    async def manuscript_characters(self, manuscript_id: str) -> list[dict]:
-        r = await self._get(f"/api/v1/manuscripts/{manuscript_id}/characters")
+    async def source_characters(self, source_id: str) -> list[dict]:
+        r = await self._get(f"/api/v1/sources/{source_id}/characters")
         r.raise_for_status()
         return r.json()["characters"]
 

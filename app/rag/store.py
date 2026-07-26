@@ -50,11 +50,22 @@ class ChunkStore:
         character_id: str,
         character_name: str,
         user_id: str,
+        book_id: str,
         chunks: list[dict],
-        book_id: Optional[str] = None,
+        source_id: Optional[str] = None,
         batch_size: int = 100,
     ) -> int:
-        """Index content chunks for a character. Returns count indexed."""
+        """Index content chunks for a character. Returns count indexed.
+
+        `book_id` is required (no default): voice chunks are book-rooted like
+        their character, and a missing book_id must fail loudly at the call site
+        (TypeError) rather than silently writing a NULL that the book-scoped
+        retrieval filter would then never match (docs/ADR-002-book-as-root.md §1).
+
+        `source_id` records voice PROVENANCE on the chunk so a character can carry
+        voice from multiple sources and each source is re-indexable in isolation
+        (PR review #2).
+        """
         if not chunks:
             return 0
 
@@ -67,11 +78,12 @@ class ChunkStore:
                     await session.execute(
                         text("""
                             INSERT INTO voice_chunks
-                              (id, character_id, user_id, book_id, chunk_type,
-                               text, source_location, word_count, embedding)
+                              (id, character_id, user_id, book_id, source_id,
+                               chunk_type, text, source_location, word_count,
+                               embedding)
                             VALUES
-                              (:id, :character_id, :user_id, :book_id, :chunk_type,
-                               :text, :source_location, :word_count,
+                              (:id, :character_id, :user_id, :book_id, :source_id,
+                               :chunk_type, :text, :source_location, :word_count,
                                CAST(:embedding AS vector))
                             """),
                         {
@@ -79,6 +91,7 @@ class ChunkStore:
                             "character_id": character_id,
                             "user_id": user_id,
                             "book_id": book_id,
+                            "source_id": source_id,
                             "chunk_type": chunk.get("chunk_type", "unknown"),
                             "text": chunk["text"],
                             "source_location": chunk.get("source_location", ""),
@@ -90,6 +103,19 @@ class ChunkStore:
             await session.commit()
         return total
 
+    async def delete_source_chunks(self, character_id: str, source_id: str) -> None:
+        """Remove only THIS source's chunks for a character — idempotent per-source
+        re-indexing that preserves manual and other-source voice (PR review #2)."""
+        async with self._session() as session:
+            await session.execute(
+                text(
+                    "DELETE FROM voice_chunks "
+                    "WHERE character_id = :character_id AND source_id = :source_id"
+                ),
+                {"character_id": character_id, "source_id": source_id},
+            )
+            await session.commit()
+
     async def retrieve_similar(
         self,
         character_id: str,
@@ -98,12 +124,14 @@ class ChunkStore:
         chunk_type: Optional[str] = None,
         score_threshold: Optional[float] = None,
         user_id: Optional[str] = None,
+        book_id: Optional[str] = None,
     ) -> list[dict]:
         """Retrieve a character's most similar chunks for voice grounding.
 
-        Pass user_id for defense-in-depth: even though character_id already
-        implies one owner, scoping the vector read by user_id too means a
-        mis-scoped caller can never read another tenant's voice.
+        Pass user_id and/or book_id for defense-in-depth: even though
+        character_id already implies one owner and one book, scoping the vector
+        read by them too means a mis-scoped caller can never read another
+        tenant's — or another book's — voice.
         """
         threshold = (
             settings.RAG_SCORE_THRESHOLD if score_threshold is None else score_threshold
@@ -124,6 +152,9 @@ class ChunkStore:
             if user_id:
                 sql += " AND user_id = :user_id"
                 params["user_id"] = user_id
+            if book_id:
+                sql += " AND book_id = :book_id"
+                params["book_id"] = book_id
             if chunk_type:
                 sql += " AND chunk_type = :chunk_type"
                 params["chunk_type"] = chunk_type
@@ -186,6 +217,77 @@ class ChunkStore:
             "type_distribution": type_counts,
             "total_words": sum(int(row["words"]) for row in rows),
         }
+
+    async def list_chunks(self, character_id: str) -> list[dict]:
+        """All of a character's voice chunks for the browser/editor (Phase 7)."""
+        async with self._session() as session:
+            rows = (
+                (
+                    await session.execute(
+                        text("""
+                            SELECT id, chunk_type, text, source_location, word_count
+                            FROM voice_chunks
+                            WHERE character_id = :character_id
+                            ORDER BY created_at
+                            """),
+                        {"character_id": character_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [
+            {
+                "id": str(row["id"]),
+                "chunk_type": row["chunk_type"],
+                "text": row["text"],
+                "source": row["source_location"] or "",
+                "word_count": row["word_count"] or 0,
+            }
+            for row in rows
+        ]
+
+    async def update_chunk(
+        self, chunk_id: str, character_id: str, text_value: str
+    ) -> bool:
+        """Edit a chunk's text and RE-EMBED it (Phase 7).
+
+        Vectors were write-only: the only fix for a bad sample was deleting the
+        whole character. Editing must re-embed, or retrieval would rank the new
+        text by the old vector. Returns False if the chunk isn't this character's.
+        """
+        embedding = _vector_literal(await self.embedder.aencode_one(text_value))
+        async with self._session() as session:
+            result = await session.execute(
+                text("""
+                    UPDATE voice_chunks
+                    SET text = :text, word_count = :wc,
+                        embedding = CAST(:embedding AS vector)
+                    WHERE id = :id AND character_id = :character_id
+                    """),
+                {
+                    "id": chunk_id,
+                    "character_id": character_id,
+                    "text": text_value,
+                    "wc": len(text_value.split()),
+                    "embedding": embedding,
+                },
+            )
+            await session.commit()
+        return (result.rowcount or 0) > 0
+
+    async def delete_chunk(self, chunk_id: str, character_id: str) -> bool:
+        """Remove one voice chunk (scoped to its character)."""
+        async with self._session() as session:
+            result = await session.execute(
+                text(
+                    "DELETE FROM voice_chunks "
+                    "WHERE id = :id AND character_id = :character_id"
+                ),
+                {"id": chunk_id, "character_id": character_id},
+            )
+            await session.commit()
+        return (result.rowcount or 0) > 0
 
     async def delete_character(self, character_id: str) -> None:
         """Remove a character's vectors (explicit re-index; CASCADE covers deletes)."""

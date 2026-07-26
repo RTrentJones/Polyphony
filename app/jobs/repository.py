@@ -113,6 +113,30 @@ async def mark_failed(session: AsyncSession, job: Job, error: str) -> bool:
     return False
 
 
+async def pause(
+    session: AsyncSession,
+    job: Job,
+    *,
+    available_at: datetime,
+    reason: str,
+) -> None:
+    """Re-queue a job for later WITHOUT consuming a retry (quota exhaustion).
+
+    A pause is not a failure — the work is fine, the quota is temporarily gone
+    (docs/BRD.md R7.2). Unlike mark_failed it does not count against max_attempts:
+    claim_one incremented `attempts`, so decrement it back, set available_at to
+    when quota returns, and let the worker resume the job automatically. No lost
+    work, no double-spend.
+    """
+    job.status = "queued"
+    job.available_at = available_at
+    job.attempts = max(0, job.attempts - 1)
+    job.error = reason
+    job.locked_at = None
+    job.locked_by = None
+    await session.flush()
+
+
 async def reap_stale(
     session: AsyncSession,
     *,

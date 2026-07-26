@@ -1,9 +1,9 @@
 """Postgres-only integration tests — coverage sqlite structurally can't give.
 
-Runs the real Alembic migration chain against a pgvector Postgres, then
-exercises the two paths that pass on sqlite but failed on Postgres:
+Runs the real Alembic baseline against a pgvector Postgres, then exercises the
+two paths that pass on sqlite but failed on Postgres:
   * pgvector index → retrieve round-trip
-  * manuscript processing, which must COMMIT characters before indexing their
+  * source processing, which must COMMIT characters before indexing their
     voice chunks (voice_chunks→characters FK lives on a separate connection).
 
 Skipped unless RUN_PG_TESTS is set (CI provides a pgvector service).
@@ -53,7 +53,7 @@ async def pg(monkeypatch):
         await engine.dispose()
 
 
-async def test_migrations_built_vector_and_manuscript_columns(pg):
+async def test_baseline_built_vector_and_source_columns(pg):
     async with pg() as s:
         assert (
             await s.execute(text("SELECT 1 FROM pg_extension WHERE extname='vector'"))
@@ -71,19 +71,25 @@ async def test_migrations_built_vector_and_manuscript_columns(pg):
             .all()
         )
         assert "embedding" in vc
-        ms = (
+        assert "book_id" in vc  # voice chunks are book-rooted now
+        # `manuscripts` is gone; the book-rooted `sources` table replaces it.
+        src = (
             (
                 await s.execute(
                     text(
                         "SELECT column_name FROM information_schema.columns "
-                        "WHERE table_name='manuscripts'"
+                        "WHERE table_name='sources'"
                     )
                 )
             )
             .scalars()
             .all()
         )
-        assert "content_text" in ms  # migration 0003 applied
+        assert "content_text" in src
+        assert "book_id" in src
+        assert (
+            await s.execute(text("SELECT to_regclass('public.manuscripts')"))
+        ).scalar() is None
 
 
 async def test_jobs_table_schema(pg):
@@ -145,6 +151,191 @@ async def test_position_unique_constraints_in_schema(pg):
         ]
 
 
+async def test_source_characters_cascade_preserves_cast(pg):
+    """Migration 0007: a merged character (source_id NULL) is reachable from its
+    source via the association, and deleting the source drops the association but
+    NOT the character — the Canon survives the file it arrived in (PR review #2)."""
+    from app.core.orm_models import Book, Character, Source, User, source_characters
+    from app.core.security import get_password_hash
+
+    async with pg() as s:
+        u = User(
+            email=f"pg-{uuid.uuid4()}@ex.com",
+            hashed_password=get_password_hash("password123"),
+            full_name="pg",
+        )
+        s.add(u)
+        await s.flush()
+        book = Book(user_id=u.id, title="B")
+        s.add(book)
+        await s.flush()
+        src = Source(book_id=book.id, user_id=u.id, title="S", status="completed")
+        s.add(src)
+        await s.flush()
+        # Merged: source_id stays NULL, but linked to the source via the M2M.
+        char = Character(book_id=book.id, user_id=u.id, name="Milo")
+        s.add(char)
+        await s.flush()
+        await s.execute(
+            source_characters.insert().values(source_id=src.id, character_id=char.id)
+        )
+        await s.commit()
+        src_id, char_id = src.id, char.id
+        assert char.source_id is None
+
+        # reachable from the source despite source_id being NULL
+        linked = (
+            (
+                await s.execute(
+                    text(
+                        "SELECT character_id FROM source_characters "
+                        "WHERE source_id = :sid"
+                    ),
+                    {"sid": src_id},
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert char_id in linked
+
+    # delete the source at the DB level -> the FK cascade removes the association
+    async with pg() as s:
+        await s.execute(text("DELETE FROM sources WHERE id = :sid"), {"sid": src_id})
+        await s.commit()
+
+    async with pg() as s:
+        assert (
+            await s.execute(
+                text("SELECT count(*) FROM source_characters WHERE source_id = :sid"),
+                {"sid": src_id},
+            )
+        ).scalar() == 0
+        # the character (Canon) survives the deleted source
+        assert (
+            await s.execute(
+                text("SELECT count(*) FROM characters WHERE id = :cid"),
+                {"cid": char_id},
+            )
+        ).scalar() == 1
+
+
+async def test_startup_migrator_resets_legacy_manuscript_schema(pg):
+    """app/migrate.py fingerprints + resets a LEGACY database — stamped at the
+    REUSED revision id '0006' with the old `manuscripts` table — then rebuilds to
+    head; a second run does NOT reset again (PR review, final).
+
+    Revision membership cannot detect this (both the old and new chains have a
+    '0006'), so the migrator keys on the schema shape instead.
+    """
+    import app.migrate as migrate_mod
+    from alembic import command
+
+    # Replace the fixture's up-to-date schema with the legacy one, stamped '0006'.
+    async with pg() as s:
+        await s.execute(text("DROP SCHEMA public CASCADE"))
+        await s.execute(text("CREATE SCHEMA public"))
+        await s.execute(text("CREATE TABLE manuscripts (id integer)"))  # old-only
+        await s.execute(
+            text("CREATE TABLE alembic_version (version_num varchar(32) NOT NULL)")
+        )
+        await s.execute(
+            text("INSERT INTO alembic_version VALUES ('0006')")
+        )  # reused id
+        await s.commit()
+
+    cfg = migrate_mod._alembic_config()
+    await migrate_mod.reset_if_legacy()
+    await asyncio.to_thread(command.upgrade, cfg, "head")
+
+    async with pg() as s:
+        # legacy table gone, new baseline present, chain at head
+        assert (
+            await s.scalar(
+                text("SELECT count(*) FROM pg_tables WHERE tablename = 'manuscripts'")
+            )
+        ) == 0
+        assert (
+            await s.scalar(
+                text("SELECT count(*) FROM pg_tables WHERE tablename = 'sources'")
+            )
+        ) == 1
+        assert (
+            await s.scalar(text("SELECT version_num FROM alembic_version"))
+        ) == "0007"
+        # a sentinel to prove the SECOND run does not drop the schema again
+        await s.execute(text("CREATE TABLE reset_sentinel (x integer)"))
+        await s.commit()
+
+    await migrate_mod.reset_if_legacy()  # up-to-date now -> must NOT reset
+    await asyncio.to_thread(command.upgrade, cfg, "head")
+
+    async with pg() as s:
+        assert (
+            await s.scalar(
+                text(
+                    "SELECT count(*) FROM pg_tables WHERE tablename = 'reset_sentinel'"
+                )
+            )
+        ) == 1  # survived the second run -> no reset
+        await s.execute(text("DROP TABLE reset_sentinel"))
+        await s.commit()
+
+
+async def test_startup_migrator_does_not_wipe_valid_schema_on_rollback(pg):
+    """A rollback to an older image must NOT erase a valid database. A DB on the
+    new `sources` schema but stamped at an UNKNOWN future revision ('0008') — the
+    state after a later release migrated ahead and deployment rolled back to this
+    image — is left intact: auto-detection does not reset, and the subsequent
+    upgrade fails LOUDLY instead of wiping it (PR review, final)."""
+    import app.migrate as migrate_mod
+    from alembic import command
+
+    cfg = migrate_mod._alembic_config()
+    try:
+        async with pg() as s:  # fixture already migrated to head (has `sources`)
+            await s.execute(text("CREATE TABLE rollback_sentinel (x integer)"))
+            await s.execute(text("UPDATE alembic_version SET version_num = '0008'"))
+            await s.commit()
+
+        await migrate_mod.reset_if_legacy()  # must NOT reset a valid schema
+
+        async with pg() as s:
+            assert (
+                await s.scalar(
+                    text(
+                        "SELECT count(*) FROM pg_tables "
+                        "WHERE tablename = 'rollback_sentinel'"
+                    )
+                )
+            ) == 1
+            assert (
+                await s.scalar(
+                    text("SELECT count(*) FROM pg_tables WHERE tablename = 'sources'")
+                )
+            ) == 1
+
+        # the older image can't resolve '0008' -> upgrade fails loudly, no wipe
+        with pytest.raises(Exception):
+            await asyncio.to_thread(command.upgrade, cfg, "head")
+
+        async with pg() as s:
+            assert (
+                await s.scalar(
+                    text(
+                        "SELECT count(*) FROM pg_tables "
+                        "WHERE tablename = 'rollback_sentinel'"
+                    )
+                )
+            ) == 1  # database intact
+    finally:
+        # restore a clean head so later tests' fixture upgrade succeeds
+        async with pg() as s:
+            await s.execute(text("UPDATE alembic_version SET version_num = '0007'"))
+            await s.execute(text("DROP TABLE IF EXISTS rollback_sentinel"))
+            await s.commit()
+
+
 async def test_claim_one_skip_locked_across_sessions(pg):
     """Two concurrent claimers must get distinct jobs (FOR UPDATE SKIP LOCKED)."""
     from app.core.orm_models import User
@@ -184,18 +375,14 @@ async def test_claim_one_skip_locked_across_sessions(pg):
         await s.commit()
 
 
-async def test_process_manuscript_commits_before_indexing(pg, monkeypatch):
-    """The FK regression: this raised on Postgres before the commit-first fix."""
-    from app.core.orm_models import Manuscript, User
+async def test_index_source_voices_indexes_committed_characters(pg, monkeypatch):
+    """index_source_voices indexes an already-committed character's voice on real
+    pgvector (the FK: voice_chunks -> characters, committed first)."""
+    from app.core.orm_models import Book, Character, Source, User
     from app.core.security import get_password_hash
     from app.rag.store import get_chunk_store
     import app.parsing.pipeline as pipeline
 
-    monkeypatch.setattr(
-        pipeline.char_extractor,
-        "extract_characters",
-        lambda body, user_id=None: _val(["Mina"]),
-    )
     monkeypatch.setattr(
         pipeline.char_extractor,
         "extract_character_content",
@@ -227,34 +414,111 @@ async def test_process_manuscript_commits_before_indexing(pg, monkeypatch):
         s.add(u)
         await s.commit()
         await s.refresh(u)
-        ms = Manuscript(
-            user_id=u.id, title="M", content_hash=uuid.uuid4().hex, content_text="body"
-        )
-        s.add(ms)
+        book = Book(user_id=u.id, title="M")
+        s.add(book)
         await s.commit()
-        await s.refresh(ms)
-        uid, mid = u.id, ms.id
+        await s.refresh(book)
+        src = Source(
+            user_id=u.id,
+            book_id=book.id,
+            title="M",
+            content_hash=uuid.uuid4().hex,
+            content_text="body",
+        )
+        s.add(src)
+        await s.commit()
+        await s.refresh(src)
+        # A MERGED character: source_id is None (it did not originate from this
+        # source), but the explicit-id job must still index it (PR review #2).
+        ch = Character(user_id=u.id, book_id=book.id, source_id=None, name="Mina")
+        s.add(ch)
+        await s.commit()
+        await s.refresh(ch)
+        uid, bid, sid, cid = u.id, book.id, src.id, ch.id
 
-    await pipeline.process_manuscript(mid, uid, text="body")
+    await pipeline.index_characters_voice(sid, bid, uid, [str(cid)])
 
     async with pg() as s:
-        assert (
-            await s.execute(
-                text("SELECT status FROM manuscripts WHERE id=:i"), {"i": mid}
-            )
-        ).scalar() == "completed"
         assert (
             await s.execute(
                 text("SELECT count(*) FROM voice_chunks WHERE user_id=:u"), {"u": uid}
             )
         ).scalar() == 2
-        cid = (
+        # provenance recorded on the chunk
+        assert (
             await s.execute(
-                text("SELECT id FROM characters WHERE manuscript_id=:m"), {"m": mid}
+                text("SELECT count(*) FROM voice_chunks WHERE source_id=:s"), {"s": sid}
             )
-        ).scalar()
+        ).scalar() == 2
+        assert (
+            await s.execute(
+                text("SELECT indexed_at IS NOT NULL FROM characters WHERE id=:c"),
+                {"c": cid},
+            )
+        ).scalar() is True
+
+    # Re-running is idempotent per source (still 2 chunks, not 4).
+    await pipeline.index_characters_voice(sid, bid, uid, [str(cid)])
+    async with pg() as s:
+        assert (
+            await s.execute(
+                text("SELECT count(*) FROM voice_chunks WHERE source_id=:s"), {"s": sid}
+            )
+        ).scalar() == 2
 
     hits = await get_chunk_store().retrieve_similar(
         character_id=str(cid), query="creatures of the night", k=2, user_id=str(uid)
     )
     assert isinstance(hits, list) and len(hits) >= 1
+
+
+async def test_chunk_browser_edit_delete_roundtrip(pg):
+    """Phase 7: list / re-embed-on-edit / delete voice chunks against real pgvector."""
+    import uuid as _uuid
+
+    from app.core.orm_models import Book, Character, User
+    from app.core.security import get_password_hash
+    from app.rag.store import get_chunk_store
+
+    async with pg() as s:
+        u = User(
+            email=f"pg-{_uuid.uuid4()}@ex.com",
+            hashed_password=get_password_hash("password123"),
+            full_name="pg",
+        )
+        s.add(u)
+        await s.commit()
+        await s.refresh(u)
+        book = Book(user_id=u.id, title="B")
+        s.add(book)
+        await s.commit()
+        await s.refresh(book)
+        ch = Character(user_id=u.id, book_id=book.id, name="Mina")
+        s.add(ch)
+        await s.commit()
+        await s.refresh(ch)
+        cid, bid = str(ch.id), str(book.id)
+
+    store = get_chunk_store()
+    await store.index_chunks(
+        character_id=cid,
+        character_name="Mina",
+        user_id=str(u.id),
+        book_id=bid,
+        chunks=[
+            {"text": "The dead travel fast.", "chunk_type": "dialogue"},
+            {"text": "Children of the night.", "chunk_type": "dialogue"},
+        ],
+    )
+    chunks = await store.list_chunks(cid)
+    assert len(chunks) == 2
+
+    target = chunks[0]["id"]
+    assert await store.update_chunk(target, cid, "Listen to them, the music they make.")
+    listed = {c["id"]: c["text"] for c in await store.list_chunks(cid)}
+    assert listed[target] == "Listen to them, the music they make."
+
+    assert await store.delete_chunk(target, cid)
+    assert len(await store.list_chunks(cid)) == 1
+    # wrong-character scoping: cannot delete another id
+    assert await store.delete_chunk(target, cid) is False

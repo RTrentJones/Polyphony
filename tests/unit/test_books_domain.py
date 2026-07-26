@@ -91,7 +91,7 @@ class TestProseCallBudget:
                 return FakeResult()
 
         scene_request = {
-            "manuscript_id": None,
+            "source_id": None,
             "characters": ["Alice", "Bob"],
             "scene_description": "A tense negotiation over the last biscuit.",
             "setting": "kitchen",

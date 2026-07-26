@@ -14,7 +14,7 @@ from cachetools import TTLCache
 
 from app.core.config import settings
 from app.core.logging_config import setup_logging
-from app.core.sanitization import sanitize_for_llm
+from app.core.llm_text import clean_for_llm
 from app.llm.client import get_llm_client
 from app.rag.embeddings import cosine_similarity, get_embedder
 from app.rag.store import get_chunk_store
@@ -57,14 +57,12 @@ async def generate_dialogue(
     )
 
     examples_text = (
-        "\n".join(f"- \"{ex['text'][:200]}\"" for ex in similar[:3])
+        "\n".join(f"- \"{clean_for_llm(ex['text'])}\"" for ex in similar[:3])
         if similar
         else "No previous examples available."
     )
-    safe_beat = sanitize_for_llm(beat_description, max_length=1000)
-    safe_setting = sanitize_for_llm(
-        str(scene_context.get("setting", "Unknown")), max_length=500
-    )
+    safe_beat = clean_for_llm(beat_description)
+    safe_setting = clean_for_llm(str(scene_context.get("setting", "Unknown")))
 
     prompt = f"""You are {character_name}, a character in this story.
 

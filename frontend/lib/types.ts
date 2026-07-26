@@ -57,53 +57,70 @@ export interface RegisterData {
 }
 
 // ---------------------------------------------------------------------------
-// Manuscripts (app/api/manuscripts.py)
+// Sources (app/api/sources.py) — was Manuscript; book-rooted now.
 // ---------------------------------------------------------------------------
 
-export type ManuscriptStatus = 'pending' | 'processing' | 'completed' | 'failed'
+export type SourceStatus = 'pending' | 'processing' | 'completed' | 'failed'
 
-/** Raw manuscript item as returned by the API (list + detail). */
-export interface ApiManuscript {
+export type SourceKind = 'upload' | 'paste'
+
+/** The latest extraction run attached to a source — lets a review that was
+ *  navigated away from be resumed rather than stranded (PR review #3). */
+export interface SourceLatestExtraction {
   id: string
+  status: 'pending' | 'ready' | 'failed' | 'committed' | string
+}
+
+/** Raw source item as returned by the API (list + detail). Book-scoped. */
+export interface ApiSource {
+  id: string
+  book_id: string
+  kind?: SourceKind | string
   title: string
   author?: string | null
   word_count: number
-  status: ManuscriptStatus
+  status: SourceStatus
   uploaded_at: string | null
   processed_at?: string | null
+  /** Only the detail endpoint (GET /sources/{id}) returns this. */
+  latest_extraction?: SourceLatestExtraction | null
 }
 
 /**
- * Manuscript as consumed by the UI: the raw API fields plus normalized
+ * Source as consumed by the UI: the raw API fields plus normalized
  * aliases (`created_at` <- uploaded_at, `processing_status` <- status).
  */
-export interface Manuscript extends ApiManuscript {
+export interface Source extends ApiSource {
   created_at: string
-  processing_status: ManuscriptStatus
+  processing_status: SourceStatus
   /** Not returned by the list/detail endpoints today; populated when known. */
   character_count?: number
 }
 
-/** GET /manuscripts/ */
-export interface ManuscriptListResponse {
-  manuscripts: ApiManuscript[]
+/** GET /sources/ */
+export interface SourceListResponse {
+  sources: ApiSource[]
   total: number
   skip: number
   limit: number
 }
 
-/** POST /manuscripts/upload */
-export interface ManuscriptUploadResponse {
+/** POST /sources/upload — auto-creates a book when no book_id is given, and
+ *  starts an extraction run whose proposals the author reviews before commit. */
+export interface SourceUploadResponse {
   id: string
+  book_id: string
   title: string
   author?: string | null
   word_count: number
-  status: ManuscriptStatus
+  status: SourceStatus
+  /** Handle to the extraction whose proposals must be reviewed + committed. */
+  extraction_run_id: string
   message: string
 }
 
 // ---------------------------------------------------------------------------
-// Characters (GET /manuscripts/{id}/characters)
+// Characters (GET /sources/{id}/characters). A character belongs to one book.
 // ---------------------------------------------------------------------------
 
 export interface Character {
@@ -111,8 +128,9 @@ export interface Character {
   name: string
   description?: string | null
   role?: string | null
-  manuscript_id?: string | null
   book_id?: string | null
+  /** Provenance: the source this character was extracted from, if any. */
+  source_id?: string | null
   dialogue_count?: number
   indexed_at?: string | null
   /** Optional enrichments some views render when present. */
@@ -120,8 +138,8 @@ export interface Character {
   total_chunks?: number
 }
 
-export interface ManuscriptCharactersResponse {
-  manuscript_id: string
+export interface SourceCharactersResponse {
+  source_id: string
   characters: Character[]
 }
 
@@ -131,7 +149,7 @@ export interface ManuscriptCharactersResponse {
 
 /** POST /scenes/generate body (app/core/models.py SceneRequest). */
 export interface SceneRequest {
-  manuscript_id: string
+  source_id: string
   characters: string[]
   scene_description: string
   setting: string
@@ -151,7 +169,7 @@ export type SceneStatus = 'processing' | 'completed' | 'failed' | string
  */
 export interface Scene {
   id: string
-  manuscript_id: string | null
+  source_id: string | null
   characters: string[]
   status: SceneStatus
   created_at: string | null
@@ -270,7 +288,7 @@ export interface ChapterDetail extends BookChapter {
 
 /** POST /books/chapters/{id}/scenes/generate body. */
 export interface ChapterSceneRequest {
-  manuscript_id?: string
+  source_id?: string
   characters: string[]
   scene_description: string
   setting: string
@@ -313,6 +331,155 @@ export interface SceneRevisionsResponse {
 
 /** Book export formats (GET /books/{id}/export?format=...). */
 export type BookExportFormat = 'md' | 'docx' | 'epub'
+
+// ---------------------------------------------------------------------------
+// Canon entities (app/api/canon.py) — worldbuilding + style, per book.
+// ---------------------------------------------------------------------------
+
+export type CanonCategory =
+  | 'world'
+  | 'location'
+  | 'faction'
+  | 'item'
+  | 'concept'
+  | 'org'
+
+/** A categorized worldbuilding fact. */
+export interface CanonEntry {
+  id: string
+  name: string
+  category: CanonCategory | string
+  content?: string | null
+  position: number
+}
+
+/** A book's prose style guide (one per book). */
+export interface StyleGuide {
+  id: string
+  pov?: string | null
+  tense?: string | null
+  tone?: string | null
+  comps?: string | null
+  sample_prose?: string | null
+}
+
+/** GET /books/{id}/canon */
+export interface CanonResponse {
+  entries: CanonEntry[]
+  style: StyleGuide | null
+}
+
+// ---------------------------------------------------------------------------
+// Extraction (app/api/extraction.py) — Source -> proposed Canon -> commit
+// ---------------------------------------------------------------------------
+
+export interface CharacterProposal {
+  name: string
+  role?: string | null
+  description?: string | null
+}
+
+export interface CanonEntryProposal {
+  name: string
+  category: CanonCategory | string
+  content?: string | null
+}
+
+export interface ExtractionProposals {
+  characters: CharacterProposal[]
+  canon_entries: CanonEntryProposal[]
+  style: Partial<StyleGuide>
+  synopsis: string
+}
+
+// ---------------------------------------------------------------------------
+// Voice-chunk browser + retrieval inspector (app/api/characters.py, Phase 7)
+// ---------------------------------------------------------------------------
+
+/** A character's indexed voice chunk (GET /characters/{id}/chunks). */
+export interface VoiceChunk {
+  id: string
+  chunk_type: string
+  text: string
+  source: string
+  word_count: number
+}
+
+/** A scored retrieval hit (POST /characters/{id}/retrieve). */
+export interface RetrievalHit {
+  text: string
+  score: number | null
+  chunk_type: string
+  source: string
+  word_count: number
+}
+
+/** GET /books/{id}/extractions/{run_id} */
+export interface ExtractionRun {
+  id: string
+  source_id: string | null
+  status: 'pending' | 'ready' | 'failed' | 'committed' | string
+  proposals: ExtractionProposals | Record<string, never>
+  error?: string | null
+}
+
+/** POST /books/{id}/extractions/{run_id}/commit body — the reviewed selection. */
+export interface ExtractionCommit {
+  characters?: CharacterProposal[]
+  canon_entries?: CanonEntryProposal[]
+  style?: Partial<StyleGuide>
+  synopsis?: string
+}
+
+/** A skipped item the commit did NOT apply (e.g. a blank name). The UI must
+ *  surface these rather than redirect as if everything succeeded (PR review #1). */
+export interface ExtractionSkipped {
+  type: string
+  name: string
+  reason: string
+}
+
+/** Per-type commit outcome. Approved existing items are MERGED (updated), never
+ *  silently dropped; only `skipped` items were not applied (PR review #1). */
+export interface ExtractionCommitResult {
+  characters: { created: string[]; updated: string[] }
+  canon_entries: { created: string[]; updated: string[] }
+  style: 'created' | 'updated' | null
+  synopsis: 'created' | 'updated' | null
+  skipped: ExtractionSkipped[]
+}
+
+/** POST /books/{id}/extractions/{run_id}/commit response. */
+export interface ExtractionCommitResponse {
+  run_id: string
+  status: string
+  result: ExtractionCommitResult
+}
+
+// ---------------------------------------------------------------------------
+// Versioning (app/api/versioning.py)
+// ---------------------------------------------------------------------------
+
+export type VersionedEntityType =
+  | 'book_plan'
+  | 'character'
+  | 'canon_entry'
+  | 'style_guide'
+
+/** One entry in an entity's version history (newest first; max == live). */
+export interface EntityVersionSummary {
+  version_no: number
+  reason: string | null
+  created_at: string | null
+  created_by?: string | null
+}
+
+/** GET /books/{id}/versions/{type}/{entity_id} */
+export interface EntityVersionListResponse {
+  entity_type: VersionedEntityType | string
+  entity_id: string
+  versions: EntityVersionSummary[]
+}
 
 // ---------------------------------------------------------------------------
 // Plans, threads, continuity (app/api/plans.py)

@@ -17,8 +17,9 @@ from app.characters.context import build_cast_context
 from app.core.database import get_async_session
 from app.core.logging_config import log_business_event, log_error, setup_logging
 from app.core.orm_models import Scene, SceneBeat
-from app.core.sanitization import sanitize_for_llm
+from app.core.llm_text import clean_for_llm
 from app.llm.client import get_llm_client
+from app.llm.errors import QuotaExhaustedError
 
 from .workflow import plan_scene_beats
 
@@ -38,9 +39,9 @@ async def write_beat_prose(
     target_words: int = 300,
 ) -> str:
     """Write one beat's full prose (narration + in-voice dialogue) in one call."""
-    setting = sanitize_for_llm(scene_request["setting"], max_length=500)
-    tone = sanitize_for_llm(scene_request["emotional_tone"], max_length=100)
-    beat_desc = sanitize_for_llm(beat["description"], max_length=1000)
+    setting = clean_for_llm(scene_request["setting"])
+    tone = clean_for_llm(scene_request["emotional_tone"])
+    beat_desc = clean_for_llm(beat["description"])
     pov = scene_request.get("pov_character") or "third person limited"
     style_notes = scene_request.get("style_notes") or ""
     prior_block = (
@@ -103,14 +104,12 @@ async def run_prose_scene_workflow(
 
         prose_parts: list[str] = []
         prior_tail = prior_scene_tail
-        manuscript_id = scene_request.get("manuscript_id")
 
         for beat in beats:
             cast_context = await build_cast_context(
                 beat["characters"],
                 beat["description"],
                 user_id=user_id,
-                manuscript_id=UUID(str(manuscript_id)) if manuscript_id else None,
                 book_id=book_id,
             )
             prose = await write_beat_prose(
@@ -170,6 +169,11 @@ async def run_prose_scene_workflow(
             "beats_count": len(beats),
         }
 
+    except QuotaExhaustedError:
+        # Not a failure — the quota is temporarily gone. Leave the scene in
+        # 'processing' and let the error propagate so the worker PAUSES the job
+        # and resumes it when quota returns (docs/BRD.md R7.2). No lost work.
+        raise
     except Exception as e:
         log_error(
             logger,

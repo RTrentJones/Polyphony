@@ -11,38 +11,36 @@ from uuid import UUID
 from sqlalchemy import select
 
 from app.core.database import get_async_session
+from app.core.llm_text import clean_for_llm
 from app.core.orm_models import Character
-from app.core.sanitization import sanitize_for_llm
 from app.rag.store import get_chunk_store
 
 
-async def load_characters_for_book_or_manuscript(
+async def load_characters_for_book(
     names: list[str],
     user_id: UUID,
-    manuscript_id: Optional[UUID] = None,
-    book_id: Optional[UUID] = None,
+    book_id: UUID,
 ) -> dict[str, Character]:
-    """Character rows by name, scoped to the requesting user.
+    """Character rows by name, scoped to one book and the requesting user.
 
-    ownership is ALWAYS enforced (directly via user_id, or via the owning
-    manuscript for legacy extracted rows that predate user_id backfill) — the
-    book/manuscript filters only narrow within the user's own bible. Without
-    the user scope, book_id-is-null characters would match across all tenants.
+    The book filter is now strict equality. It used to read
+
+        (Character.book_id == book_id) | (Character.book_id.is_(None))
+
+    which "worked" only because the IS NULL branch matched everything —
+    `book_id` was never written, so every character was NULL-scoped and the
+    filter was a no-op wearing a filter's clothes. With `book_id` NOT NULL there
+    is nothing to fall back to, and the cast for a book is exactly its cast
+    (docs/ADR-002-book-as-root.md §1).
+
+    `user_id` stays as defence in depth even though `book_id` already implies an
+    owner — the tenant guard from migration 0005.
     """
     async with get_async_session() as session:
-        from app.core.orm_models import Manuscript
-
-        query = (
-            select(Character)
-            .outerjoin(Manuscript, Character.manuscript_id == Manuscript.id)
-            .where((Character.user_id == user_id) | (Manuscript.user_id == user_id))
+        query = select(Character).where(
+            Character.book_id == book_id,
+            Character.user_id == user_id,
         )
-        if book_id is not None:
-            query = query.where(
-                (Character.book_id == book_id) | (Character.book_id.is_(None))
-            )
-        if manuscript_id is not None:
-            query = query.where(Character.manuscript_id == manuscript_id)
         rows = (await session.execute(query)).scalars().all()
     by_name = {c.name: c for c in rows}
     return {name: by_name[name] for name in names if name in by_name}
@@ -57,14 +55,18 @@ async def build_character_context(
     """One character's context block: bible summary + retrieved voice samples."""
     lines = [f"### {name}"]
     if character is not None:
+        # The bible arrives whole. These fields used to be sliced to 300/200/200
+        # chars — the same silent-truncation habit that cut the synopsis to 6.5%
+        # and cost the outline its cast (docs/BRD.md §1). A full cast entry is
+        # ~500 tokens against a 1M window.
         if character.role:
-            lines.append(f"Role: {character.role}")
+            lines.append(f"Role: {clean_for_llm(character.role)}")
         if character.description:
-            lines.append(f"Description: {character.description[:300]}")
+            lines.append(f"Description: {clean_for_llm(character.description)}")
         if character.goals:
-            lines.append(f"Goals: {character.goals[:200]}")
+            lines.append(f"Goals: {clean_for_llm(character.goals)}")
         if character.arc:
-            lines.append(f"Arc: {character.arc[:200]}")
+            lines.append(f"Arc: {clean_for_llm(character.arc)}")
         # Retrieve across ALL chunk types, not just "dialogue": the ingest-time
         # dialogue/action/thought classifier is heuristic and under-labels, so a
         # dialogue-only filter can starve voice grounding to nothing. Rank
@@ -74,14 +76,15 @@ async def build_character_context(
             query=beat_description,
             k=max_samples,
             user_id=str(character.user_id) if character.user_id else None,
+            book_id=str(character.book_id) if character.book_id else None,
         )
         samples.sort(key=lambda s: s.get("chunk_type") != "dialogue")
         if samples:
             lines.append("Voice samples (match this voice — cadence, diction, syntax):")
-            # Retrieved text is user content — sanitize before it enters the prompt.
-            lines.extend(
-                f'- "{sanitize_for_llm(s["text"], max_length=200)}"' for s in samples
-            )
+            # These samples ARE the voice grounding — the product's whole premise.
+            # They used to be cut to 200 chars, which severed most of them
+            # mid-sentence and taught the model half a cadence.
+            lines.extend(f'- "{clean_for_llm(s["text"])}"' for s in samples)
     else:
         lines.append("(No bible entry — infer a consistent voice.)")
     return "\n".join(lines)
@@ -91,13 +94,10 @@ async def build_cast_context(
     names: list[str],
     beat_description: str,
     user_id: UUID,
-    manuscript_id: Optional[UUID] = None,
-    book_id: Optional[UUID] = None,
+    book_id: UUID,
 ) -> str:
-    """Context blocks for every character in a beat (scoped to the user)."""
-    characters = await load_characters_for_book_or_manuscript(
-        names, user_id=user_id, manuscript_id=manuscript_id, book_id=book_id
-    )
+    """Context blocks for every character in a beat, scoped to one book."""
+    characters = await load_characters_for_book(names, user_id=user_id, book_id=book_id)
     blocks = []
     for name in names:
         blocks.append(

@@ -1,9 +1,11 @@
-"""Manuscript ingestion pipeline.
+"""Source ingestion: upload validation/parsing + voice indexing.
 
-Was the document-parser service + the TODO stub in the gateway's background
-task. Now one in-process pipeline: validate/save the upload, parse it, extract
-characters via the LLM, persist Character + CharacterChunk rows, and index the
-chunks into the pgvector store (same database).
+Two responsibilities, deliberately split (docs/BRD.md R4.4, PR review #1):
+- `save_upload` validates and parses an uploaded file into durable text.
+- `index_source_voices` indexes voice chunks for a source's ALREADY-COMMITTED
+  characters. It does NOT write canon — canon is created only by the reviewed
+  extraction commit (app/api/extraction.py). Voice indexing is a separate,
+  retryable job.
 """
 
 import hashlib
@@ -16,8 +18,8 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.database import get_async_session
-from app.core.logging_config import log_business_event, log_error, setup_logging
-from app.core.orm_models import Character, CharacterChunk, Manuscript
+from app.core.logging_config import log_business_event, setup_logging
+from app.core.orm_models import Character, Source
 from app.rag.store import get_chunk_store
 
 from .character_extractor import CharacterExtractor
@@ -54,7 +56,7 @@ def _sniff_mime(content: bytes) -> str:
 
 
 async def save_upload(filename: str, content: bytes) -> dict:
-    """Validate and persist an uploaded manuscript file.
+    """Validate and persist an uploaded source file.
 
     Returns dict with file_id, file_path, content_hash, text, word_count.
     """
@@ -97,116 +99,73 @@ async def save_upload(filename: str, content: bytes) -> dict:
     }
 
 
-async def process_manuscript(
-    manuscript_id: UUID, user_id: UUID, text: str | None = None
+async def index_characters_voice(
+    source_id: UUID, book_id: UUID, user_id: UUID, character_ids: list
 ) -> None:
-    """Background pipeline: extract characters, persist them, index their voices.
+    """Index voice for the EXPLICIT approved characters from a source — RETRYABLE.
 
-    Text is read from the manuscript row (durable) — restart-safe, unlike a
-    container-local file. Characters + chunks are COMMITTED before any pgvector
-    indexing, so the voice_chunks FK to characters is satisfied on Postgres (the
-    vector store commits on its own connection and can't see an uncommitted
-    parent).
+    Canon is written only by the reviewed extraction commit (docs/BRD.md R4.4);
+    voice indexing is a separate job. It takes EXPLICIT character IDs (not a
+    `Character.source_id` rediscovery) so a MERGED existing character — whose own
+    source_id may be None or another source — is still indexed from the approved
+    source (PR review #2). Idempotent PER SOURCE: only this source's chunks are
+    cleared before re-indexing, so a retry never duplicates and never erases a
+    character's manual or other-source voice.
     """
-    try:
-        # Load the parsed text + reset prior characters (reprocess-safe) in one txn.
-        async with get_async_session() as session:
-            manuscript = await session.get(Manuscript, manuscript_id)
-            if manuscript is None:
-                return
-            source_text = text if text is not None else (manuscript.content_text or "")
-            if not source_text:
-                raise ValueError("manuscript has no stored content to process")
-            # Reprocess: drop existing characters (vectors cascade) so re-extraction
-            # can't collide with the unique (manuscript_id, name) index.
-            existing = (
-                (
-                    await session.execute(
-                        select(Character).where(
-                            Character.manuscript_id == manuscript_id
-                        )
+    if not character_ids:
+        return
+    ids = [UUID(str(x)) for x in character_ids]
+    async with get_async_session() as session:
+        source = await session.get(Source, source_id)
+        source_text = source.content_text if source is not None else ""
+        if not source_text:
+            return
+        targets = [
+            (c.id, c.name)
+            for c in (
+                await session.execute(
+                    select(Character).where(
+                        Character.id.in_(ids), Character.book_id == book_id
                     )
                 )
-                .scalars()
-                .all()
             )
-            for c in existing:
-                await get_chunk_store().delete_character(str(c.id))
-                await session.delete(c)
-            manuscript.status = "processing"
+            .scalars()
+            .all()
+        ]
 
-        character_names = await char_extractor.extract_characters(
-            source_text, user_id=user_id
-        )
-
-        store = get_chunk_store()
-        indexed_total = 0
-
-        for name in character_names:
-            chunks = char_extractor.extract_character_content(source_text, name)
-            stats = char_extractor.get_character_statistics(chunks)
-
-            # 1) Persist + COMMIT the character (and its chunk rows) first.
-            async with get_async_session() as session:
-                character = Character(
-                    user_id=user_id,
-                    manuscript_id=manuscript_id,
-                    name=name,
-                    dialogue_count=stats["dialogue_count"],
-                )
-                session.add(character)
-                await session.flush()
-                character_id = character.id
-                for chunk in chunks:
-                    session.add(
-                        CharacterChunk(
-                            character_id=character_id,
-                            chunk_type=chunk["chunk_type"],
-                            content=chunk["text"],
-                            source_location=chunk.get("source_location"),
-                        )
-                    )
-            # 2) Index into pgvector now that the parent row is committed.
-            indexed = await store.index_chunks(
+    store = get_chunk_store()
+    for character_id, name in targets:
+        chunks = char_extractor.extract_character_content(source_text, name)
+        stats = char_extractor.get_character_statistics(chunks)
+        # Per-source idempotency: clear ONLY this source's chunks (never
+        # delete_character, which would erase manual/other-source voice).
+        await store.delete_source_chunks(str(character_id), str(source_id))
+        if chunks:
+            await store.index_chunks(
                 character_id=str(character_id),
                 character_name=name,
                 user_id=str(user_id),
+                book_id=str(book_id),
+                source_id=str(source_id),
                 chunks=chunks,
             )
-            if indexed:
-                async with get_async_session() as session:
-                    c = await session.get(Character, character_id)
-                    if c is not None:
-                        c.indexed_at = datetime.now(timezone.utc)
-            indexed_total += indexed
-
         async with get_async_session() as session:
-            manuscript = await session.get(Manuscript, manuscript_id)
-            if manuscript is not None:
-                manuscript.status = "completed"
-                manuscript.processed_at = datetime.now(timezone.utc)
+            c = await session.get(Character, character_id)
+            if c is not None:
+                c.indexed_at = datetime.now(timezone.utc)
+                if stats.get("dialogue_count"):
+                    c.dialogue_count = stats["dialogue_count"]
 
-        log_business_event(
-            logger,
-            "manuscript_processed",
-            manuscript_id=str(manuscript_id),
-            characters=len(character_names),
-            chunks_indexed=indexed_total,
-        )
+    log_business_event(
+        logger,
+        "characters_voice_indexed",
+        source_id=str(source_id),
+        characters=len(targets),
+    )
 
-    except Exception as e:
-        log_error(
-            logger,
-            e,
-            context={
-                "manuscript_id": str(manuscript_id),
-                "event": "manuscript_processing_failed",
-            },
-        )
-        try:
-            async with get_async_session() as session:
-                manuscript = await session.get(Manuscript, manuscript_id)
-                if manuscript is not None:
-                    manuscript.status = "failed"
-        except Exception:
-            pass
+    log_business_event(
+        logger,
+        "source_voices_indexed",
+        source_id=str(source_id),
+        characters=len(targets),
+    )

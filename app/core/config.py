@@ -54,6 +54,14 @@ class Settings(BaseSettings):
     # Per-user LLM budget (tokens per rolling 24h; 0 disables the check)
     USER_DAILY_TOKEN_LIMIT: int = 200_000
 
+    # Tiering (app/llm/tier.py). free = pause-and-resume on quota, ensemble off;
+    # paid = fail-fast on quota, ensemble on. Graduation is one config flip.
+    LLM_TIER: str = "free"  # free | paid
+    # Optional monthly spend ceiling (USD) surfaced to the per-user spend view.
+    MONTHLY_COST_CEILING_USD: Optional[float] = None
+    # Default pause window (seconds) when a 429 carries no retry-after hint.
+    QUOTA_PAUSE_SECONDS: int = 900
+
     # Durable background jobs (app/jobs). Disable the worker to pause
     # execution without losing queued work.
     JOB_WORKER_ENABLED: bool = True

@@ -22,9 +22,9 @@ from app.core.database import get_db
 from app.core.orm_models import (
     Book as BookORM,
     Chapter as ChapterORM,
-    Manuscript as ManuscriptORM,
     Scene as SceneORM,
     SceneRevision as SceneRevisionORM,
+    Source as SourceORM,
     User as UserORM,
 )
 from app.core.security import get_current_active_user
@@ -39,6 +39,8 @@ from app.exports.builder import (
     to_markdown,
 )
 from app.jobs import repository as jobs_repo
+from app.llm.tier import get_tier
+from app.versioning.synopsis import record_synopsis
 
 router = APIRouter()
 
@@ -80,7 +82,7 @@ class PositionUpdate(BaseModel):
 
 
 class ChapterSceneRequest(BaseModel):
-    manuscript_id: Optional[UUID] = None  # source of the character bible
+    source_id: Optional[UUID] = None  # provenance of the character bible
     characters: list[str] = Field(..., min_length=1)
     scene_description: str = Field(..., min_length=10)
     setting: str
@@ -88,6 +90,9 @@ class ChapterSceneRequest(BaseModel):
     pov_character: Optional[str] = None
     target_word_count: int = Field(default=800, ge=100, le=3000)
     style_notes: Optional[str] = None
+    # Generation mode (docs/BRD.md §8). prose = one call per beat (default);
+    # ensemble = narrator/character/editor loop, opt-in and tier-gated.
+    mode: str = Field(default="prose", pattern="^(prose|ensemble)$")
 
 
 class SceneContentUpdate(BaseModel):
@@ -175,10 +180,15 @@ async def create_book(
         user_id=current_user.id,
         title=payload.title,
         author=payload.author,
-        synopsis=payload.synopsis,
         genre=payload.genre,
     )
     db.add(book)
+    await db.flush()
+    if payload.synopsis:
+        # Synopsis is Canon: create -> v1 (PR review #2).
+        await record_synopsis(
+            db, book, payload.synopsis, reason="created", created_by=current_user.id
+        )
     await db.commit()
     await db.refresh(book)
     return {"id": str(book.id), "title": book.title, "status": book.status}
@@ -252,10 +262,20 @@ async def update_book(
     db: AsyncSession = Depends(get_db),
 ):
     book = await _owned_book(book_id, current_user, db)
-    for field_name in ("title", "author", "synopsis", "genre", "status"):
+    # The synopsis is Canon (docs/BRD.md §3, R4) — route every change through the
+    # centralized versioner so the prior value is preserved and restorable and the
+    # invariant create->v1 / edit->v2 holds (PR review #2).
+    synopsis_changed = payload.synopsis is not None and payload.synopsis != (
+        book.synopsis or ""
+    )
+    for field_name in ("title", "author", "genre", "status"):
         value = getattr(payload, field_name)
         if value is not None:
             setattr(book, field_name, value)
+    if synopsis_changed:
+        await record_synopsis(
+            db, book, payload.synopsis, reason="edited", created_by=current_user.id
+        )
     await db.commit()
     return {"id": str(book.id), "title": book.title, "status": book.status}
 
@@ -452,18 +472,18 @@ async def generate_scene_into_chapter(
     """Prose-mode generation (one LLM call per beat) landing in the chapter."""
     chapter = await _owned_chapter(chapter_id, current_user, db)
 
-    if payload.manuscript_id:
+    if payload.source_id:
         owned = (
             await db.execute(
-                select(ManuscriptORM).where(
-                    ManuscriptORM.id == payload.manuscript_id,
-                    ManuscriptORM.user_id == current_user.id,
+                select(SourceORM).where(
+                    SourceORM.id == payload.source_id,
+                    SourceORM.user_id == current_user.id,
                 )
             )
         ).scalar_one_or_none()
         if not owned:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Manuscript not found"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Source not found"
             )
 
     await check_user_budget(db, current_user.id)
@@ -501,7 +521,7 @@ async def generate_scene_into_chapter(
         ).scalar_one() + 1
         scene = SceneORM(
             user_id=current_user.id,
-            manuscript_id=payload.manuscript_id,
+            source_id=payload.source_id,
             chapter_id=chapter_id,
             position=next_pos,
             setting=payload.setting,
@@ -513,11 +533,18 @@ async def generate_scene_into_chapter(
         )
         db.add(scene)
         await db.flush()
+        # Ensemble is opt-in AND tier-gated (docs/BRD.md §8): on the free tier it
+        # isn't allowed, so fall back to prose rather than reject the request.
+        job_kind = (
+            "generate_ensemble_scene"
+            if payload.mode == "ensemble" and get_tier().allow_ensemble
+            else "generate_prose_scene"
+        )
         # Job + scene commit atomically: no 'processing' scene without a
         # durable job.
         await jobs_repo.enqueue(
             db,
-            kind="generate_prose_scene",
+            kind=job_kind,
             payload={
                 "scene_id": str(scene.id),
                 "request": request_dict,

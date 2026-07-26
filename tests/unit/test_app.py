@@ -49,7 +49,7 @@ class TestAuthRequired:
     @pytest.mark.parametrize(
         "path",
         [
-            "/api/v1/manuscripts/",
+            "/api/v1/sources/",
             "/api/v1/scenes/",
             "/api/v1/auth/me",
         ],

@@ -11,20 +11,20 @@ import Card from '@/components/Card'
 import Button from '@/components/Button'
 import Input from '@/components/Input'
 import Loading from '@/components/Loading'
-import { useManuscriptStore, useSceneStore } from '@/lib/store'
+import { useSourceStore, useSceneStore } from '@/lib/store'
 import { SceneRequest } from '@/lib/types'
 import apiClient from '@/lib/api-client'
 
 export default function GeneratePage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const preselectedManuscriptId = searchParams.get('manuscript')
+  const preselectedSourceId = searchParams.get('source')
 
-  const { manuscripts, isLoading: manuscriptsLoading, fetchManuscripts } = useManuscriptStore()
+  const { sources, isLoading: sourcesLoading, fetchSources } = useSourceStore()
   const { generateScene } = useSceneStore()
 
-  const [selectedManuscriptId, setSelectedManuscriptId] = useState<string>(
-    preselectedManuscriptId || ''
+  const [selectedSourceId, setSelectedSourceId] = useState<string>(
+    preselectedSourceId || ''
   )
   const [characters, setCharacters] = useState<any[]>([])
   const [selectedCharacters, setSelectedCharacters] = useState<string[]>([])
@@ -41,12 +41,12 @@ export default function GeneratePage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetchManuscripts()
-  }, [fetchManuscripts])
+    fetchSources()
+  }, [fetchSources])
 
   useEffect(() => {
     const loadCharacters = async () => {
-      if (!selectedManuscriptId) {
+      if (!selectedSourceId) {
         setCharacters([])
         setSelectedCharacters([])
         return
@@ -54,7 +54,7 @@ export default function GeneratePage() {
 
       setLoadingCharacters(true)
       try {
-        const chars = await apiClient.getManuscriptCharacters(selectedManuscriptId)
+        const chars = await apiClient.getSourceCharacters(selectedSourceId)
         setCharacters(chars)
         setSelectedCharacters([])
       } catch (err: any) {
@@ -65,7 +65,7 @@ export default function GeneratePage() {
     }
 
     loadCharacters()
-  }, [selectedManuscriptId])
+  }, [selectedSourceId])
 
   const handleCharacterToggle = (characterName: string) => {
     setSelectedCharacters((prev) =>
@@ -78,8 +78,8 @@ export default function GeneratePage() {
   const handleGenerate = async () => {
     setError(null)
 
-    if (!selectedManuscriptId) {
-      setError('Please select a manuscript')
+    if (!selectedSourceId) {
+      setError('Please select a source')
       return
     }
 
@@ -97,7 +97,7 @@ export default function GeneratePage() {
 
     try {
       const sceneRequest: SceneRequest = {
-        manuscript_id: selectedManuscriptId,
+        source_id: selectedSourceId,
         characters: selectedCharacters,
         scene_description: formData.sceneDescription,
         setting: formData.setting,
@@ -116,15 +116,15 @@ export default function GeneratePage() {
     }
   }
 
-  if (manuscriptsLoading) {
+  if (sourcesLoading) {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
-        <Loading size="lg" text="Loading manuscripts..." />
+        <Loading size="lg" text="Loading sources..." />
       </div>
     )
   }
 
-  const completedManuscripts = manuscripts?.filter(
+  const completedSources = sources?.filter(
     (m) => m.processing_status === 'completed'
   )
 
@@ -146,45 +146,45 @@ export default function GeneratePage() {
         </div>
       )}
 
-      {/* No Manuscripts */}
-      {!completedManuscripts || completedManuscripts.length === 0 ? (
+      {/* No Sources */}
+      {!completedSources || completedSources.length === 0 ? (
         <Card className="text-center py-12">
           <FileText className="h-16 w-16 text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">
-            No Processed Manuscripts
+            No Processed Sources
           </h3>
           <p className="text-gray-600 mb-6">
-            You need to upload and process a manuscript before generating scenes
+            You need to upload and process a source before generating scenes
           </p>
-          <Button onClick={() => router.push('/manuscripts')}>
-            Upload Manuscript
+          <Button onClick={() => router.push('/sources')}>
+            Upload Source
           </Button>
         </Card>
       ) : (
         <div className="space-y-6">
-          {/* Step 1: Select Manuscript */}
+          {/* Step 1: Select Source */}
           <Card>
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
               <FileText className="h-5 w-5 mr-2 text-primary-600" />
-              1. Select Manuscript
+              1. Select Source
             </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {completedManuscripts.map((manuscript) => (
+              {completedSources.map((source) => (
                 <div
-                  key={manuscript.id}
-                  onClick={() => setSelectedManuscriptId(manuscript.id)}
+                  key={source.id}
+                  onClick={() => setSelectedSourceId(source.id)}
                   className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                    selectedManuscriptId === manuscript.id
+                    selectedSourceId === source.id
                       ? 'border-primary-500 bg-primary-50'
                       : 'border-gray-200 hover:border-primary-300'
                   }`}
                 >
                   <h3 className="font-medium text-gray-900">
-                    {manuscript.title}
+                    {source.title}
                   </h3>
                   <p className="text-sm text-gray-600 mt-1">
-                    {manuscript.character_count || 0} characters
+                    {source.character_count || 0} characters
                   </p>
                 </div>
               ))}
@@ -192,7 +192,7 @@ export default function GeneratePage() {
           </Card>
 
           {/* Step 2: Select Characters */}
-          {selectedManuscriptId && (
+          {selectedSourceId && (
             <Card>
               <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                 <Users className="h-5 w-5 mr-2 text-primary-600" />
@@ -203,7 +203,7 @@ export default function GeneratePage() {
                 <Loading text="Loading characters..." />
               ) : !characters || characters.length === 0 ? (
                 <p className="text-gray-600">
-                  No characters found in this manuscript
+                  No characters found in this source
                 </p>
               ) : (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -310,7 +310,7 @@ export default function GeneratePage() {
                 onClick={handleGenerate}
                 isLoading={generating}
                 disabled={
-                  !selectedManuscriptId ||
+                  !selectedSourceId ||
                   selectedCharacters.length === 0 ||
                   !formData.sceneDescription ||
                   !formData.setting
