@@ -495,12 +495,31 @@ export interface PlanNode {
 }
 
 /** Plan as returned by GET/PUT /books/{id}/plans. */
+export type PlanStatus = 'ready' | 'generating' | 'pending' | 'failed' | string
+
 export interface BookPlan {
   id: string
   book_id: string
   kind: PlanKind | string
   content: PlanNode[]
+  /** Staged outline runs as a background job; poll until ready/failed. */
+  status?: PlanStatus
+  /** Current stage of an in-flight staged outline (skeleton/chapters/beats…). */
+  stage?: string | null
+  /** Non-fatal fidelity warnings attached to a generated plan. */
+  warnings?: string[]
+  /** Failure reason when status === 'failed'. */
+  error?: string | null
   updated_at: string | null
+}
+
+/** POST /books/{id}/plans/generate — async (staged) returns status:'generating'
+ *  with a job handle; the sync path returns the finished plan. */
+export interface PlanGenerateResponse {
+  plan_id?: string
+  job_id?: string
+  status?: PlanStatus
+  content?: PlanNode[]
 }
 
 /** GET /books/{id}/plans */
