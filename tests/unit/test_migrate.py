@@ -1,37 +1,45 @@
-"""The startup migrator's self-heal decision (app/migrate.py).
+"""The startup migrator's reset decision (app/migrate.py::_reset_reason).
 
 The destructive reset itself is exercised against real Postgres in
-tests/integration/test_pg_pipeline.py. Here we lock the fact that makes the
-DESIGN necessary: the old and new chains reuse revision ids, so revision
-membership cannot distinguish a legacy database from an up-to-date one — hence the
-migrator fingerprints the schema (`manuscripts` vs `sources`) instead.
+tests/integration/test_pg_pipeline.py. Here we lock the decision logic DB-free:
+ONLY the legacy `manuscripts` schema is an automatic destructive trigger — a valid
+current schema is never wiped, even when stamped at an unknown (rolled-back)
+revision.
 """
 
 import pytest
 
+from app.migrate import _reset_reason
+
 pytestmark = pytest.mark.unit
 
 
-def _known_revisions() -> set[str]:
-    from alembic.config import Config
-    from alembic.script import ScriptDirectory
+class _FakeConn:
+    """Answers _table_exists() from a fixed set of present table names."""
 
-    cfg = Config("alembic.ini")
-    cfg.set_main_option("script_location", "alembic")
-    return {s.revision for s in ScriptDirectory.from_config(cfg).walk_revisions()}
+    def __init__(self, tables: set[str]):
+        self._tables = tables
 
-
-def test_head_is_recognized():
-    known = _known_revisions()
-    assert "0007" in known  # current head
-    assert "0001" in known  # frozen baseline
+    async def scalar(self, _stmt, params=None):
+        return 1 if params and params.get("n") in self._tables else None
 
 
-def test_revision_ids_are_reused_so_membership_cannot_detect_legacy():
-    # The old `main` head AND a new-chain migration are both named '0006' (off
-    # '0005'). A legacy DB stamped '0006' therefore passes a membership check and
-    # would be missed — which is exactly why reset detection fingerprints the
-    # schema shape, not the revision id (PR review, final).
-    known = _known_revisions()
-    assert "0006" in known
-    assert "0005" in known
+async def test_legacy_manuscript_schema_is_reset():
+    reason = await _reset_reason(_FakeConn({"manuscripts", "alembic_version"}))
+    assert reason is not None
+
+
+async def test_valid_current_schema_is_never_reset_even_if_stamp_unknown():
+    # `sources` present -> a valid new-schema DB. A rollback that leaves it stamped
+    # at an unknown future revision must NOT trigger a wipe.
+    assert await _reset_reason(_FakeConn({"sources", "alembic_version"})) is None
+
+
+async def test_fresh_database_is_not_reset():
+    assert await _reset_reason(_FakeConn(set())) is None
+
+
+async def test_mixed_schema_is_not_reset_because_sources_present():
+    # If both exist (a half-migrated oddity), `sources` present means "not the
+    # legacy schema" — do not auto-wipe.
+    assert await _reset_reason(_FakeConn({"manuscripts", "sources"})) is None

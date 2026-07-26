@@ -9,19 +9,24 @@ ONCE — drop + recreate the `public` schema — then rebuilt from the current c
 This is what previously had to be done by hand against beta/prod Neon; doing it
 here removes the manual pre-merge gate.
 
-Detection is by SCHEMA FINGERPRINT, not revision id. The old and new chains REUSE
-revision identifiers (both have a `0006` off `0005`), so a legacy database stamped
-at `0006` would falsely look up-to-date — the stamp is not a reliable signal. The
-reliable signal is the shape: the pre-squash schema has the `manuscripts` table
-that the new schema replaced with `sources`. We reset when `manuscripts` exists and
-`sources` does not (or when the stamp is a genuinely unknown revision id). A fresh
-database (neither table) and an up-to-date database (has `sources`) are never
-touched, so normal deploys never reset anything.
+Detection is by SCHEMA FINGERPRINT, and ONLY the legacy pre-squash schema is an
+automatic destructive trigger: the old `manuscripts` table that the new chain
+replaced with `sources`. Reset fires when `manuscripts` exists and `sources` does
+not. Everything else is left untouched:
 
-Overrides (`POLYPHONY_FORCE_SCHEMA_RESET`): unset = auto-detect (default); `1` =
-reset unconditionally (a clean-slate wipe); `0` = never reset (once the databases
-hold data worth keeping — an incompatible schema then fails loudly instead). Once
-past this transition, delete this shim and call `alembic upgrade head` directly.
+- A fresh database (neither table) just migrates up.
+- A valid current database (`sources` present) is never reset — even if it is
+  stamped at an UNKNOWN revision. That is the ordinary rollback case: a later
+  release migrated the DB ahead (e.g. to `0008`) and deployment rolled back to
+  this older immutable image, which knows only through `0007`. Wiping a valid
+  database on rollback would be catastrophic, so instead the upgrade below fails
+  loudly ("Can't locate revision") and the operator decides. Revision ids alone
+  can't be trusted anyway — the old and new chains reuse them (both have a `0006`).
+
+Overrides (`POLYPHONY_FORCE_SCHEMA_RESET`): unset = auto (legacy fingerprint only);
+`1` = reset unconditionally (an explicit clean-slate wipe, e.g. to erase an unknown
+schema on purpose); `0` = never reset. Once past this transition, delete this shim
+and call `alembic upgrade head` directly.
 """
 
 from __future__ import annotations
@@ -32,7 +37,6 @@ import os
 
 from alembic import command
 from alembic.config import Config
-from alembic.script import ScriptDirectory
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -60,42 +64,36 @@ async def _table_exists(conn, name: str) -> bool:
     )
 
 
-async def _stored_revision(conn) -> str | None:
-    if not await _table_exists(conn, "alembic_version"):
-        return None
-    return await conn.scalar(text("SELECT version_num FROM alembic_version"))
+async def _reset_reason(conn) -> str | None:
+    """Why this database must be AUTO-reset, or None to leave it untouched.
 
-
-async def _reset_reason(conn, known: set[str]) -> str | None:
-    """Why this database must be reset, or None if it is fresh/up-to-date."""
-    # Legacy pre-squash schema. Revision ids were REUSED across the squash, so the
-    # stamp can't be trusted — fingerprint the schema: the old `manuscripts` table
-    # the new chain replaced with `sources`.
+    The ONLY automatic destructive trigger is the legacy pre-squash schema — the
+    old `manuscripts` table the new chain replaced with `sources`. A valid current
+    schema (`sources` present) is never wiped, even when stamped at an unknown
+    revision (a rollback to an older image): the upgrade should fail loudly rather
+    than erase a valid database. `POLYPHONY_FORCE_SCHEMA_RESET=1` is required to
+    wipe anything that isn't the legacy schema.
+    """
     if await _table_exists(conn, "manuscripts") and not await _table_exists(
         conn, "sources"
     ):
         return "legacy manuscript-based schema (manuscripts present, sources absent)"
-    # A genuinely unknown revision id (not from either chain) is also disposable.
-    rev = await _stored_revision(conn)
-    if rev is not None and rev not in known:
-        return f"orphaned alembic_version={rev!r}"
     return None
 
 
-async def reset_if_legacy(cfg: Config) -> None:
-    """Drop + recreate the schema iff this database is a legacy/disposable one."""
+async def reset_if_legacy() -> None:
+    """Drop + recreate the schema iff this database is the legacy/disposable one."""
     force = os.getenv("POLYPHONY_FORCE_SCHEMA_RESET")
     if force == "0":
         log.info("POLYPHONY_FORCE_SCHEMA_RESET=0 — schema reset disabled.")
         return
-    known = {s.revision for s in ScriptDirectory.from_config(cfg).walk_revisions()}
     engine = create_async_engine(get_async_db_url())
     try:
         if force == "1":
             reason = "POLYPHONY_FORCE_SCHEMA_RESET=1"
         else:
             async with engine.connect() as conn:
-                reason = await _reset_reason(conn, known)
+                reason = await _reset_reason(conn)
         if not reason:
             log.info("Schema is fresh or up-to-date — migrating up.")
             return
@@ -109,7 +107,7 @@ async def reset_if_legacy(cfg: Config) -> None:
 
 def main() -> None:
     cfg = _alembic_config()
-    asyncio.run(reset_if_legacy(cfg))
+    asyncio.run(reset_if_legacy())
     command.upgrade(cfg, "head")
 
 

@@ -16,6 +16,22 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12"]
 
+    # A real pgvector Postgres so the Postgres-only paths — the migrations
+    # (incl. the destructive legacy-reset self-heal), the voice_chunks FK, and the
+    # pgvector round-trip — are exercised BEFORE merge, not only in the post-merge
+    # ship gate. The sqlite unit suite structurally can't see them.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: ci_password_12345
+          POSTGRES_DB: polyphony_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -32,11 +48,21 @@ jobs:
 
       # Tests are BLOCKING: the same suite gates the container build in
       # greenlight-build.yml, so a red test means no image ships.
-      - name: Run tests
+      - name: Run tests (sqlite)
         env:
           SECRET_KEY: ci_secret_key_minimum_32_characters_long
           POSTGRES_PASSWORD: ci_password_12345
         run: python -m pytest tests -q --no-cov
+
+      # Postgres-only integration tests (RUN_PG_TESTS), including the destructive
+      # migration self-heal (legacy reset + rollback safety). Gating these here
+      # means risky migration behavior is proven before merge.
+      - name: Integration tests (pgvector)
+        env:
+          SECRET_KEY: ci_secret_key_minimum_32_characters_long
+          RUN_PG_TESTS: "1"
+          DATABASE_URL: postgresql+asyncpg://postgres:ci_password_12345@localhost:5432/polyphony_test
+        run: python -m pytest tests/integration -m integration -o addopts="" -q
 
   lint:
     name: Lint

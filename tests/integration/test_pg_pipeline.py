@@ -245,7 +245,7 @@ async def test_startup_migrator_resets_legacy_manuscript_schema(pg):
         await s.commit()
 
     cfg = migrate_mod._alembic_config()
-    await migrate_mod.reset_if_legacy(cfg)
+    await migrate_mod.reset_if_legacy()
     await asyncio.to_thread(command.upgrade, cfg, "head")
 
     async with pg() as s:
@@ -267,7 +267,7 @@ async def test_startup_migrator_resets_legacy_manuscript_schema(pg):
         await s.execute(text("CREATE TABLE reset_sentinel (x integer)"))
         await s.commit()
 
-    await migrate_mod.reset_if_legacy(cfg)  # up-to-date now -> must NOT reset
+    await migrate_mod.reset_if_legacy()  # up-to-date now -> must NOT reset
     await asyncio.to_thread(command.upgrade, cfg, "head")
 
     async with pg() as s:
@@ -280,6 +280,60 @@ async def test_startup_migrator_resets_legacy_manuscript_schema(pg):
         ) == 1  # survived the second run -> no reset
         await s.execute(text("DROP TABLE reset_sentinel"))
         await s.commit()
+
+
+async def test_startup_migrator_does_not_wipe_valid_schema_on_rollback(pg):
+    """A rollback to an older image must NOT erase a valid database. A DB on the
+    new `sources` schema but stamped at an UNKNOWN future revision ('0008') — the
+    state after a later release migrated ahead and deployment rolled back to this
+    image — is left intact: auto-detection does not reset, and the subsequent
+    upgrade fails LOUDLY instead of wiping it (PR review, final)."""
+    import app.migrate as migrate_mod
+    from alembic import command
+
+    cfg = migrate_mod._alembic_config()
+    try:
+        async with pg() as s:  # fixture already migrated to head (has `sources`)
+            await s.execute(text("CREATE TABLE rollback_sentinel (x integer)"))
+            await s.execute(text("UPDATE alembic_version SET version_num = '0008'"))
+            await s.commit()
+
+        await migrate_mod.reset_if_legacy()  # must NOT reset a valid schema
+
+        async with pg() as s:
+            assert (
+                await s.scalar(
+                    text(
+                        "SELECT count(*) FROM pg_tables "
+                        "WHERE tablename = 'rollback_sentinel'"
+                    )
+                )
+            ) == 1
+            assert (
+                await s.scalar(
+                    text("SELECT count(*) FROM pg_tables WHERE tablename = 'sources'")
+                )
+            ) == 1
+
+        # the older image can't resolve '0008' -> upgrade fails loudly, no wipe
+        with pytest.raises(Exception):
+            await asyncio.to_thread(command.upgrade, cfg, "head")
+
+        async with pg() as s:
+            assert (
+                await s.scalar(
+                    text(
+                        "SELECT count(*) FROM pg_tables "
+                        "WHERE tablename = 'rollback_sentinel'"
+                    )
+                )
+            ) == 1  # database intact
+    finally:
+        # restore a clean head so later tests' fixture upgrade succeeds
+        async with pg() as s:
+            await s.execute(text("UPDATE alembic_version SET version_num = '0007'"))
+            await s.execute(text("DROP TABLE IF EXISTS rollback_sentinel"))
+            await s.commit()
 
 
 async def test_claim_one_skip_locked_across_sessions(pg):

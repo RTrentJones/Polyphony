@@ -46,7 +46,8 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s \
     CMD curl -fsS http://localhost:8000/health || exit 1
 
 # Migrations then serve — single container, no migration races. app.migrate wraps
-# `alembic upgrade head` with a one-time self-heal: a database still stamped at a
-# pre-squash revision (disposable data) is reset once rather than crash-looping
-# (app/migrate.py, migration 0007). Set POLYPHONY_ORPHAN_RESET=0 to disable.
+# `alembic upgrade head` with a one-time self-heal: a legacy pre-squash schema
+# (disposable data) is reset once rather than crash-looping; a valid schema is
+# never wiped, even on rollback (app/migrate.py, migration 0007).
+# POLYPHONY_FORCE_SCHEMA_RESET: unset=auto (legacy only), 1=force wipe, 0=never.
 CMD ["sh", "-c", "python -m app.migrate && python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
