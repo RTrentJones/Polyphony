@@ -301,6 +301,25 @@ async def list_sources(
     )
     sources = result.scalars().all()
 
+    # Latest extraction run per source (one query), so the list can surface a
+    # pending/ready review to resume instead of stranding it.
+    latest_by_source: dict = {}
+    src_ids = [s.id for s in sources]
+    if src_ids:
+        runs = (
+            (
+                await db.execute(
+                    select(ExtractionRunORM)
+                    .where(ExtractionRunORM.source_id.in_(src_ids))
+                    .order_by(ExtractionRunORM.created_at.desc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for r in runs:
+            latest_by_source.setdefault(r.source_id, r)  # first seen = newest
+
     return {
         "sources": [
             {
@@ -313,6 +332,14 @@ async def list_sources(
                 "status": s.status,
                 "uploaded_at": s.uploaded_at.isoformat() if s.uploaded_at else None,
                 "processed_at": s.processed_at.isoformat() if s.processed_at else None,
+                "latest_extraction": (
+                    {
+                        "id": str(latest_by_source[s.id].id),
+                        "status": latest_by_source[s.id].status,
+                    }
+                    if s.id in latest_by_source
+                    else None
+                ),
             }
             for s in sources
         ],
