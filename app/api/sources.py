@@ -7,6 +7,8 @@ book: the book is the root of every concept, so a Source is always book-scoped
 single-source-per-book flow stays one step.
 """
 
+import hashlib
+
 from fastapi import (
     APIRouter,
     Depends,
@@ -15,7 +17,9 @@ from fastapi import (
     UploadFile,
     status,
 )
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from uuid import UUID
@@ -149,6 +153,128 @@ async def upload_source(
     }
 
 
+class PasteSourceRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=500)
+    content_text: str = Field(..., min_length=1)
+    author: Optional[str] = None
+    book_id: Optional[UUID] = None
+
+
+class SourceEditRequest(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=500)
+    content_text: Optional[str] = Field(None, min_length=1)
+
+
+def _source_response(source: SourceORM, run_id: Optional[str], verb: str) -> dict:
+    msg = (
+        f"Source {verb}. Extracting canon for your review."
+        if run_id
+        else f"Source {verb}."
+    )
+    return {
+        "id": str(source.id),
+        "book_id": str(source.book_id),
+        "title": source.title,
+        "author": source.author,
+        "word_count": source.word_count,
+        "status": source.status,
+        "extraction_run_id": run_id,
+        "message": msg,
+    }
+
+
+@router.post("/paste", response_model=dict)
+async def paste_source(
+    payload: PasteSourceRequest,
+    current_user: UserORM = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a source from PASTED text (kind='paste') and start extraction.
+
+    Pasted text is untrusted material like an upload, so it runs the same
+    reviewed-commit flow — nothing reaches canon until the author approves
+    (docs/BRD.md R4.4). This is how a book created directly (no file) gets source
+    material to extract characters/canon from.
+    """
+    await check_user_budget(db, current_user.id)
+    text = payload.content_text
+    content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    word_count = len(text.split())
+    book = await _resolve_book(payload.book_id, payload.title, current_user, db)
+
+    # Duplicate guard, per BOOK (a global unique would leak a cross-tenant oracle).
+    existing = await db.execute(
+        select(SourceORM).where(
+            SourceORM.book_id == book.id,
+            SourceORM.content_hash == content_hash,
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This source is already in this book",
+        )
+
+    source = SourceORM(
+        book_id=book.id,
+        user_id=current_user.id,
+        kind="paste",
+        title=payload.title,
+        author=payload.author or None,
+        content_hash=content_hash,
+        content_text=text,
+        word_count=word_count,
+        status=SourceStatus.COMPLETED.value,
+    )
+    db.add(source)
+    await db.flush()
+    run = await enqueue_extraction(
+        db, book_id=book.id, source_id=source.id, user_id=current_user.id
+    )
+    await db.commit()
+    await db.refresh(source)
+    return _source_response(source, str(run.id), "added")
+
+
+@router.patch("/{source_id}", response_model=dict)
+async def edit_source(
+    source_id: UUID,
+    payload: SourceEditRequest,
+    current_user: UserORM = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Edit a source's title and/or content. Changing the content RE-RUNS
+    extraction (fresh proposals for review) — canon is never overwritten in place;
+    the author re-approves. Lets an author fix or expand pasted material."""
+    source = await _owned_source(source_id, current_user, db)
+    run_id: Optional[str] = None
+    if payload.title is not None:
+        source.title = payload.title
+    if payload.content_text is not None and payload.content_text != (
+        source.content_text or ""
+    ):
+        await check_user_budget(db, current_user.id)
+        source.content_text = payload.content_text
+        source.content_hash = hashlib.sha256(
+            payload.content_text.encode("utf-8")
+        ).hexdigest()
+        source.word_count = len(payload.content_text.split())
+        run = await enqueue_extraction(
+            db, book_id=source.book_id, source_id=source.id, user_id=current_user.id
+        )
+        run_id = str(run.id)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Another source in this book already has this content",
+        )
+    await db.refresh(source)
+    return _source_response(source, run_id, "updated")
+
+
 @router.get("/", response_model=dict)
 async def list_sources(
     book_id: Optional[UUID] = None,
@@ -240,6 +366,8 @@ async def get_source(
         "author": source.author,
         "word_count": source.word_count,
         "status": source.status,
+        # The stored text so a paste source can be viewed/edited in place.
+        "content_text": source.content_text,
         "uploaded_at": (source.uploaded_at.isoformat() if source.uploaded_at else None),
         "processed_at": (
             source.processed_at.isoformat() if source.processed_at else None
