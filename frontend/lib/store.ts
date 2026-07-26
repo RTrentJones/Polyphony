@@ -136,6 +136,12 @@ interface SourceState {
     author?: string,
     bookId?: string
   ) => Promise<SourceUploadResponse>
+  /** Add a source from PASTED text; same review flow as upload. */
+  pasteSource: (
+    title: string,
+    contentText: string,
+    bookId?: string
+  ) => Promise<SourceUploadResponse>
   deleteSource: (id: string) => Promise<void>
   fetchCharacters: (sourceId: string) => Promise<Character[]>
 }
@@ -175,6 +181,21 @@ export const useSourceStore = create<SourceState>((set) => ({
           },
         }
       )
+      const source = normalizeSource({ ...data, uploaded_at: null })
+      set((state) => ({ sources: [source, ...state.sources] }))
+      return data
+    } catch (err) {
+      throw toApiError(err)
+    }
+  },
+
+  pasteSource: async (title, contentText, bookId) => {
+    try {
+      const { data } = await apiClient.post<SourceUploadResponse>('/sources/paste', {
+        title,
+        content_text: contentText,
+        ...(bookId ? { book_id: bookId } : {}),
+      })
       const source = normalizeSource({ ...data, uploaded_at: null })
       set((state) => ({ sources: [source, ...state.sources] }))
       return data

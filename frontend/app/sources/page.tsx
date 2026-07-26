@@ -1,12 +1,14 @@
 /**
- * Sources Page
+ * Sources Page — upload a file OR paste text into a book. Both run the same
+ * reviewed-extraction flow (docs/BRD.md R4.4); a `?book=<id>` param targets an
+ * existing book (e.g. one created directly with no source yet).
  */
 
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { Plus, FileText, Search, Trash2, Eye } from 'lucide-react'
+import { Suspense, useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Plus, FileText, Trash2, Eye } from 'lucide-react'
 import Card from '@/components/Card'
 import Button from '@/components/Button'
 import Input from '@/components/Input'
@@ -16,56 +18,74 @@ import Loading from '@/components/Loading'
 import { useSourceStore } from '@/lib/store'
 import { formatRelativeTime } from '@/lib/utils'
 
-export default function SourcesPage() {
-  const router = useRouter()
-  const {
-    sources,
-    isLoading,
-    fetchSources,
-    uploadSource,
-    deleteSource,
-  } = useSourceStore()
+type AddMode = 'upload' | 'paste'
 
-  const [uploadModalOpen, setUploadModalOpen] = useState(false)
+function SourcesContent() {
+  const router = useRouter()
+  const params = useSearchParams()
+  const bookId = params.get('book') || undefined
+  const { sources, isLoading, fetchSources, uploadSource, pasteSource, deleteSource } =
+    useSourceStore()
+
+  const [modalOpen, setModalOpen] = useState(false)
+  const [mode, setMode] = useState<AddMode>('upload')
   const [searchQuery, setSearchQuery] = useState('')
-  const [uploadData, setUploadData] = useState({
-    file: null as File | null,
-    title: '',
-  })
-  const [uploadError, setUploadError] = useState<string | null>(null)
-  const [uploading, setUploading] = useState(false)
+  const [title, setTitle] = useState('')
+  const [file, setFile] = useState<File | null>(null)
+  const [pasteText, setPasteText] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     fetchSources()
   }, [fetchSources])
 
-  const handleUploadSubmit = async () => {
-    if (!uploadData.file || !uploadData.title) {
-      setUploadError('Please provide both a file and a title')
+  const resetForm = () => {
+    setTitle('')
+    setFile(null)
+    setPasteText('')
+    setError(null)
+    setMode('upload')
+  }
+
+  const closeModal = () => {
+    setModalOpen(false)
+    resetForm()
+  }
+
+  const handleSubmit = async () => {
+    if (!title.trim()) {
+      setError('Please give the source a title')
       return
     }
-
-    setUploadError(null)
-    setUploading(true)
-
+    if (mode === 'upload' && !file) {
+      setError('Please choose a file')
+      return
+    }
+    if (mode === 'paste' && !pasteText.trim()) {
+      setError('Please paste some text')
+      return
+    }
+    setError(null)
+    setSubmitting(true)
     try {
-      const res = await uploadSource(uploadData.file, uploadData.title)
-      setUploadModalOpen(false)
-      setUploadData({ file: null, title: '' })
-      // Upload PROPOSES canon; send the author straight to review + commit
-      // (docs/BRD.md R4.4). Nothing is written until they approve.
-      router.push(
-        `/sources/review?book=${res.book_id}&run=${res.extraction_run_id}`
-      )
+      const res =
+        mode === 'upload'
+          ? await uploadSource(file as File, title.trim(), undefined, bookId)
+          : await pasteSource(title.trim(), pasteText, bookId)
+      closeModal()
+      // The source PROPOSES canon; go straight to review + commit — nothing is
+      // written until the author approves (docs/BRD.md R4.4).
+      router.push(`/sources/review?book=${res.book_id}&run=${res.extraction_run_id}`)
     } catch (err: any) {
-      setUploadError(err.message || 'Upload failed. Please try again.')
+      setError(err.message || 'Could not add the source. Please try again.')
     } finally {
-      setUploading(false)
+      setSubmitting(false)
     }
   }
 
-  const handleDelete = async (id: string, title: string) => {
-    if (confirm(`Are you sure you want to delete "${title}"?`)) {
+  const handleDelete = async (id: string, sourceTitle: string) => {
+    if (confirm(`Are you sure you want to delete "${sourceTitle}"?`)) {
       try {
         await deleteSource(id)
         await fetchSources()
@@ -94,12 +114,13 @@ export default function SourcesPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Sources</h1>
           <p className="text-gray-600">
-            Manage your creative writing projects
+            Upload a file or paste text; we extract characters and canon for your
+            review.
           </p>
         </div>
-        <Button onClick={() => setUploadModalOpen(true)}>
+        <Button onClick={() => setModalOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
-          Upload Source
+          Add Source
         </Button>
       </div>
 
@@ -123,23 +144,19 @@ export default function SourcesPage() {
           <p className="text-gray-600 mb-6">
             {searchQuery
               ? 'Try adjusting your search query'
-              : 'Upload your first source to get started with character analysis'}
+              : 'Add your first source — upload a file or paste text — to get started'}
           </p>
           {!searchQuery && (
-            <Button onClick={() => setUploadModalOpen(true)}>
+            <Button onClick={() => setModalOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
-              Upload Source
+              Add Source
             </Button>
           )}
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredSources.map((source) => (
-            <Card
-              key={source.id}
-              hover
-              className="flex flex-col"
-            >
+            <Card key={source.id} hover className="flex flex-col">
               <div className="flex-1">
                 <div className="flex items-start justify-between mb-3">
                   <div className="p-2 bg-primary-100 rounded-lg">
@@ -167,9 +184,7 @@ export default function SourcesPage() {
                     {source.character_count || 0} characters •{' '}
                     {source.word_count || 0} words
                   </p>
-                  <p>
-                    Uploaded {formatRelativeTime(new Date(source.created_at))}
-                  </p>
+                  <p>Added {formatRelativeTime(new Date(source.created_at))}</p>
                 </div>
               </div>
 
@@ -199,65 +214,94 @@ export default function SourcesPage() {
         </div>
       )}
 
-      {/* Upload Modal */}
-      <Modal
-        isOpen={uploadModalOpen}
-        onClose={() => {
-          setUploadModalOpen(false)
-          setUploadData({ file: null, title: '' })
-          setUploadError(null)
-        }}
-        title="Upload Source"
-        size="md"
-      >
+      {/* Add-source Modal */}
+      <Modal isOpen={modalOpen} onClose={closeModal} title="Add Source" size="md">
         <div className="space-y-4">
-          {uploadError && (
+          {error && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <p className="text-sm text-red-600">{uploadError}</p>
+              <p className="text-sm text-red-600">{error}</p>
             </div>
           )}
+
+          {/* Mode toggle */}
+          <div className="flex rounded-lg border border-gray-200 p-1 bg-gray-50">
+            {(['upload', 'paste'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                className={`flex-1 text-sm py-1.5 rounded-md transition-colors ${
+                  mode === m
+                    ? 'bg-white shadow text-gray-900 font-medium'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {m === 'upload' ? 'Upload file' : 'Paste text'}
+              </button>
+            ))}
+          </div>
 
           <Input
             label="Source Title"
             placeholder="Enter a title for your source"
-            value={uploadData.title}
-            onChange={(e) =>
-              setUploadData({ ...uploadData, title: e.target.value })
-            }
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
             required
           />
 
-          <FileUpload
-            label="Source File"
-            accept=".txt,.doc,.docx,.pdf"
-            maxSize={10 * 1024 * 1024} // 10MB
-            onFileSelect={(file) => setUploadData({ ...uploadData, file })}
-            helperText="Supported formats: TXT, DOC, DOCX, PDF (max 10MB)"
-          />
+          {mode === 'upload' ? (
+            <FileUpload
+              label="Source File"
+              accept=".txt,.doc,.docx,.pdf"
+              maxSize={10 * 1024 * 1024} // 10MB
+              onFileSelect={(f) => setFile(f)}
+              helperText="Supported formats: TXT, DOC, DOCX, PDF (max 10MB)"
+            />
+          ) : (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Text
+              </label>
+              <textarea
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+                placeholder="Paste your notes, a scene, character descriptions…"
+                rows={10}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                We&apos;ll extract characters and canon for you to review — nothing
+                is saved until you approve it.
+              </p>
+            </div>
+          )}
 
           <div className="flex items-center space-x-3 pt-4">
-            <Button
-              variant="outline"
-              fullWidth
-              onClick={() => {
-                setUploadModalOpen(false)
-                setUploadData({ file: null, title: '' })
-                setUploadError(null)
-              }}
-            >
+            <Button variant="outline" fullWidth onClick={closeModal}>
               Cancel
             </Button>
             <Button
               fullWidth
-              onClick={handleUploadSubmit}
-              isLoading={uploading}
-              disabled={!uploadData.file || !uploadData.title}
+              onClick={handleSubmit}
+              isLoading={submitting}
+              disabled={
+                !title.trim() ||
+                (mode === 'upload' ? !file : !pasteText.trim())
+              }
             >
-              Upload
+              {mode === 'upload' ? 'Upload' : 'Add text'}
             </Button>
           </div>
         </div>
       </Modal>
     </div>
+  )
+}
+
+export default function SourcesPage() {
+  return (
+    <Suspense fallback={<Loading />}>
+      <SourcesContent />
+    </Suspense>
   )
 }

@@ -1653,8 +1653,18 @@ function BookDetailContent() {
             </p>
           </div>
 
-          {/* Export */}
+          {/* Actions */}
           <div className="flex items-center gap-2">
+            {/* Add source material (upload or paste) to THIS book — the entry
+                point a directly-created book otherwise lacked. */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push(`/sources?book=${bookId}`)}
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Add source
+            </Button>
             {(['md', 'docx', 'epub'] as BookExportFormat[]).map((format) => (
               <Button
                 key={format}

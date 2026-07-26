@@ -211,3 +211,91 @@ class TestJobAndCommit:
         # MERGED (updated), not created and not 409'd (PR review #1)
         assert commit.json()["result"]["characters"]["created"] == []
         assert cid in commit.json()["result"]["characters"]["updated"]
+
+
+class TestPasteSource:
+    """Paste text -> a `paste` Source + extraction run, and editing content
+    re-extracts (docs/BRD.md R4.4) — how a directly-created book gets material."""
+
+    async def test_paste_creates_source_and_enqueues_extraction(
+        self, client, auth_headers, async_session, test_book
+    ):
+        r = await client.post(
+            "/api/v1/sources/paste",
+            json={
+                "title": "Field notes",
+                "content_text": "Milo Voss is a dead analyst at Aeon Holdings.",
+                "book_id": str(test_book.id),
+            },
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["book_id"] == str(test_book.id)
+        assert body["extraction_run_id"]  # review flow, not a direct write
+        assert body["word_count"] == 9
+
+        from uuid import UUID
+
+        from sqlalchemy import select
+
+        from app.core.orm_models import Source
+
+        src = (
+            await async_session.execute(
+                select(Source).where(Source.id == UUID(body["id"]))
+            )
+        ).scalar_one()
+        assert src.kind == "paste"
+        assert src.content_text.startswith("Milo Voss")
+
+    async def test_paste_duplicate_content_conflicts(
+        self, client, auth_headers, test_book
+    ):
+        payload = {
+            "title": "N",
+            "content_text": "Same text.",
+            "book_id": str(test_book.id),
+        }
+        first = await client.post(
+            "/api/v1/sources/paste", json=payload, headers=auth_headers
+        )
+        assert first.status_code == 200
+        dup = await client.post(
+            "/api/v1/sources/paste", json=payload, headers=auth_headers
+        )
+        assert dup.status_code == 409
+
+    async def test_edit_content_reextracts_title_only_does_not(
+        self, client, auth_headers, test_book
+    ):
+        created = (
+            await client.post(
+                "/api/v1/sources/paste",
+                json={
+                    "title": "Draft",
+                    "content_text": "A.",
+                    "book_id": str(test_book.id),
+                },
+                headers=auth_headers,
+            )
+        ).json()
+        sid = created["id"]
+
+        # title-only edit -> no re-extraction
+        r1 = await client.patch(
+            f"/api/v1/sources/{sid}", json={"title": "Renamed"}, headers=auth_headers
+        )
+        assert r1.status_code == 200, r1.text
+        assert r1.json()["extraction_run_id"] is None
+        assert r1.json()["title"] == "Renamed"
+
+        # content edit -> a NEW extraction run
+        r2 = await client.patch(
+            f"/api/v1/sources/{sid}",
+            json={"content_text": "Zara Okafor appears here."},
+            headers=auth_headers,
+        )
+        assert r2.status_code == 200, r2.text
+        assert r2.json()["extraction_run_id"]
+        assert r2.json()["extraction_run_id"] != created["extraction_run_id"]
