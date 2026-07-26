@@ -420,6 +420,154 @@ class TestExtractionResumable:
         assert src["latest_extraction"]["status"] == "ready"
 
 
+class TestCommitTruthfulFieldApplication:
+    """Round 6 #1: an approved item is written exactly as shown — a supplied
+    empty field CLEARS, an omitted field is untouched, and a blank name is
+    surfaced (skipped), never silently filtered."""
+
+    async def _ready_run(self, async_session, test_book, test_source):
+        from app.core.orm_models import ExtractionRun
+
+        run = ExtractionRun(
+            book_id=test_book.id,
+            source_id=test_source.id,
+            user_id=test_book.user_id,
+            status="ready",
+            proposals={},
+        )
+        async_session.add(run)
+        await async_session.commit()
+        return run
+
+    async def test_clearing_existing_character_description(
+        self, client, auth_headers, async_session, test_book, test_source
+    ):
+        from app.core.orm_models import Character
+
+        existing = Character(
+            user_id=test_book.user_id,
+            book_id=test_book.id,
+            name="Milo Voss",
+            role="protagonist",
+            description="a dead analyst",
+        )
+        async_session.add(existing)
+        run = await self._ready_run(async_session, test_book, test_source)  # commits
+        cid = str(existing.id)
+
+        # supply description="" (clear) but OMIT role (leave it) — the author
+        # deleted the description in the review editor.
+        commit = await client.post(
+            f"/api/v1/books/{test_book.id}/extractions/{run.id}/commit",
+            json={"characters": [{"name": "Milo Voss", "description": ""}]},
+            headers=auth_headers,
+        )
+        assert commit.status_code == 200, commit.text
+        assert cid in commit.json()["result"]["characters"]["updated"]
+
+        await async_session.refresh(existing)
+        assert existing.description == ""  # cleared
+        assert existing.role == "protagonist"  # omitted field untouched
+
+    async def test_clearing_existing_style_field(
+        self, client, auth_headers, async_session, test_book, test_source
+    ):
+        from app.core.orm_models import StyleGuide
+
+        style = StyleGuide(book_id=test_book.id, pov="first", tense="past")
+        async_session.add(style)
+        run = await self._ready_run(async_session, test_book, test_source)  # commits
+
+        # clear pov (""), leave tense untouched (omitted)
+        commit = await client.post(
+            f"/api/v1/books/{test_book.id}/extractions/{run.id}/commit",
+            json={"style": {"pov": ""}},
+            headers=auth_headers,
+        )
+        assert commit.status_code == 200, commit.text
+        assert commit.json()["result"]["style"] == "updated"
+
+        await async_session.refresh(style)
+        assert style.pov == ""  # cleared
+        assert style.tense == "past"  # untouched
+
+    async def test_blank_name_is_surfaced_not_silently_dropped(
+        self, client, auth_headers, async_session, test_book, test_source
+    ):
+        run = await self._ready_run(async_session, test_book, test_source)
+
+        commit = await client.post(
+            f"/api/v1/books/{test_book.id}/extractions/{run.id}/commit",
+            json={
+                "characters": [
+                    {"name": "Zara Okafor", "role": "deuteragonist"},
+                    {"name": "   ", "role": "ghost"},  # approved but blank -> skipped
+                ]
+            },
+            headers=auth_headers,
+        )
+        assert commit.status_code == 200, commit.text
+        body = commit.json()["result"]
+        # the valid one committed, the blank one SURFACED (not silently filtered)
+        assert len(body["characters"]["created"]) == 1
+        assert any(s["type"] == "character" for s in body["skipped"])
+
+
+class TestCommitIdempotent:
+    """Round 6 #2: commit is exactly-once — a re-submit of a committed run 409s
+    and never appends duplicate versions or re-enqueues voice indexing."""
+
+    async def test_double_submit_does_not_duplicate(
+        self, client, auth_headers, async_session, test_book, test_source
+    ):
+        from uuid import UUID
+
+        from sqlalchemy import func, select
+
+        from app.core.orm_models import EntityVersion, ExtractionRun, Job
+
+        run = ExtractionRun(
+            book_id=test_book.id,
+            source_id=test_source.id,
+            user_id=test_book.user_id,
+            status="ready",
+            proposals={},
+        )
+        async_session.add(run)
+        await async_session.commit()
+        url = f"/api/v1/books/{test_book.id}/extractions/{run.id}/commit"
+        payload = {"characters": [{"name": "Edric Thane", "role": "antagonist"}]}
+
+        first = await client.post(url, json=payload, headers=auth_headers)
+        assert first.status_code == 200, first.text
+        cid = first.json()["result"]["characters"]["created"][0]
+
+        # a retry (or double-submit) of the now-committed run is rejected...
+        second = await client.post(url, json=payload, headers=auth_headers)
+        assert second.status_code == 409, second.text
+
+        # ...and nothing was written or enqueued twice
+        versions = (
+            await async_session.execute(
+                select(func.count())
+                .select_from(EntityVersion)
+                .where(
+                    EntityVersion.entity_type == "character",
+                    EntityVersion.entity_id == UUID(cid),
+                )
+            )
+        ).scalar_one()
+        assert versions == 1
+        jobs = (
+            await async_session.execute(
+                select(func.count())
+                .select_from(Job)
+                .where(Job.kind == "index_characters_voice")
+            )
+        ).scalar_one()
+        assert jobs == 1
+
+
 class TestVoiceIndexingRetryable:
     """#3: voice indexing retries incomplete (indexed_at IS NULL) characters."""
 

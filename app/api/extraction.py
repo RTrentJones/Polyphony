@@ -37,14 +37,19 @@ router = APIRouter()
 CATEGORIES = {"world", "location", "faction", "item", "concept", "org"}
 
 
+# Proposals allow a blank name so the SERVER (never the frontend) decides what to
+# do with it — it skips + surfaces the item rather than the client silently
+# filtering it out (PR review #1, round 6). `model_fields_set` on these models is
+# load-bearing: it distinguishes "field omitted" (leave untouched) from "field
+# supplied as '' / null" (apply it, so an author can CLEAR an existing value).
 class CharacterProposal(BaseModel):
-    name: str = Field(..., min_length=1, max_length=255)
+    name: str = Field(..., max_length=255)
     role: Optional[str] = None
     description: Optional[str] = None
 
 
 class CanonEntryProposal(BaseModel):
-    name: str = Field(..., min_length=1, max_length=255)
+    name: str = Field(..., max_length=255)
     category: str = "concept"
     content: Optional[str] = None
 
@@ -180,9 +185,36 @@ async def commit_extraction(
     The response reports `created` / `updated` per type plus `skipped`, and each
     committed character is linked to this source (`source_characters`) so a merged
     or multi-source character stays reachable from the source (PR review #2).
+
+    Commit is exactly-once: the run row is locked FOR UPDATE and only a `ready`
+    run is accepted. A double-submit or a retry after a lost response therefore
+    409s instead of appending duplicate versions and re-spending embedding budget
+    (PR review #2, round 6). `with_for_update` is a no-op on sqlite (single writer)
+    and a real row lock on Postgres, which serializes concurrent commits.
     """
     book = await _owned_book(book_id, current_user, db)
-    run = await _owned_run(book_id, run_id, current_user, db)
+    # Lock the run for the duration of the transaction so a concurrent commit
+    # blocks here, then sees status != 'ready' and is rejected.
+    run = (
+        await db.execute(
+            select(ExtractionRunORM)
+            .where(
+                ExtractionRunORM.id == run_id,
+                ExtractionRunORM.book_id == book_id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Extraction run not found"
+        )
+    if run.status != "ready":
+        # Already committed / failed / still pending — never write or enqueue twice.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Extraction run is '{run.status}', not 'ready' — nothing committed",
+        )
     result = {
         "characters": {"created": [], "updated": []},
         "canon_entries": {"created": [], "updated": []},
@@ -220,6 +252,7 @@ async def commit_extraction(
                 {"type": "character", "name": c.name, "reason": "blank name"}
             )
             continue
+        supplied = c.model_fields_set
         row = existing_chars.get(c.name)
         is_new = row is None
         if is_new:
@@ -234,11 +267,13 @@ async def commit_extraction(
             db.add(row)
             existing_chars[c.name] = row
         else:
-            # MERGE approved fields into the existing (possibly name-only) row so
-            # the reviewed role/description aren't lost (PR review #1).
-            if c.role:
+            # MERGE the SUPPLIED fields into the existing (possibly name-only) row.
+            # Keyed on model_fields_set, not truthiness, so an author can CLEAR a
+            # role/description (send "") and an omitted field is left untouched —
+            # matching the character mutation API (PR review #1, round 6).
+            if "role" in supplied:
                 row.role = c.role
-            if c.description:
+            if "description" in supplied:
                 row.description = c.description
         await db.flush()
         # FULL snapshot so an imported version is a complete-state restore.
@@ -260,7 +295,8 @@ async def commit_extraction(
                 {"type": "canon_entry", "name": e.name, "reason": "blank name"}
             )
             continue
-        if e.category not in CATEGORIES:
+        supplied = e.model_fields_set
+        if "category" in supplied and e.category not in CATEGORIES:
             e.category = "concept"
         row = existing_entries.get(e.name)
         is_new = row is None
@@ -271,11 +307,13 @@ async def commit_extraction(
             db.add(row)
             existing_entries[e.name] = row
         else:
-            # MERGE: an approved edit to an EXISTING entry must apply, not be
-            # silently skipped — the review screen checks it by default and the
-            # author expects their change written (PR review #1, round 3).
-            row.category = e.category
-            row.content = e.content
+            # MERGE the supplied fields (an approved edit to an EXISTING entry must
+            # apply, and "" must clear); an omitted field is left untouched
+            # (PR review #1, rounds 3 + 6).
+            if "category" in supplied:
+                row.category = e.category
+            if "content" in supplied:
+                row.content = e.content
         await db.flush()
         await versions_repo.snapshot(
             db,
@@ -303,10 +341,14 @@ async def commit_extraction(
         if style is None:
             style = StyleGuideORM(book_id=book.id)
             db.add(style)
+        # Apply exactly the supplied style fields (incl. "" to clear a pov/tone/…),
+        # leaving omitted fields untouched (PR review #1, round 6). The review UI
+        # leaves style unapproved when the proposal is all-empty, so an untouched
+        # empty proposal never reaches here to clobber an existing guide.
+        supplied = payload.style.model_fields_set
         for field_name in ("pov", "tense", "tone", "comps"):
-            value = getattr(payload.style, field_name)
-            if value:
-                setattr(style, field_name, value)
+            if field_name in supplied:
+                setattr(style, field_name, getattr(payload.style, field_name))
         await db.flush()
         await versions_repo.snapshot(
             db,
@@ -322,14 +364,18 @@ async def commit_extraction(
         )
         result["style"] = "updated" if style_existed else "created"
 
-    if payload.synopsis:
-        # Always versioned, and applied whether or not a synopsis already exists —
-        # an approved synopsis edit must not be silently dropped just because the
-        # book already had one (PR review #1, round 3). record_synopsis snapshots
-        # the prior value first, so nothing is lost.
+    if "synopsis" in payload.model_fields_set:
+        # Applied whenever SUPPLIED (present in the request), whether or not a
+        # synopsis already exists, and a blank value CLEARS it — an approved
+        # synopsis edit (or deletion) must not be silently dropped (PR review #1,
+        # rounds 3 + 6). record_synopsis snapshots the prior value first and
+        # versions the change, so nothing is lost.
         had_synopsis = bool(book.synopsis)
+        new_value = payload.synopsis or None  # "" / null / whitespace -> cleared
+        if new_value is not None and not new_value.strip():
+            new_value = None
         await record_synopsis(
-            db, book, payload.synopsis, reason="imported", created_by=current_user.id
+            db, book, new_value, reason="imported", created_by=current_user.id
         )
         result["synopsis"] = "updated" if had_synopsis else "created"
 

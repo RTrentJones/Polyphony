@@ -80,13 +80,17 @@ function ReviewContent() {
         setSynopsis({ approved: Boolean(p.synopsis), value: p.synopsis ?? '' })
       } else if (run.status === 'pending') {
         timer.current = setTimeout(load, 2000) // still extracting; poll
+      } else if (run.status === 'committed') {
+        // Already committed (resumed a done run, or a lost-response retry) — the
+        // commit is exactly-once, so send the author to the book, not a dead form.
+        router.replace(`/books/detail?id=${bookId}`)
       } else if (run.status === 'failed') {
         setError(run.error || 'Extraction failed.')
       }
     } catch (err: any) {
       setError(err.message || 'Could not load the extraction.')
     }
-  }, [bookId, runId, fetchExtraction])
+  }, [bookId, runId, fetchExtraction, router])
 
   useEffect(() => {
     load()
@@ -99,19 +103,21 @@ function ReviewContent() {
     setCommitting(true)
     setError(null)
     setSkipped([])
+    // Send every APPROVED item exactly as shown — never silently filter a
+    // blank name (the server skips + surfaces it), and send fields even when
+    // empty so clearing a role/description/style/synopsis actually applies
+    // (PR review #1, round 6). What you approve is written as shown.
     const payload: ExtractionCommit = {
       characters: chars
-        .filter((c) => c.approved && c.name.trim())
+        .filter((c) => c.approved)
         .map(({ name, role, description }) => ({ name, role, description })),
       canon_entries: entries
-        .filter((e) => e.approved && e.name.trim())
+        .filter((e) => e.approved)
         .map(({ name, category, content }) => ({ name, category, content })),
       ...(style.approved
         ? { style: { pov: style.pov, tense: style.tense, tone: style.tone, comps: style.comps } }
         : {}),
-      ...(synopsis.approved && synopsis.value.trim()
-        ? { synopsis: synopsis.value }
-        : {}),
+      ...(synopsis.approved ? { synopsis: synopsis.value } : {}),
     }
     try {
       const res = await commitExtraction(bookId, runId, payload)
@@ -124,6 +130,15 @@ function ReviewContent() {
       }
       router.push(`/books/detail?id=${bookId}`)
     } catch (err: any) {
+      // Exactly-once commit: a run that is no longer `ready` (double-submit, or a
+      // retry after a lost response) 409s with a "not 'ready'" detail. That means
+      // the work is already DONE, so proceed to the book rather than showing a
+      // scary error. A DIFFERENT 409 (a canon name conflict) is a real failure and
+      // falls through to the error path (PR review #2, round 6).
+      if (err?.status === 409 && /not 'ready'/.test(String(err?.message ?? ''))) {
+        router.push(`/books/detail?id=${bookId}`)
+        return
+      }
       setError(err.message || 'Commit failed.')
       setCommitting(false)
     }
@@ -163,7 +178,8 @@ function ReviewContent() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Review extracted canon</h1>
         <p className="text-gray-600">
-          Nothing is saved until you commit. Uncheck anything you don&apos;t want.
+          Nothing is saved until you commit. Approved items are written exactly as
+          shown — clearing a field clears it. Uncheck anything you don&apos;t want.
         </p>
       </div>
       {error && <p className="text-red-600">{error}</p>}

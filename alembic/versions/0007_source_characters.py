@@ -7,7 +7,15 @@ source_id=None yet is genuinely part of that source. This association is the rea
 answer, written for every reviewed-commit character, so source-detail and the
 source-scoped generation picker reach merged/multi-source characters.
 
-Additive on the frozen baseline.
+Additive on the frozen baseline. **No backfill from `characters.source_id`** by
+deployment decision: this change ships with a full DB reset (drop + recreate),
+consistent with "live data is disposable" (docs/ADR-002-book-as-root.md). On the
+reset databases `characters` is empty when this runs, so a backfill would be a
+no-op; existing casts are (re)linked when their sources are re-extracted and
+committed. If a future change must preserve live data, add:
+`INSERT INTO source_characters (source_id, character_id)
+ SELECT source_id, id FROM characters WHERE source_id IS NOT NULL
+ ON CONFLICT DO NOTHING;`
 
 Revision ID: 0007
 Revises: 0006
