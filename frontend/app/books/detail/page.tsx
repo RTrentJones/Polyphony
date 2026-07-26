@@ -793,6 +793,7 @@ function OutlinePanel({
   const [chaptersTarget, setChaptersTarget] = useState(12)
   const [generating, setGenerating] = useState(false)
   const [promotingIndex, setPromotingIndex] = useState<number | null>(null)
+  const cancelledRef = useRef(false)
 
   useEffect(() => {
     fetchPlans(bookId).catch((err: any) => {
@@ -800,17 +801,52 @@ function OutlinePanel({
     })
   }, [bookId, fetchPlans, addToast])
 
+  // Stop polling if the user navigates away mid-generation.
+  useEffect(() => {
+    cancelledRef.current = false
+    return () => {
+      cancelledRef.current = true
+    }
+  }, [])
+
   const plan = plans.find((p) => p.kind === kind)
 
   const handleGenerate = async () => {
     setGenerating(true)
+    const label = kind === 'outline' ? 'Outline' : 'Beat sheet'
     try {
-      await generatePlan(bookId, kind, chaptersTarget)
-      addToast(`${kind === 'outline' ? 'Outline' : 'Beat sheet'} generated`, 'success')
+      const res = await generatePlan(bookId, kind, chaptersTarget)
+      // The staged outline runs as a BACKGROUND JOB (~a few minutes on the free
+      // tier). Poll GET /plans until the plan is ready/failed instead of falsely
+      // reporting success immediately (the sync path is already 'ready').
+      if (res?.status === 'generating') {
+        const deadline = Date.now() + 6 * 60 * 1000
+        for (;;) {
+          if (cancelledRef.current) return
+          await new Promise((r) => setTimeout(r, 3000))
+          if (cancelledRef.current) return
+          const latest = await fetchPlans(bookId)
+          const p = latest.find((pl) => pl.kind === kind)
+          if (p?.status === 'ready') {
+            addToast(`${label} generated`, 'success')
+            break
+          }
+          if (p?.status === 'failed') {
+            addToast(p.error || `${label} generation failed`, 'error')
+            break
+          }
+          if (Date.now() > deadline) {
+            addToast(`${label} is still generating — check back shortly`, 'info')
+            break
+          }
+        }
+      } else {
+        addToast(`${label} generated`, 'success')
+      }
     } catch (err: any) {
       addToast(err.message || 'Failed to generate plan', 'error')
     } finally {
-      setGenerating(false)
+      if (!cancelledRef.current) setGenerating(false)
     }
   }
 
@@ -879,7 +915,28 @@ function OutlinePanel({
         </div>
       )}
 
-      {!plan || plan.content.length === 0 ? (
+      {generating || plan?.status === 'generating' ? (
+        <div className="text-center py-8">
+          <Wand2 className="h-10 w-10 text-primary-500 mx-auto mb-3 animate-pulse" />
+          <p className="text-gray-800 font-medium">
+            Generating {kind === 'outline' ? 'outline' : 'beat sheet'}…
+          </p>
+          <p className="text-sm text-gray-500 mt-1">
+            {plan?.stage ? `Stage: ${plan.stage}. ` : ''}This runs in the
+            background and can take a few minutes.
+          </p>
+        </div>
+      ) : plan?.status === 'failed' ? (
+        <div className="text-center py-8">
+          <p className="text-red-600 font-medium">Generation failed</p>
+          {plan.error && (
+            <p className="text-sm text-gray-600 mt-1">{plan.error}</p>
+          )}
+          <p className="text-sm text-gray-500 mt-2">
+            Try again, or adjust the synopsis and canon first.
+          </p>
+        </div>
+      ) : !plan || plan.content.length === 0 ? (
         <div className="text-center py-8">
           <ListTree className="h-12 w-12 text-gray-400 mx-auto mb-3" />
           <p className="text-gray-600">
@@ -888,6 +945,18 @@ function OutlinePanel({
         </div>
       ) : (
         <div className="space-y-3">
+          {plan.warnings && plan.warnings.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <p className="text-sm text-amber-800 font-medium">
+                Fidelity warnings
+              </p>
+              <ul className="list-disc list-inside text-sm text-amber-700 mt-1">
+                {plan.warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           {plan.content.map((node, index) => (
             <div
               key={index}

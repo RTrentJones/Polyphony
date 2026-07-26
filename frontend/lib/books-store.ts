@@ -27,6 +27,7 @@ import type {
   ContinuityReport,
   ContinuityReportListResponse,
   ContinuityStartResponse,
+  PlanGenerateResponse,
   PlanKind,
   PlanNode,
   PlotThread,
@@ -337,13 +338,13 @@ interface PlanningState {
   threads: PlotThread[]
   reports: ContinuityReport[]
 
-  fetchPlans: (bookId: string) => Promise<void>
+  fetchPlans: (bookId: string) => Promise<BookPlan[]>
   savePlan: (bookId: string, kind: PlanKind, content: PlanNode[]) => Promise<void>
   generatePlan: (
     bookId: string,
     kind: PlanKind,
     chaptersTarget: number
-  ) => Promise<void>
+  ) => Promise<PlanGenerateResponse>
   promoteNode: (bookId: string, nodeIndex: number) => Promise<PromoteNodeResponse>
 
   fetchThreads: (bookId: string) => Promise<void>
@@ -369,6 +370,7 @@ export const usePlanningStore = create<PlanningState>((set, get) => ({
     try {
       const { data } = await apiClient.get<BookPlanListResponse>(`/books/${bookId}/plans`)
       set({ plans: data.plans })
+      return data.plans
     } catch (err) {
       throw toApiError(err)
     }
@@ -385,11 +387,12 @@ export const usePlanningStore = create<PlanningState>((set, get) => ({
 
   generatePlan: async (bookId, kind, chaptersTarget) => {
     try {
-      await apiClient.post(`/books/${bookId}/plans/generate`, {
-        kind,
-        chapters_target: chaptersTarget,
-      })
+      const { data } = await apiClient.post<PlanGenerateResponse>(
+        `/books/${bookId}/plans/generate`,
+        { kind, chapters_target: chaptersTarget }
+      )
       await get().fetchPlans(bookId)
+      return data
     } catch (err) {
       throw toApiError(err)
     }
