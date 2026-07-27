@@ -86,6 +86,7 @@ const BOOK_STATUS_STYLES: Record<string, string> = {
 const SCENE_STATUS_STYLES: Record<string, string> = {
   completed: 'bg-green-100 text-green-700',
   processing: 'bg-yellow-100 text-yellow-700',
+  paused: 'bg-indigo-100 text-indigo-700',
   failed: 'bg-red-100 text-red-700',
 }
 
@@ -625,7 +626,9 @@ function ChaptersSection({
                             <p className="flex-1 min-w-0 text-sm text-gray-600 truncate">
                               {scene.preview || (
                                 <span className="italic text-gray-400">
-                                  {scene.status === 'processing'
+                                  {scene.status === 'paused'
+                                    ? 'Paused — waiting for AI quota'
+                                    : scene.status === 'processing'
                                     ? 'Generating…'
                                     : 'No content yet'}
                                 </span>
@@ -814,8 +817,9 @@ function ScenesPanel({
       const s = await booksApi.listBookScenes(bookId)
       setScenes(s)
       if (pollRef.current) clearTimeout(pollRef.current)
-      // A generating scene finishes in the background — poll until it lands.
-      if (s.some((x) => x.status === 'processing')) {
+      // Generating scenes land in the background; paused ones resume when the
+      // AI quota returns — keep polling until everything settles.
+      if (s.some((x) => x.status === 'processing' || x.status === 'paused')) {
         pollRef.current = setTimeout(load, 5000)
       }
     } catch (err: any) {
@@ -890,8 +894,12 @@ function ScenesPanel({
                   </p>
                 )}
                 <p className="text-sm text-gray-600 line-clamp-2 mt-1">
-                  {s.preview ||
-                    (s.status === 'processing' ? 'Generating…' : 'No content yet')}
+                  {s.status === 'paused'
+                    ? 'Paused — daily AI quota reached; resumes automatically.'
+                    : s.preview ||
+                      (s.status === 'processing'
+                        ? 'Generating…'
+                        : 'No content yet')}
                 </p>
               </div>
               <div className="flex items-center gap-1 shrink-0">

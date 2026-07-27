@@ -175,7 +175,12 @@ export interface SceneRequest {
   style_notes?: string
 }
 
-export type SceneStatus = 'processing' | 'completed' | 'failed' | string
+export type SceneStatus =
+  | 'processing'
+  | 'paused'
+  | 'completed'
+  | 'failed'
+  | string
 
 /**
  * Scene item. The list endpoint returns a summary (`preview`, no `content`);

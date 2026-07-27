@@ -163,7 +163,9 @@ function SceneEditorContent() {
           </Button>
           <h1 className="text-2xl font-bold text-gray-900">Scene Editor</h1>
           <p className="text-sm text-gray-600">
-            {scene.status === 'processing'
+            {scene.status === 'paused'
+              ? 'Paused — daily AI quota reached; generation resumes automatically'
+              : scene.status === 'processing'
               ? 'This scene is still generating — content may be incomplete'
               : `${wordCount.toLocaleString()} words`}
             {isDirty && <span className="text-yellow-600"> • unsaved changes</span>}

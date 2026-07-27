@@ -114,6 +114,65 @@ async def test_run_once_failure_requeues_then_dead_runs_on_dead(
     assert scene.status == "failed"  # on_dead ran
 
 
+async def test_quota_pause_marks_scene_paused_then_resume_completes(
+    async_session, test_user, monkeypatch
+):
+    """A QuotaExhaustedError pauses the job AND flips the scene to 'paused' (not a
+    stuck 'processing'); a successful resume flips it back to 'completed'."""
+    _bind_sessions(monkeypatch, async_session)
+
+    from app.core.orm_models import Scene as SceneORM
+    from app.jobs.handlers import _pause_scene
+    from app.llm.errors import QuotaExhaustedError
+
+    scene = Scene(user_id=test_user.id, title="S", status="processing", position=0)
+    async_session.add(scene)
+    await async_session.commit()
+
+    calls = {"n": 0}
+
+    async def run(payload):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise QuotaExhaustedError("quota gone", reset_after=1)
+        # resume: the workflow would generate and complete the scene
+        s = await async_session.get(SceneORM, scene.id)
+        s.status = "completed"
+        await async_session.commit()
+
+    import app.jobs.worker as worker_mod
+
+    monkeypatch.setattr(
+        worker_mod,
+        "HANDLERS",
+        {"k": Handler(run=run, on_dead=_dead_scene, on_pause=_pause_scene)},
+    )
+
+    job = await jobs_repo.enqueue(
+        async_session,
+        kind="k",
+        payload={"scene_id": str(scene.id)},
+        user_id=test_user.id,
+        max_attempts=1,
+    )
+    await async_session.commit()
+
+    worker = _worker()
+    # 1) quota -> PAUSED (job re-queued, not dead; scene reflects the pause)
+    assert await worker.run_once() is True
+    await async_session.refresh(job)
+    assert job.status == "queued"
+    await async_session.refresh(scene)
+    assert scene.status == "paused"
+
+    # 2) resume when due -> succeeds -> scene completed
+    job.available_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    await async_session.commit()
+    assert await worker.run_once() is True
+    await async_session.refresh(scene)
+    assert scene.status == "completed"
+
+
 async def test_run_once_unknown_kind_goes_dead_immediately(
     async_session, test_user, monkeypatch
 ):

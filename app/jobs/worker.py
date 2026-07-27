@@ -150,6 +150,13 @@ class JobWorker:
                     kind=kind,
                     resume_at=resume_at.isoformat(),
                 )
+                # Reflect the pause on the domain row (e.g. scene -> 'paused') so
+                # the UI shows "waiting for quota", not a stuck "generating".
+                if handler is not None and handler.on_pause is not None:
+                    try:
+                        await handler.on_pause(payload)
+                    except Exception as e:
+                        log_error(logger, e, context={"event": "job_on_pause_failed"})
                 return True
             if error is None:
                 await jobs_repo.mark_succeeded(session, db_job)
