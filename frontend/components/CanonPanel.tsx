@@ -12,6 +12,7 @@ import { History, Pencil, Plus, Trash2 } from 'lucide-react'
 import Button from './Button'
 import Card from './Card'
 import Input from './Input'
+import KeyValueEditor from './KeyValueEditor'
 import Loading from './Loading'
 import Modal from './Modal'
 import VersionHistory from './VersionHistory'
@@ -35,6 +36,17 @@ const CATEGORIES: CanonCategory[] = [
   'concept',
   'org',
 ]
+
+/** A character's JSON profile fields arrive as Record<string, unknown>; the
+ *  key-value editor works in strings. */
+function coerceMap(
+  value: Record<string, unknown> | undefined
+): Record<string, string> {
+  if (!value) return {}
+  return Object.fromEntries(
+    Object.entries(value).map(([k, v]) => [k, String(v ?? '')])
+  )
+}
 
 type HistoryTarget = { type: VersionedEntityType; id: string; label: string }
 
@@ -495,6 +507,9 @@ function CharacterModal({
     goals: string
     arc: string
     notes: string
+    personality_traits: Record<string, string>
+    voice_characteristics: Record<string, string>
+    relationships: Record<string, string>
   }) => Promise<void>
 }) {
   const [name, setName] = useState(character?.name || '')
@@ -503,6 +518,15 @@ function CharacterModal({
   const [goals, setGoals] = useState(character?.goals || '')
   const [arc, setArc] = useState(character?.arc || '')
   const [notes, setNotes] = useState(character?.notes || '')
+  const [traits, setTraits] = useState<Record<string, string>>(() =>
+    coerceMap(character?.personality_traits)
+  )
+  const [voice, setVoice] = useState<Record<string, string>>(() =>
+    coerceMap(character?.voice_characteristics)
+  )
+  const [relationships, setRelationships] = useState<Record<string, string>>(() =>
+    coerceMap(character?.relationships)
+  )
   const [saving, setSaving] = useState(false)
 
   const field = (label: string, value: string, set: (v: string) => void, rows = 2) => (
@@ -533,6 +557,27 @@ function CharacterModal({
         {field('Goals', goals, setGoals)}
         {field('Arc', arc, setArc)}
         {field('Notes', notes, setNotes)}
+        <KeyValueEditor
+          label="Personality traits"
+          value={character?.personality_traits}
+          onChange={setTraits}
+          keyPlaceholder="trait"
+          valuePlaceholder="e.g. dry, guarded"
+        />
+        <KeyValueEditor
+          label="Voice"
+          value={character?.voice_characteristics}
+          onChange={setVoice}
+          keyPlaceholder="aspect"
+          valuePlaceholder="e.g. clipped, formal"
+        />
+        <KeyValueEditor
+          label="Relationships"
+          value={character?.relationships}
+          onChange={setRelationships}
+          keyPlaceholder="character"
+          valuePlaceholder="e.g. estranged sister"
+        />
         <div className="flex gap-3 pt-2">
           <Button variant="outline" fullWidth onClick={onClose}>
             Cancel
@@ -543,7 +588,17 @@ function CharacterModal({
             disabled={!name.trim()}
             onClick={async () => {
               setSaving(true)
-              await onSave({ name, role, description, goals, arc, notes })
+              await onSave({
+                name,
+                role,
+                description,
+                goals,
+                arc,
+                notes,
+                personality_traits: traits,
+                voice_characteristics: voice,
+                relationships,
+              })
               setSaving(false)
             }}
           >
