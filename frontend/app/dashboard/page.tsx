@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { FileText, Users, Wand2, TrendingUp, Plus } from 'lucide-react'
+import { BookMarked, FileText, Users, Wand2, TrendingUp, Plus } from 'lucide-react'
 import Card from '@/components/Card'
 import Button from '@/components/Button'
 import Loading from '@/components/Loading'
@@ -138,11 +138,11 @@ export default function DashboardPage() {
           </Button>
           <Button
             variant="outline"
-            onClick={() => router.push('/generate')}
+            onClick={() => router.push('/books')}
             className="justify-start"
           >
-            <Wand2 className="h-5 w-5 mr-2" />
-            Generate Scene
+            <BookMarked className="h-5 w-5 mr-2" />
+            My Books
           </Button>
           <Button
             variant="outline"

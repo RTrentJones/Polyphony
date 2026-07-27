@@ -18,9 +18,7 @@ import type {
   LoginCredentials,
   RegisterData,
   Scene,
-  SceneGenerateResponse,
   SceneListResponse,
-  SceneRequest,
   Source,
   SourceCharactersResponse,
   SourceListResponse,
@@ -295,7 +293,6 @@ interface SceneState {
   error: string | null
   fetchScenes: (sourceId?: string) => Promise<void>
   fetchScene: (id: string) => Promise<Scene>
-  generateScene: (request: SceneRequest) => Promise<SceneGenerateResponse>
   deleteScene: (id: string) => Promise<void>
 }
 
@@ -329,17 +326,6 @@ export const useSceneStore = create<SceneState>((set) => ({
     }
   },
 
-  generateScene: async (request) => {
-    try {
-      const { data } = await apiClient.post<SceneGenerateResponse>(
-        '/scenes/generate',
-        request
-      )
-      return data
-    } catch (err) {
-      throw toApiError(err)
-    }
-  },
 
   deleteScene: async (id) => {
     try {

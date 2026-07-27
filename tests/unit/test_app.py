@@ -58,10 +58,6 @@ class TestAuthRequired:
         response = api_client.get(path)
         assert response.status_code == 401
 
-    def test_scene_generate_unauthenticated(self, api_client):
-        response = api_client.post("/api/v1/scenes/generate", json={})
-        assert response.status_code == 401
-
     def test_invites_require_admin(self, api_client):
         response = api_client.post("/api/v1/auth/invites", json={})
         assert response.status_code == 401
