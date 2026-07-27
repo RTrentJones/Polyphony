@@ -7,7 +7,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { BookMarked, BookOpen, FileText, LogOut, Menu, X, User } from 'lucide-react'
+import { BookMarked, BookOpen, LogOut, Menu, X, User } from 'lucide-react'
 import Button from './Button'
 import { useAuthStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
@@ -24,7 +24,6 @@ export default function Navbar() {
   // route. Sources move fully in-book in a follow-up.
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: BookOpen },
-    { name: 'Sources', href: '/sources', icon: FileText },
     { name: 'Books', href: '/books', icon: BookMarked },
   ]
 
