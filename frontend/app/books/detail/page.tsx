@@ -132,16 +132,23 @@ interface ToastItem {
 
 function GenerateSceneModal({
   chapter,
+  chapters,
   onClose,
   onGenerated,
 }: {
-  chapter: BookChapter
+  /** A fixed target chapter (from the Chapters tab). */
+  chapter?: BookChapter
+  /** Or a list to pick from (from the Scenes tab). */
+  chapters?: BookChapter[]
   onClose: () => void
   onGenerated: (sceneId: string, chapterId: string) => void
 }) {
   const { generateScene } = useBookStore()
   const { sources, fetchSources } = useSourceStore()
 
+  const [chapterId, setChapterId] = useState(
+    chapter?.id ?? chapters?.[0]?.id ?? ''
+  )
   const [sourceId, setSourceId] = useState('')
   const [sourceCharacters, setSourceCharacters] = useState<Character[]>([])
   const [loadingCharacters, setLoadingCharacters] = useState(false)
@@ -224,8 +231,8 @@ function GenerateSceneModal({
 
     setSubmitting(true)
     try {
-      const result = await generateScene(chapter.id, request)
-      onGenerated(result.scene_id, chapter.id)
+      const result = await generateScene(chapterId, request)
+      onGenerated(result.scene_id, chapterId)
       onClose()
     } catch (err: any) {
       setError(err.message || 'Failed to start scene generation')
@@ -242,13 +249,34 @@ function GenerateSceneModal({
     <Modal
       isOpen
       onClose={onClose}
-      title={`Generate scene — ${chapter.title}`}
+      title={chapter ? `Generate scene — ${chapter.title}` : 'Generate scene'}
       size="lg"
     >
       <div className="space-y-4">
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4">
             <p className="text-sm text-red-600">{error}</p>
+          </div>
+        )}
+
+        {/* Chapter picker — a scene always lands in a chapter (from the Scenes
+            tab, where no chapter is fixed). */}
+        {!chapter && chapters && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Chapter
+            </label>
+            <select
+              value={chapterId}
+              onChange={(e) => setChapterId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            >
+              {chapters.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.title}
+                </option>
+              ))}
+            </select>
           </div>
         )}
 
@@ -803,14 +831,17 @@ function OutlineNodeView({ node }: { node: PlanNode }) {
 
 function ScenesPanel({
   bookId,
+  chapters,
   addToast,
 }: {
   bookId: string
+  chapters: BookChapter[]
   addToast: (message: string, type: ToastType) => void
 }) {
   const router = useRouter()
   const [scenes, setScenes] = useState<BookSceneSummary[]>([])
   const [loading, setLoading] = useState(true)
+  const [genOpen, setGenOpen] = useState(false)
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async () => {
@@ -852,12 +883,29 @@ function ScenesPanel({
 
   return (
     <Card>
-      <div className="mb-4">
-        <h2 className="text-xl font-semibold text-gray-900">Scenes</h2>
-        <p className="text-sm text-gray-500">
-          Every scene in this book — drafted into a chapter or standalone. Generate
-          from a chapter.
-        </p>
+      <div className="flex items-start justify-between mb-4 gap-4">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900">Scenes</h2>
+          <p className="text-sm text-gray-500">
+            Every scene in this book — each drafted into a chapter.
+          </p>
+        </div>
+        <Button
+          size="sm"
+          onClick={() => {
+            if (chapters.length === 0) {
+              addToast(
+                'Create a chapter first (Chapters tab) — scenes are written into chapters.',
+                'info'
+              )
+              return
+            }
+            setGenOpen(true)
+          }}
+        >
+          <Wand2 className="h-4 w-4 mr-1" />
+          Generate scene
+        </Button>
       </div>
       {scenes.length === 0 ? (
         <div className="text-center py-8">
@@ -920,6 +968,17 @@ function ScenesPanel({
             </div>
           ))}
         </div>
+      )}
+
+      {genOpen && (
+        <GenerateSceneModal
+          chapters={chapters}
+          onClose={() => setGenOpen(false)}
+          onGenerated={() => {
+            setGenOpen(false)
+            load() // the new 'processing' scene appears + polls to completion
+          }}
+        />
       )}
     </Card>
   )
@@ -2079,7 +2138,11 @@ function BookDetailContent() {
         />
       )}
       {activeTab === 'scenes' && (
-        <ScenesPanel bookId={bookId} addToast={addToast} />
+        <ScenesPanel
+          bookId={bookId}
+          chapters={currentBook.chapters}
+          addToast={addToast}
+        />
       )}
       {activeTab === 'sources' && (
         <SourcesPanel bookId={bookId} addToast={addToast} />

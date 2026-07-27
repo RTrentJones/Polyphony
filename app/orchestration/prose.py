@@ -67,12 +67,15 @@ matching the voice samples exactly:
 
 BEAT TO WRITE: {beat_desc}
 
-Write approximately {target_words} words of polished narrative prose with
-interwoven dialogue. Give each character a DISTINCT voice — their diction,
-cadence, and syntax should differ enough that a reader could tell who is
-speaking without the dialogue tags, grounded in the voice samples above. Do NOT
-use headings, beat labels, or stage directions — just the prose. Do NOT repeat
-the scene so far.
+Write approximately {target_words} words of polished NARRATIVE PROSE. Ground the
+reader in the setting and in the characters' actions, gestures, expressions, and
+interiority — description and action carry the scene; dialogue PUNCTUATES it, it
+does not dominate. Aim for well-formed paragraphs of prose, not a back-and-forth
+transcript. When a character does speak, give each a DISTINCT voice — diction,
+cadence, and syntax differing enough that a reader could tell who is speaking
+without the tags, grounded in the voice samples above. Do NOT use headings, beat
+labels, character-name prefixes (e.g. "Milo:"), or stage directions — just the
+prose. Do NOT repeat the scene so far.
 
 Prose:"""
 

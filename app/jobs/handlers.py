@@ -37,16 +37,6 @@ class Handler:
     on_pause: Callable[[dict], Awaitable[None]] | None = None
 
 
-async def _run_generate_scene(payload: dict) -> None:
-    from app.orchestration.workflow import run_scene_workflow
-
-    result = await run_scene_workflow(
-        UUID(payload["scene_id"]), payload["request"], UUID(payload["user_id"])
-    )
-    if result.get("status") == "failed":
-        raise JobExecutionError(result.get("error", "scene generation failed"))
-
-
 async def _run_generate_prose_scene(payload: dict) -> None:
     from app.orchestration.prose import run_prose_scene_workflow
 
@@ -280,9 +270,6 @@ async def _dead_plan(payload: dict) -> None:
 
 
 HANDLERS: dict[str, Handler] = {
-    "generate_scene": Handler(
-        run=_run_generate_scene, on_dead=_dead_scene, on_pause=_pause_scene
-    ),
     "generate_prose_scene": Handler(
         run=_run_generate_prose_scene, on_dead=_dead_scene, on_pause=_pause_scene
     ),
