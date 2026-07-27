@@ -32,6 +32,9 @@ class JobExecutionError(RuntimeError):
 class Handler:
     run: Callable[[dict], Awaitable[None]]
     on_dead: Callable[[dict], Awaitable[None]] | None = None
+    # Runs when the worker PAUSES the job (quota exhausted) — a chance to reflect
+    # the pause on the domain row so the UI shows "paused", not "still generating".
+    on_pause: Callable[[dict], Awaitable[None]] | None = None
 
 
 async def _run_generate_scene(payload: dict) -> None:
@@ -217,12 +220,13 @@ async def _run_continuity(payload: dict) -> None:
 
 
 async def _fail_row(model, row_id: str, event: str) -> None:
-    """Flip a domain row to 'failed' if it is still 'processing'."""
+    """Flip a domain row to 'failed' if it is still in-flight ('processing' or a
+    quota 'paused' state)."""
     async with get_async_session() as session:
         row = (
             await session.execute(select(model).where(model.id == UUID(row_id)))
         ).scalar_one_or_none()
-        if row is not None and row.status == "processing":
+        if row is not None and row.status in ("processing", "paused"):
             row.status = "failed"
             await session.commit()
             log_business_event(logger, event, id=row_id)
@@ -230,6 +234,18 @@ async def _fail_row(model, row_id: str, event: str) -> None:
 
 async def _dead_scene(payload: dict) -> None:
     await _fail_row(Scene, payload["scene_id"], "scene_failed_dead_job")
+
+
+async def _pause_scene(payload: dict) -> None:
+    """Reflect a quota pause on the scene: 'processing' -> 'paused', so the UI can
+    say "waiting for AI quota" instead of "still generating". The resumed run
+    flips it back to 'completed'/'failed'; a repeated pause is a no-op."""
+    async with get_async_session() as session:
+        scene = await session.get(Scene, UUID(payload["scene_id"]))
+        if scene is not None and scene.status == "processing":
+            scene.status = "paused"
+            await session.commit()
+            log_business_event(logger, "scene_paused_quota", id=payload["scene_id"])
 
 
 async def _dead_report(payload: dict) -> None:
@@ -264,10 +280,14 @@ async def _dead_plan(payload: dict) -> None:
 
 
 HANDLERS: dict[str, Handler] = {
-    "generate_scene": Handler(run=_run_generate_scene, on_dead=_dead_scene),
-    "generate_prose_scene": Handler(run=_run_generate_prose_scene, on_dead=_dead_scene),
+    "generate_scene": Handler(
+        run=_run_generate_scene, on_dead=_dead_scene, on_pause=_pause_scene
+    ),
+    "generate_prose_scene": Handler(
+        run=_run_generate_prose_scene, on_dead=_dead_scene, on_pause=_pause_scene
+    ),
     "generate_ensemble_scene": Handler(
-        run=_run_generate_ensemble_scene, on_dead=_dead_scene
+        run=_run_generate_ensemble_scene, on_dead=_dead_scene, on_pause=_pause_scene
     ),
     "index_characters_voice": Handler(run=_run_index_characters_voice),
     "generate_outline": Handler(run=_run_generate_outline, on_dead=_dead_plan),
