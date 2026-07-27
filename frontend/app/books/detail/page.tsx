@@ -19,6 +19,7 @@ import {
   ChevronRight,
   Download,
   FileText,
+  Film,
   GitBranch,
   Library,
   ListTree,
@@ -43,6 +44,7 @@ import type {
   BookExportFormat,
   Character,
   ChapterSceneRequest,
+  BookSceneSummary,
   ContinuityFinding,
   PlanKind,
   PlanNode,
@@ -58,6 +60,7 @@ import { formatRelativeTime } from '@/lib/utils'
 
 type TabKey =
   | 'chapters'
+  | 'scenes'
   | 'sources'
   | 'canon'
   | 'outline'
@@ -66,6 +69,7 @@ type TabKey =
 
 const TABS: Array<{ key: TabKey; label: string; icon: typeof BookMarked }> = [
   { key: 'chapters', label: 'Chapters', icon: BookMarked },
+  { key: 'scenes', label: 'Scenes', icon: Film },
   { key: 'sources', label: 'Sources', icon: FileText },
   { key: 'canon', label: 'Canon', icon: Library },
   { key: 'outline', label: 'Outline', icon: ListTree },
@@ -786,6 +790,129 @@ function OutlineNodeView({ node }: { node: PlanNode }) {
         </ul>
       )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Scenes panel — every scene the book owns (chapter + standalone), readable
+// ---------------------------------------------------------------------------
+
+function ScenesPanel({
+  bookId,
+  addToast,
+}: {
+  bookId: string
+  addToast: (message: string, type: ToastType) => void
+}) {
+  const router = useRouter()
+  const [scenes, setScenes] = useState<BookSceneSummary[]>([])
+  const [loading, setLoading] = useState(true)
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const load = useCallback(async () => {
+    try {
+      const s = await booksApi.listBookScenes(bookId)
+      setScenes(s)
+      if (pollRef.current) clearTimeout(pollRef.current)
+      // A generating scene finishes in the background — poll until it lands.
+      if (s.some((x) => x.status === 'processing')) {
+        pollRef.current = setTimeout(load, 5000)
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Failed to load scenes', 'error')
+    } finally {
+      setLoading(false)
+    }
+  }, [bookId, addToast])
+
+  useEffect(() => {
+    load()
+    return () => {
+      if (pollRef.current) clearTimeout(pollRef.current)
+    }
+  }, [load])
+
+  const del = async (id: string, title: string | null) => {
+    if (!confirm(`Delete scene "${title || 'Untitled'}"?`)) return
+    try {
+      await booksApi.deleteScene(id)
+      addToast('Scene deleted', 'success')
+      load()
+    } catch (err: any) {
+      addToast(err.message || 'Delete failed', 'error')
+    }
+  }
+
+  if (loading) return <Loading text="Loading scenes…" />
+
+  return (
+    <Card>
+      <div className="mb-4">
+        <h2 className="text-xl font-semibold text-gray-900">Scenes</h2>
+        <p className="text-sm text-gray-500">
+          Every scene in this book — drafted into a chapter or standalone. Generate
+          from a chapter.
+        </p>
+      </div>
+      {scenes.length === 0 ? (
+        <div className="text-center py-8">
+          <Film className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+          <p className="text-gray-600">
+            No scenes yet — open a chapter and generate one.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {scenes.map((s) => (
+            <div
+              key={s.id}
+              className="flex items-start justify-between gap-3 p-3 rounded-lg border border-gray-200"
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-medium text-gray-900 truncate">
+                    {s.title || 'Untitled scene'}
+                  </h3>
+                  <span
+                    className={`px-2 py-0.5 text-xs rounded ${
+                      SCENE_STATUS_STYLES[s.status] || 'bg-gray-100 text-gray-600'
+                    }`}
+                  >
+                    {s.status}
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    {s.chapter_title || 'Unfiled'}
+                  </span>
+                </div>
+                {s.characters && s.characters.length > 0 && (
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {s.characters.join(', ')}
+                  </p>
+                )}
+                <p className="text-sm text-gray-600 line-clamp-2 mt-1">
+                  {s.preview ||
+                    (s.status === 'processing' ? 'Generating…' : 'No content yet')}
+                </p>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    router.push(`/books/editor?scene=${s.id}&book=${bookId}`)
+                  }
+                >
+                  Read
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => del(s.id, s.title)}>
+                  <Trash2 className="h-4 w-4 text-red-500" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   )
 }
 
@@ -1936,6 +2063,9 @@ function BookDetailContent() {
           onSceneGenerated={handleSceneGenerated}
           addToast={addToast}
         />
+      )}
+      {activeTab === 'scenes' && (
+        <ScenesPanel bookId={bookId} addToast={addToast} />
       )}
       {activeTab === 'sources' && (
         <SourcesPanel bookId={bookId} addToast={addToast} />

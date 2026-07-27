@@ -12,7 +12,7 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -457,6 +457,68 @@ async def delete_chapter(
     await db.delete(chapter)
     await db.commit()
     return None
+
+
+# --- Book-scoped scenes -----------------------------------------------------------
+
+
+@router.get("/{book_id}/scenes", response_model=dict)
+async def list_book_scenes(
+    book_id: UUID,
+    current_user: UserORM = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Every scene that belongs to this book — those drafted into a chapter AND
+    standalone source-based scenes — so nothing generated is invisible. A scene is
+    the book's if its chapter is in the book OR its source is (book is the root;
+    scenes reach it through either)."""
+    await _owned_book(book_id, current_user, db)
+    chapter_ids = select(ChapterORM.id).where(ChapterORM.book_id == book_id)
+    source_ids = select(SourceORM.id).where(SourceORM.book_id == book_id)
+    scenes = (
+        (
+            await db.execute(
+                select(SceneORM)
+                .where(
+                    SceneORM.user_id == current_user.id,
+                    or_(
+                        SceneORM.chapter_id.in_(chapter_ids),
+                        SceneORM.source_id.in_(source_ids),
+                    ),
+                )
+                .order_by(SceneORM.created_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    # Chapter titles for the filed scenes (one lookup), so the UI can group them.
+    ch_ids = {s.chapter_id for s in scenes if s.chapter_id}
+    titles: dict = {}
+    if ch_ids:
+        rows = (
+            await db.execute(
+                select(ChapterORM.id, ChapterORM.title).where(ChapterORM.id.in_(ch_ids))
+            )
+        ).all()
+        titles = {cid: title for cid, title in rows}
+
+    return {
+        "scenes": [
+            {
+                "id": str(s.id),
+                "title": s.title,
+                "status": s.status,
+                "chapter_id": str(s.chapter_id) if s.chapter_id else None,
+                "chapter_title": titles.get(s.chapter_id),
+                "characters": s.characters,
+                "preview": (scene_text(s)[:200] or None),
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+            }
+            for s in scenes
+        ]
+    }
 
 
 # --- Generate into a chapter ------------------------------------------------------

@@ -17,6 +17,7 @@ import type {
   BookListResponse,
   BookPlan,
   BookPlanListResponse,
+  BookSceneSummary,
   BookSummary,
   BookUpdateData,
   ChapterCreateData,
@@ -53,6 +54,27 @@ export const booksApi = {
     try {
       const { data } = await apiClient.get<Scene>(`/scenes/${sceneId}`)
       return data
+    } catch (err) {
+      throw toApiError(err)
+    }
+  },
+
+  /** GET /books/{id}/scenes — every scene the book owns (chapter + standalone). */
+  async listBookScenes(bookId: string): Promise<BookSceneSummary[]> {
+    try {
+      const { data } = await apiClient.get<{ scenes: BookSceneSummary[] }>(
+        `/books/${bookId}/scenes`
+      )
+      return data.scenes
+    } catch (err) {
+      throw toApiError(err)
+    }
+  },
+
+  /** DELETE /scenes/{id}. */
+  async deleteScene(sceneId: string): Promise<void> {
+    try {
+      await apiClient.delete(`/scenes/${sceneId}`)
     } catch (err) {
       throw toApiError(err)
     }

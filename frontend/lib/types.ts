@@ -213,6 +213,19 @@ export interface SceneGenerateResponse {
   message: string
 }
 
+/** A scene as listed by GET /books/{id}/scenes — every scene the book owns,
+ *  whether filed in a chapter or standalone (source-based). */
+export interface BookSceneSummary {
+  id: string
+  title: string | null
+  status: SceneStatus
+  chapter_id: string | null
+  chapter_title?: string | null
+  characters?: string[]
+  preview?: string | null
+  created_at: string | null
+}
+
 // ---------------------------------------------------------------------------
 // Books (app/api/books.py)
 // ---------------------------------------------------------------------------
