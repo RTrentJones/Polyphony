@@ -29,6 +29,7 @@ import {
   Trash2,
   Wand2,
 } from 'lucide-react'
+import AddSourceModal from '@/components/AddSourceModal'
 import Button from '@/components/Button'
 import CanonPanel from '@/components/CanonPanel'
 import Card from '@/components/Card'
@@ -943,6 +944,7 @@ function SourcesPanel({
   const [editContent, setEditContent] = useState('')
   const [loadingContent, setLoadingContent] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
 
   useEffect(() => {
     fetchSources(bookId).catch((err: any) =>
@@ -1009,7 +1011,7 @@ function SourcesPanel({
             Raw material for this book — edit the text to re-extract canon
           </p>
         </div>
-        <Button size="sm" onClick={() => router.push(`/sources?book=${bookId}`)}>
+        <Button size="sm" onClick={() => setAddOpen(true)}>
           <Plus className="h-4 w-4 mr-1" />
           Add source
         </Button>
@@ -1132,6 +1134,10 @@ function SourcesPanel({
             </div>
           </div>
         </Modal>
+      )}
+
+      {addOpen && (
+        <AddSourceModal bookId={bookId} onClose={() => setAddOpen(false)} />
       )}
     </Card>
   )
@@ -1815,6 +1821,7 @@ function BookDetailContent() {
   const [activeTab, setActiveTab] = useState<TabKey>('chapters')
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [editOpen, setEditOpen] = useState(false)
+  const [addSourceOpen, setAddSourceOpen] = useState(false)
   const [editData, setEditData] = useState({
     title: '',
     author: '',
@@ -2015,12 +2022,11 @@ function BookDetailContent() {
 
           {/* Actions */}
           <div className="flex items-center gap-2">
-            {/* Add source material (upload or paste) to THIS book — the entry
-                point a directly-created book otherwise lacked. */}
+            {/* Add source material (upload or paste) to THIS book, in place. */}
             <Button
               variant="outline"
               size="sm"
-              onClick={() => router.push(`/sources?book=${bookId}`)}
+              onClick={() => setAddSourceOpen(true)}
             >
               <Plus className="h-4 w-4 mr-1" />
               Add source
@@ -2172,6 +2178,10 @@ function BookDetailContent() {
           </div>
         </div>
       </Modal>
+
+      {addSourceOpen && (
+        <AddSourceModal bookId={bookId} onClose={() => setAddSourceOpen(false)} />
+      )}
     </div>
   )
 }

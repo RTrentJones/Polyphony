@@ -127,15 +127,7 @@ export default function DashboardPage() {
         <h2 className="text-xl font-semibold text-gray-900 mb-4">
           Quick Actions
         </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <Button
-            variant="outline"
-            onClick={() => router.push('/sources')}
-            className="justify-start"
-          >
-            <Plus className="h-5 w-5 mr-2" />
-            Upload Source
-          </Button>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Button
             variant="outline"
             onClick={() => router.push('/books')}
@@ -144,14 +136,9 @@ export default function DashboardPage() {
             <BookMarked className="h-5 w-5 mr-2" />
             My Books
           </Button>
-          <Button
-            variant="outline"
-            onClick={() => router.push('/sources')}
-            className="justify-start"
-          >
-            <FileText className="h-5 w-5 mr-2" />
-            View Sources
-          </Button>
+          <p className="text-sm text-gray-500 self-center">
+            Sources, characters, canon, and scenes all live inside a book.
+          </p>
         </div>
       </Card>
 
@@ -164,7 +151,7 @@ export default function DashboardPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => router.push('/sources')}
+            onClick={() => router.push('/books')}
           >
             View All
           </Button>
@@ -174,7 +161,7 @@ export default function DashboardPage() {
           <div className="text-center py-12">
             <FileText className="h-12 w-12 text-gray-400 mx-auto mb-3" />
             <p className="text-gray-600 mb-4">No sources yet</p>
-            <Button onClick={() => router.push('/sources')}>
+            <Button onClick={() => router.push('/books')}>
               <Plus className="h-4 w-4 mr-2" />
               Upload Your First Source
             </Button>
@@ -184,7 +171,7 @@ export default function DashboardPage() {
             {sources.slice(0, 5).map((source) => (
               <div
                 key={source.id}
-                onClick={() => router.push(`/sources/detail?id=${source.id}`)}
+                onClick={() => router.push(`/books/detail?id=${source.book_id}`)}
                 className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-colors cursor-pointer"
               >
                 <div className="flex items-center space-x-4">
