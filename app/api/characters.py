@@ -47,6 +47,7 @@ class CharacterUpdate(BaseModel):
     description: Optional[str] = None
     personality_traits: Optional[dict] = None
     voice_characteristics: Optional[dict] = None
+    relationships: Optional[dict] = None
     role: Optional[str] = Field(None, max_length=100)
     goals: Optional[str] = None
     arc: Optional[str] = None
@@ -209,6 +210,7 @@ async def get_character(
         "description": character.description,
         "personality_traits": character.personality_traits or {},
         "voice_characteristics": character.voice_characteristics or {},
+        "relationships": character.relationships or {},
         "role": character.role,
         "goals": character.goals,
         "arc": character.arc,
@@ -235,6 +237,7 @@ async def update_character(
         "description",
         "personality_traits",
         "voice_characteristics",
+        "relationships",
         "role",
         "goals",
         "arc",

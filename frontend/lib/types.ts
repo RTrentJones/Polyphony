@@ -536,11 +536,13 @@ export interface CharacterDetail {
   notes?: string | null
   personality_traits?: Record<string, unknown>
   voice_characteristics?: Record<string, unknown>
+  relationships?: Record<string, unknown>
   dialogue_count?: number
   indexed_at?: string | null
 }
 
-/** PATCH /characters/{id} body — the editable text fields. */
+/** PATCH /characters/{id} body — the editable profile fields. The three dict
+ *  fields are edited via a key-value editor. */
 export interface CharacterUpdateData {
   name?: string
   role?: string | null
@@ -548,6 +550,9 @@ export interface CharacterUpdateData {
   goals?: string | null
   arc?: string | null
   notes?: string | null
+  personality_traits?: Record<string, string>
+  voice_characteristics?: Record<string, string>
+  relationships?: Record<string, string>
 }
 
 // ---------------------------------------------------------------------------

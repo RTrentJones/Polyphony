@@ -148,3 +148,35 @@ class TestManualCharacterLifecycle:
                 f"/api/v1/characters/{cid}", headers=auth_headers
             )
         assert deleted.status_code == 204
+
+
+class TestCharacterProfileEdit:
+    """The dict profile fields (personality_traits, voice_characteristics,
+    relationships) are editable and round-trip via GET — the key-value editor."""
+
+    async def test_edit_json_profile_fields(self, client, auth_headers, test_book):
+        cid = (
+            await client.post(
+                "/api/v1/characters/",
+                json={"name": "Milo", "book_id": str(test_book.id)},
+                headers=auth_headers,
+            )
+        ).json()["id"]
+
+        r = await client.patch(
+            f"/api/v1/characters/{cid}",
+            json={
+                "personality_traits": {"brave": "very", "wry": "always"},
+                "voice_characteristics": {"register": "dry", "pace": "clipped"},
+                "relationships": {"Zara Okafor": "estranged sister"},
+            },
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+
+        got = (
+            await client.get(f"/api/v1/characters/{cid}", headers=auth_headers)
+        ).json()
+        assert got["relationships"] == {"Zara Okafor": "estranged sister"}
+        assert got["personality_traits"]["brave"] == "very"
+        assert got["voice_characteristics"]["pace"] == "clipped"
