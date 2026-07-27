@@ -6,7 +6,7 @@
 
 import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { ArrowLeft, Users, FileText, Wand2 } from 'lucide-react'
+import { ArrowLeft, Users, FileText } from 'lucide-react'
 import Card from '@/components/Card'
 import Button from '@/components/Button'
 import Loading from '@/components/Loading'
@@ -132,7 +132,7 @@ function SourceDetailContent() {
         )}
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
         <Card>
           <div className="flex items-center space-x-3">
             <div className="p-2 bg-blue-100 rounded-lg">
@@ -157,26 +157,6 @@ function SourceDetailContent() {
               <p className="text-2xl font-bold text-gray-900">
                 {source.character_count || 0}
               </p>
-            </div>
-          </div>
-        </Card>
-
-        <Card>
-          <div className="flex items-center space-x-3">
-            <div className="p-2 bg-purple-100 rounded-lg">
-              <Wand2 className="h-5 w-5 text-purple-600" />
-            </div>
-            <div>
-              <p className="text-sm text-gray-600">Generate</p>
-              <Button
-                size="sm"
-                onClick={() =>
-                  router.push(`/generate?source=${source.id}`)
-                }
-                disabled={source.processing_status !== 'completed'}
-              >
-                New Scene
-              </Button>
             </div>
           </div>
         </Card>

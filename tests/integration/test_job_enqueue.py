@@ -20,37 +20,6 @@ async def _jobs(async_session, kind):
 
 
 @pytest.mark.integration
-class TestGenerateSceneEnqueues:
-    @pytest.mark.asyncio
-    async def test_scene_generate_creates_job(
-        self, client, auth_headers, test_source, test_user, async_session
-    ):
-        r = await client.post(
-            "/api/v1/scenes/generate",
-            json={
-                "source_id": str(test_source.id),
-                "characters": ["Mina"],
-                "scene_description": "A quiet talk at dusk on the terrace.",
-                "setting": "terrace",
-                "emotional_tone": "wistful",
-            },
-            headers=auth_headers,
-        )
-        assert r.status_code == 200
-        body = r.json()
-        assert body["status"] == "processing"
-
-        jobs = await _jobs(async_session, "generate_scene")
-        assert len(jobs) == 1
-        job = jobs[0]
-        assert job.status == "queued"
-        assert job.user_id == test_user.id
-        assert job.payload["scene_id"] == body["scene_id"]
-        assert job.payload["user_id"] == str(test_user.id)
-        assert job.payload["request"]["characters"] == ["Mina"]
-
-
-@pytest.mark.integration
 class TestChapterSceneGenerateEnqueues:
     @pytest.mark.asyncio
     async def test_chapter_generate_creates_prose_job(

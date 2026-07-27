@@ -7,7 +7,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { BookMarked, BookOpen, FileText, Wand2, LogOut, Menu, X, User } from 'lucide-react'
+import { BookMarked, BookOpen, FileText, LogOut, Menu, X, User } from 'lucide-react'
 import Button from './Button'
 import { useAuthStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
@@ -18,14 +18,14 @@ export default function Navbar() {
   const { user, logout } = useAuthStore()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
-  // Characters are book-scoped now (docs/ADR-002-book-as-root.md §1) — the cast
-  // lives under a book, so there is no top-level Characters route. Sources
-  // (was Manuscripts) upload into a book; omitting one auto-creates it.
+  // The book is the root and the workspace (docs/ADR-002-book-as-root.md §1):
+  // characters, sources, canon, and scenes all live under a book. Scenes are
+  // generated only in-book (into a chapter), so there is no top-level Generate
+  // route. Sources move fully in-book in a follow-up.
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: BookOpen },
     { name: 'Sources', href: '/sources', icon: FileText },
     { name: 'Books', href: '/books', icon: BookMarked },
-    { name: 'Generate Scene', href: '/generate', icon: Wand2 },
   ]
 
   const handleLogout = () => {
