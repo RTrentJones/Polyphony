@@ -477,6 +477,7 @@ export interface ExtractionCommitResponse {
 
 export type VersionedEntityType =
   | 'book_plan'
+  | 'synopsis'
   | 'character'
   | 'canon_entry'
   | 'style_guide'
@@ -494,6 +495,41 @@ export interface EntityVersionListResponse {
   entity_type: VersionedEntityType | string
   entity_id: string
   versions: EntityVersionSummary[]
+}
+
+/** GET /books/{id}/versions/{type}/{entity_id}/{version_no} — full snapshot. */
+export interface EntityVersionDetail {
+  version_no: number
+  reason: string | null
+  content: Record<string, unknown>
+  created_at: string | null
+}
+
+/** Full character profile (GET /characters/{id}). */
+export interface CharacterDetail {
+  id: string
+  book_id: string
+  source_id?: string | null
+  name: string
+  description?: string | null
+  role?: string | null
+  goals?: string | null
+  arc?: string | null
+  notes?: string | null
+  personality_traits?: Record<string, unknown>
+  voice_characteristics?: Record<string, unknown>
+  dialogue_count?: number
+  indexed_at?: string | null
+}
+
+/** PATCH /characters/{id} body — the editable text fields. */
+export interface CharacterUpdateData {
+  name?: string
+  role?: string | null
+  description?: string | null
+  goals?: string | null
+  arc?: string | null
+  notes?: string | null
 }
 
 // ---------------------------------------------------------------------------

@@ -20,6 +20,7 @@ import {
   Download,
   FileText,
   GitBranch,
+  Library,
   ListTree,
   Pencil,
   Plus,
@@ -28,6 +29,7 @@ import {
   Wand2,
 } from 'lucide-react'
 import Button from '@/components/Button'
+import CanonPanel from '@/components/CanonPanel'
 import Card from '@/components/Card'
 import Input from '@/components/Input'
 import Loading from '@/components/Loading'
@@ -54,11 +56,18 @@ import { formatRelativeTime } from '@/lib/utils'
 // Shared bits
 // ---------------------------------------------------------------------------
 
-type TabKey = 'chapters' | 'sources' | 'outline' | 'threads' | 'continuity'
+type TabKey =
+  | 'chapters'
+  | 'sources'
+  | 'canon'
+  | 'outline'
+  | 'threads'
+  | 'continuity'
 
 const TABS: Array<{ key: TabKey; label: string; icon: typeof BookMarked }> = [
   { key: 'chapters', label: 'Chapters', icon: BookMarked },
   { key: 'sources', label: 'Sources', icon: FileText },
+  { key: 'canon', label: 'Canon', icon: Library },
   { key: 'outline', label: 'Outline', icon: ListTree },
   { key: 'threads', label: 'Threads', icon: GitBranch },
   { key: 'continuity', label: 'Continuity', icon: ShieldCheck },
@@ -1930,6 +1939,14 @@ function BookDetailContent() {
       )}
       {activeTab === 'sources' && (
         <SourcesPanel bookId={bookId} addToast={addToast} />
+      )}
+      {activeTab === 'canon' && (
+        <CanonPanel
+          bookId={bookId}
+          synopsis={currentBook.synopsis}
+          onBookChanged={() => fetchBook(bookId)}
+          addToast={addToast}
+        />
       )}
       {activeTab === 'outline' && (
         <OutlinePanel
