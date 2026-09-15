@@ -6,6 +6,7 @@ frontend at / and the API under /api/v1.
 """
 
 from contextlib import asynccontextmanager
+import asyncio
 import os
 import time
 import uuid
@@ -308,22 +309,66 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 
+# /health reaches Postgres, so NOTHING may call it on a schedule: Neon's compute
+# stays awake ~5 minutes after any query and is billed by the hour, so a probe
+# every 30 seconds is a 24/7 database bill for a liveness signal. The container
+# HEALTHCHECK and any uptime probe use /health/live below, which touches nothing.
+# /health is left for on-demand use — a human, and Greenlight's verify at deploy
+# time, where actually proving the DB is reachable is the entire point.
+_HEALTH_TTL_SECONDS = 60.0
+_health_cache: tuple[float, dict] | None = None
+_health_lock = asyncio.Lock()
+
+
 @app.get("/health")
 async def health_check():
-    """Health check: DB + vector store."""
+    """Readiness: DB + vector store, cached briefly.
+
+    The cache exists to collapse bursts — verify retries this up to 6 times
+    while a new container settles — into a single round trip. It is short
+    enough that an on-demand check still reflects reality.
+    """
+    global _health_cache
     from app.rag.store import get_chunk_store
 
-    db_healthy = await check_db_connection()
-    vector_healthy = await get_chunk_store().healthy()  # pgvector in the same DB
-    return {
-        "status": "healthy" if db_healthy else "degraded",
-        "service": SERVICE_NAME,
-        "version": "1.0.0",
-        "checks": {
-            "database": "healthy" if db_healthy else "unhealthy",
-            "vector_search": "healthy" if vector_healthy else "unhealthy",
-        },
-    }
+    now = time.monotonic()
+    cached = _health_cache
+    if cached is not None and now - cached[0] < _HEALTH_TTL_SECONDS:
+        return cached[1]
+
+    async with _health_lock:
+        # Re-check: a concurrent caller may have refreshed while we waited.
+        cached = _health_cache
+        now = time.monotonic()
+        if cached is not None and now - cached[0] < _HEALTH_TTL_SECONDS:
+            return cached[1]
+
+        db_healthy = await check_db_connection()
+        # pgvector lives in the same DB; skip the second round trip when the
+        # first already told us the database is unreachable.
+        vector_healthy = await get_chunk_store().healthy() if db_healthy else False
+        payload = {
+            "status": "healthy" if db_healthy else "degraded",
+            "service": SERVICE_NAME,
+            "version": "1.0.0",
+            "checks": {
+                "database": "healthy" if db_healthy else "unhealthy",
+                "vector_search": "healthy" if vector_healthy else "unhealthy",
+            },
+        }
+        _health_cache = (time.monotonic(), payload)
+        return payload
+
+
+@app.get("/health/live")
+async def liveness():
+    """Liveness: is this process serving? No database, no dependencies.
+
+    This is what the Dockerfile HEALTHCHECK and the Greenlight keepalive Worker
+    probe. A 200 proves the tunnel, the container and the ASGI app are up, which
+    is all either of them acts on — neither remediates a database.
+    """
+    return {"status": "healthy", "service": SERVICE_NAME, "version": "1.0.0"}
 
 
 @app.get("/__version")
@@ -343,6 +388,11 @@ async def mcp_alias_root():
 @app.get("/mcp/health")
 async def mcp_alias_health():
     return await health_check()
+
+
+@app.get("/mcp/health/live")
+async def mcp_alias_liveness():
+    return await liveness()
 
 
 @app.get("/mcp/__version")
@@ -447,6 +497,7 @@ else:
             "status": "running",
             "docs": "/docs",
             "health": "/health",
+            "liveness": "/health/live",
         }
 
 

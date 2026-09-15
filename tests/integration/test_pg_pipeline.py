@@ -570,3 +570,119 @@ async def test_chunk_browser_edit_delete_roundtrip(pg):
     assert len(await store.list_chunks(cid)) == 1
     # wrong-character scoping: cannot delete another id
     assert await store.delete_chunk(target, cid) is False
+
+
+# --- idle_state: the query the worker's sleep depends on ---------------------
+# sqlite can't answer this honestly — it has no timestamptz and no real
+# aggregate typing — and a wrong answer here is expensive in both directions:
+# too long a sleep strands a paused job, too short a one re-wakes Neon's compute
+# and re-creates the 24/7 bill the poll loop used to cause.
+
+
+async def _a_user(session):
+    from app.core.orm_models import User
+
+    user = User(
+        email=f"idle-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password="x",
+        full_name="Idle",
+    )
+    session.add(user)
+    await session.commit()
+    return user
+
+
+async def test_idle_state_empty_queue_means_sleep_until_woken(pg):
+    from app.jobs import repository as jobs_repo
+
+    async with pg() as s:
+        await s.execute(text("DELETE FROM jobs"))
+        await s.commit()
+        next_at, has_running = await jobs_repo.idle_state(s)
+    assert next_at is None
+    assert has_running is False
+
+
+async def test_idle_state_returns_the_earliest_due_time_as_aware(pg):
+    """A bare func.min() would hand back a NAIVE datetime even from timestamptz.
+
+    The worker subtracts this from an aware now(); naive would raise, or worse,
+    be silently coerced to the wrong zone and mis-time the wake.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.jobs import repository as jobs_repo
+
+    async with pg() as s:
+        await s.execute(text("DELETE FROM jobs"))
+        await s.commit()
+        user = await _a_user(s)
+        soon = datetime.now(timezone.utc) + timedelta(seconds=120)
+        later = datetime.now(timezone.utc) + timedelta(seconds=900)
+        for available_at in (later, soon):
+            await jobs_repo.enqueue(
+                s,
+                kind="generate_scene",
+                payload={},
+                user_id=user.id,
+                available_at=available_at,
+            )
+        await s.commit()
+
+        next_at, has_running = await jobs_repo.idle_state(s)
+        assert next_at is not None
+        assert next_at.tzinfo is not None
+        assert abs((next_at - soon).total_seconds()) < 1  # earliest, not arbitrary
+        assert has_running is False
+
+
+async def test_idle_state_flags_a_running_job_so_the_reaper_stays_armed(pg):
+    from app.jobs import repository as jobs_repo
+
+    async with pg() as s:
+        await s.execute(text("DELETE FROM jobs"))
+        await s.commit()
+        user = await _a_user(s)
+        queued = await jobs_repo.enqueue(
+            s, kind="generate_scene", payload={}, user_id=user.id
+        )
+        await s.commit()
+
+        claimed = await jobs_repo.claim_one(s, worker_id="w")
+        await s.commit()
+        assert claimed.id == queued.id
+
+        next_at, has_running = await jobs_repo.idle_state(s)
+        assert has_running is True
+        assert next_at is None  # nothing left queued; only the reap keeps us up
+
+
+async def test_worker_next_deadline_sleeps_until_a_paused_job_is_due(pg, monkeypatch):
+    """End to end on Postgres: a quota pause schedules ONE wake, not a poll."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.jobs import repository as jobs_repo
+    from app.jobs.worker import JobWorker
+
+    async with pg() as s:
+        await s.execute(text("DELETE FROM jobs"))
+        await s.commit()
+        user = await _a_user(s)
+        job = await jobs_repo.enqueue(
+            s, kind="generate_scene", payload={}, user_id=user.id
+        )
+        await s.commit()
+        await jobs_repo.pause(
+            s,
+            job,
+            available_at=datetime.now(timezone.utc) + timedelta(seconds=600),
+            reason="quota exhausted",
+        )
+        await s.commit()
+
+    worker = JobWorker(
+        poll_interval=2.0, stale_after=timedelta(minutes=30), worker_id="pg-w"
+    )
+    delay = await worker._next_deadline()
+    assert delay is not None
+    assert 500 < delay <= 600

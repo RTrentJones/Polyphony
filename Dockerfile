@@ -42,8 +42,12 @@ ENV ENVIRONMENT=production \
 
 EXPOSE 8000
 
+# /health/live deliberately, NOT /health: the deep check queries Postgres, and
+# Postgres is Neon — its compute stays awake ~5 minutes after any query and is
+# billed by the hour, so a 30-second probe would hold the database open 24/7
+# just to confirm this process is alive. Liveness is a process question.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s \
-    CMD curl -fsS http://localhost:8000/health || exit 1
+    CMD curl -fsS http://localhost:8000/health/live || exit 1
 
 # Migrations then serve — single container, no migration races. app.migrate wraps
 # `alembic upgrade head` with a one-time self-heal: a legacy pre-squash schema

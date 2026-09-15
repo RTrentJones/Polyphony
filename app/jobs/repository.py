@@ -10,10 +10,11 @@ short transactions.
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.orm_models import Job
+from app.jobs import notify_enqueued
 
 # Retry n (1-based) becomes available after BASE * 2**(n-1), capped.
 BACKOFF_BASE_SECONDS = 60
@@ -44,6 +45,11 @@ async def enqueue(
     )
     session.add(job)
     await session.flush()
+    # Wake the worker instead of letting it find this by polling. The caller
+    # still owns the commit, so the worker may look before the row is visible;
+    # it re-checks a few times after a wake (JobWorker's settle window) rather
+    # than trusting a single look, which closes that gap without a timer.
+    notify_enqueued()
     return job
 
 
@@ -164,3 +170,35 @@ async def reap_stale(
         )
         results.append((job, went_dead))
     return results
+
+
+async def idle_state(
+    session: AsyncSession,
+) -> tuple[datetime | None, bool]:
+    """When the worker must next look, and whether anything is running.
+
+    One round trip answering both questions the idle worker has: the earliest
+    `available_at` among queued jobs (a retry backoff or a quota pause that is
+    not due yet) and whether any job is still marked 'running' (so the stale
+    reaper has something to reap). Both None/False means there is genuinely
+    nothing to do and the worker can sleep until enqueue() wakes it, issuing no
+    further query — which is what lets Neon's compute autosuspend.
+    """
+    # type_ is load-bearing: a bare func.min() loses the column's
+    # DateTime(timezone=True) and SQLAlchemy hands back a NAIVE datetime, on
+    # Postgres as well as sqlite. Naive would mean guessing a zone to compute
+    # "seconds until due" — and a wrong guess is a worker that sleeps hours past
+    # a quota resume, or spins. Carry the type so the value comes back aware.
+    next_available = (
+        select(func.min(Job.available_at, type_=Job.available_at.type))
+        .where(Job.status == "queued")
+        .scalar_subquery()
+    )
+    running = (
+        select(func.count())
+        .select_from(Job)
+        .where(Job.status == "running")
+        .scalar_subquery()
+    )
+    row = (await session.execute(select(next_available, running))).one()
+    return row[0], bool(row[1])

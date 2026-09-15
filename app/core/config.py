@@ -65,7 +65,18 @@ class Settings(BaseSettings):
     # Durable background jobs (app/jobs). Disable the worker to pause
     # execution without losing queued work.
     JOB_WORKER_ENABLED: bool = True
+    # NOT an idle heartbeat: the worker is woken by enqueue() and sleeps without
+    # querying when the queue is empty (app/jobs/worker.py). This is only the
+    # re-check cadence during the brief settle window after a wake, while the
+    # enqueueing request finishes committing.
     JOB_POLL_INTERVAL_SECONDS: float = 2.0
+    # Ceiling on the idle sleep, in seconds. 0 (the default) = no ceiling: sleep
+    # until woken, issuing zero queries, which is what lets Neon's compute
+    # autosuspend instead of being billed 24/7. Set this ONLY if something
+    # outside this process can enqueue jobs, and note it is expensive by nature
+    # — Neon stays awake ~5 minutes after any query, so each poll costs far more
+    # than the query itself.
+    JOB_IDLE_POLL_SECONDS: float = 0.0
     # Scene generation + extraction can legitimately run for minutes; a
     # 'running' job locked longer than this is presumed orphaned and reaped.
     JOB_STALE_AFTER_SECONDS: int = 1800
