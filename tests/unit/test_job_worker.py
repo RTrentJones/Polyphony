@@ -217,10 +217,16 @@ async def test_boot_reap_requeues_orphaned_running_job(
 # is a correctness property here, not a performance nicety.
 
 
-async def test_enqueue_notifies_a_registered_worker(
+async def test_enqueue_notifies_the_worker_on_commit_not_on_flush(
     async_session, test_user, monkeypatch
 ):
-    """enqueue() wakes the worker through app.jobs, with no import cycle."""
+    """The wake must wait for the COMMIT, not fire at flush.
+
+    Firing at flush races the caller's commit: the worker looks, the row is not
+    visible, and with nothing else queued it sleeps indefinitely on a job that
+    lands a moment later. Waiting for after_commit means the row is claimable
+    whenever the worker is woken.
+    """
     from app import jobs as jobs_pkg
 
     worker = _worker()
@@ -230,8 +236,56 @@ async def test_enqueue_notifies_a_registered_worker(
         await jobs_repo.enqueue(
             async_session, kind="k", payload={}, user_id=test_user.id
         )
+        assert worker._wake.is_set() is False, "woke before the commit"
+
+        await async_session.commit()
         assert worker._wake.is_set() is True
-        assert worker._settle > 0  # settle window opened for the pending commit
+    finally:
+        jobs_pkg.set_notifier(None)
+
+
+async def test_a_slow_commit_still_wakes_the_worker(
+    async_session, test_user, monkeypatch
+):
+    """The case a bounded settle window could not cover.
+
+    A caller that holds its transaction open longer than SETTLE_POLLS *
+    poll_interval used to exhaust every recheck before the row existed, leaving
+    the job stranded. The wake now rides the commit, however late it is.
+    """
+    import app.jobs.worker as worker_mod
+    from app import jobs as jobs_pkg
+
+    worker = _worker()
+    jobs_pkg.set_notifier(worker.notify)
+    try:
+        await jobs_repo.enqueue(
+            async_session, kind="k", payload={}, user_id=test_user.id
+        )
+        # Outlast the whole settle window before committing.
+        await asyncio.sleep(worker.poll_interval * (worker_mod.SETTLE_POLLS + 1))
+        assert worker._wake.is_set() is False
+
+        await async_session.commit()
+        assert worker._wake.is_set() is True
+    finally:
+        jobs_pkg.set_notifier(None)
+
+
+async def test_rolled_back_enqueue_does_not_wake_on_that_transaction(
+    async_session, test_user
+):
+    """No commit, no wake — the job never existed."""
+    from app import jobs as jobs_pkg
+
+    worker = _worker()
+    jobs_pkg.set_notifier(worker.notify)
+    try:
+        await jobs_repo.enqueue(
+            async_session, kind="k", payload={}, user_id=test_user.id
+        )
+        await async_session.rollback()
+        assert worker._wake.is_set() is False
     finally:
         jobs_pkg.set_notifier(None)
 
@@ -244,6 +298,7 @@ async def test_notify_with_no_worker_is_a_noop(async_session, test_user):
     job = await jobs_repo.enqueue(
         async_session, kind="k", payload={}, user_id=test_user.id
     )
+    await async_session.commit()
     assert job.status == "queued"
 
 
@@ -258,6 +313,7 @@ async def test_notify_failure_never_breaks_enqueue(async_session, test_user):
         job = await jobs_repo.enqueue(
             async_session, kind="k", payload={}, user_id=test_user.id
         )
+        await async_session.commit()
         assert job.status == "queued"  # durable regardless of the wake
     finally:
         jobs_pkg.set_notifier(None)

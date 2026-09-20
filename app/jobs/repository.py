@@ -10,7 +10,7 @@ short transactions.
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.orm_models import Job
@@ -45,12 +45,33 @@ async def enqueue(
     )
     session.add(job)
     await session.flush()
-    # Wake the worker instead of letting it find this by polling. The caller
-    # still owns the commit, so the worker may look before the row is visible;
-    # it re-checks a few times after a wake (JobWorker's settle window) rather
-    # than trusting a single look, which closes that gap without a timer.
-    notify_enqueued()
+    _notify_on_commit(session)
     return job
+
+
+def _notify_on_commit(session: AsyncSession) -> None:
+    """Wake the worker once this session's transaction actually commits.
+
+    Not at flush time. The caller owns the commit, so a wake fired here would
+    race it: the worker looks, the row is not visible yet, and with nothing else
+    queued it goes back to sleeping indefinitely — stranding a durable job until
+    the next enqueue or a restart. No bounded number of re-checks fixes that,
+    because the caller may hold the transaction open for arbitrarily long (slow
+    commit, more work after the enqueue); it only narrows the window. Hooking
+    `after_commit` closes it: when the wake fires the row is committed and
+    claimable, so a single look always finds it.
+
+    `once=True` removes the listener after it fires. Several enqueues in one
+    transaction register several listeners, all of which fire and unregister on
+    that commit — harmless, since a wake is idempotent. A rolled-back
+    transaction leaves the listener armed for that session's next commit, which
+    costs at most one spurious wake (the worker looks, finds nothing, sleeps).
+    """
+    sync_session = session.sync_session
+
+    @event.listens_for(sync_session, "after_commit", once=True)
+    def _fire(_session) -> None:  # pragma: no cover - exercised via enqueue
+        notify_enqueued()
 
 
 async def claim_one(

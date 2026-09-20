@@ -80,6 +80,37 @@ class TestLivenessIsDatabaseFree:
         finally:
             main_mod._health_cache = None
 
+    def test_a_degraded_result_is_never_cached(self, api_client, monkeypatch):
+        """A transient failure must not be pinned for the whole TTL.
+
+        verify probes a booting container 6 times over 30s, and an early probe
+        can legitimately fail while Neon auto-resumes or boot migrations finish.
+        Caching that answer would serve the failure to every retry and red-fail
+        a deploy that is actually fine.
+        """
+        import app.main as main_mod
+
+        main_mod._health_cache = None
+        attempts = {"n": 0}
+
+        async def db_down_then_up():
+            attempts["n"] += 1
+            return attempts["n"] > 1  # first probe fails, database then wakes
+
+        class _Store:
+            async def healthy(self):
+                return True
+
+        monkeypatch.setattr(main_mod, "check_db_connection", db_down_then_up)
+        monkeypatch.setattr("app.rag.store.get_chunk_store", lambda: _Store())
+        try:
+            assert api_client.get("/health").json()["status"] == "degraded"
+            # Immediately retried: must re-probe rather than replay the failure.
+            assert api_client.get("/health").json()["status"] == "healthy"
+            assert attempts["n"] == 2
+        finally:
+            main_mod._health_cache = None
+
     def test_deep_health_skips_vector_probe_when_db_is_down(
         self, api_client, monkeypatch
     ):

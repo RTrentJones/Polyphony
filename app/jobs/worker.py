@@ -7,7 +7,8 @@ survives restarts and stale running jobs are reaped.
 The fine-grained per-call LLM pacer (app/llm/pacing.py) is unchanged.
 
 WOKEN, NOT POLLED. An idle worker issues no query at all: it sleeps on an
-asyncio.Event that `repository.enqueue` sets (app/jobs/__init__.py), and when
+asyncio.Event that `repository.enqueue` sets from its session's after_commit
+hook — after the commit, so the job is claimable when we look — and when
 something IS pending but not yet due — a retry backoff, a quota pause — it
 sleeps until exactly that moment instead of ticking. This is a hosting
 constraint, not a micro-optimisation: Postgres is Neon, whose compute
@@ -47,11 +48,13 @@ logger = setup_logging("jobs.worker")
 
 REAP_INTERVAL_SECONDS = 60
 ERROR_BACKOFF_SECONDS = 5
-# Looks taken after a wake before trusting "nothing queued". enqueue() notifies
-# on flush but the CALLER owns the commit, so the first look can legitimately
-# race ahead of the row becoming visible. A handful of cheap re-checks closes
-# that window; they cost queries only in the moments right after an enqueue.
-SETTLE_POLLS = 3
+# Extra looks taken after a wake before trusting "nothing queued". Correctness
+# does not rest on these: enqueue() fires its wake from the session's
+# after_commit hook, so the row is committed and claimable by the time we are
+# woken and the first look finds it. They are cheap insurance against anything
+# that could delay visibility to this connection, and they cost queries only in
+# the moments right after an enqueue.
+SETTLE_POLLS = 2
 
 
 class JobWorker:
@@ -122,8 +125,8 @@ class JobWorker:
             if ran:
                 continue  # drain: there may be more behind it
             if self._settle > 0:
-                # Freshly woken — re-check a bounded number of times so an
-                # enqueue whose commit landed just after our look isn't missed.
+                # Freshly woken and the first look came up empty — re-check a
+                # bounded number of times before parking.
                 self._settle -= 1
                 await self._wait(self.poll_interval)
                 continue

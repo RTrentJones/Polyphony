@@ -356,7 +356,16 @@ async def health_check():
                 "vector_search": "healthy" if vector_healthy else "unhealthy",
             },
         }
-        _health_cache = (time.monotonic(), payload)
+        # Cache SUCCESS ONLY. Caching a failure would hold a transient one for
+        # the full TTL and answer every retry from it — which would defeat the
+        # very retries this endpoint exists to serve: verify probes a booting
+        # container 6 times over 30s, and a first probe that arrives while Neon
+        # is still auto-resuming, or before boot migrations finish, is expected
+        # to fail. Pinning that answer would red-fail a deploy that is fine. A
+        # failing check simply re-probes; nothing calls this on a schedule, and
+        # a database that is down is not billing compute anyway.
+        if db_healthy and vector_healthy:
+            _health_cache = (time.monotonic(), payload)
         return payload
 
 
