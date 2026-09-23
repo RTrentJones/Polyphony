@@ -10,10 +10,11 @@ short transactions.
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.orm_models import Job
+from app.jobs import notify_enqueued
 
 # Retry n (1-based) becomes available after BASE * 2**(n-1), capped.
 BACKOFF_BASE_SECONDS = 60
@@ -44,7 +45,33 @@ async def enqueue(
     )
     session.add(job)
     await session.flush()
+    _notify_on_commit(session)
     return job
+
+
+def _notify_on_commit(session: AsyncSession) -> None:
+    """Wake the worker once this session's transaction actually commits.
+
+    Not at flush time. The caller owns the commit, so a wake fired here would
+    race it: the worker looks, the row is not visible yet, and with nothing else
+    queued it goes back to sleeping indefinitely — stranding a durable job until
+    the next enqueue or a restart. No bounded number of re-checks fixes that,
+    because the caller may hold the transaction open for arbitrarily long (slow
+    commit, more work after the enqueue); it only narrows the window. Hooking
+    `after_commit` closes it: when the wake fires the row is committed and
+    claimable, so a single look always finds it.
+
+    `once=True` removes the listener after it fires. Several enqueues in one
+    transaction register several listeners, all of which fire and unregister on
+    that commit — harmless, since a wake is idempotent. A rolled-back
+    transaction leaves the listener armed for that session's next commit, which
+    costs at most one spurious wake (the worker looks, finds nothing, sleeps).
+    """
+    sync_session = session.sync_session
+
+    @event.listens_for(sync_session, "after_commit", once=True)
+    def _fire(_session) -> None:  # pragma: no cover - exercised via enqueue
+        notify_enqueued()
 
 
 async def claim_one(
@@ -164,3 +191,35 @@ async def reap_stale(
         )
         results.append((job, went_dead))
     return results
+
+
+async def idle_state(
+    session: AsyncSession,
+) -> tuple[datetime | None, bool]:
+    """When the worker must next look, and whether anything is running.
+
+    One round trip answering both questions the idle worker has: the earliest
+    `available_at` among queued jobs (a retry backoff or a quota pause that is
+    not due yet) and whether any job is still marked 'running' (so the stale
+    reaper has something to reap). Both None/False means there is genuinely
+    nothing to do and the worker can sleep until enqueue() wakes it, issuing no
+    further query — which is what lets Neon's compute autosuspend.
+    """
+    # type_ is load-bearing: a bare func.min() loses the column's
+    # DateTime(timezone=True) and SQLAlchemy hands back a NAIVE datetime, on
+    # Postgres as well as sqlite. Naive would mean guessing a zone to compute
+    # "seconds until due" — and a wrong guess is a worker that sleeps hours past
+    # a quota resume, or spins. Carry the type so the value comes back aware.
+    next_available = (
+        select(func.min(Job.available_at, type_=Job.available_at.type))
+        .where(Job.status == "queued")
+        .scalar_subquery()
+    )
+    running = (
+        select(func.count())
+        .select_from(Job)
+        .where(Job.status == "running")
+        .scalar_subquery()
+    )
+    row = (await session.execute(select(next_available, running))).one()
+    return row[0], bool(row[1])

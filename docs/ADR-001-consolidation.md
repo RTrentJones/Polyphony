@@ -95,3 +95,52 @@ the same ChunkStore interface over raw SQL.
 If scale ever warrants a dedicated vector store, the path is upstreaming
 `data: 'qdrant'` as a first-class Greenlight data source (schema matrix +
 provider pack + Terraform module) — never hand-wiring it in this consumer.
+
+## Amendment (2026-09-15): an idle container must not touch the database (§7)
+
+Decision 7 picked Neon partly because its compute **autosuspends** when idle,
+so a free-tier store costs nothing overnight. That only holds if the container
+actually goes quiet, and it did not. Three things queried Postgres on timers,
+none of them doing any work:
+
+| Source | Cadence | Queries/day |
+| --- | --- | --- |
+| `JobWorker` empty-queue poll (`JOB_POLL_INTERVAL_SECONDS = 2.0`) | 2s | 43,200 |
+| `JobWorker` stale-job reaper (`REAP_INTERVAL_SECONDS`) | 60s | 1,440 |
+| `HEALTHCHECK` → `/health` (DB + pgvector) | 30s | 5,760 |
+
+Plus the wrapper's keepalive Worker, which probed the same `/health` from
+outside the tunnel on its own cron.
+
+Autosuspend triggers after ~5 minutes of connection inactivity, and the longest
+gap above was 2 seconds, so the compute never suspended: roughly 720 wall-clock
+hours a month, ~180 CU-hours at the 0.25 CU floor, against a free allowance of
+about the same — consumed before a single scene is generated, and exceeded as
+soon as one is (generation autoscales above the floor).
+
+**The rule this establishes: an idle Polyphony issues no query at all.** Not a
+cheap one, not a rare one. Because autosuspend waits ~5 minutes after the *last*
+query, an isolated wake-up costs ~5 minutes of billed compute regardless of how
+trivial the statement is — which makes even hourly polling cost tens of hours a
+month. There is no "light" heartbeat against a scale-to-zero database.
+
+What changed:
+
+- **The worker is woken, not polled** (`app/jobs/worker.py`). `enqueue` signals
+  it through `app.jobs.set_notifier`; with an empty queue it waits on an
+  `asyncio.Event` indefinitely. Work that is pending but not yet due — a retry
+  backoff, a quota pause — schedules **one** wake at exactly that time via
+  `repository.idle_state`, rather than ticking until it arrives. The reaper's
+  60s cadence now applies only while a job is actually `running`.
+- **Liveness is separated from readiness** (`app/main.py`). `/health/live`
+  answers from the process alone; `/health` keeps the DB and pgvector checks
+  behind a short TTL cache. The `HEALTHCHECK` and the keepalive Worker probe
+  the former; `greenlight verify` still uses the latter at deploy time, which
+  is where proving the database is reachable is the point.
+
+This depends on the single-process, single-worker topology decided above: the
+in-process wake is sufficient precisely because every enqueue happens in this
+container. A second writer would need Postgres `LISTEN`/`NOTIFY`, or
+`JOB_IDLE_POLL_SECONDS` set to accept the compute bill. Any future background
+task must answer the same question first: what wakes it, and what does it cost
+while nothing is happening?
