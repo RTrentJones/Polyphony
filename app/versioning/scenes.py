@@ -1,10 +1,12 @@
 """Keep a deleted scene's prose (SPEC-04; invariant 3, nothing is destroyed).
 
 Scenes version through `scene_revisions` while they live (ADR-002 §5), but those
-rows cascade with the scene. Before a scene is deleted — on its own, or with its
-chapter when the author chooses `scenes=delete` — its draft and revision history
-are appended to `entity_versions` (entity_type='scene', reason='deleted'), which
-lives as long as the book. SPEC-13's Trash restores from there.
+rows cascade with the scene when it is purged. Before a scene goes to the Trash
+— on its own, or with its chapter when the author chooses `scenes=delete` — its
+draft and revision history are appended to `entity_versions`
+(entity_type='scene', reason='deleted'), which lives as long as the book. Since
+SPEC-13 deletion is soft (app/versioning/trash.py), so the row itself survives
+until purged; the snapshot is the version that outlives even a purge.
 """
 
 from sqlalchemy import select

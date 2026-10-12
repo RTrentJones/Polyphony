@@ -397,3 +397,55 @@ async def step_prose(ctx: StepContext) -> dict:
         "words": len(prose.split()),
         "cast_named": len(named) / max(1, len(cast)),
     }
+
+
+# --- Step 7: ensemble vs prose (SPEC-14) -------------------------------------
+# The same two-character scene in both modes, graded on deterministic action
+# coverage (every present character visibly acts) and the judge. Reports the
+# delta, which is what decides whether the ensemble's cost is worth gating on
+# the paid tier (docs/BRD.md §6.1). Skips when the tier runs ensemble as prose.
+@step("ensemble", needs_api=True)
+async def step_ensemble(ctx: StepContext) -> dict:
+    from evals.graders.ensemble import action_coverage
+
+    gt = ctx.ground_truth
+    cast = (list(gt.get("gold_lines") or {}) or list(gt.get("cast", [])))[:2]
+    book = await _book_with_cast(ctx, f"eval-ens-{gt['book']}")
+    cast = [c for c in cast if c in book["character_ids"]] or list(
+        book["character_ids"]
+    )[:2]
+    chapter = await ctx.client.create_chapter(
+        book["id"], "An encounter", summary="two of the leads meet and disagree"
+    )
+    base = {
+        "character_ids": [book["character_ids"][c] for c in cast],
+        "scene_description": "The two meet at night and argue about whether to press on.",
+        "setting": "a fog-bound street",
+        "emotional_tone": "tense",
+        "target_word_count": 400,
+    }
+    rubric = (
+        "Judge this scene: do BOTH named characters visibly act (not only speak), "
+        "and do their voices read as distinct? Characters: " + ", ".join(cast)
+    )
+    out: dict = {"characters": cast}
+    for mode in ("prose", "ensemble"):
+        scene = await ctx.client.generate_scene(chapter["id"], {**base, "mode": mode})
+        if mode == "ensemble" and scene.get("mode_used") != "ensemble":
+            return {
+                "skipped": True,
+                "reason": "the tier ran ensemble as prose (set LLM_TIER=paid)",
+            }
+        prose = scene.get("content") or ""
+        j = await ctx.judge.score(rubric, prose or "(empty)")
+        out[mode] = {
+            "action_coverage": action_coverage(prose, cast),
+            "judge": j.score,
+            "words": len(prose.split()),
+        }
+    out["action_coverage_delta"] = round(
+        out["ensemble"]["action_coverage"] - out["prose"]["action_coverage"], 4
+    )
+    out["judge_delta"] = round(out["ensemble"]["judge"] - out["prose"]["judge"], 4)
+    out["score"] = out["ensemble"]["action_coverage"] * out["ensemble"]["judge"]
+    return out

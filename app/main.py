@@ -265,7 +265,20 @@ def _redact_validation_errors(errors: list) -> list:
     for err in errors:
         e = {k: v for k, v in err.items() if k != "input"}
         if "ctx" in e:
-            e = {**e, "ctx": {k: v for k, v in e["ctx"].items() if k != "input"}}
+            # A validator's raised exception lands in ctx["error"]; render it
+            # as text so the response stays JSON-serialisable.
+            e = {
+                **e,
+                "ctx": {
+                    k: (
+                        v
+                        if isinstance(v, (str, int, float, bool, type(None)))
+                        else str(v)
+                    )
+                    for k, v in e["ctx"].items()
+                    if k != "input"
+                },
+            }
         redacted.append(e)
     return redacted
 
@@ -528,11 +541,18 @@ app.include_router(
 )
 
 from app.api import estimates as estimates_router  # noqa: E402
+from app.api import trash as trash_router  # noqa: E402
 
 app.include_router(
     estimates_router.router,
     prefix="/api/v1",
     tags=["Usage"],
+    responses={401: {"description": "Unauthorized"}},
+)
+app.include_router(
+    trash_router.router,
+    prefix="/api/v1",
+    tags=["Trash"],
     responses={401: {"description": "Unauthorized"}},
 )
 

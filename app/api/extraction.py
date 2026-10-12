@@ -176,6 +176,7 @@ async def start_extraction(
                 SourceORM.id == source_id,
                 SourceORM.book_id == book_id,
                 SourceORM.user_id == current_user.id,
+                SourceORM.deleted_at.is_(None),
             )
         )
     ).scalar_one_or_none()
@@ -320,7 +321,9 @@ async def commit_extraction(
         c.name: c
         for c in (
             await db.execute(
-                select(CharacterORM).where(CharacterORM.book_id == book_id)
+                select(CharacterORM).where(
+                    CharacterORM.book_id == book_id, CharacterORM.deleted_at.is_(None)
+                )
             )
         )
         .scalars()
@@ -330,7 +333,10 @@ async def commit_extraction(
         e.name: e
         for e in (
             await db.execute(
-                select(CanonEntryORM).where(CanonEntryORM.book_id == book_id)
+                select(CanonEntryORM).where(
+                    CanonEntryORM.book_id == book_id,
+                    CanonEntryORM.deleted_at.is_(None),
+                )
             )
         )
         .scalars()

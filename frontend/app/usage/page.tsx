@@ -10,7 +10,10 @@ import { useEffect, useState } from 'react'
 import { Gauge } from 'lucide-react'
 
 import Card from '@/components/Card'
+import JobStatusBadge from '@/components/JobStatusBadge'
 import Loading from '@/components/Loading'
+import { listActiveJobs } from '@/lib/jobs'
+import type { Job } from '@/lib/types'
 import { getUsage, type Usage } from '@/lib/usage-api'
 
 function Meter({ used, total, label }: { used: number; total: number; label: string }) {
@@ -36,11 +39,15 @@ function Meter({ used, total, label }: { used: number; total: number; label: str
 export default function UsagePage() {
   const [usage, setUsage] = useState<Usage | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [jobs, setJobs] = useState<Job[]>([])
 
   useEffect(() => {
     getUsage()
       .then(setUsage)
       .catch((e) => setError(e.message || 'Failed to load usage'))
+    listActiveJobs()
+      .then(setJobs)
+      .catch(() => setJobs([]))
   }, [])
 
   if (error) return <p className="max-w-4xl mx-auto p-6 text-red-600">{error}</p>
@@ -85,6 +92,28 @@ export default function UsagePage() {
               : 'Ensemble scenes need the paid tier; scenes run in prose mode.'}
           </p>
         </div>
+      </Card>
+
+      <Card>
+        <h2 className="font-semibold text-gray-900 mb-3">Waiting and in progress</h2>
+        {jobs.length === 0 ? (
+          <p className="text-sm text-gray-500">Nothing queued.</p>
+        ) : (
+          <ul className="space-y-2" data-testid="active-jobs">
+            {jobs.map((j) => (
+              <li key={j.id} className="flex items-center justify-between text-sm">
+                <span className="text-gray-700">{j.kind.replace(/_/g, ' ')}</span>
+                <JobStatusBadge
+                  jobId={j.id}
+                  initial={{ job_id: j.id, status: j.status, resume_at: j.resume_at, progress: j.progress }}
+                  onSettled={(done) =>
+                    setJobs((js) => js.filter((x) => x.id !== done.id))
+                  }
+                />
+              </li>
+            ))}
+          </ul>
+        )}
       </Card>
 
       <Card>

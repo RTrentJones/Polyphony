@@ -5,6 +5,10 @@ import UsagePage from '@/app/usage/page'
 
 const { getUsage } = vi.hoisted(() => ({ getUsage: vi.fn() }))
 vi.mock('@/lib/usage-api', () => ({ getUsage }))
+vi.mock('@/lib/jobs', async (orig) => ({
+  ...(await orig<typeof import('@/lib/jobs')>()),
+  listActiveJobs: async () => [],
+}))
 
 describe('Usage page (SPEC-12)', () => {
   it('shows the budget, today\'s requests and spend by purpose', async () => {

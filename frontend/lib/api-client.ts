@@ -65,7 +65,12 @@ export function toApiError(err: unknown): ApiError {
     } else if (!err.response) {
       message = 'Could not reach the server. Please try again.'
     }
-    if (err.response?.status === 429) {
+    // A 429 that explains itself (a budget, preflight or ceiling refusal) keeps
+    // its own message; only a bare rate-limit 429 gets the generic wording.
+    const explained =
+      (typeof detail === 'string' && detail) ||
+      (detail && typeof detail === 'object' && 'message' in detail)
+    if (err.response?.status === 429 && !explained) {
       message = rateLimitMessage(parseRetryAfter(err.response.headers?.['retry-after']))
     }
     return { message, status: err.response?.status, detail }

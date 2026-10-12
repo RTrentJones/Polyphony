@@ -7,6 +7,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { ListTree, Plus, Wand2 } from 'lucide-react'
 import Button from '@/components/Button'
+import EstimateHint from '@/components/EstimateHint'
+import type { Estimate } from '@/lib/usage-api'
 import Card from '@/components/Card'
 import JobStatusBadge from '@/components/JobStatusBadge'
 import type { ToastType } from '@/components/Toast'
@@ -49,6 +51,7 @@ export default function OutlinePanel({
 
   const [kind, setKind] = useState<PlanKind>('outline')
   const [chaptersTarget, setChaptersTarget] = useState(12)
+  const [est, setEst] = useState<Estimate | null>(null)
   const [generating, setGenerating] = useState(false)
   const [promotingIndex, setPromotingIndex] = useState<number | null>(null)
   const cancelledRef = useRef(false)
@@ -149,12 +152,30 @@ export default function OutlinePanel({
               className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             />
           </div>
-          <Button size="sm" onClick={handleGenerate} isLoading={generating}>
+          <Button
+            size="sm"
+            onClick={handleGenerate}
+            isLoading={generating}
+            disabled={est !== null && !est.allowed}
+          >
             <Wand2 className="h-4 w-4 mr-1" />
             Generate {kind === 'outline' ? 'outline' : 'beat sheet'}
           </Button>
         </div>
       </div>
+
+      {hasSynopsis && (
+        <div className="mb-4">
+          <EstimateHint
+            request={{
+              action: 'outline',
+              book_id: bookId,
+              mode: kind === 'outline' ? 'staged' : 'single',
+            }}
+            onEstimate={setEst}
+          />
+        </div>
+      )}
 
       {!hasSynopsis && (
         <div className="mb-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3">

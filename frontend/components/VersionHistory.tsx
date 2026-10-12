@@ -1,8 +1,10 @@
 /**
  * VersionHistory — list → preview → restore for ANY versioned book entity
- * (synopsis, character, canon_entry, style_guide, book_plan). Restore is
- * forward-only: it appends a new head, so the list refreshes after (docs/ADR-002
- * §5). Drives the "everything restorable if there's a version" CX uniformly.
+ * (synopsis, character, canon_entry, style_guide, book_plan, source, chapter).
+ * Restore is forward-only: it appends a new head, so the list refreshes after
+ * (docs/ADR-002 §5). Drives the "everything restorable if there's a version" CX
+ * uniformly. Restoring a source's text OFFERS re-extraction (SPEC-13); it spends
+ * quota and proposes canon, so it never runs on its own.
  */
 
 'use client'
@@ -12,6 +14,7 @@ import { RotateCcw } from 'lucide-react'
 import Button from './Button'
 import Loading from './Loading'
 import Modal from './Modal'
+import apiClient, { toApiError } from '@/lib/api-client'
 import { canonApi } from '@/lib/canon-store'
 import type { EntityVersionSummary, VersionedEntityType } from '@/lib/types'
 import { formatRelativeTime } from '@/lib/utils'
@@ -37,6 +40,9 @@ export default function VersionHistory({
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<{ no: number; content: string } | null>(null)
   const [restoringNo, setRestoringNo] = useState<number | null>(null)
+  const [reextract, setReextract] = useState<'offered' | 'running' | 'started' | null>(
+    null
+  )
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -67,7 +73,8 @@ export default function VersionHistory({
     setRestoringNo(no)
     setError(null)
     try {
-      await canonApi.restoreVersion(bookId, entityType, entityId, no)
+      const result = await canonApi.restoreVersion(bookId, entityType, entityId, no)
+      setReextract(result?.reextract?.offered ? 'offered' : null)
       onRestored()
       setPreview(null)
       await load() // restore appended a new head
@@ -78,9 +85,34 @@ export default function VersionHistory({
     }
   }
 
+  const runReextract = async () => {
+    setReextract('running')
+    try {
+      await apiClient.post(`/sources/${entityId}/process`)
+      setReextract('started')
+    } catch (err) {
+      setError(toApiError(err).message || 'Could not start extraction')
+      setReextract('offered')
+    }
+  }
+
   return (
     <Modal isOpen onClose={onClose} title={`History — ${label}`} size="lg">
       {error && <p className="text-red-600 text-sm mb-3">{error}</p>}
+      {reextract && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-primary-50 p-3 text-sm text-primary-900">
+          {reextract === 'started' ? (
+            <span>Extraction started. Review its proposals from the Sources tab.</span>
+          ) : (
+            <>
+              <span>The source text changed. Re-run extraction to review canon from it?</span>
+              <Button size="sm" isLoading={reextract === 'running'} onClick={runReextract}>
+                Re-run extraction
+              </Button>
+            </>
+          )}
+        </div>
+      )}
       {loading ? (
         <Loading text="Loading history…" />
       ) : versions.length === 0 ? (

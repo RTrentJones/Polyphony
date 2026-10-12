@@ -1,7 +1,7 @@
 """outline -> chapter -> scene handoff: plan premise, node ids, chapter cast (SPEC-10).
 
 Revision ID: spec10_outline_handoff
-Revises: spec07_job_lifecycle
+Revises: spec13_soft_delete
 Create Date: 2026-10-12
 
 """
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "spec10_outline_handoff"
-down_revision: Union[str, None] = "spec07_job_lifecycle"
+down_revision: Union[str, None] = "spec13_soft_delete"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -56,7 +56,9 @@ def upgrade() -> None:
         updated = _with_node_ids(content)
         if updated != content:
             bind.execute(
-                sa.text("UPDATE book_plans SET content = CAST(:c AS json) WHERE id = :id"),
+                sa.text(
+                    "UPDATE book_plans SET content = CAST(:c AS json) WHERE id = :id"
+                ),
                 {"c": json.dumps(updated), "id": plan_id},
             )
 

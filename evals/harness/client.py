@@ -311,10 +311,13 @@ class PolyphonyClient:
                 f"scene generate failed ({r.status_code}): {r.text[:400]}"
             )
         started = r.json()
-        return await self.poll(
+        scene = await self.poll(
             f"/api/v1/scenes/{started['scene_id']}",
             lambda b: b.get("status") in ("completed", "failed"),
         )
+        # Which mode actually ran (the tier may downgrade ensemble — SPEC-12).
+        scene["mode_used"] = started.get("mode_used")
+        return scene
 
     async def create_scene(
         self, chapter_id: str, content: str = "", characters: list[str] | None = None

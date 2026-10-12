@@ -9,7 +9,7 @@ from fastapi import (
     HTTPException,
     status,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,6 +41,7 @@ from app.jobs import repository as jobs_repo
 from app.llm.tier import get_tier
 from app.planning.canon import render_bible
 from app.planning.outline import CastIndex, validate_outline_nodes
+from app.versioning import entities as entity_versions
 from app.versioning import repository as versions_repo
 
 logger = setup_logging("api.plans")
@@ -97,6 +98,12 @@ class PromoteNode(BaseModel):
 
     node_id: Optional[UUID] = None
     node_index: Optional[int] = Field(None, ge=0)
+
+    @model_validator(mode="after")
+    def _one_of(self):
+        if self.node_id is None and self.node_index is None:
+            raise ValueError("node_id or node_index is required")
+        return self
 
 
 class ThreadCreate(BaseModel):
@@ -226,7 +233,13 @@ async def generate_plan(
     await check_user_budget(db, current_user.id)
 
     characters = (
-        (await db.execute(select(CharacterORM).where(CharacterORM.book_id == book.id)))
+        (
+            await db.execute(
+                select(CharacterORM).where(
+                    CharacterORM.book_id == book.id, CharacterORM.deleted_at.is_(None)
+                )
+            )
+        )
         .scalars()
         .all()
     )
@@ -234,7 +247,9 @@ async def generate_plan(
         (
             await db.execute(
                 select(CanonEntryORM)
-                .where(CanonEntryORM.book_id == book.id)
+                .where(
+                    CanonEntryORM.book_id == book.id, CanonEntryORM.deleted_at.is_(None)
+                )
                 .order_by(CanonEntryORM.position)
             )
         )
@@ -323,9 +338,7 @@ async def generate_plan(
     return {"plan_id": str(plan.id), "job_id": str(job.id), "status": "generating"}
 
 
-@router.post(
-    "/books/{book_id}/plans/{plan_id}/confirm-premise", response_model=dict
-)
+@router.post("/books/{book_id}/plans/{plan_id}/confirm-premise", response_model=dict)
 async def confirm_premise(
     book_id: UUID,
     plan_id: UUID,
@@ -369,8 +382,10 @@ async def confirm_premise(
     edited = False
     for field_name in ("premise_restated", "central_conflict"):
         value = getattr(payload, field_name)
-        if value is not None and value.strip() and value.strip() != premise.get(
-            field_name
+        if (
+            value is not None
+            and value.strip()
+            and value.strip() != premise.get(field_name)
         ):
             premise[field_name] = value.strip()
             edited = True
@@ -424,13 +439,12 @@ async def _chapter_for_node(
     query = select(ChapterORM).where(
         ChapterORM.book_id == book_id, ChapterORM.plan_node_id == node_id
     )
-    if hasattr(ChapterORM, "deleted_at"):
-        query = query.where(ChapterORM.deleted_at.is_(None))
+    query = query.where(ChapterORM.deleted_at.is_(None))
     return (await db.execute(query.limit(1))).scalar_one_or_none()
 
 
 async def _promote_node(
-    db: AsyncSession, book_pk: UUID, node: dict, cast: CastIndex
+    db: AsyncSession, book_pk: UUID, node: dict, cast: CastIndex, user_id: UUID
 ) -> tuple[ChapterORM, bool]:
     """One outline node -> one Chapter, idempotent on the node's id (SPEC-10).
 
@@ -472,7 +486,7 @@ async def _promote_node(
         next_pos = (
             await db.execute(
                 select(func.coalesce(func.max(ChapterORM.position), -1)).where(
-                    ChapterORM.book_id == book_pk
+                    ChapterORM.book_id == book_pk, ChapterORM.deleted_at.is_(None)
                 )
             )
         ).scalar_one() + 1
@@ -487,6 +501,10 @@ async def _promote_node(
         )
         db.add(chapter)
         try:
+            # A promoted chapter is versioned from v1 (SPEC-13).
+            await entity_versions.record(
+                db, "chapter", chapter, reason="created", created_by=user_id
+            )
             await db.commit()
             break
         except IntegrityError:
@@ -546,9 +564,9 @@ async def promote_plan_node(
             )
         node = nodes[payload.node_index]
     # Read everything off the ORM objects now: a rollback expires them.
-    book_pk = book.id
+    book_pk, user_id = book.id, current_user.id
     cast = await _book_cast(db, book_pk)
-    chapter, created = await _promote_node(db, book_pk, node, cast)
+    chapter, created = await _promote_node(db, book_pk, node, cast, user_id)
     return _promoted_dict(chapter, created)
 
 
@@ -562,12 +580,12 @@ async def promote_all_plan_nodes(
     a chapter are returned as they are. Safe to click twice."""
     book = await _owned_book(book_id, current_user, db)
     nodes = await _outline_nodes(db, book)
-    book_pk = book.id
+    book_pk, user_id = book.id, current_user.id
     cast = await _book_cast(db, book_pk)
     results = []
     for node in nodes:
         if isinstance(node, dict):
-            chapter, created = await _promote_node(db, book_pk, node, cast)
+            chapter, created = await _promote_node(db, book_pk, node, cast, user_id)
             results.append(_promoted_dict(chapter, created))
     return {
         "chapters": results,
@@ -680,7 +698,9 @@ async def _chapter_in_book(chapter_id: UUID, book_id: UUID, db: AsyncSession) ->
     return (
         await db.execute(
             select(ChapterORM.id).where(
-                ChapterORM.id == chapter_id, ChapterORM.book_id == book_id
+                ChapterORM.id == chapter_id,
+                ChapterORM.book_id == book_id,
+                ChapterORM.deleted_at.is_(None),
             )
         )
     ).first() is not None
@@ -691,7 +711,9 @@ async def _scene_in_book(scene_id: UUID, book_id: UUID, db: AsyncSession) -> boo
     return (
         await db.execute(
             select(SceneORM.id).where(
-                SceneORM.id == scene_id, SceneORM.book_id == book_id
+                SceneORM.id == scene_id,
+                SceneORM.book_id == book_id,
+                SceneORM.deleted_at.is_(None),
             )
         )
     ).first() is not None
@@ -787,6 +809,7 @@ async def _collect_prose(
         select(SceneORM)
         .join(ChapterORM, SceneORM.chapter_id == ChapterORM.id)
         .where(ChapterORM.book_id == book_id)
+        .where(ChapterORM.deleted_at.is_(None), SceneORM.deleted_at.is_(None))
         .order_by(ChapterORM.position, SceneORM.position)
     )
     if chapter_id:
@@ -818,20 +841,25 @@ async def start_continuity_check(
     # Preflight (SPEC-02, BRD R7.3): every chunk carries the whole fact sheet, so
     # a whole-book check on a big canon is expensive. Refuse with the estimate
     # rather than half-check the book.
-    from app.planning.continuity import build_fact_sheet, chunk_prose
+    from app.core import estimates
+    from app.planning.continuity import build_fact_sheet
 
     fact_sheet = await build_fact_sheet(db, book.id)
-    chunks = chunk_prose(prose)
-    estimate = len(chunks) * estimate_tokens(len(fact_sheet) + len(chunks[0]) + 2000)
-    remaining = await remaining_budget_24h(db, current_user.id)
-    if estimate > remaining:
+    est = estimates.continuity(
+        fact_sheet_chars=len(fact_sheet), prose_words=len(prose.split())
+    )
+    assessed = await estimates.assess(db, current_user.id, est)
+    if not assessed["allowed"]:
+        message = assessed["reason"]
+        if not payload.chapter_id:
+            message += " Try checking one chapter instead."
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail={
-                "message": "Not enough of today's budget left for this check. "
-                "Try checking one chapter instead.",
-                "estimate_tokens": estimate,
-                "remaining_tokens": remaining,
+                "message": message,
+                "estimate": assessed,
+                "estimate_tokens": est.tokens,
+                "remaining_tokens": assessed["remaining_tokens_24h"],
             },
         )
 

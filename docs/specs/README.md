@@ -18,23 +18,23 @@ route, change the spec in the same PR so it stays true. The acceptance criteria 
 
 ## Index
 
-| Spec | Title | Closes | Size | Depends on |
-|---|---|---|---|---|
-| [SPEC-01](SPEC-01-canon-grounded-scenes.md) | Canon-grounded, cast-by-ID scene generation | F1, F10 | M | — |
-| [SPEC-02](SPEC-02-continuity-v2.md) | Continuity v2: whole canon, no silent cuts, honest status | F2 | M | — |
-| [SPEC-03](SPEC-03-quota-safe-llm-and-tier.md) | Quota-safe LLM client and a tier that owns its limits | F3, F4 | M | — |
-| [SPEC-04](SPEC-04-book-rooted-scenes.md) | Scenes are book-rooted | F6 | M | — |
-| [SPEC-05](SPEC-05-real-client-rate-limits.md) | Rate limits keyed on the real client and the user | F7 | S | — |
-| [SPEC-06](SPEC-06-eval-parity-and-fidelity-gate.md) | Eval parity with the product, and the fidelity gate in CI | F5 | M | — |
-| [SPEC-07](SPEC-07-job-lifecycle.md) | Job lifecycle: visible pauses, bounded waits, cancel, idempotency | F11, F13, F14 | M | SPEC-03 |
-| [SPEC-08](SPEC-08-incremental-resume.md) | Incremental resume for multi-call jobs | F12 | M | SPEC-07 |
-| [SPEC-09](SPEC-09-extraction-at-manuscript-scale.md) | Extraction at manuscript scale | F8 | L | SPEC-03, SPEC-07 |
-| [SPEC-10](SPEC-10-outline-to-scene-handoff.md) | Outline → chapter → scene handoff | F9 | M | SPEC-01 |
-| [SPEC-11](SPEC-11-voice-workbench.md) | Voice workbench and grounding provenance | F15 (G4), F18 | M | SPEC-01 |
-| [SPEC-12](SPEC-12-cost-and-usage-surfaces.md) | Cost before action, and usage surfaces | F15 (R7.5), F17 (silent downgrade) | M | SPEC-03, SPEC-07 |
-| [SPEC-13](SPEC-13-versioning-completeness.md) | Versioning completeness and a trash | F16 | M | SPEC-04 |
-| [SPEC-14](SPEC-14-ensemble-v2.md) | Ensemble v2 | F17 | L | SPEC-01, SPEC-03, SPEC-08, SPEC-12 |
-| [SPEC-15](SPEC-15-hygiene.md) | Hygiene and catalogue reconciliation | F18, F19, F20 | S–M | — |
+| Spec | Title | Closes | Size | Depends on | Status |
+|---|---|---|---|---|---|
+| [SPEC-01](SPEC-01-canon-grounded-scenes.md) | Canon-grounded, cast-by-ID scene generation | F1, F10 | M | — | ✅ |
+| [SPEC-02](SPEC-02-continuity-v2.md) | Continuity v2: whole canon, no silent cuts, honest status | F2 | M | — | ✅ |
+| [SPEC-03](SPEC-03-quota-safe-llm-and-tier.md) | Quota-safe LLM client and a tier that owns its limits | F3, F4 | M | — | ✅ |
+| [SPEC-04](SPEC-04-book-rooted-scenes.md) | Scenes are book-rooted | F6 | M | — | ✅ |
+| [SPEC-05](SPEC-05-real-client-rate-limits.md) | Rate limits keyed on the real client and the user | F7 | S | — | ✅ |
+| [SPEC-06](SPEC-06-eval-parity-and-fidelity-gate.md) | Eval parity with the product, and the fidelity gate in CI | F5 | M | — | ✅ |
+| [SPEC-07](SPEC-07-job-lifecycle.md) | Job lifecycle: visible pauses, bounded waits, cancel, idempotency | F11, F13, F14 | M | SPEC-03 | ✅ |
+| [SPEC-08](SPEC-08-incremental-resume.md) | Incremental resume for multi-call jobs | F12 | M | SPEC-07 | ✅ |
+| [SPEC-09](SPEC-09-extraction-at-manuscript-scale.md) | Extraction at manuscript scale | F8 | L | SPEC-03, SPEC-07 | ✅ |
+| [SPEC-10](SPEC-10-outline-to-scene-handoff.md) | Outline → chapter → scene handoff | F9 | M | SPEC-01 | 🚧 |
+| [SPEC-11](SPEC-11-voice-workbench.md) | Voice workbench and grounding provenance | F15 (G4), F18 | M | SPEC-01 | ✅ |
+| [SPEC-12](SPEC-12-cost-and-usage-surfaces.md) | Cost before action, and usage surfaces | F15 (R7.5), F17 (silent downgrade) | M | SPEC-03, SPEC-07 | ✅ |
+| [SPEC-13](SPEC-13-versioning-completeness.md) | Versioning completeness and a trash | F16 | M | SPEC-04 | ✅ |
+| [SPEC-14](SPEC-14-ensemble-v2.md) | Ensemble v2 | F17 | L | SPEC-01, SPEC-03, SPEC-08, SPEC-12 | ✅ |
+| [SPEC-15](SPEC-15-hygiene.md) | Hygiene and catalogue reconciliation | F18, F19, F20 | S–M | — | ✅ (15c shim removal pending prod confirmation) |
 
 ## Sequencing
 

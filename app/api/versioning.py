@@ -11,7 +11,7 @@ than corrupting the live row.
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,14 +20,18 @@ from app.core.orm_models import (
     Book as BookORM,
     BookPlan as BookPlanORM,
     CanonEntry as CanonEntryORM,
+    Chapter as ChapterORM,
     Character as CharacterORM,
+    Source as SourceORM,
     StyleGuide as StyleGuideORM,
     User as UserORM,
 )
 from app.characters.serialize import CHARACTER_FIELDS
 from app.core.security import get_current_active_user
 from app.planning.outline import validate_outline_nodes
+from app.versioning import entities as entity_versions
 from app.versioning import repository as versions_repo
+from app.versioning import trash
 
 router = APIRouter()
 
@@ -40,6 +44,14 @@ _FIELD_ENTITIES = {
     "character": (CharacterORM, _CHARACTER_FIELDS),
     "canon_entry": (CanonEntryORM, _CANON_FIELDS),
     "style_guide": (StyleGuideORM, _STYLE_FIELDS),
+    # SPEC-13: sources and chapters are versioned like the rest of the canon.
+    "source": (SourceORM, entity_versions.SOURCE_FIELDS),
+    "chapter": (ChapterORM, entity_versions.CHAPTER_RESTORE_FIELDS),
+}
+# Entities whose version content is wider than what restore writes back.
+_SNAPSHOT_CONTENT = {
+    "source": entity_versions.source_content,
+    "chapter": entity_versions.chapter_content,
 }
 # synopsis is a field on Book (entity_id == book_id); book_plan restores specially.
 _ENTITY_TYPES = {"book_plan", "synopsis", *_FIELD_ENTITIES}
@@ -149,6 +161,7 @@ async def restore_entity_version(
         )
 
     reason = f"restored_from:{version_no}"
+    reextract = None
 
     if entity_type == "book_plan":
         plan = (
@@ -182,7 +195,7 @@ async def restore_entity_version(
         book.synopsis = content.get("synopsis")
         snapshot_content = {"synopsis": book.synopsis}
         live_id = book.id
-    else:  # field-set entities: character | canon_entry | style_guide
+    else:  # field-set entities: character | canon_entry | style_guide | ...
         model, fields = _FIELD_ENTITIES[entity_type]
         row = (
             await db.execute(
@@ -190,11 +203,27 @@ async def restore_entity_version(
             )
         ).scalar_one_or_none()
         content = version.content or {}
+        if row is not None and getattr(row, "deleted_at", None) is not None:
+            # Restoring a version of a trashed entity brings it out of the
+            # Trash first, with everything it owned (SPEC-13).
+            try:
+                await trash.restore(db, entity_type, row, created_by=current_user.id)
+            except trash.TrashConflict as e:
+                await db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail=e.detail
+                )
+        prior_text = getattr(row, "content_text", None) if row is not None else None
         if row is None:
-            # RECREATE a deleted entity, preserving its identity (PR review #4) —
-            # deletion is no longer permanent; restore brings it back. The
-            # (book_id, name) uniqueness check still applies (409 on collision).
-            extra = {"user_id": book.user_id} if entity_type == "character" else {}
+            # RECREATE a purged entity, preserving its identity (PR review #4).
+            # The (book_id, name) uniqueness check still applies (409 below).
+            extra = (
+                {"user_id": book.user_id}
+                if entity_type in ("character", "source")
+                else {}
+            )
+            if entity_type == "chapter":
+                extra = {"position": await _next_chapter_position(db, book_id)}
             row = model(id=entity_id, book_id=book_id, **extra)
             for field_name in fields:
                 if field_name in content:
@@ -204,7 +233,22 @@ async def restore_entity_version(
             for field_name in fields:
                 if field_name in content:
                     setattr(row, field_name, content[field_name])
-        snapshot_content = {f: getattr(row, f) for f in fields}
+        if entity_type == "source":
+            row.word_count = len((row.content_text or "").split())
+            if row.content_text != prior_text:
+                # Restoring text does NOT re-extract on its own: extraction
+                # spends quota and proposes canon, so the author chooses.
+                reextract = {
+                    "offered": True,
+                    "endpoint": f"/api/v1/sources/{row.id}/process",
+                    "message": "The source text changed. Re-run extraction to "
+                    "review canon from the restored text.",
+                }
+        await _check_name_free(db, entity_type, row)
+        snapshot_fn = _SNAPSHOT_CONTENT.get(entity_type)
+        snapshot_content = (
+            snapshot_fn(row) if snapshot_fn else {f: getattr(row, f) for f in fields}
+        )
         live_id = row.id
 
     await versions_repo.snapshot(
@@ -225,8 +269,52 @@ async def restore_entity_version(
             status_code=status.HTTP_409_CONFLICT,
             detail="Restore conflicts with the current state (name already in use)",
         )
-    return {
+    result = {
         "entity_type": entity_type,
         "entity_id": str(entity_id),
         "restored_from": version_no,
     }
+    if reextract:
+        result["reextract"] = reextract
+    return result
+
+
+async def _next_chapter_position(db: AsyncSession, book_id: UUID) -> int:
+    return (
+        await db.execute(
+            trash.live(
+                select(func.coalesce(func.max(ChapterORM.position), -1)), ChapterORM
+            ).where(ChapterORM.book_id == book_id)
+        )
+    ).scalar_one() + 1
+
+
+async def _check_name_free(db: AsyncSession, entity_type: str, row) -> None:
+    """409 naming the live entity that already holds this name (SPEC-13)."""
+    if entity_type not in ("character", "canon_entry"):
+        return
+    model = _FIELD_ENTITIES[entity_type][0]
+    with db.no_autoflush:
+        taken = (
+            await db.execute(
+                trash.live(select(model), model).where(
+                    model.book_id == row.book_id,
+                    model.name == row.name,
+                    model.id != row.id,
+                )
+            )
+        ).scalar_one_or_none()
+    if taken is not None:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": f"'{row.name}' is already in use in this book. "
+                "Rename or delete it, then restore.",
+                "conflict": {
+                    "type": entity_type,
+                    "id": str(taken.id),
+                    "name": taken.name,
+                },
+            },
+        )

@@ -39,10 +39,17 @@ export function useJob(
   const onSettled = useRef(options.onSettled)
   onSettled.current = options.onSettled
 
+  // Bumped on every jobId change and unmount: a response that lands for an
+  // older generation must neither set state nor schedule another poll (it
+  // would poll the old job forever, or overwrite the new loop's timer).
+  const generation = useRef(0)
+
   const poll = useCallback(async () => {
     if (!jobId) return
+    const mine = generation.current
     try {
       const fresh = await getJob(jobId)
+      if (mine !== generation.current) return
       setJob(fresh)
       setError(null)
       if (isActiveJob(fresh.status)) {
@@ -52,6 +59,7 @@ export function useJob(
         onSettled.current?.(fresh)
       }
     } catch (e) {
+      if (mine !== generation.current) return
       setError((e as { message?: string }).message || 'Could not load job status')
       // Transient (network, 429 already retried): keep trying, slowly.
       delay.current = MAX_DELAY_MS
@@ -60,10 +68,12 @@ export function useJob(
   }, [jobId])
 
   useEffect(() => {
+    generation.current += 1
     delay.current = FIRST_DELAY_MS
     setJob(null)
     if (jobId) poll()
     return () => {
+      generation.current += 1
       if (timer.current) clearTimeout(timer.current)
     }
   }, [jobId, poll])

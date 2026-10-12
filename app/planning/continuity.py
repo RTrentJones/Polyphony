@@ -39,6 +39,7 @@ from app.core.llm_text import (
 from app.core.logging_config import setup_logging
 from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_array, extract_json_object
+from app.versioning.trash import live as _live  # the one soft-delete filter
 
 logger = setup_logging("planning.continuity")
 
@@ -168,13 +169,6 @@ async def build_fact_sheet(session: AsyncSession, book_id: UUID) -> str:
     return "\n\n".join(b for b in (canon.full_block(), plot_state) if b)
 
 
-def _live(query, model):
-    """Exclude soft-deleted rows when the model supports soft delete."""
-    if hasattr(model, "deleted_at"):
-        return query.where(model.deleted_at.is_(None))
-    return query
-
-
 def _prompt(
     chunk: str, fact_sheet: str, label: str, earlier: list[dict], carry: str
 ) -> str:
@@ -289,14 +283,22 @@ async def run_continuity_check(
     prose: str,
     fact_sheet: str,
     user_id: Optional[UUID] = None,
+    *,
+    between_chunks=None,
 ) -> ContinuityResult:
-    """Map-reduce over the prose with a rolling carry between chunks."""
+    """Map-reduce over the prose with a rolling carry between chunks.
+
+    `between_chunks`, when given, is awaited before every chunk after the first
+    — the job's cancellation seam, so a cancelled check stops instead of
+    spending the rest of the book (SPEC-07)."""
     all_findings: list[dict] = []
     total_tokens = 0
     chunks = chunk_prose(prose)
     checked, unchecked = 0, []
     carry = ""
     for i, chunk in enumerate(chunks):
+        if i and between_chunks is not None:
+            await between_chunks()
         label = f"part {i + 1}/{len(chunks)}"
         findings, tokens, ok = await check_chunk(
             chunk, fact_sheet, label, user_id, earlier=all_findings, carry=carry

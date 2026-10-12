@@ -7,6 +7,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ShieldCheck } from 'lucide-react'
 import Button from '@/components/Button'
+import EstimateHint from '@/components/EstimateHint'
+import type { Estimate } from '@/lib/usage-api'
 import Card from '@/components/Card'
 import JobStatusBadge from '@/components/JobStatusBadge'
 import Loading from '@/components/Loading'
@@ -54,6 +56,7 @@ export default function ContinuityPanel({
   const { reports, fetchContinuityReports, runContinuityCheck } = usePlanningStore()
 
   const [scopeChapterId, setScopeChapterId] = useState('')
+  const [est, setEst] = useState<Estimate | null>(null)
   const [running, setRunning] = useState(false)
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -137,11 +140,26 @@ export default function ContinuityPanel({
               ))}
             </select>
           </div>
-          <Button size="sm" onClick={handleRun} isLoading={running}>
+          <Button
+            size="sm"
+            onClick={handleRun}
+            isLoading={running}
+            disabled={est !== null && !est.allowed}
+          >
             <ShieldCheck className="h-4 w-4 mr-1" />
             Run Check
           </Button>
         </div>
+      </div>
+      <div className="mb-4">
+        <EstimateHint
+          request={{
+            action: 'continuity',
+            book_id: bookId,
+            chapter_id: scopeChapterId || null,
+          }}
+          onEstimate={setEst}
+        />
       </div>
 
       {reports.length === 0 ? (

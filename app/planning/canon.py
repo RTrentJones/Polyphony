@@ -326,6 +326,9 @@ async def build_canon(session: AsyncSession, book_id: UUID) -> Canon:
     """S0: assemble a book's whole Canon from the DB (no LLM). Book is the root,
     so every piece is queried by book_id."""
     from app.core.orm_models import Book, CanonEntry, Character, StyleGuide
+    from app.versioning.trash import live
+
+    # Trashed characters and entries never reach a prompt (SPEC-13).
 
     book = await session.get(Book, book_id)
     if book is None:
@@ -333,7 +336,7 @@ async def build_canon(session: AsyncSession, book_id: UUID) -> Canon:
     characters = list(
         (
             await session.execute(
-                select(Character)
+                live(select(Character), Character)
                 .where(Character.book_id == book_id)
                 .order_by(Character.name)
             )
@@ -344,7 +347,7 @@ async def build_canon(session: AsyncSession, book_id: UUID) -> Canon:
     canon_entries = list(
         (
             await session.execute(
-                select(CanonEntry)
+                live(select(CanonEntry), CanonEntry)
                 .where(CanonEntry.book_id == book_id)
                 .order_by(CanonEntry.position)
             )

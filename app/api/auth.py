@@ -23,6 +23,7 @@ from app.core.rate_limit import (
     limiter,
     login_email_check,
     login_email_record_failure,
+    login_email_record_success,
     too_many_requests,
 )
 from app.core.security import (
@@ -149,7 +150,8 @@ async def login(
     """Login with email + password; sets the refresh cookie."""
     # Per-email budget across all IPs, checked before the password hash runs:
     # the per-IP limit alone cannot stop a botnet working through one account.
-    retry_after = login_email_check(form_data.username)
+    ip = client_ip(request)
+    retry_after = login_email_check(form_data.username, ip)
     if retry_after is not None:
         return too_many_requests("too many failed logins for this account", retry_after)
     user = await authenticate_user(db, form_data.username, form_data.password)
@@ -164,6 +166,7 @@ async def login(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Account is deactivated"
         )
+    login_email_record_success(form_data.username, ip)
 
     access_token = create_access_token(
         data={"sub": str(user.id)},

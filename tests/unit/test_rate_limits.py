@@ -205,6 +205,27 @@ class TestPerEmailLoginLimit:
         finally:
             await _close(c)
 
+    async def test_attacker_cannot_lock_the_owner_out_of_a_known_address(
+        self, make_client, monkeypatch, test_user
+    ):
+        monkeypatch.setattr(settings, "LOGIN_EMAIL_RATE_LIMIT", "3/hour")
+        c = make_client(TUNNEL)
+        try:
+            home = "203.0.113.10"
+            r = await _login(c, test_user.email, "testpassword123", cf_ip=home)
+            assert r.status_code == 200
+            for i in range(3):  # the attacker spends the account's budget
+                r = await _login(
+                    c, test_user.email, "wrong", cf_ip=f"198.51.100.{i + 1}"
+                )
+                assert r.status_code == 401
+            r = await _login(c, test_user.email, "wrong", cf_ip="198.51.100.9")
+            assert r.status_code == 429  # still blocks guessing from new addresses
+            r = await _login(c, test_user.email, "testpassword123", cf_ip=home)
+            assert r.status_code == 200  # the owner is not locked out
+        finally:
+            await _close(c)
+
     async def test_successful_logins_do_not_spend_the_budget(
         self, make_client, monkeypatch, test_user
     ):
