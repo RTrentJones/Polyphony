@@ -13,7 +13,8 @@ import Button from './Button'
 import Input from './Input'
 import Modal from './Modal'
 import FileUpload from './FileUpload'
-import { useSourceStore } from '@/lib/store'
+import { useExtractionStore, useSourceStore } from '@/lib/store'
+import type { ExtractionPreflight } from '@/lib/types'
 
 type AddMode = 'upload' | 'paste'
 
@@ -26,6 +27,14 @@ export default function AddSourceModal({
 }) {
   const router = useRouter()
   const { uploadSource, pasteSource } = useSourceStore()
+  const { startExtraction } = useExtractionStore()
+  // Set when the preflight refused a whole-source extraction (SPEC-09): the
+  // source is saved; the author may extract its opening chapters instead.
+  const [refused, setRefused] = useState<{
+    sourceId: string
+    bookId: string
+    preflight: ExtractionPreflight
+  } | null>(null)
 
   const [mode, setMode] = useState<AddMode>('upload')
   const [title, setTitle] = useState('')
@@ -54,6 +63,11 @@ export default function AddSourceModal({
         mode === 'upload'
           ? await uploadSource(file as File, title.trim(), undefined, bookId)
           : await pasteSource(title.trim(), pasteText, bookId)
+      if (!res.extraction_run_id && res.preflight && !res.preflight.fits) {
+        setRefused({ sourceId: res.id, bookId: res.book_id, preflight: res.preflight })
+        setSubmitting(false)
+        return
+      }
       onClose()
       // Nothing is written until the author approves (docs/BRD.md R4.4).
       router.push(`/sources/review?book=${res.book_id}&run=${res.extraction_run_id}`)
@@ -61,6 +75,52 @@ export default function AddSourceModal({
       setError(err.message || 'Could not add the source. Please try again.')
       setSubmitting(false)
     }
+  }
+
+  const extractOpening = async () => {
+    if (!refused?.preflight.max_chapters) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      const res = await startExtraction(
+        refused.bookId,
+        refused.sourceId,
+        refused.preflight.max_chapters
+      )
+      onClose()
+      router.push(`/sources/review?book=${refused.bookId}&run=${res.run_id}`)
+    } catch (err: any) {
+      setError(err.message || 'Could not start extraction.')
+      setSubmitting(false)
+    }
+  }
+
+  if (refused) {
+    const p = refused.preflight
+    return (
+      <Modal isOpen onClose={onClose} title="Source saved" size="md">
+        <div className="space-y-4">
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <p className="text-sm text-gray-700">
+            Your source is saved, but extracting all of it would take about{' '}
+            {p.estimated_tokens.toLocaleString()} tokens over {p.windows} parts (
+            {p.requests} AI requests) — more than the{' '}
+            {p.capacity_tokens.toLocaleString()} available before the job would
+            give up waiting for quota.
+          </p>
+          <div className="flex items-center space-x-3 pt-2">
+            <Button variant="outline" fullWidth onClick={onClose}>
+              Not now
+            </Button>
+            {p.max_chapters ? (
+              <Button fullWidth onClick={extractOpening} isLoading={submitting}>
+                Extract the first {p.max_chapters} chapters
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </Modal>
+    )
   }
 
   return (

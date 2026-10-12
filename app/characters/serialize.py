@@ -19,6 +19,7 @@ CHARACTER_FIELDS = (
     "arc",
     "relationships",
     "notes",
+    "aliases",
 )
 
 

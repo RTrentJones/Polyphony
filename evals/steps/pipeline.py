@@ -85,6 +85,12 @@ async def step_extraction(ctx: StepContext) -> dict:
     proposals = run.get("proposals") or {}
     predicted = [c["name"] for c in proposals.get("characters", [])]
     score = extraction.grade_extraction(predicted, ctx.ground_truth["cast"])
+    # The review's default selection (SPEC-09: one-window names pre-deselected,
+    # eval-plan E5) — what an author who accepts the defaults commits.
+    selected = [
+        c["name"] for c in proposals.get("characters", []) if c.get("selected", True)
+    ]
+    sel = extraction.grade_extraction(selected, ctx.ground_truth["cast"])
     await ctx.client.commit_extraction(
         up["book_id"], up["extraction_run_id"], proposals
     )
@@ -93,6 +99,11 @@ async def step_extraction(ctx: StepContext) -> dict:
         "predicted": predicted,
         **score.as_dict(),
         "score": score.f1,
+        "selected": selected,
+        "f1_selected": round(sel.f1, 4),
+        "precision_selected": round(sel.precision, 4),
+        "recall_selected": round(sel.recall, 4),
+        "windows": (proposals.get("stats") or {}).get("windows"),
         "commit_faithful": committed == sorted(set(predicted)),
     }
 

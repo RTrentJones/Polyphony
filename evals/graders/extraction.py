@@ -9,25 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-_HONORIFICS = {
-    "prof",
-    "professor",
-    "dr",
-    "doctor",
-    "mr",
-    "mister",
-    "mrs",
-    "ms",
-    "miss",
-    "count",
-    "countess",
-    "lord",
-    "lady",
-    "sir",
-    "master",
-    "st",
-    "saint",
-}
+from app.parsing.names import HONORIFICS as _HONORIFICS  # noqa: F401 - re-export
+from app.parsing.names import match  # noqa: F401 - the shared rule (SPEC-09)
 
 
 def _norm(name: str) -> str:
@@ -36,20 +19,6 @@ def _norm(name: str) -> str:
 
 def _tokens(name: str) -> set[str]:
     return set(_norm(name).split())
-
-
-def match(extracted: str, gold: str) -> bool:
-    """A prediction matches a gold name when one's tokens are a SUBSET of the
-    other's — either after dropping honorifics ('Prof. Verhoeven' ~ 'Verhoeven',
-    'Mr. Kerr' ~ 'Aldous Kerr') or on the raw tokens (a bare honorific 'Count'
-    still matches 'Count Vasska'). Subset — not mere overlap — so two different
-    characters sharing one token ('John Ward' vs 'Elias Ward') do NOT match."""
-    e_full, g_full = _tokens(extracted), _tokens(gold)
-    if not e_full or not g_full:
-        return False
-    e_sig = (e_full - _HONORIFICS) or e_full
-    g_sig = (g_full - _HONORIFICS) or g_full
-    return e_sig <= g_sig or g_sig <= e_sig or e_full <= g_full or g_full <= e_full
 
 
 @dataclass

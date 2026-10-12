@@ -136,6 +136,9 @@ class Source(Base):
     status = Column(
         String(50), default="pending"
     )  # pending, processing, completed, failed
+    # Upload format (txt | html | docx | pdf | paste) — paragraph shape differs by
+    # format, so evals treat it as a covariate (SPEC-09).
+    format = Column(String(20))
 
     # Relationships
     book = relationship("Book", back_populates="sources")
@@ -295,6 +298,9 @@ class Character(Base):
     arc = Column(Text)
     relationships = Column(JSON)  # {"other name": "relationship"}
     notes = Column(Text)
+    # Other names the text uses for this character ("Mrs. Harker", "the CEL").
+    # Fidelity, commit merging and scene casting all honour them (SPEC-09).
+    aliases = Column(JSON)
     dialogue_count = Column(Integer, default=0)
     indexed_at = Column(DateTime(timezone=True))
 
@@ -827,6 +833,9 @@ class ExtractionRun(Base):
     # {characters:[...], canon_entries:[...], style:{...}, synopsis:"..."}
     proposals = Column(JSON)
     error = Column(Text)
+    # Map-reduce progress + resumable checkpoint (SPEC-09):
+    # {phase, windows_total, windows_done, ..., checkpoint: {...}}
+    progress = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (Index("idx_extraction_runs_book_id", "book_id"),)
