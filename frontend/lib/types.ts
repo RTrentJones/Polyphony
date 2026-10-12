@@ -322,7 +322,10 @@ export interface ChapterDetail extends BookChapter {
 /** POST /books/chapters/{id}/scenes/generate body. */
 export interface ChapterSceneRequest {
   source_id?: string
-  characters: string[]
+  /** The cast, as character ids of this book (SPEC-01). */
+  character_ids: string[]
+  /** Generation mode: prose (default) or the ensemble loop (tier-gated). */
+  mode?: 'prose' | 'ensemble'
   scene_description: string
   setting: string
   emotional_tone: string

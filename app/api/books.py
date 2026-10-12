@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.characters.cast import resolve_cast
 from app.core.budget import check_user_budget
 from app.core.database import get_db
 from app.core.orm_models import (
@@ -82,8 +83,12 @@ class PositionUpdate(BaseModel):
 
 
 class ChapterSceneRequest(BaseModel):
-    source_id: Optional[UUID] = None  # provenance of the character bible
-    characters: list[str] = Field(..., min_length=1)
+    source_id: Optional[UUID] = None  # provenance only
+    # The cast, as character IDs of this book (SPEC-01). `characters` (names) is
+    # the deprecated input, resolved against the book's cast by name/alias; an
+    # unknown name is rejected rather than silently generated voice-blind.
+    character_ids: list[UUID] = Field(default_factory=list)
+    characters: list[str] = Field(default_factory=list)
     scene_description: str = Field(..., min_length=10)
     setting: str
     emotional_tone: str
@@ -550,6 +555,16 @@ async def generate_scene_into_chapter(
 
     await check_user_budget(db, current_user.id)
 
+    # The cast is resolved against THIS book before anything is spent (SPEC-01).
+    cast = await resolve_cast(
+        db,
+        chapter.book_id,
+        character_ids=payload.character_ids,
+        names=payload.characters,
+    )
+    cast_names = [c.name for c in cast]
+    cast_ids = [str(c.id) for c in cast]
+
     # Plain values survive the rollback of a failed insert attempt below
     # (ORM instances get expired on rollback).
     chapter_summary = chapter.summary or ""
@@ -569,6 +584,8 @@ async def generate_scene_into_chapter(
         prior_tail = " ".join(scene_text(prev_scene).split()[-500:])
 
     request_dict = payload.model_dump(mode="json")
+    request_dict["characters"] = cast_names
+    request_dict["character_ids"] = cast_ids
 
     # Concurrent appends can both compute max+1; the UNIQUE constraint turns
     # that into an IntegrityError — recreate scene AND job (both roll back)
@@ -588,7 +605,8 @@ async def generate_scene_into_chapter(
             position=next_pos,
             setting=payload.setting,
             emotional_tone=payload.emotional_tone,
-            characters=payload.characters,
+            characters=cast_names,
+            character_ids=cast_ids,
             scene_description=payload.scene_description,
             scene_request=request_dict,
             status="processing",

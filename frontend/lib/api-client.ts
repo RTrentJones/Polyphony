@@ -44,6 +44,12 @@ export function toApiError(err: unknown): ApiError {
       // FastAPI validation errors: [{ loc, msg, type }, ...]
       const first = detail[0] as { msg?: string }
       if (first?.msg) message = first.msg
+    } else if (detail && typeof detail === 'object' && 'message' in detail) {
+      // Structured errors: { message, unknown?: [...] } (e.g. a cast that is
+      // not in this book — SPEC-01).
+      const d = detail as { message?: string; unknown?: string[] }
+      message = d.message || message
+      if (d.unknown?.length) message += ` (${d.unknown.join(', ')})`
     } else if (!err.response) {
       message = 'Could not reach the server. Please try again.'
     }

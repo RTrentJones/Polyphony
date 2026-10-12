@@ -120,6 +120,19 @@ PROVIDERS: dict[str, Provider] = {
         fast_model="mistral-small-latest",
         max_rpm=30,  # free Experiment plan is ~1 rps
     ),
+    # --- local deterministic stub (evals/stub_llm.py) -----------------------
+    # For end-to-end tests and local previews with no key, no quota, no cost.
+    # Gated like every row on its own env key, so it is inert in production.
+    "stub": Provider(
+        id="stub",
+        label="Stub (local tests)",
+        kind="openai",
+        env_key="STUB_LLM_API_KEY",
+        base_url=os.getenv("STUB_LLM_BASE_URL", "http://127.0.0.1:8099/v1"),
+        default_model="stub-default",
+        fast_model="stub-fast",
+        max_rpm=600,
+    ),
 }
 
 

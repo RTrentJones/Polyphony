@@ -49,9 +49,15 @@ class TestBeatRecall:
 
 async def test_offline_extraction_grades_prediction(monkeypatch):
     gt = {"cast": ["Nora Vance", "Verhoeven"], "book": "x"}
+    # Grades the PRODUCT extractor (extract_canon's proposals), not the legacy
+    # CharacterExtractor (SPEC-06).
     monkeypatch.setattr(
-        "app.parsing.character_extractor.CharacterExtractor.extract_characters",
-        AsyncMock(return_value=["Nora Vance", "Verhoeven"]),
+        "app.parsing.canon_extractor.extract_canon",
+        AsyncMock(
+            return_value={
+                "characters": [{"name": "Nora Vance"}, {"name": "Verhoeven"}]
+            }
+        ),
     )
     res = await offline.offline_extraction("corpus text", gt)
     assert res["score"] == 1.0 and res["f1"] == 1.0
@@ -67,13 +73,17 @@ async def test_offline_outline_scores_beat_recall(monkeypatch):
             {"title": "friend sickens", "kind": "rising"},
         ],
     }
+    # Grades the staged generator the product runs (SPEC-06).
     monkeypatch.setattr(
-        "app.planning.outline.generate_outline",
+        "app.planning.staged_outline.generate_staged_outline",
         AsyncMock(
-            return_value=[
-                {"title": "The prisoner castle", "summary": "trapped"},
-                {"title": "A friend sickens", "summary": "ill"},
-            ]
+            return_value=(
+                [
+                    {"title": "The prisoner castle", "summary": "trapped"},
+                    {"title": "A friend sickens", "summary": "ill"},
+                ],
+                [],
+            )
         ),
     )
     res = await offline.offline_outline(gt)
@@ -82,7 +92,8 @@ async def test_offline_outline_scores_beat_recall(monkeypatch):
 
     # structural gate: empty outline scores 0 regardless of recall.
     monkeypatch.setattr(
-        "app.planning.outline.generate_outline", AsyncMock(return_value=[])
+        "app.planning.staged_outline.generate_staged_outline",
+        AsyncMock(return_value=([], [])),
     )
     res2 = await offline.offline_outline(gt)
     assert res2["score"] == 0.0

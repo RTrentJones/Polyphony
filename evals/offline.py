@@ -76,59 +76,69 @@ def beat_recall(nodes: list[dict], canonical_beats: list[dict]) -> float:
 
 
 async def offline_extraction(corpus_text: str, gt: dict) -> dict:
-    from app.parsing.character_extractor import CharacterExtractor
+    """Grade the extractor the PRODUCT uses (extract_canon's proposals), not the
+    legacy CharacterExtractor that only feeds voice chunking."""
+    from app.parsing.canon_extractor import extract_canon
 
-    predicted = await CharacterExtractor().extract_characters(
-        corpus_text, max_characters=max(6, len(gt["cast"]))
-    )
+    proposals = await extract_canon(corpus_text)
+    predicted = [c["name"] for c in proposals.get("characters", [])]
     score = extraction_grader.grade_extraction(predicted, gt["cast"])
     return {"predicted": predicted, **score.as_dict(), "score": score.f1}
 
 
-async def offline_outline(gt: dict) -> dict:
+def corpus_canon(gt: dict):
+    """The corpus as a book Canon: synopsis + cast with principals marked, so the
+    staged generator's fidelity gate runs exactly as it does in the app."""
     from types import SimpleNamespace
 
-    from app.planning.canon import render_characters
-    from app.planning.outline import generate_outline
+    from app.planning.canon import Canon
 
-    from evals.graders.fidelity import grade_fidelity
-
-    # Pass the CAST — the eval never having characters is precisely why the bug
-    # survived (docs/BRD.md §"Why the evals stayed green"). Build the bible from
-    # gt['cast'] via the app's own renderer.
-    cast_objs = [
+    principals = {
+        p["name"] for p in (gt.get("fidelity") or {}).get("principals", [])
+    } or set(gt.get("cast", [])[:3])
+    cast = [
         SimpleNamespace(
             name=n,
-            role="",
+            role="protagonist" if n in principals else "supporting",
             description="",
             goals="",
             arc="",
             notes="",
+            aliases=None,
             personality_traits=None,
             voice_characteristics=None,
             relationships=None,
         )
         for n in gt.get("cast", [])
     ]
-    bible = render_characters(cast_objs)
-
-    nodes = await generate_outline(
+    return Canon(
         title=f"eval-{gt['book']}",
         synopsis=gt["synopsis"],
-        character_bible=bible,
-        chapters_target=len(gt["canonical_beats"]),
+        characters=cast,
+    )
+
+
+async def offline_outline(gt: dict) -> dict:
+    """Grade the generator the product runs: the staged, canon-grounded,
+    fidelity-gated outline (app.planning.staged_outline), over the corpus canon."""
+    from app.planning.staged_outline import generate_staged_outline
+
+    from evals.graders.fidelity import grade_fidelity
+
+    nodes, warnings = await generate_staged_outline(
+        corpus_canon(gt), chapters_target=len(gt["canonical_beats"])
     )
     structural = bool(nodes) and all(n.get("title") for n in nodes)
     recall = beat_recall(nodes, gt["canonical_beats"])
 
     # Fidelity-gate the score when the corpus declares principals (cel): a
-    # beautiful outline about the WRONG story now scores ~0. beat_recall is
-    # demoted to a secondary structural signal (docs/BRD.md §Phase 5).
+    # beautiful outline about the WRONG story scores ~0 (docs/BRD.md R1.4).
     fid = gt.get("fidelity")
     out: dict = {
         "n_nodes": len(nodes),
         "structural_ok": structural,
         "beat_recall": recall,
+        "app_warnings": warnings,
     }
     if fid:
         fs = grade_fidelity(nodes, fid["principals"], set(fid["known"]))

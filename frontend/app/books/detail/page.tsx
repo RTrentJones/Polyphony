@@ -32,6 +32,7 @@ import {
 import AddSourceModal from '@/components/AddSourceModal'
 import Button from '@/components/Button'
 import CanonPanel from '@/components/CanonPanel'
+import GenerateSceneModal from '@/components/book/GenerateSceneModal'
 import Card from '@/components/Card'
 import Input from '@/components/Input'
 import Loading from '@/components/Loading'
@@ -44,7 +45,6 @@ import type {
   BookChapter,
   BookExportFormat,
   Character,
-  ChapterSceneRequest,
   BookSceneSummary,
   ContinuityFinding,
   PlanKind,
@@ -111,320 +111,10 @@ const SEVERITY_STYLES: Record<string, string> = {
 
 const SEVERITY_ORDER: Record<string, number> = { critical: 0, major: 1, minor: 2 }
 
-const TONES = [
-  'neutral',
-  'tense',
-  'joyful',
-  'melancholic',
-  'suspenseful',
-  'romantic',
-] as const
-
 interface ToastItem {
   id: string
   message: string
   type: ToastType
-}
-
-// ---------------------------------------------------------------------------
-// Generate-scene modal
-// ---------------------------------------------------------------------------
-
-function GenerateSceneModal({
-  chapter,
-  chapters,
-  onClose,
-  onGenerated,
-}: {
-  /** A fixed target chapter (from the Chapters tab). */
-  chapter?: BookChapter
-  /** Or a list to pick from (from the Scenes tab). */
-  chapters?: BookChapter[]
-  onClose: () => void
-  onGenerated: (sceneId: string, chapterId: string) => void
-}) {
-  const { generateScene } = useBookStore()
-  const { sources, fetchSources } = useSourceStore()
-
-  const [chapterId, setChapterId] = useState(
-    chapter?.id ?? chapters?.[0]?.id ?? ''
-  )
-  const [sourceId, setSourceId] = useState('')
-  const [sourceCharacters, setSourceCharacters] = useState<Character[]>([])
-  const [loadingCharacters, setLoadingCharacters] = useState(false)
-  const [charactersInput, setCharactersInput] = useState('')
-  const [description, setDescription] = useState('')
-  const [setting, setSetting] = useState('')
-  const [tone, setTone] = useState<string>('neutral')
-  const [pov, setPov] = useState('')
-  const [wordCount, setWordCount] = useState(800)
-  const [styleNotes, setStyleNotes] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    fetchSources().catch(() => {
-      // sources are optional here — comma input still works
-    })
-  }, [fetchSources])
-
-  useEffect(() => {
-    if (!sourceId) {
-      setSourceCharacters([])
-      return
-    }
-    let cancelled = false
-    setLoadingCharacters(true)
-    apiClient
-      .getSourceCharacters(sourceId)
-      .then((chars) => {
-        if (!cancelled) setSourceCharacters(chars)
-      })
-      .catch(() => {
-        if (!cancelled) setSourceCharacters([])
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingCharacters(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [sourceId])
-
-  const characterNames = charactersInput
-    .split(',')
-    .map((c) => c.trim())
-    .filter(Boolean)
-
-  const toggleCharacter = (name: string) => {
-    const next = characterNames.includes(name)
-      ? characterNames.filter((c) => c !== name)
-      : [...characterNames, name]
-    setCharactersInput(next.join(', '))
-  }
-
-  const handleSubmit = async () => {
-    setError(null)
-    if (characterNames.length === 0) {
-      setError('Add at least one character')
-      return
-    }
-    if (description.trim().length < 10) {
-      setError('Describe the scene in at least 10 characters')
-      return
-    }
-    if (!setting.trim()) {
-      setError('Please provide a setting')
-      return
-    }
-
-    const request: ChapterSceneRequest = {
-      ...(sourceId ? { source_id: sourceId } : {}),
-      characters: characterNames,
-      scene_description: description.trim(),
-      setting: setting.trim(),
-      emotional_tone: tone,
-      ...(pov.trim() ? { pov_character: pov.trim() } : {}),
-      target_word_count: Math.min(3000, Math.max(100, wordCount || 800)),
-      ...(styleNotes.trim() ? { style_notes: styleNotes.trim() } : {}),
-    }
-
-    setSubmitting(true)
-    try {
-      const result = await generateScene(chapterId, request)
-      onGenerated(result.scene_id, chapterId)
-      onClose()
-    } catch (err: any) {
-      setError(err.message || 'Failed to start scene generation')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const completedSources = sources.filter(
-    (m) => m.processing_status === 'completed'
-  )
-
-  return (
-    <Modal
-      isOpen
-      onClose={onClose}
-      title={chapter ? `Generate scene — ${chapter.title}` : 'Generate scene'}
-      size="lg"
-    >
-      <div className="space-y-4">
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-            <p className="text-sm text-red-600">{error}</p>
-          </div>
-        )}
-
-        {/* Chapter picker — a scene always lands in a chapter (from the Scenes
-            tab, where no chapter is fixed). */}
-        {!chapter && chapters && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Chapter
-            </label>
-            <select
-              value={chapterId}
-              onChange={(e) => setChapterId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            >
-              {chapters.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.title}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {/* Optional character bible from a source */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Character bible (optional)
-          </label>
-          <select
-            value={sourceId}
-            onChange={(e) => setSourceId(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          >
-            <option value="">No source — use character names only</option>
-            {completedSources.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.title}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {sourceId &&
-          (loadingCharacters ? (
-            <Loading size="sm" text="Loading characters..." />
-          ) : sourceCharacters.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {sourceCharacters.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => toggleCharacter(c.name)}
-                  className={`px-3 py-1 text-sm rounded-full border transition-colors ${
-                    characterNames.includes(c.name)
-                      ? 'border-primary-500 bg-primary-50 text-primary-700'
-                      : 'border-gray-300 text-gray-700 hover:border-primary-300'
-                  }`}
-                >
-                  {c.name}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-gray-500">
-              No characters found in this source
-            </p>
-          ))}
-
-        <Input
-          label="Characters"
-          placeholder="Comma-separated, e.g. Alice, The Warden"
-          value={charactersInput}
-          onChange={(e) => setCharactersInput(e.target.value)}
-          helperText="Who appears in this scene"
-          required
-        />
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Scene description
-          </label>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="What happens in this scene..."
-            rows={3}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          />
-        </div>
-
-        <Input
-          label="Setting"
-          placeholder="e.g., A dimly lit tavern at midnight"
-          value={setting}
-          onChange={(e) => setSetting(e.target.value)}
-          required
-        />
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Emotional tone
-            </label>
-            <select
-              value={tone}
-              onChange={(e) => setTone(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            >
-              {TONES.map((t) => (
-                <option key={t} value={t}>
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <Input
-            label="POV character (optional)"
-            placeholder="Whose eyes we see through"
-            value={pov}
-            onChange={(e) => setPov(e.target.value)}
-          />
-        </div>
-
-        <Input
-          label="Target word count"
-          type="number"
-          min={100}
-          max={3000}
-          value={wordCount}
-          onChange={(e) => setWordCount(parseInt(e.target.value, 10) || 0)}
-          helperText="Between 100 and 3000 words"
-        />
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Style notes (optional)
-          </label>
-          <textarea
-            value={styleNotes}
-            onChange={(e) => setStyleNotes(e.target.value)}
-            placeholder="e.g., Terse sentences, present tense, no adverbs"
-            rows={2}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          />
-        </div>
-
-        <div className="flex items-center space-x-3 pt-4">
-          <Button variant="outline" fullWidth onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            fullWidth
-            onClick={handleSubmit}
-            isLoading={submitting}
-            disabled={
-              characterNames.length === 0 ||
-              description.trim().length < 10 ||
-              !setting.trim()
-            }
-          >
-            <Wand2 className="h-4 w-4 mr-2" />
-            Generate
-          </Button>
-        </div>
-      </div>
-    </Modal>
-  )
 }
 
 // ---------------------------------------------------------------------------
@@ -791,6 +481,7 @@ function ChaptersSection({
       {/* Generate scene modal */}
       {generateFor && (
         <GenerateSceneModal
+          bookId={currentBook?.id ?? ''}
           chapter={generateFor}
           onClose={() => setGenerateFor(null)}
           onGenerated={onSceneGenerated}
@@ -972,6 +663,7 @@ function ScenesPanel({
 
       {genOpen && (
         <GenerateSceneModal
+          bookId={bookId}
           chapters={chapters}
           onClose={() => setGenOpen(false)}
           onGenerated={() => {

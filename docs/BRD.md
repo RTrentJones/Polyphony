@@ -222,7 +222,7 @@ silently cuts a string mid-sentence.
 
 ### 5.1 Fidelity (G1)
 
-- **R1.1** The complete synopsis, character canon, canon entries, and style guide reach the model on every generation. No truncation. No escaping. No pattern filtering.
+- **R1.1** The complete synopsis, character canon, canon entries, and style guide reach the model on every generation — outline (staged and single-call), scene beat planning and prose (both modes), continuity, and the ensemble's narrator and editor. No truncation. No escaping. No pattern filtering. A scene's cast is a set of characters of the book, validated at the API; an unknown name is rejected, never generated voice-blind.
 - **R1.2** Outline generation is staged — skeleton → chapters → beats — with the whole canon in context at each stage.
 - **R1.3** The skeleton stage must **restate the premise in its own words** before structuring. This surfaces a misreading (e.g. "the CEL is Corporeal Energy Logistics") at stage one, for the price of one call, instead of after twelve chapters are built on top of it.
 - **R1.4** **Hard gate — principal-cast recall.** Every character whose role is protagonist / antagonist / main must appear in the outline. Exact match on names and aliases: deterministic, free, no false positives. Below 1.0 → regenerate once → then warn. *"Elara" was a recall failure — the real protagonist was absent — and recall is the reliable signal.*

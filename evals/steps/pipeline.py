@@ -23,6 +23,41 @@ CORPORA = Path(__file__).resolve().parent.parent / "corpora"
 _KNOCK = "Say a few sentences reacting to an unexpected knock at the door, at night."
 
 
+def _cast_with_roles(gt: dict) -> list[dict]:
+    """The corpus cast as character payloads. Principals (when the corpus
+    declares fidelity principals) are marked protagonist so the app's
+    principal-cast gate has a real cast to enforce; everyone else is a
+    supporting role."""
+    principals = {
+        p["name"] for p in (gt.get("fidelity") or {}).get("principals", [])
+    } or set(gt.get("cast", [])[:3])
+    return [
+        {
+            "name": name,
+            "role": "protagonist" if name in principals else "supporting",
+            "description": f"{name}, from the corpus.",
+        }
+        for name in gt.get("cast", [])
+    ]
+
+
+async def _book_with_cast(ctx: StepContext, title: str, genre: str = "") -> dict:
+    """A book carrying the corpus synopsis AND its cast — the canon an author
+    would have. An eval book with no characters makes the fidelity gate vacuous."""
+    gt = ctx.ground_truth
+    book = await ctx.client.create_book(
+        title=title, synopsis=gt["synopsis"], genre=genre
+    )
+    ids = {}
+    for c in _cast_with_roles(gt):
+        created = await ctx.client.create_character(
+            c["name"], book["id"], role=c["role"], description=c["description"]
+        )
+        ids[c["name"]] = created["id"]
+    book["character_ids"] = ids
+    return book
+
+
 def load_corpus(book: str) -> tuple[str, dict]:
     d = CORPORA / book
     return (
@@ -32,18 +67,34 @@ def load_corpus(book: str) -> tuple[str, dict]:
 
 
 # --- Step 1: character extraction -----------------------------------------
+# Extraction PROPOSES canon for the author to review (docs/BRD.md R4.4), so the
+# thing to grade is the proposal set; the step then approves everything (as an
+# "approve all" author would) and checks the commit wrote exactly what was
+# proposed — the reviewed-commit contract.
 @step("extraction", needs_api=True)
 async def step_extraction(ctx: StepContext) -> dict:
     up = await ctx.client.upload_source(
         f"{ctx.book}.txt", ctx.corpus_text.encode("utf-8"), title=f"eval-{ctx.book}"
     )
-    status = await ctx.client.wait_source(up["id"])
-    if status.get("status") != "completed":
-        return {"error": f"source status {status.get('status')}", "score": 0.0}
-    predicted = [c["name"] for c in await ctx.client.source_characters(up["id"])]
+    run = await ctx.client.wait_extraction(up["book_id"], up["extraction_run_id"])
+    if run.get("status") != "ready":
+        return {
+            "error": f"extraction {run.get('status')}: {run.get('error') or ''}",
+            "score": 0.0,
+        }
+    proposals = run.get("proposals") or {}
+    predicted = [c["name"] for c in proposals.get("characters", [])]
     score = extraction.grade_extraction(predicted, ctx.ground_truth["cast"])
-    return {"predicted": predicted, **score.as_dict(), "score": score.f1}
-
+    await ctx.client.commit_extraction(
+        up["book_id"], up["extraction_run_id"], proposals
+    )
+    committed = sorted(c["name"] for c in await ctx.client.source_characters(up["id"]))
+    return {
+        "predicted": predicted,
+        **score.as_dict(),
+        "score": score.f1,
+        "commit_faithful": committed == sorted(set(predicted)),
+    }
 
 # --- Step 1b: ingestion voice quality (closes the manuscript→voice gap) -----
 # attribution/prose seed voice via the voice-samples API, bypassing the
@@ -54,21 +105,25 @@ async def step_extraction(ctx: StepContext) -> dict:
 _MIN_USABLE_CHUNKS = 3
 
 
+# --- Step 1b: ingestion voice quality (closes the manuscript→voice gap) -----
+# attribution/prose seed voice via the voice-samples API, bypassing the
+# manuscript chunking — so nothing measured whether an UPLOAD actually produces
+# usable per-character voice. This drives the whole author path: upload →
+# proposals → approve all → voice indexing job → per-character chunk counts.
+_MIN_USABLE_CHUNKS = 3
+
+
 @step("ingestion", needs_api=True)
 async def step_ingestion(ctx: StepContext) -> dict:
     # Append a marker so the content hash differs from the extraction step's
-    # upload of the same corpus (uploads are deduped per-user by content hash,
-    # so an identical re-upload 409s). Doesn't affect the chunking measured here.
+    # upload of the same corpus. Doesn't affect the chunking measured here.
     content = (ctx.corpus_text + "\n\n[[eval-ingestion-copy]]\n").encode("utf-8")
-    up = await ctx.client.upload_source(
-        f"{ctx.book}-ing.txt", content, title=f"eval-ing-{ctx.book}"
+    up, _run = await ctx.client.extract_and_commit(
+        f"{ctx.book}-ing.txt", content, f"eval-ing-{ctx.book}"
     )
-    status = await ctx.client.wait_source(up["id"])
-    if status.get("status") != "completed":
-        return {"error": f"source status {status.get('status')}", "score": 0.0}
-    chars = await ctx.client.source_characters(up["id"])
+    chars = await ctx.client.wait_voice_indexed(up["id"])
     if not chars:
-        return {"score": 0.0, "reason": "no characters extracted", "n_characters": 0}
+        return {"score": 0.0, "reason": "no characters committed", "n_characters": 0}
 
     detail, grounded, total_chunks = [], 0, 0
     for c in chars:
@@ -77,7 +132,7 @@ async def step_ingestion(ctx: StepContext) -> dict:
         total_chunks += n
         grounded += n >= _MIN_USABLE_CHUNKS
         detail.append({"name": c["name"], "chunks": n})
-    # score = fraction of the extracted cast that got a usable indexed voice.
+    # score = fraction of the committed cast that got a usable indexed voice.
     return {
         "score": round(grounded / len(chars), 4),
         "grounded": grounded,
@@ -86,11 +141,12 @@ async def step_ingestion(ctx: StepContext) -> dict:
         "detail": detail,
     }
 
-
 # --- Step 2: retrieval / voice separability (in-harness embeddings) --------
 @step("retrieval", needs_api=False)
 async def step_retrieval(ctx: StepContext) -> dict:
-    gold = ctx.ground_truth["gold_lines"]
+    gold = ctx.ground_truth.get("gold_lines") or {}
+    if not gold:
+        return {"skipped": True, "reason": "corpus has no gold voice lines"}
     pool_texts, pool_owner = [], []
     for char, v in gold.items():
         for ln in v["train"]:
@@ -119,14 +175,19 @@ async def step_retrieval(ctx: StepContext) -> dict:
 # --- Step 3: voice attribution (real generation + embedding) ---------------
 @step("attribution", needs_api=True)
 async def step_attribution(ctx: StepContext) -> dict:
-    gold = ctx.ground_truth["gold_lines"]
+    gold = ctx.ground_truth.get("gold_lines") or {}
+    if not gold:
+        return {"skipped": True, "reason": "corpus has no gold voice lines"}
     # reference centroids from held-out TEST lines (never the indexed train lines).
     ref_vecs = {c: await embed.embed_many(v["test"]) for c, v in gold.items()}
 
+    book = await ctx.client.create_book(
+        title=f"eval-attr-{ctx.book}", synopsis=ctx.ground_truth.get("synopsis", "")
+    )
     char_ids = {}
     for char, v in gold.items():
         created = await ctx.client.create_character(
-            char, description=f"Narrator: {char}"
+            char, book["id"], description=f"Narrator: {char}"
         )
         await ctx.client.add_voice_samples(
             created["id"], v["train"], chunk_type="dialogue"
@@ -162,41 +223,67 @@ async def step_attribution(ctx: StepContext) -> dict:
     }
 
 
-# --- Step 4: outline / plot coherence -------------------------------------
+# --- Step 4: outline / plot coherence + fidelity ---------------------------
+# The book carries the corpus synopsis AND cast (principals marked), so the
+# app's own principal-cast gate is live, and the score is gated on fidelity
+# when the corpus declares principals: a beautiful outline about the wrong story
+# scores ~0 (docs/BRD.md R1.4, §7).
 @step("outline", needs_api=True)
 async def step_outline(ctx: StepContext) -> dict:
+    from evals.graders.fidelity import grade_fidelity
+
     gt = ctx.ground_truth
-    book = await ctx.client.create_book(
-        title=f"eval-{gt['book']}", synopsis=gt["synopsis"], genre="gothic"
-    )
+    book = await _book_with_cast(ctx, f"eval-{gt['book']}", genre="")
 
     async def gen():
         plan = await ctx.client.generate_outline(
             book["id"], chapters_target=len(gt["canonical_beats"])
         )
-        return plan.get("content", [])
+        return {
+            "content": plan.get("content", []),
+            "status": plan.get("status"),
+            "warnings": plan.get("warnings", []),
+        }
 
-    nodes = await ctx.cache.memo("outline", gt["synopsis"], gen)
+    out = await ctx.cache.memo("outline", gt["synopsis"], gen)
+    nodes = out.get("content", []) if isinstance(out, dict) else (out or [])
     structural = bool(nodes) and all(n.get("title") for n in nodes)
     beats = "\n".join(f"- {b['title']} ({b['kind']})" for b in gt["canonical_beats"])
     outline_txt = "\n".join(
         f"{i + 1}. {n.get('title')}: {n.get('summary', '')}"
+        + "".join(
+            f"\n   - {c.get('title')}: {c.get('summary', '')}"
+            for c in n.get("children", [])
+        )
         for i, n in enumerate(nodes)
     )
     rubric = (
         "Does this generated outline recover the shape of the reference story — a "
         "clear inciting incident, rising complications, a midpoint turn, and a "
         f"climax? Reference beats:\n{beats}\nScore high only if most reference "
-        "beats are recognizably present and causally ordered."
+        "beats are recognizably present and causally ordered, AND the outline is "
+        "about the reference story's own characters (an invented protagonist "
+        "scores 0)."
     )
     j = await ctx.judge.score(rubric, outline_txt or "(empty outline)")
-    return {
+    result: dict = {
         "n_nodes": len(nodes),
         "structural_ok": structural,
-        "score": j.score if structural else 0.0,
+        "judge": j.score,
         "judge_explanation": j.explanation,
+        "plan_status": out.get("status") if isinstance(out, dict) else None,
+        "app_warnings": out.get("warnings") if isinstance(out, dict) else None,
     }
-
+    fid = gt.get("fidelity")
+    if fid:
+        fs = grade_fidelity(nodes, fid["principals"], set(fid["known"]))
+        result["cast_fidelity"] = fs.principal_recall
+        result["unknown_rate"] = fs.unknown_rate
+        result["missing_principals"] = fs.missing
+        result["score"] = round(fs.principal_recall * j.score, 4) if structural else 0.0
+    else:
+        result["score"] = j.score if structural else 0.0
+    return result
 
 # --- Step 5: continuity detection (constructed ground truth) ---------------
 # The prose fed to the checker is truncated to this window, so injections MUST be
@@ -209,6 +296,8 @@ _CONTINUITY_WINDOW = 12000
 @step("continuity", needs_api=True)
 async def step_continuity(ctx: StepContext) -> dict:
     gt = ctx.ground_truth
+    if not gt.get("continuity_injections"):
+        return {"skipped": True, "reason": "corpus has no continuity injections"}
     window = ctx.corpus_text[:_CONTINUITY_WINDOW]
     injected_text, expected = continuity.apply_injections(
         window, gt["continuity_injections"]
@@ -240,15 +329,17 @@ async def step_continuity(ctx: StepContext) -> dict:
 @step("prose", needs_api=True)
 async def step_prose(ctx: StepContext) -> dict:
     gt = ctx.ground_truth
-    cast = list(gt["gold_lines"])[:2]
-    book = await ctx.client.create_book(
-        title=f"eval-prose-{gt['book']}", synopsis=gt["synopsis"]
-    )
+    cast = (list(gt.get("gold_lines") or {}) or list(gt.get("cast", [])))[:2]
+    book = await _book_with_cast(ctx, f"eval-prose-{gt['book']}")
     chapter = await ctx.client.create_chapter(
-        book["id"], "An encounter", summary="two narrators meet"
+        book["id"], "An encounter", summary="two of the leads meet"
     )
+    # Two leads that exist in the book's cast (names the API resolves to ids).
+    cast = [c for c in cast if c in book["character_ids"]] or list(
+        book["character_ids"]
+    )[:2]
     body = {
-        "characters": cast,
+        "character_ids": [book["character_ids"][c] for c in cast],
         "scene_description": "The two meet at night and argue about whether to press on.",
         "setting": "a fog-bound street",
         "emotional_tone": "tense",
@@ -285,8 +376,11 @@ async def step_prose(ctx: StepContext) -> dict:
         f"Characters: {', '.join(cast)}."
     )
     j = await ctx.judge.score(rubric, prose)
+    named = [c for c in cast if c.split()[0] in prose]
     return {
         "score": j.score,
         "judge_explanation": j.explanation,
         "words": len(prose.split()),
+        "cast_named": len(named) / max(1, len(cast)),
     }
+

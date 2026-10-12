@@ -64,6 +64,53 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://postgres:ci_password_12345@localhost:5432/polyphony_test
         run: python -m pytest tests/integration -m integration -o addopts="" -q
 
+  # The REAL app, end to end, against the deterministic stub LLM
+  # (evals/stub_llm.py): upload -> extraction proposals -> reviewed commit ->
+  # voice indexing -> staged outline -> scene -> continuity, through the HTTP
+  # API. Free (no key, no quota), so it gates every PR — including the BRD §7
+  # fidelity gate on the `cel` corpus (cast_fidelity >= 0.9). The stub answers
+  # only from what the prompt contains, so a pipeline that stops delivering the
+  # canon to the model fails here.
+  e2e:
+    name: End-to-end (stub LLM)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: ci_password_12345
+          POSTGRES_DB: polyphony_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      SECRET_KEY: ci_secret_key_minimum_32_characters_long
+      DATABASE_URL: postgresql+asyncpg://postgres:ci_password_12345@localhost:5432/polyphony_e2e
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install system deps (libmagic for upload sniffing)
+        run: sudo apt-get update && sudo apt-get install -y libmagic1
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run end-to-end flows + gates
+        run: scripts/e2e_stub.sh
+      - name: Upload reports + logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-${{ github.run_id }}
+          path: |
+            eval-report-e2e-*.json
+            e2e-*.log
+          if-no-files-found: warn
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

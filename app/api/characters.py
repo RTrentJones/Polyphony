@@ -96,11 +96,15 @@ async def _owned_character(
 
 @router.get("/", response_model=dict)
 async def list_characters(
+    book_id: Optional[UUID] = None,
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """All of the current user's characters (extracted and manual)."""
-    result = await db.execute(_owned_select(current_user).order_by(CharacterORM.name))
+    """The current user's characters, optionally one book's cast."""
+    query = _owned_select(current_user)
+    if book_id is not None:
+        query = query.where(CharacterORM.book_id == book_id)
+    result = await db.execute(query.order_by(CharacterORM.name))
     characters = result.scalars().all()
     return {
         "characters": [

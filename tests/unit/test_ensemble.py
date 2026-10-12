@@ -168,6 +168,12 @@ class TestModeGating:
                 headers=auth_headers,
             )
         ).json()
+        # A scene's cast must exist in the book (SPEC-01).
+        await client.post(
+            "/api/v1/characters/",
+            json={"name": "Milo", "book_id": book["id"]},
+            headers=auth_headers,
+        )
         return chapter["id"]
 
     async def _enqueued_kind(self, async_session):

@@ -39,6 +39,13 @@ class TestChapterSceneGenerateEnqueues:
                 headers=auth_headers,
             )
         ).json()
+        mina = (
+            await client.post(
+                "/api/v1/characters/",
+                json={"name": "Mina", "book_id": book["id"]},
+                headers=auth_headers,
+            )
+        ).json()
 
         r = await client.post(
             f"/api/v1/books/chapters/{chapter['id']}/scenes/generate",
@@ -60,6 +67,8 @@ class TestChapterSceneGenerateEnqueues:
         assert job.payload["scene_id"] == body["scene_id"]
         assert job.payload["book_id"] == book["id"]
         assert job.payload["chapter_summary"] == "The beginning."
+        # The cast is resolved to the book's character ids (SPEC-01).
+        assert job.payload["request"]["character_ids"] == [mina["id"]]
 
 
 @pytest.mark.integration

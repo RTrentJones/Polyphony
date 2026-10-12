@@ -338,7 +338,12 @@ async def run_ensemble_scene_workflow(
         else:
             canon_context = ""
 
-        beats = await plan_scene_beats(scene_request, user_id)
+        beats = await plan_scene_beats(
+            scene_request,
+            user_id,
+            canon_block=canon_context,
+            chapter_summary=chapter_summary,
+        )
         prose_parts: list[str] = []
         evaluations: list[dict] = []
         prior_tail = prior_scene_tail

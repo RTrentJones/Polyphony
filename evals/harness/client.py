@@ -97,13 +97,19 @@ class PolyphonyClient:
         raise EvalClientError(f"poll timed out: {path}")
 
     # -- sources / characters ----------------------------------------------
-    async def upload_source(self, filename: str, content: bytes, title: str) -> dict:
+    async def upload_source(
+        self, filename: str, content: bytes, title: str, book_id: str | None = None
+    ) -> dict:
         # No book_id → the endpoint auto-creates a book for the upload. The
-        # returned dict carries both the source id and its book_id.
+        # returned dict carries the source id, its book_id and the extraction
+        # run it started (extraction PROPOSES; nothing is canon until commit).
+        params = {"title": title}
+        if book_id:
+            params["book_id"] = book_id
         r = await self._post(
             "/api/v1/sources/upload",
             files={"file": (filename, content, "text/plain")},
-            params={"title": title},
+            params=params,
         )
         if r.status_code not in (200, 201):
             raise EvalClientError(f"upload failed ({r.status_code}): {r.text[:400]}")
@@ -121,13 +127,72 @@ class PolyphonyClient:
         r.raise_for_status()
         return r.json()["characters"]
 
+    # -- extraction: propose -> review -> commit -----------------------------
+    async def wait_extraction(
+        self, book_id: str, run_id: str, timeout: float = 600
+    ) -> dict:
+        """Poll an extraction run until it has proposals (or failed)."""
+        return await self.poll(
+            f"/api/v1/books/{book_id}/extractions/{run_id}",
+            lambda b: b.get("status") in ("ready", "failed", "committed"),
+            timeout=timeout,
+        )
+
+    async def commit_extraction(
+        self, book_id: str, run_id: str, proposals: dict, *, synopsis: bool = False
+    ) -> dict:
+        """Approve every proposed character and canon entry exactly as proposed
+        (what an author who clicks "approve all" does)."""
+        body: dict = {
+            "characters": proposals.get("characters", []),
+            "canon_entries": proposals.get("canon_entries", []),
+        }
+        if synopsis and proposals.get("synopsis"):
+            body["synopsis"] = proposals["synopsis"]
+        r = await self._post(
+            f"/api/v1/books/{book_id}/extractions/{run_id}/commit", json=body
+        )
+        if r.status_code != 200:
+            raise EvalClientError(f"commit failed ({r.status_code}): {r.text[:400]}")
+        return r.json()
+
+    async def extract_and_commit(
+        self, filename: str, content: bytes, title: str
+    ) -> tuple[dict, dict]:
+        """Upload → wait for proposals → approve all. Returns (upload, run)."""
+        up = await self.upload_source(filename, content, title)
+        run = await self.wait_extraction(up["book_id"], up["extraction_run_id"])
+        if run.get("status") != "ready":
+            raise EvalClientError(
+                f"extraction {run.get('status')}: {run.get('error') or ''}"
+            )
+        await self.commit_extraction(
+            up["book_id"], up["extraction_run_id"], run.get("proposals") or {}
+        )
+        return up, run
+
+    async def wait_voice_indexed(
+        self, source_id: str, timeout: float = 300
+    ) -> list[dict]:
+        """Poll the source's cast until every character has been voice-indexed."""
+        deadline = time.monotonic() + timeout
+        chars: list[dict] = []
+        while time.monotonic() < deadline:
+            chars = await self.source_characters(source_id)
+            if chars and all(c.get("indexed_at") for c in chars):
+                return chars
+            await asyncio.sleep(2)
+        return chars
+
     async def get_character(self, character_id: str) -> dict:
         r = await self._get(f"/api/v1/characters/{character_id}")
         r.raise_for_status()
         return r.json()
 
-    async def create_character(self, name: str, **fields) -> dict:
-        r = await self._post("/api/v1/characters/", json={"name": name, **fields})
+    async def create_character(self, name: str, book_id: str, **fields) -> dict:
+        r = await self._post(
+            "/api/v1/characters/", json={"name": name, "book_id": book_id, **fields}
+        )
         if r.status_code not in (200, 201):
             raise EvalClientError(
                 f"create character failed ({r.status_code}): {r.text[:400]}"
@@ -169,14 +234,51 @@ class PolyphonyClient:
             )
         return r.json()
 
-    async def generate_outline(self, book_id: str, chapters_target: int = 8) -> dict:
+    async def generate_outline(
+        self, book_id: str, chapters_target: int = 8, timeout: float = 900
+    ) -> dict:
+        """Generate an outline and return the finished plan.
+
+        The staged generator runs as a background job and answers with a job
+        handle, so poll the book's plans until the outline is no longer
+        generating. (Reading `content` straight off the POST response is what
+        pinned the outline eval at 0 after the staged generator shipped.)"""
         r = await self._post(
             f"/api/v1/books/{book_id}/plans/generate",
             json={"kind": "outline", "chapters_target": chapters_target},
         )
         if r.status_code != 200:
             raise EvalClientError(f"outline failed ({r.status_code}): {r.text[:400]}")
-        return r.json()
+        started = r.json()
+        if "content" in started and started.get("status", "ready") == "ready":
+            return started
+        plans = await self.poll(
+            f"/api/v1/books/{book_id}/plans",
+            lambda b: any(
+                p.get("kind") == "outline"
+                and p.get("status") in ("ready", "failed", "awaiting_confirmation")
+                for p in b.get("plans", [])
+            ),
+            timeout=timeout,
+        )
+        plan = next(p for p in plans["plans"] if p.get("kind") == "outline")
+        if plan.get("status") == "awaiting_confirmation":
+            await self._post(
+                f"/api/v1/books/{book_id}/plans/{plan['id']}/confirm-premise", json={}
+            )
+            return await self.generate_outline_wait(book_id, timeout)
+        return plan
+
+    async def generate_outline_wait(self, book_id: str, timeout: float = 900) -> dict:
+        plans = await self.poll(
+            f"/api/v1/books/{book_id}/plans",
+            lambda b: any(
+                p.get("kind") == "outline" and p.get("status") in ("ready", "failed")
+                for p in b.get("plans", [])
+            ),
+            timeout=timeout,
+        )
+        return next(p for p in plans["plans"] if p.get("kind") == "outline")
 
     async def create_chapter(self, book_id: str, title: str, summary: str = "") -> dict:
         r = await self._post(

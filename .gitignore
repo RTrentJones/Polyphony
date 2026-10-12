@@ -96,3 +96,9 @@ Dockerfile.sandbox
 .eval-cache/
 eval-report.json
 gl-export.json
+
+# local e2e / eval outputs
+eval-report-*.json
+gl-export-*.json
+e2e-*.log
+.eval-cache/

@@ -380,8 +380,11 @@ class Scene(Base):
     title = Column(String(500))
     setting = Column(Text)
     emotional_tone = Column(String(100))
-    # JSON (not ARRAY) so sqlite test databases work too
+    # JSON (not ARRAY) so sqlite test databases work too. `characters` holds the
+    # display names; `character_ids` the validated cast (SPEC-01) — a scene's
+    # cast is resolved against its book at the API, never free text.
     characters = Column(JSON)
+    character_ids = Column(JSON)
     scene_description = Column(Text)
     scene_request = Column(JSON)
     generated_content = Column(Text)  # immutable generation output

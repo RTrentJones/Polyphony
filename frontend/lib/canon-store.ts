@@ -136,7 +136,10 @@ export const canonApi = {
 
   async listCharacters(bookId: string): Promise<Character[]> {
     try {
-      const { data } = await apiClient.get<{ characters: Character[] }>('/characters/')
+      const { data } = await apiClient.get<{ characters: Character[] }>(
+        '/characters/',
+        { params: { book_id: bookId } }
+      )
       return data.characters.filter((c) => c.book_id === bookId)
     } catch (err) {
       throw toApiError(err)
