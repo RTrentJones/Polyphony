@@ -57,7 +57,8 @@ Groq, xAI, OpenAI) — one `openai` SDK client parameterized by `base_url`.
 Select with env config, no code changes:
 
 ```
-LLM_PROVIDER=gemini          # default; needs GEMINI_API_KEY
+LLM_PROVIDER=gemini          # default; needs GEMINI_API_KEY (stub = local tests)
+LLM_TIER=free                # the one graduation switch: free | paid
 LLM_MODEL=                   # optional override (default gemini-2.5-flash)
 LLM_MODEL_FAST=              # optional override (default gemini-2.5-flash-lite)
 ```
@@ -108,7 +109,27 @@ make preview                 # compose profile preview: the as-shipped image
 ```
 
 The frontend in dev: `cd frontend && npm install && npm run dev` (talks to
-`localhost:8000` via the Next.js rewrite).
+`localhost:8000` via the Next.js rewrite). Frontend checks: `npm run type-check`,
+`npm run lint`, `npm test` (Vitest), `npm run build`.
+
+### End to end, with no API key
+
+`evals/stub_llm.py` is a deterministic, OpenAI-compatible stub model that answers
+only from what each prompt contains, so the whole app can run end to end with no
+key, no quota and no cost — and a pipeline that stops delivering the canon to the
+model fails visibly. `LLM_PROVIDER=stub` selects it.
+
+```bash
+# needs an empty pgvector database at $DATABASE_URL
+scripts/e2e_stub.sh                         # API flows + eval gates (cel fidelity, dracula)
+(cd frontend && npm ci && npm run build)
+RUN_BROWSER_E2E=1 scripts/e2e_stub.sh       # …plus the Playwright browser journey
+```
+
+CI runs the same script on every PR (`test.yml` → `e2e`). The live-model evals
+(`evals.yml`) are dispatched on demand and gate on `cast_fidelity >= 0.9` for the
+`cel` corpus. Specs for in-flight work live in [docs/specs](docs/specs/README.md);
+parallel work follows [docs/specs/PARALLEL-WORK.md](docs/specs/PARALLEL-WORK.md).
 
 ## Ship
 
