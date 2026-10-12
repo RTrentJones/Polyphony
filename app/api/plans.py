@@ -518,54 +518,6 @@ async def add_thread_event(
 # --- Continuity ---------------------------------------------------------------------
 
 
-async def _build_fact_sheet(book: BookORM, db: AsyncSession) -> str:
-    """Bible + open threads + chapter summaries — what the prose must not contradict."""
-    characters = (
-        (await db.execute(select(CharacterORM).where(CharacterORM.book_id == book.id)))
-        .scalars()
-        .all()
-    )
-    threads = (
-        (
-            await db.execute(
-                select(PlotThreadORM).where(
-                    PlotThreadORM.book_id == book.id,
-                    PlotThreadORM.status == "open",
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    chapters = (
-        (
-            await db.execute(
-                select(ChapterORM)
-                .where(ChapterORM.book_id == book.id)
-                .order_by(ChapterORM.position)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    parts = [f"Book: {book.title}. {book.synopsis or ''}"]
-    if characters:
-        parts.append("Characters:")
-        parts.extend(
-            f"- {c.name}: {c.role or ''}; {c.description or ''}; goals: {c.goals or ''}"
-            for c in characters
-        )
-    if threads:
-        parts.append("Open plot threads:")
-        parts.extend(f"- {t.name}: {t.description or ''}" for t in threads)
-    if chapters:
-        parts.append("Chapter summaries so far:")
-        parts.extend(
-            f"- Ch{c.position + 1} {c.title}: {c.summary or ''}" for c in chapters
-        )
-    return "\n".join(parts)
-
-
 async def _collect_prose(
     book_id: UUID, chapter_id: UUID | None, db: AsyncSession
 ) -> str:
@@ -605,6 +557,25 @@ async def start_continuity_check(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No prose to check yet",
+        )
+    # Preflight (SPEC-02, BRD R7.3): every chunk carries the whole fact sheet, so
+    # a whole-book check on a big canon is expensive. Refuse with the estimate
+    # rather than half-check the book.
+    from app.planning.continuity import build_fact_sheet, chunk_prose
+
+    fact_sheet = await build_fact_sheet(db, book.id)
+    chunks = chunk_prose(prose)
+    estimate = len(chunks) * estimate_tokens(len(fact_sheet) + len(chunks[0]) + 2000)
+    remaining = await remaining_budget_24h(db, current_user.id)
+    if estimate > remaining:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "message": "Not enough of today's budget left for this check. "
+                "Try checking one chapter instead.",
+                "estimate_tokens": estimate,
+                "remaining_tokens": remaining,
+            },
         )
 
     from app.llm.providers import active_provider, resolve_model
@@ -663,6 +634,7 @@ async def list_continuity_reports(
                 "chapter_id": str(r.chapter_id) if r.chapter_id else None,
                 "status": r.status,
                 "findings": r.findings,
+                "coverage": getattr(r, "coverage", None),
                 "model": r.model,
                 "tokens_used": r.tokens_used,
                 "created_at": r.created_at.isoformat() if r.created_at else None,

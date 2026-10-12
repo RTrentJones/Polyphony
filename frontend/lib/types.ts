@@ -679,8 +679,10 @@ export interface ContinuityReport {
   id: string
   scope: 'book' | 'chapter' | string
   chapter_id: string | null
-  status: 'processing' | 'completed' | 'failed' | string
+  status: 'processing' | 'paused' | 'completed' | 'incomplete' | 'failed' | string
   findings: ContinuityFinding[] | null
+  /** Which sections were actually checked (SPEC-02). */
+  coverage?: { chunks_checked: number; chunks_total: number; unchecked: string[] } | null
   model?: string | null
   tokens_used?: number | null
   created_at: string | null

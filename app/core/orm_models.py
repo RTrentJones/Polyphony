@@ -563,7 +563,12 @@ class ContinuityReport(Base):
         nullable=True,
     )
     scope = Column(String(20), nullable=False, default="chapter")  # chapter | book
+    # processing | paused | completed | incomplete | failed | cancelled.
+    # "incomplete" = some sections could not be checked (SPEC-02): never
+    # reported as a clean bill of health.
     status = Column(String(20), nullable=False, default="processing")
+    # {"chunks_checked", "chunks_total", "unchecked": [labels]}
+    coverage = Column(JSON)
     # [{"type": "timeline|character|object|thread", "severity", "detail", "refs"}]
     findings = Column(JSON)
     model = Column(String(100))

@@ -1418,7 +1418,7 @@ function ContinuityPanel({
     pollTimer.current = setTimeout(async () => {
       try {
         const latest = await fetchContinuityReports(bookId)
-        if (latest.some((r) => r.status === 'processing')) {
+        if (latest.some((r) => r.status === 'processing' || r.status === 'paused')) {
           schedulePoll()
         }
       } catch {
@@ -1430,7 +1430,8 @@ function ContinuityPanel({
   useEffect(() => {
     fetchContinuityReports(bookId)
       .then((latest) => {
-        if (latest.some((r) => r.status === 'processing')) schedulePoll()
+        if (latest.some((r) => r.status === 'processing' || r.status === 'paused'))
+          schedulePoll()
       })
       .catch((err: any) => {
         addToast(err.message || 'Failed to load continuity reports', 'error')
@@ -1510,8 +1511,10 @@ function ContinuityPanel({
                   className={`px-2 py-0.5 text-xs font-medium rounded-full ${
                     report.status === 'completed'
                       ? 'bg-green-100 text-green-700'
-                      : report.status === 'processing'
+                      : report.status === 'processing' || report.status === 'paused'
                       ? 'bg-yellow-100 text-yellow-700'
+                      : report.status === 'incomplete'
+                      ? 'bg-amber-100 text-amber-800'
                       : 'bg-red-100 text-red-700'
                   }`}
                 >
@@ -1534,14 +1537,32 @@ function ContinuityPanel({
                 )}
               </div>
 
+              {report.status === 'incomplete' && report.coverage && (
+                <p className="text-sm text-amber-700 mb-2" data-testid="coverage">
+                  Checked {report.coverage.chunks_checked} of{' '}
+                  {report.coverage.chunks_total} sections — the rest could not be
+                  checked ({report.coverage.unchecked.join(', ')}). Run it again to
+                  cover them.
+                </p>
+              )}
               {report.status === 'processing' ? (
                 <Loading size="sm" text="Checking prose..." />
+              ) : report.status === 'paused' ? (
+                <p className="text-sm text-indigo-700">
+                  Waiting for AI quota — the check resumes automatically.
+                </p>
               ) : report.status === 'failed' ? (
                 <p className="text-sm text-red-600">This check failed — try again.</p>
               ) : !report.findings || report.findings.length === 0 ? (
+                report.status === 'incomplete' ? (
+                  <p className="text-sm text-gray-600">
+                    No contradictions in the sections that were checked.
+                  </p>
+                ) : (
                 <p className="text-sm text-green-700">
                   No contradictions found. Clean pass.
                 </p>
+                )
               ) : (
                 <div className="space-y-2">
                   {sortedFindings(report.findings).map((finding, i) => (

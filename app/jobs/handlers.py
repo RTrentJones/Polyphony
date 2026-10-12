@@ -179,9 +179,9 @@ async def _run_extract_canon(payload: dict) -> None:
 async def _run_continuity(payload: dict) -> None:
     # Lazy imports: plans (router module) imports app.jobs.repository, so
     # importing it at module scope here would be a cycle.
-    from app.api.plans import _build_fact_sheet, _collect_prose
+    from app.api.plans import _collect_prose
     from app.core.orm_models import Book
-    from app.planning.continuity import run_continuity_check
+    from app.planning.continuity import build_fact_sheet, run_continuity_check
 
     report_id = UUID(payload["report_id"])
     async with get_async_session() as session:
@@ -191,21 +191,25 @@ async def _run_continuity(payload: dict) -> None:
         book = await session.get(Book, report.book_id)
         if book is None:
             return
+        if report.status == "paused":
+            report.status = "processing"
+            await session.commit()
         prose = await _collect_prose(report.book_id, report.chapter_id, session)
-        fact_sheet = await _build_fact_sheet(book, session)
+        fact_sheet = await build_fact_sheet(session, report.book_id)
 
     # LLM work happens outside any session. An exception here fails the job;
     # retry/backoff and the on_dead report flip are the worker's business.
-    findings, tokens = await run_continuity_check(
-        prose, fact_sheet, UUID(payload["user_id"])
-    )
+    result = await run_continuity_check(prose, fact_sheet, UUID(payload["user_id"]))
 
     async with get_async_session() as session:
         report = await session.get(ContinuityReport, report_id)
         if report is not None:
-            report.findings = findings
-            report.tokens_used = tokens
-            report.status = "completed"
+            report.findings = result.findings
+            report.tokens_used = result.tokens
+            report.coverage = result.coverage
+            # "incomplete" when a section could not be checked — never a
+            # silent clean bill of health (SPEC-02).
+            report.status = result.status
             await session.commit()
 
 
