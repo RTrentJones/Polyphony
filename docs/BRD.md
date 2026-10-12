@@ -254,7 +254,10 @@ be re-examined, not inherited.**
 
 ### 5.3 Book as root (G2)
 
-- **R3.1** `characters.book_id` is `NOT NULL`, `ON DELETE CASCADE`.
+- **R3.1** `characters.book_id` is `NOT NULL`, `ON DELETE CASCADE`. So is `scenes.book_id`:
+  a scene goes with its book (and its beats and revisions with it), and deleting a chapter
+  never silently orphans prose — the author moves its scenes to another chapter or deletes
+  them, and a bare delete of a chapter with scenes is refused (409). *(SPEC-04)*
 - **R3.2** Character names are unique within a book. *(Today manual characters have no uniqueness at all: the index is keyed on a NULL `manuscript_id`, and NULLs are distinct in Postgres. Cast fidelity depends on fixing this.)*
 - **R3.3** Voice chunks carry `book_id` and retrieval can filter by it.
 - **R3.4** Characters and sources are reached through the book in the UI, not as top-level routes.

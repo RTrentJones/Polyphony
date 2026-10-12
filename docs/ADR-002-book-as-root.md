@@ -32,6 +32,11 @@ gives manual characters *any* name uniqueness at all (the old index keyed on a N
 The FK direction is load-bearing: `NOT NULL` + `ON DELETE SET NULL` would violate the constraint
 and 500 the book-delete endpoint. It must be `CASCADE`.
 
+*Note (SPEC-04):* scenes were the last concept outside this rule — they reached a book only
+through a nullable `chapter_id` with `ON DELETE SET NULL`. `scenes.book_id` is now `NOT NULL,
+ON DELETE CASCADE` (`Book.scenes`, `passive_deletes=True`), every scene read authorises through
+the book, and chapter delete asks whether to move or delete the chapter's scenes.
+
 ### 2. `Manuscript` is rolled into `Source`
 A manuscript and a pile of pasted notes are the same thing: raw material that arrived somehow.
 They become one entity, `Source` (`kind`: `upload` | `paste`), scoped `book_id NOT NULL`. The

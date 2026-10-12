@@ -14,6 +14,7 @@ product's whole history.
 |---|---|---|---|
 | Book: title, author, genre, synopsis, status | — | ✅ | `synopsis` is unbounded `Text`; needs an editor sized for real prose (R5.1) |
 | Characters scoped to exactly one book | R3.1 | ⬜ | `book_id` → `NOT NULL CASCADE`. Today the column exists and **no code writes it** |
+| Scenes scoped to exactly one book | R3.1 | ✅ | `scenes.book_id NOT NULL CASCADE` (SPEC-04); chapter delete moves or deletes its scenes, never orphans them |
 | Character names unique within a book | R3.2 | ⬜ | Today manual characters have **no uniqueness at all** (index keyed on NULL `manuscript_id`) |
 | Character bible fields (role, goals, arc, relationships, traits, voice, notes) | — | ✅ | Exist on the model; `goals`/`arc`/`relationships`/`notes` are **dropped** by the outline's bible renderer |
 | Canon entries (categorised worldbuilding) | — | ⬜ | `category`: world / location / faction / item / concept / org |
@@ -145,6 +146,6 @@ product's whole history.
 | Background jobs (lock, retry, dead-letter) | ✅ | `available_at` already exists — the pause/resume mechanism |
 | One container, one Postgres (+pgvector) | ✅ | ADR-001 |
 | Explicit-DDL migration baseline | ⬜ | `0001`'s `create_all` **drifts with the ORM**; the trap already bit `0006` |
-| Book-scoped UI (characters + sources under the book) | ⬜ | Today both are top-level routes with zero book awareness |
+| Book-scoped UI (characters + sources + scenes under the book) | 🚧 | Scenes are book-rooted and listed per book (SPEC-04); deleting a chapter asks where its scenes go. `/scenes/` stays only as an authenticated list of scenes reachable through the user's books |
 | `BookProvider` in the frontend | ⬜ | Minimal — `?id=` is prop-drilled today; resist a grand refactor |
 | Prometheus metrics, health, `/__version` SHA gate | ✅ | |

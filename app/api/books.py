@@ -8,11 +8,12 @@ from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Query,
     Response,
     status,
 )
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -41,6 +42,7 @@ from app.exports.builder import (
 )
 from app.jobs import repository as jobs_repo
 from app.llm.tier import get_tier
+from app.versioning.scenes import snapshot_before_delete
 from app.versioning.synopsis import record_synopsis
 
 router = APIRouter()
@@ -145,6 +147,28 @@ async def _owned_chapter(
             status_code=status.HTTP_404_NOT_FOUND, detail="Chapter not found"
         )
     return chapter
+
+
+async def owned_scene(scene_id: UUID, user: UserORM, db: AsyncSession, *options):
+    """A scene, authorised through its book (SPEC-04): the book is the root, and
+    `Scene.user_id` stays as the tenant guard. 404 for anyone else's scene."""
+    scene = (
+        await db.execute(
+            select(SceneORM)
+            .options(*options)
+            .join(BookORM, SceneORM.book_id == BookORM.id)
+            .where(
+                SceneORM.id == scene_id,
+                BookORM.user_id == user.id,
+                SceneORM.user_id == user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not scene:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Scene not found"
+        )
+    return scene
 
 
 async def _renumber_two_phase(db: AsyncSession, ordered: list) -> None:
@@ -455,13 +479,69 @@ async def move_chapter(
 @router.delete("/chapters/{chapter_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_chapter(
     chapter_id: UUID,
+    scenes: Optional[str] = Query(None, pattern="^(move|delete)$"),
+    to: Optional[UUID] = None,
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Delete a chapter without silently orphaning its prose (SPEC-04).
+
+    A chapter with scenes needs `?scenes=move&to={chapter_id}` (they are appended
+    to that chapter of the same book, in order) or `?scenes=delete` (each scene's
+    prose is kept in entity_versions first). Neither → 409 with the count, so the
+    UI can ask the author; nothing changes.
+    """
     chapter = await _owned_chapter(chapter_id, current_user, db)
+    owned = await _chapter_scenes(db, chapter.id)
+    if owned and scenes is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "Chapter has scenes: move them to another chapter "
+                "(scenes=move&to=<chapter_id>) or delete them (scenes=delete).",
+                "scene_count": len(owned),
+            },
+        )
+    if owned and scenes == "move":
+        if to is None or to == chapter.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="scenes=move needs `to`: another chapter of this book",
+            )
+        target = await _owned_chapter(to, current_user, db)
+        if target.book_id != chapter.book_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Scenes can only move to a chapter of the same book",
+            )
+        # Read the target's scenes BEFORE re-parenting: an autoflush of the new
+        # chapter_id with the old positions could collide on the UNIQUE.
+        ordered = [*await _chapter_scenes(db, target.id), *owned]
+        for s in owned:
+            s.chapter_id = target.id
+        await _renumber_two_phase(db, ordered)
+    elif owned:
+        for s in owned:
+            await snapshot_before_delete(db, s, created_by=current_user.id)
+            await db.delete(s)
+    await db.flush()
     await db.delete(chapter)
     await db.commit()
     return None
+
+
+async def _chapter_scenes(db: AsyncSession, chapter_id: UUID) -> list:
+    return list(
+        (
+            await db.execute(
+                select(SceneORM)
+                .where(SceneORM.chapter_id == chapter_id)
+                .order_by(SceneORM.position)
+            )
+        )
+        .scalars()
+        .all()
+    )
 
 
 # --- Book-scoped scenes -----------------------------------------------------------
@@ -473,24 +553,14 @@ async def list_book_scenes(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Every scene that belongs to this book — those drafted into a chapter AND
-    standalone source-based scenes — so nothing generated is invisible. A scene is
-    the book's if its chapter is in the book OR its source is (book is the root;
-    scenes reach it through either)."""
+    """Every scene of this book — filed in a chapter or not — so nothing
+    generated is invisible. Scenes carry their book (SPEC-04)."""
     await _owned_book(book_id, current_user, db)
-    chapter_ids = select(ChapterORM.id).where(ChapterORM.book_id == book_id)
-    source_ids = select(SourceORM.id).where(SourceORM.book_id == book_id)
     scenes = (
         (
             await db.execute(
                 select(SceneORM)
-                .where(
-                    SceneORM.user_id == current_user.id,
-                    or_(
-                        SceneORM.chapter_id.in_(chapter_ids),
-                        SceneORM.source_id.in_(source_ids),
-                    ),
-                )
+                .where(SceneORM.book_id == book_id)
                 .order_by(SceneORM.created_at.desc())
             )
         )
@@ -600,6 +670,7 @@ async def generate_scene_into_chapter(
         ).scalar_one() + 1
         scene = SceneORM(
             user_id=current_user.id,
+            book_id=UUID(book_id),
             source_id=payload.source_id,
             chapter_id=chapter_id,
             position=next_pos,
@@ -674,7 +745,8 @@ async def create_manual_scene(
     /scenes/{id}/content. A scene created with content is immediately part of
     the chapter's prose (continuity/export read it), so status is 'completed'
     when content is supplied, else 'draft'."""
-    await _owned_chapter(chapter_id, current_user, db)
+    chapter = await _owned_chapter(chapter_id, current_user, db)
+    book_id = chapter.book_id  # a plain value survives a rollback below
     content = payload.content or ""
     # Append with a one-shot retry on position conflict (see create_chapter).
     for attempt in (1, 2):
@@ -687,6 +759,7 @@ async def create_manual_scene(
         ).scalar_one() + 1
         scene = SceneORM(
             user_id=current_user.id,
+            book_id=book_id,
             chapter_id=chapter_id,
             position=next_pos,
             title=payload.title,
@@ -728,17 +801,7 @@ async def update_scene_content(
     db: AsyncSession = Depends(get_db),
 ):
     """Save an edit to the draft prose, snapshotting the previous state."""
-    scene = (
-        await db.execute(
-            select(SceneORM).where(
-                SceneORM.id == scene_id, SceneORM.user_id == current_user.id
-            )
-        )
-    ).scalar_one_or_none()
-    if not scene:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Scene not found"
-        )
+    scene = await owned_scene(scene_id, current_user, db)
 
     previous = scene_text(scene)
     if previous:
@@ -767,17 +830,9 @@ async def list_scene_revisions(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    scene = (
-        await db.execute(
-            select(SceneORM)
-            .options(selectinload(SceneORM.revisions))
-            .where(SceneORM.id == scene_id, SceneORM.user_id == current_user.id)
-        )
-    ).scalar_one_or_none()
-    if not scene:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Scene not found"
-        )
+    scene = await owned_scene(
+        scene_id, current_user, db, selectinload(SceneORM.revisions)
+    )
     return {
         "scene_id": str(scene.id),
         "revisions": [
@@ -801,14 +856,8 @@ async def move_scene(
     db: AsyncSession = Depends(get_db),
 ):
     """Reorder a scene within its chapter."""
-    scene = (
-        await db.execute(
-            select(SceneORM).where(
-                SceneORM.id == scene_id, SceneORM.user_id == current_user.id
-            )
-        )
-    ).scalar_one_or_none()
-    if not scene or scene.chapter_id is None:
+    scene = await owned_scene(scene_id, current_user, db)
+    if scene.chapter_id is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Scene not found in a chapter",
