@@ -116,6 +116,31 @@ async def _owned_job(job_id: UUID, user: UserORM, db: AsyncSession) -> JobORM:
     return job
 
 
+@router.get("/jobs", response_model=dict)
+async def list_active_jobs(
+    current_user: UserORM = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The author's queued, running and paused jobs, oldest first — the Usage
+    page's "what is waiting for quota" list (SPEC-12)."""
+    rows = (
+        (
+            await db.execute(
+                select(JobORM)
+                .where(
+                    JobORM.user_id == current_user.id,
+                    JobORM.status.in_(("queued", "running")),
+                )
+                .order_by(JobORM.created_at, JobORM.id)
+                .limit(50)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {"jobs": [job_view(j) for j in rows]}
+
+
 @router.get("/jobs/{job_id}", response_model=dict)
 async def get_job(
     job_id: UUID,

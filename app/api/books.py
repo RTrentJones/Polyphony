@@ -754,12 +754,23 @@ async def generate_scene_into_chapter(
                 )
     await db.refresh(scene)
 
+    # Say which mode actually runs: on the free tier ensemble falls back to
+    # prose, and that used to happen silently (SPEC-12).
+    mode_used = "ensemble" if job_kind == "generate_ensemble_scene" else "prose"
     return {
         "scene_id": str(scene.id),
         "job_id": job_id,
         "chapter_id": str(chapter_id),
         "position": scene.position,
         "status": scene.status,
+        "mode_requested": payload.mode,
+        "mode_used": mode_used,
+        "mode_reason": (
+            f"Ensemble is not available on the {get_tier().name} tier; "
+            "the scene is written in prose mode."
+            if payload.mode != mode_used
+            else None
+        ),
     }
 
 

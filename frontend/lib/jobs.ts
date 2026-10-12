@@ -24,6 +24,16 @@ export async function getJob(jobId: string): Promise<Job> {
   }
 }
 
+/** The author's queued, running and paused jobs (Usage page). */
+export async function listActiveJobs(): Promise<Job[]> {
+  try {
+    const { data } = await api.get<{ jobs: Job[] }>('/jobs')
+    return data.jobs
+  } catch (err) {
+    throw toApiError(err)
+  }
+}
+
 export async function cancelJob(jobId: string): Promise<Job> {
   try {
     const { data } = await api.post<Job>(`/jobs/${jobId}/cancel`)

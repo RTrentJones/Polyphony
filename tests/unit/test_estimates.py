@@ -121,3 +121,59 @@ class TestEndpoints:
 
 async def _none():
     return None
+
+
+class TestSceneModeReporting:
+    async def _chapter_and_cast(self, client, auth_headers):
+        book = (
+            await client.post(
+                "/api/v1/books/", json={"title": "B"}, headers=auth_headers
+            )
+        ).json()
+        ch = (
+            await client.post(
+                f"/api/v1/books/{book['id']}/chapters",
+                json={"title": "C"},
+                headers=auth_headers,
+            )
+        ).json()
+        c = (
+            await client.post(
+                "/api/v1/characters/",
+                json={"name": "Milo", "book_id": book["id"]},
+                headers=auth_headers,
+            )
+        ).json()
+        return ch, c
+
+    async def test_free_tier_reports_the_prose_fallback(
+        self, client, auth_headers, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "LLM_TIER", "free")
+        ch, c = await self._chapter_and_cast(client, auth_headers)
+        r = await client.post(
+            f"/api/v1/books/chapters/{ch['id']}/scenes/generate",
+            json={
+                "character_ids": [c["id"]],
+                "scene_description": "A quiet moment here.",
+                "setting": "office",
+                "emotional_tone": "wry",
+                "mode": "ensemble",
+            },
+            headers=auth_headers,
+        )
+        body = r.json()
+        assert body["mode_requested"] == "ensemble" and body["mode_used"] == "prose"
+        assert "free tier" in body["mode_reason"]
+
+
+async def test_active_jobs_list_is_owner_scoped(
+    client, auth_headers, async_session, test_user
+):
+    from app.jobs import repository as jobs_repo
+
+    await jobs_repo.enqueue(async_session, kind="k", payload={}, user_id=test_user.id)
+    await async_session.commit()
+    r = await client.get("/api/v1/jobs", headers=auth_headers)
+    assert r.status_code == 200 and len(r.json()["jobs"]) == 1
+    assert r.json()["jobs"][0]["status"] == "queued"
