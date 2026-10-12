@@ -45,6 +45,8 @@ from app.parsing.pipeline import (
     UploadValidationError,
     save_upload,
 )
+from app.versioning import entities as entity_versions
+from app.versioning import trash
 
 router = APIRouter()
 
@@ -112,7 +114,7 @@ async def upload_source(
     # Duplicate guard: content_hash is unique per BOOK (a global unique would
     # leak a cross-tenant existence oracle — migration 0003).
     existing = await db.execute(
-        select(SourceORM).where(
+        trash.live(select(SourceORM), SourceORM).where(
             SourceORM.book_id == book.id,
             SourceORM.content_hash == saved["content_hash"],
         )
@@ -136,7 +138,9 @@ async def upload_source(
         status=SourceStatus.COMPLETED.value,  # the file is stored + parsed
     )
     db.add(source)
-    await db.flush()
+    await entity_versions.record(
+        db, "source", source, reason="created", created_by=current_user.id
+    )
     # Extraction PROPOSES; the author approves before any canon is written
     # (docs/BRD.md R4.4, PR review #1). Upload starts an extraction run, never a
     # direct write — canon is created only via the reviewed commit.
@@ -241,7 +245,7 @@ async def paste_source(
 
     # Duplicate guard, per BOOK (a global unique would leak a cross-tenant oracle).
     existing = await db.execute(
-        select(SourceORM).where(
+        trash.live(select(SourceORM), SourceORM).where(
             SourceORM.book_id == book.id,
             SourceORM.content_hash == content_hash,
         )
@@ -265,7 +269,9 @@ async def paste_source(
         status=SourceStatus.COMPLETED.value,
     )
     db.add(source)
-    await db.flush()
+    await entity_versions.record(
+        db, "source", source, reason="created", created_by=current_user.id
+    )
     run, preflight = await _start_extraction(db, source)
     await db.commit()
     await db.refresh(source)
@@ -285,11 +291,19 @@ async def edit_source(
     source = await _owned_source(source_id, current_user, db)
     run_id: Optional[str] = None
     preflight: Optional[dict] = None
+    content_changed = payload.content_text is not None and payload.content_text != (
+        source.content_text or ""
+    )
+    title_changed = payload.title is not None and payload.title != source.title
+    if content_changed or title_changed:
+        # Source content is canon input: never overwrite it without a version
+        # (SPEC-13, F16). A pre-SPEC-13 source keeps its old text as v1.
+        await entity_versions.ensure_baseline(
+            db, "source", source, created_by=current_user.id
+        )
     if payload.title is not None:
         source.title = payload.title
-    if payload.content_text is not None and payload.content_text != (
-        source.content_text or ""
-    ):
+    if content_changed:
         await check_user_budget(db, current_user.id)
         source.content_text = payload.content_text
         source.content_hash = hashlib.sha256(
@@ -299,6 +313,10 @@ async def edit_source(
         run, preflight = await _start_extraction(db, source)
         run_id = str(run.id) if run else None
     try:
+        if content_changed or title_changed:
+            await entity_versions.record(
+                db, "source", source, reason="edited", created_by=current_user.id
+            )
         await db.commit()
     except IntegrityError:
         await db.rollback()
@@ -319,7 +337,7 @@ async def list_sources(
     db: AsyncSession = Depends(get_db),
 ):
     """List the current user's sources (optionally filtered to one book)."""
-    where = [SourceORM.user_id == current_user.id]
+    where = [SourceORM.user_id == current_user.id, SourceORM.deleted_at.is_(None)]
     if book_id is not None:
         where.append(SourceORM.book_id == book_id)
 
@@ -389,7 +407,7 @@ async def _owned_source(
     source_id: UUID, current_user: UserORM, db: AsyncSession
 ) -> SourceORM:
     result = await db.execute(
-        select(SourceORM).where(
+        trash.live(select(SourceORM), SourceORM).where(
             SourceORM.id == source_id,
             SourceORM.user_id == current_user.id,
         )
@@ -465,7 +483,10 @@ async def get_source_characters(
             source_characters,
             source_characters.c.character_id == CharacterORM.id,
         )
-        .where(source_characters.c.source_id == source_id)
+        .where(
+            source_characters.c.source_id == source_id,
+            CharacterORM.deleted_at.is_(None),
+        )
         .order_by(CharacterORM.name)
     )
     characters = characters_result.scalars().all()
@@ -492,15 +513,16 @@ async def delete_source(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a source. Its extracted characters SURVIVE — they are Canon now.
+    """Move a source to the book's Trash (SPEC-13). Its extracted characters
+    SURVIVE either way — they are Canon now.
 
     `Character.source_id` is provenance only (ON DELETE SET NULL): the file was
     just how the cast arrived, and deleting it must never delete the cast
     (docs/ADR-002-book-as-root.md §2). To remove a character, delete the
-    character.
+    character. Purging from the Trash deletes the row for good.
     """
     source = await _owned_source(source_id, current_user, db)
-    await db.delete(source)
+    await trash.soft_delete(db, "source", source, created_by=current_user.id)
     await db.commit()
     return None
 

@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.orm_models import Character
+from app.versioning.trash import live
 
 
 def _forms(c: Character) -> list[str]:
@@ -35,9 +36,8 @@ async def resolve_cast(
     IDs win; names (deprecated input) resolve by exact name, then
     case-insensitively by name or alias. Raises 422 listing every unknown, and
     422 when the result is empty."""
-    query = select(Character).where(Character.book_id == book_id)
-    if hasattr(Character, "deleted_at"):
-        query = query.where(Character.deleted_at.is_(None))
+    # A trashed character is not in the cast (SPEC-13).
+    query = live(select(Character), Character).where(Character.book_id == book_id)
     rows = (await db.execute(query)).scalars().all()
     by_id = {str(c.id): c for c in rows}
     resolved: list[Character] = []

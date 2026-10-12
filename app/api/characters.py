@@ -22,6 +22,7 @@ from app.core.orm_models import (
 from app.core.security import get_current_active_user
 from app.rag.store import get_chunk_store
 from app.versioning import repository as versions_repo
+from app.versioning import trash
 
 router = APIRouter()
 
@@ -79,8 +80,12 @@ class VoiceTest(BaseModel):
 
 def _owned_select(current_user: UserORM):
     # user_id is NOT NULL (backfilled by migration 0005), so direct ownership
-    # is the whole story — no legacy via-manuscript fallback needed.
-    return select(CharacterORM).where(CharacterORM.user_id == current_user.id)
+    # is the whole story — no legacy via-manuscript fallback needed. A trashed
+    # character is reachable only through the Trash (SPEC-13).
+    return trash.live(
+        select(CharacterORM).where(CharacterORM.user_id == current_user.id),
+        CharacterORM,
+    )
 
 
 async def _owned_character(
@@ -283,15 +288,14 @@ async def delete_character(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a character and its indexed voice.
+    """Move a character to the book's Trash (SPEC-13).
 
-    voice_chunks.character_id is ON DELETE CASCADE, so the vectors go in the same
-    transaction as the row. Deleting them first through the chunk store's own
-    session would commit separately, and a failed row delete would then leave a
-    character with no voice.
+    Its voice chunks stay: retrieval is scoped by character and a trashed
+    character is never cast, so the voice is unreachable until a restore brings
+    it back intact. Purging from the Trash removes chunks and row together.
     """
     character = await _owned_character(character_id, current_user, db)
-    await db.delete(character)
+    await trash.soft_delete(db, "character", character, created_by=current_user.id)
     await db.commit()
     return None
 

@@ -59,7 +59,9 @@ async def estimate(
         source = (
             await db.execute(
                 select(Source).where(
-                    Source.id == payload.source_id, Source.user_id == current_user.id
+                    Source.id == payload.source_id,
+                    Source.user_id == current_user.id,
+                    Source.deleted_at.is_(None),
                 )
             )
         ).scalar_one_or_none()

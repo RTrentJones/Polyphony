@@ -19,12 +19,28 @@ from sqlalchemy import (
 # Generic Uuid type (native uuid on Postgres, CHAR on sqlite test databases)
 from sqlalchemy import Uuid as UUID
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy import event, select
+from sqlalchemy import event, select, text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
 
 from .database import Base
+
+
+def _soft_delete_column():
+    """`deleted_at` for an entity that goes to the Trash (SPEC-13): set on
+    delete, cleared on restore; the row only disappears on an explicit purge."""
+    return Column(DateTime(timezone=True), nullable=True)
+
+
+def _live_unique(name: str, *columns: str) -> Index:
+    """UNIQUE over live rows only (SPEC-13): a trashed row keeps its name or
+    position, but no longer holds it, so a new one can take it. Restoring into
+    a taken name is a 409 at the API, never a silent rename."""
+    where = text("deleted_at IS NULL")
+    return Index(
+        name, *columns, unique=True, postgresql_where=where, sqlite_where=where
+    )
 
 
 class User(Base):
@@ -139,6 +155,7 @@ class Source(Base):
     # Upload format (txt | html | docx | pdf | paste) — paragraph shape differs by
     # format, so evals treat it as a covariate (SPEC-09).
     format = Column(String(20))
+    deleted_at = _soft_delete_column()
 
     # Relationships
     book = relationship("Book", back_populates="sources")
@@ -154,7 +171,7 @@ class Source(Base):
         Index("idx_sources_book_id", "book_id"),
         Index("idx_sources_user_id", "user_id"),
         Index("idx_sources_status", "status"),
-        UniqueConstraint("book_id", "content_hash", name="uq_sources_book_content"),
+        _live_unique("uq_sources_book_content", "book_id", "content_hash"),
     )
 
 
@@ -242,6 +259,7 @@ class Chapter(Base):
     title = Column(String(500), nullable=False)
     summary = Column(Text)
     status = Column(String(50), nullable=False, default="drafting")
+    deleted_at = _soft_delete_column()
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -254,7 +272,7 @@ class Chapter(Base):
         Index("idx_chapters_book_id", "book_id"),
         # Reorder/insert logic renumbers via a two-phase pass (park on negative
         # temp positions, then finalize) so this holds under immediate checking.
-        UniqueConstraint("book_id", "position", name="uq_chapters_book_position"),
+        _live_unique("uq_chapters_book_position", "book_id", "position"),
     )
 
 
@@ -303,6 +321,7 @@ class Character(Base):
     aliases = Column(JSON)
     dialogue_count = Column(Integer, default=0)
     indexed_at = Column(DateTime(timezone=True))
+    deleted_at = _soft_delete_column()
 
     # Relationships
     book = relationship("Book", back_populates="characters")
@@ -318,7 +337,7 @@ class Character(Base):
         # distinct in Postgres, so manual characters had NO uniqueness at all.
         # Cast-fidelity checking (docs/BRD.md R1.4) needs a name to mean one
         # person, so this is load-bearing, not tidiness.
-        UniqueConstraint("book_id", "name", name="uq_characters_book_name"),
+        _live_unique("uq_characters_book_name", "book_id", "name"),
     )
 
 
@@ -390,6 +409,7 @@ class Scene(Base):
     status = Column(String(50), default="processing")  # processing, completed, failed
     generation_time_ms = Column(Integer)
     evaluation_scores = Column(JSON)
+    deleted_at = _soft_delete_column()
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -422,7 +442,7 @@ class Scene(Base):
         ),
         # NULL chapter_id (standalone scenes) is distinct on both Postgres and
         # sqlite, so any number of standalone scenes may share position 0.
-        UniqueConstraint("chapter_id", "position", name="uq_scenes_chapter_position"),
+        _live_unique("uq_scenes_chapter_position", "chapter_id", "position"),
     )
 
 
@@ -731,6 +751,7 @@ class CanonEntry(Base):
     category = Column(String(20), nullable=False, default="concept")
     content = Column(Text)
     position = Column(Integer, nullable=False, default=0)
+    deleted_at = _soft_delete_column()
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -742,7 +763,7 @@ class CanonEntry(Base):
         Index("idx_canon_entries_book_id", "book_id"),
         # A name means one entry within a book — load-bearing for canon_terms
         # (the alias/known-noun allowlist the fidelity grader consumes).
-        UniqueConstraint("book_id", "name", name="uq_canon_entries_book_name"),
+        _live_unique("uq_canon_entries_book_name", "book_id", "name"),
     )
 
 

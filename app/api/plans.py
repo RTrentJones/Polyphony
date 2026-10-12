@@ -41,6 +41,7 @@ from app.jobs import repository as jobs_repo
 from app.llm.tier import get_tier
 from app.planning.canon import render_bible
 from app.planning.outline import generate_outline, validate_outline_nodes
+from app.versioning import entities as entity_versions
 from app.versioning import repository as versions_repo
 
 logger = setup_logging("api.plans")
@@ -198,7 +199,13 @@ async def generate_plan(
     await check_user_budget(db, current_user.id)
 
     characters = (
-        (await db.execute(select(CharacterORM).where(CharacterORM.book_id == book.id)))
+        (
+            await db.execute(
+                select(CharacterORM).where(
+                    CharacterORM.book_id == book.id, CharacterORM.deleted_at.is_(None)
+                )
+            )
+        )
         .scalars()
         .all()
     )
@@ -206,7 +213,9 @@ async def generate_plan(
         (
             await db.execute(
                 select(CanonEntryORM)
-                .where(CanonEntryORM.book_id == book.id)
+                .where(
+                    CanonEntryORM.book_id == book.id, CanonEntryORM.deleted_at.is_(None)
+                )
                 .order_by(CanonEntryORM.position)
             )
         )
@@ -321,6 +330,7 @@ async def promote_plan_node(
     node = nodes[payload.node_index]
     # Read everything off the ORM objects now: a rollback below expires them.
     book_pk = book.id
+    user_id = current_user.id
 
     child_summaries = "\n".join(
         f"- {child.get('title', '')}: {child.get('summary', '')}"
@@ -337,7 +347,7 @@ async def promote_plan_node(
         next_pos = (
             await db.execute(
                 select(func.coalesce(func.max(ChapterORM.position), -1)).where(
-                    ChapterORM.book_id == book_pk
+                    ChapterORM.book_id == book_pk, ChapterORM.deleted_at.is_(None)
                 )
             )
         ).scalar_one() + 1
@@ -349,6 +359,10 @@ async def promote_plan_node(
         )
         db.add(chapter)
         try:
+            # A promoted chapter is versioned from v1 (SPEC-13).
+            await entity_versions.record(
+                db, "chapter", chapter, reason="created", created_by=user_id
+            )
             await db.commit()
             break
         except IntegrityError:
@@ -471,7 +485,9 @@ async def _chapter_in_book(chapter_id: UUID, book_id: UUID, db: AsyncSession) ->
     return (
         await db.execute(
             select(ChapterORM.id).where(
-                ChapterORM.id == chapter_id, ChapterORM.book_id == book_id
+                ChapterORM.id == chapter_id,
+                ChapterORM.book_id == book_id,
+                ChapterORM.deleted_at.is_(None),
             )
         )
     ).first() is not None
@@ -482,7 +498,9 @@ async def _scene_in_book(scene_id: UUID, book_id: UUID, db: AsyncSession) -> boo
     return (
         await db.execute(
             select(SceneORM.id).where(
-                SceneORM.id == scene_id, SceneORM.book_id == book_id
+                SceneORM.id == scene_id,
+                SceneORM.book_id == book_id,
+                SceneORM.deleted_at.is_(None),
             )
         )
     ).first() is not None
@@ -578,6 +596,7 @@ async def _collect_prose(
         select(SceneORM)
         .join(ChapterORM, SceneORM.chapter_id == ChapterORM.id)
         .where(ChapterORM.book_id == book_id)
+        .where(ChapterORM.deleted_at.is_(None), SceneORM.deleted_at.is_(None))
         .order_by(ChapterORM.position, SceneORM.position)
     )
     if chapter_id:

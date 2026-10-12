@@ -42,8 +42,10 @@ from app.exports.builder import (
 )
 from app.jobs import repository as jobs_repo
 from app.llm.tier import get_tier
-from app.versioning.scenes import snapshot_before_delete
+from app.versioning import entities as entity_versions
+from app.versioning import trash
 from app.versioning.synopsis import record_synopsis
+from app.versioning.trash import live, renumber_two_phase as _renumber_two_phase
 
 router = APIRouter()
 
@@ -137,7 +139,7 @@ async def _owned_chapter(
 ) -> ChapterORM:
     chapter = (
         await db.execute(
-            select(ChapterORM)
+            live(select(ChapterORM), ChapterORM)
             .join(BookORM, ChapterORM.book_id == BookORM.id)
             .where(ChapterORM.id == chapter_id, BookORM.user_id == user.id)
         )
@@ -154,7 +156,7 @@ async def owned_scene(scene_id: UUID, user: UserORM, db: AsyncSession, *options)
     `Scene.user_id` stays as the tenant guard. 404 for anyone else's scene."""
     scene = (
         await db.execute(
-            select(SceneORM)
+            live(select(SceneORM), SceneORM)
             .options(*options)
             .join(BookORM, SceneORM.book_id == BookORM.id)
             .where(
@@ -169,20 +171,6 @@ async def owned_scene(scene_id: UUID, user: UserORM, db: AsyncSession, *options)
             status_code=status.HTTP_404_NOT_FOUND, detail="Scene not found"
         )
     return scene
-
-
-async def _renumber_two_phase(db: AsyncSession, ordered: list) -> None:
-    """Renumber rows to 0..n-1 under an immediate UNIQUE (parent, position).
-
-    Phase 1 parks every row on a negative temp position — the API validates
-    client positions >= 0, so negatives can never collide with real data —
-    then phase 2 lands the final contiguous order. Caller commits.
-    """
-    for idx, item in enumerate(ordered):
-        item.position = -(idx + 1)
-    await db.flush()
-    for idx, item in enumerate(ordered):
-        item.position = idx
 
 
 def _chapter_dict(c: ChapterORM) -> dict:
@@ -264,7 +252,7 @@ async def get_book(
     chapters = (
         (
             await db.execute(
-                select(ChapterORM)
+                live(select(ChapterORM), ChapterORM)
                 .where(ChapterORM.book_id == book.id)
                 .order_by(ChapterORM.position)
             )
@@ -334,6 +322,7 @@ async def create_chapter(
     db: AsyncSession = Depends(get_db),
 ):
     await _owned_book(book_id, current_user, db)
+    user_id = current_user.id  # a plain value survives the rollback below
     if payload.position is None:
         # Append: concurrent appends can both compute max+1; the UNIQUE
         # (book_id, position) constraint turns that into an IntegrityError —
@@ -341,9 +330,10 @@ async def create_chapter(
         for attempt in (1, 2):
             max_pos = (
                 await db.execute(
-                    select(func.coalesce(func.max(ChapterORM.position), -1)).where(
-                        ChapterORM.book_id == book_id
-                    )
+                    live(
+                        select(func.coalesce(func.max(ChapterORM.position), -1)),
+                        ChapterORM,
+                    ).where(ChapterORM.book_id == book_id)
                 )
             ).scalar_one()
             chapter = ChapterORM(
@@ -354,6 +344,9 @@ async def create_chapter(
             )
             db.add(chapter)
             try:
+                await entity_versions.record(
+                    db, "chapter", chapter, reason="created", created_by=user_id
+                )
                 await db.commit()
                 break
             except IntegrityError:
@@ -369,7 +362,7 @@ async def create_chapter(
         to_shift = (
             (
                 await db.execute(
-                    select(ChapterORM)
+                    live(select(ChapterORM), ChapterORM)
                     .where(
                         ChapterORM.book_id == book_id,
                         ChapterORM.position >= payload.position,
@@ -393,6 +386,9 @@ async def create_chapter(
             position=payload.position,
         )
         db.add(chapter)
+        await entity_versions.record(
+            db, "chapter", chapter, reason="created", created_by=current_user.id
+        )
         await db.commit()
     await db.refresh(chapter)
     return _chapter_dict(chapter)
@@ -408,7 +404,7 @@ async def get_chapter(
     scenes = (
         (
             await db.execute(
-                select(SceneORM)
+                live(select(SceneORM), SceneORM)
                 .where(SceneORM.chapter_id == chapter.id)
                 .order_by(SceneORM.position)
             )
@@ -440,10 +436,23 @@ async def update_chapter(
     db: AsyncSession = Depends(get_db),
 ):
     chapter = await _owned_chapter(chapter_id, current_user, db)
-    for field_name in ("title", "summary", "status"):
-        value = getattr(payload, field_name)
-        if value is not None:
+    changes = {
+        f: getattr(payload, f)
+        for f in ("title", "summary", "status")
+        if getattr(payload, f) is not None
+        and getattr(payload, f) != getattr(chapter, f)
+    }
+    if changes:
+        # Chapter titles and summaries are versioned (SPEC-13, F16); a chapter
+        # from before then keeps its current text as v1.
+        await entity_versions.ensure_baseline(
+            db, "chapter", chapter, created_by=current_user.id
+        )
+        for field_name, value in changes.items():
             setattr(chapter, field_name, value)
+        await entity_versions.record(
+            db, "chapter", chapter, reason="edited", created_by=current_user.id
+        )
     await db.commit()
     return _chapter_dict(chapter)
 
@@ -460,7 +469,7 @@ async def move_chapter(
     siblings = (
         (
             await db.execute(
-                select(ChapterORM)
+                live(select(ChapterORM), ChapterORM)
                 .where(ChapterORM.book_id == chapter.book_id)
                 .order_by(ChapterORM.position)
             )
@@ -484,12 +493,12 @@ async def delete_chapter(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a chapter without silently orphaning its prose (SPEC-04).
+    """Move a chapter to the Trash without silently orphaning its prose.
 
     A chapter with scenes needs `?scenes=move&to={chapter_id}` (they are appended
-    to that chapter of the same book, in order) or `?scenes=delete` (each scene's
-    prose is kept in entity_versions first). Neither → 409 with the count, so the
-    UI can ask the author; nothing changes.
+    to that chapter of the same book, in order) or `?scenes=delete` (they go to
+    the Trash with the chapter and come back with it, SPEC-13). Neither → 409
+    with the count, so the UI can ask the author; nothing changes (SPEC-04).
     """
     chapter = await _owned_chapter(chapter_id, current_user, db)
     owned = await _chapter_scenes(db, chapter.id)
@@ -520,12 +529,9 @@ async def delete_chapter(
         for s in owned:
             s.chapter_id = target.id
         await _renumber_two_phase(db, ordered)
-    elif owned:
-        for s in owned:
-            await snapshot_before_delete(db, s, created_by=current_user.id)
-            await db.delete(s)
     await db.flush()
-    await db.delete(chapter)
+    # Whatever scenes remain (scenes=delete) are trashed with the chapter.
+    await trash.soft_delete(db, "chapter", chapter, created_by=current_user.id)
     await db.commit()
     return None
 
@@ -534,7 +540,7 @@ async def _chapter_scenes(db: AsyncSession, chapter_id: UUID) -> list:
     return list(
         (
             await db.execute(
-                select(SceneORM)
+                live(select(SceneORM), SceneORM)
                 .where(SceneORM.chapter_id == chapter_id)
                 .order_by(SceneORM.position)
             )
@@ -559,7 +565,7 @@ async def list_book_scenes(
     scenes = (
         (
             await db.execute(
-                select(SceneORM)
+                live(select(SceneORM), SceneORM)
                 .where(SceneORM.book_id == book_id)
                 .order_by(SceneORM.created_at.desc())
             )
@@ -643,7 +649,7 @@ async def generate_scene_into_chapter(
     # Previous scene's tail for narrative continuity
     prev_scene = (
         await db.execute(
-            select(SceneORM)
+            live(select(SceneORM), SceneORM)
             .where(SceneORM.chapter_id == chapter.id, SceneORM.status == "completed")
             .order_by(SceneORM.position.desc())
             .limit(1)
@@ -663,9 +669,9 @@ async def generate_scene_into_chapter(
     for attempt in (1, 2):
         next_pos = (
             await db.execute(
-                select(func.coalesce(func.max(SceneORM.position), -1)).where(
-                    SceneORM.chapter_id == chapter_id
-                )
+                live(
+                    select(func.coalesce(func.max(SceneORM.position), -1)), SceneORM
+                ).where(SceneORM.chapter_id == chapter_id)
             )
         ).scalar_one() + 1
         scene = SceneORM(
@@ -752,9 +758,9 @@ async def create_manual_scene(
     for attempt in (1, 2):
         next_pos = (
             await db.execute(
-                select(func.coalesce(func.max(SceneORM.position), -1)).where(
-                    SceneORM.chapter_id == chapter_id
-                )
+                live(
+                    select(func.coalesce(func.max(SceneORM.position), -1)), SceneORM
+                ).where(SceneORM.chapter_id == chapter_id)
             )
         ).scalar_one() + 1
         scene = SceneORM(
@@ -865,7 +871,7 @@ async def move_scene(
     siblings = (
         (
             await db.execute(
-                select(SceneORM)
+                live(select(SceneORM), SceneORM)
                 .where(SceneORM.chapter_id == scene.chapter_id)
                 .order_by(SceneORM.position)
             )
@@ -906,7 +912,7 @@ async def export_book(
     chapters = (
         (
             await db.execute(
-                select(ChapterORM)
+                live(select(ChapterORM), ChapterORM)
                 .options(selectinload(ChapterORM.scenes))
                 .where(ChapterORM.book_id == book.id)
                 .order_by(ChapterORM.position)
@@ -927,7 +933,7 @@ async def export_book(
                 scenes=[
                     SceneExport(title=s.title or "", content=scene_text(s))
                     for s in sorted(c.scenes, key=lambda s: s.position)
-                    if scene_text(s)
+                    if scene_text(s) and s.deleted_at is None
                 ],
             )
             for c in chapters
