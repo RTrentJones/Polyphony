@@ -132,6 +132,17 @@ class Settings(BaseSettings):
     # Rate limiting
     RATE_LIMIT_PER_MINUTE: int = 60
     RATE_LIMIT_PER_HOUR: int = 1000
+    # Route classes (app/core/rate_limit.py), per user. Polling GETs get their
+    # own generous bucket; LLM-enqueueing POSTs a tight one (the token budget is
+    # the real control; this stops runaway clients).
+    RATE_LIMIT_POLL: str = "120/minute"
+    RATE_LIMIT_LLM: str = "10/minute"
+    # Failed logins per email, across every IP (credential stuffing).
+    LOGIN_EMAIL_RATE_LIMIT: str = "20/hour"
+    # Peers whose CF-Connecting-IP header is believed: the cloudflared tunnel.
+    # Default: loopback + the private ranges Docker hands its bridge networks.
+    # From any other peer the header is ignored (it is client-controlled).
+    TRUSTED_PROXY_CIDRS: str = "127.0.0.0/8,::1/128,172.16.0.0/12,192.168.0.0/16"
 
     # RAG settings
     RAG_TOP_K: int = 5

@@ -14,12 +14,17 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.orm_models import InviteCode, User as UserORM
+from app.core.rate_limit import (
+    client_ip,
+    limiter,
+    login_email_check,
+    login_email_record_failure,
+    too_many_requests,
+)
 from app.core.security import (
     REFRESH_COOKIE_NAME,
     authenticate_user,
@@ -33,7 +38,6 @@ from app.core.security import (
 )
 
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
 
 
 class RegisterRequest(BaseModel):
@@ -87,7 +91,7 @@ async def _consume_invite(db: AsyncSession, code: str) -> InviteCode:
 
 
 @router.post("/register", response_model=dict)
-@limiter.limit("3/hour")
+@limiter.limit("3/hour", key_func=client_ip)
 async def register(
     request: Request,
     response: Response,
@@ -135,7 +139,7 @@ async def register(
 
 
 @router.post("/login", response_model=dict)
-@limiter.limit("5/minute")
+@limiter.limit("5/minute", key_func=client_ip)
 async def login(
     request: Request,
     response: Response,
@@ -143,8 +147,14 @@ async def login(
     db: AsyncSession = Depends(get_db),
 ):
     """Login with email + password; sets the refresh cookie."""
+    # Per-email budget across all IPs, checked before the password hash runs:
+    # the per-IP limit alone cannot stop a botnet working through one account.
+    retry_after = login_email_check(form_data.username)
+    if retry_after is not None:
+        return too_many_requests("too many failed logins for this account", retry_after)
     user = await authenticate_user(db, form_data.username, form_data.password)
     if not user:
+        login_email_record_failure(form_data.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
