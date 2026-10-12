@@ -316,3 +316,48 @@ async def test_the_budget_check_counts_the_prompt_too(
             [{"role": "user", "content": window}], user_id=test_user.id, max_tokens=200
         )
     create.assert_not_called()
+
+
+def test_an_unhinted_429_pauses_briefly_then_backs_off(monkeypatch):
+    """A bare 429 is usually a per-minute limit: pause a minute, doubling per
+    consecutive pause, never past QUOTA_PAUSE_SECONDS (the first live cel eval
+    stalled for a flat 15 minutes on one)."""
+    from app.jobs.worker import unhinted_pause_seconds
+
+    monkeypatch.setattr(settings, "QUOTA_PAUSE_MIN_SECONDS", 60)
+    monkeypatch.setattr(settings, "QUOTA_PAUSE_SECONDS", 900)
+    assert [unhinted_pause_seconds(n) for n in range(6)] == [
+        60,
+        120,
+        240,
+        480,
+        900,
+        900,
+    ]
+
+
+async def test_a_job_paused_without_a_hint_resumes_in_a_minute(
+    async_session, test_user, monkeypatch
+):
+    import app.jobs.handlers as handlers_mod
+    import app.jobs.worker as worker_mod
+
+    monkeypatch.setattr(worker_mod, "get_async_session", lambda: _Ctx(async_session))
+    monkeypatch.setattr(handlers_mod, "get_async_session", lambda: _Ctx(async_session))
+    monkeypatch.setattr(settings, "LLM_TIER", "free")
+    monkeypatch.setattr(settings, "QUOTA_PAUSE_MIN_SECONDS", 60)
+
+    async def run(payload):
+        raise QuotaExhaustedError("429")  # no retry-after
+
+    monkeypatch.setattr(worker_mod, "HANDLERS", {"k": Handler(run=run)})
+    job = await jobs_repo.enqueue(
+        async_session, kind="k", payload={}, user_id=test_user.id, max_attempts=1
+    )
+    await async_session.commit()
+    before = datetime.now(timezone.utc)
+    await JobWorker(poll_interval=0.01, stale_after=timedelta(minutes=30)).run_once()
+    await async_session.refresh(job)
+    assert job.status == "queued"
+    wait = job.available_at.replace(tzinfo=timezone.utc) - before
+    assert timedelta(seconds=50) < wait < timedelta(seconds=90)

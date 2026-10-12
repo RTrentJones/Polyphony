@@ -80,3 +80,50 @@ def test_chain_with_unknown_member_raises(monkeypatch):
     monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
     with pytest.raises(RuntimeError, match="unknown judge provider"):
         Judge(_cfg(monkeypatch, "groq,nonsense"))
+
+
+async def test_a_retired_judge_model_falls_through_the_chain(monkeypatch):
+    """A 404 (model retired) is not transient: the judge grades with the next
+    chain provider instead of failing the step (the weekly run's outline step
+    died on a retired Groq model)."""
+    import types
+
+    import httpx
+    from openai import NotFoundError
+
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or_test")
+    j = Judge(_cfg(monkeypatch, "groq,openrouter"))
+    assert j.provider_id == "groq"
+    used = []
+
+    class Fake:
+        def __init__(self, pid):
+            self.pid = pid
+
+        async def generate(self, *a, **kw):
+            used.append(self.pid)
+            if self.pid == "groq":
+                raise NotFoundError(
+                    "model_not_found",
+                    response=httpx.Response(
+                        404, request=httpx.Request("POST", "http://t")
+                    ),
+                    body=None,
+                )
+            return types.SimpleNamespace(
+                text='{"score": 0.8, "explanation": "ok"}', model="m"
+            )
+
+    monkeypatch.setattr(j, "_ensure", lambda: Fake(j.provider_id))
+    judgment = await j.score("rubric", "content")
+    assert used == ["groq", "openrouter"]
+    assert judgment.score == 0.8 and judgment.judge_provider == "openrouter"
+
+
+def test_a_poll_timeout_says_what_the_app_was_doing():
+    from evals.harness.client import _state
+
+    plans = {"plans": [{"kind": "outline", "status": "paused", "stage": "chapters"}]}
+    assert '"status": "paused"' in _state(plans)
+    assert '"stage": "chapters"' in _state(plans)

@@ -9,6 +9,7 @@ every generate returns an id and we poll the matching GET until terminal.
 from __future__ import annotations
 
 import asyncio
+import json
 import secrets
 import time
 
@@ -101,14 +102,18 @@ class PolyphonyClient:
     async def poll(self, path: str, done, *, timeout: float = 300, interval: float = 3):
         """Poll GET `path` until `done(json)` is truthy; returns that json."""
         deadline = time.monotonic() + timeout
+        last = None
         while time.monotonic() < deadline:
             r = await self._get(path)
             if r.status_code == 200:
                 body = r.json()
+                last = body
                 if done(body):
                     return body
             await asyncio.sleep(interval)
-        raise EvalClientError(f"poll timed out: {path}")
+        # Say what the app was doing, so a timeout is diagnosable from the
+        # report alone (a quota pause and a stuck job look the same otherwise).
+        raise EvalClientError(f"poll timed out: {path} — last state: {_state(last)}")
 
     # -- sources / characters ----------------------------------------------
     async def upload_source(
@@ -370,3 +375,20 @@ class PolyphonyClient:
         )
         rp = next(r for r in reports["reports"] if r["id"] == report_id)
         return rp.get("findings", []) or []
+
+
+def _state(body) -> str:
+    """The status-ish fields of a polled body (or of each item in a list)."""
+    keys = ("kind", "status", "stage", "error", "job")
+    if isinstance(body, dict):
+        items = body.get("plans") or body.get("reports") or [body]
+    elif isinstance(body, list):
+        items = body
+    else:
+        return repr(body)[:300]
+    out = [
+        {k: item.get(k) for k in keys if item.get(k) is not None}
+        for item in items
+        if isinstance(item, dict)
+    ]
+    return json.dumps(out, default=str)[:600]

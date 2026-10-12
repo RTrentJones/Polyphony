@@ -77,6 +77,11 @@ jobs:
       # safety-block vs bug) in the response so the eval scorecard is
       # self-diagnosing. DEBUG defaults False, so prod leaks nothing.
       DEBUG: 'true'
+      # The eval user is a harness, not an author: a staged outline over a big
+      # corpus (thinking tokens count as output) can exceed the free tier's
+      # per-author 200k/day, which now pauses the job mid-run by design.
+      # The provider's own quota still applies.
+      USER_DAILY_TOKEN_LIMIT: '20000000'
       # NOTE: do NOT force temperature to 0 here. Temp=0 homogenizes the voice
       # steps (every character answers a prompt near-identically → attribution
       # collapses, prose degenerates), which defeats the voice measurement. Let
@@ -126,7 +131,9 @@ jobs:
       - name: Boot app + wait for health
         if: ${{ github.event.inputs.base_url == '' }}
         run: |
-          python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          # The app's log goes to a file that is uploaded with the report: a
+          # backgrounded process's output is not kept in later steps' logs.
+          python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > app.log 2>&1 &
           echo $! > /tmp/app.pid
           for i in $(seq 1 40); do
             if curl -fsS http://localhost:8000/health >/dev/null 2>&1; then
@@ -134,6 +141,7 @@ jobs:
             fi
             sleep 1
           done
+          tail -50 app.log
           echo "::error::app did not become healthy"; exit 1
       - name: Run evals + ingest to Tracer
         env:
@@ -187,4 +195,5 @@ jobs:
           path: |
             eval-report-*.json
             gl-export-*.json
+            app.log
           if-no-files-found: warn

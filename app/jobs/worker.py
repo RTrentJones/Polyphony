@@ -230,6 +230,7 @@ class JobWorker:
         handler = HANDLERS.get(kind)
         error: str | None = None
         pause_after: float | None = None  # set => quota pause, not a failure
+        pause_hinted = False  # the provider said when quota returns
         cancelled = False
         if handler is None:
             error = f"unknown job kind: {kind}"
@@ -253,6 +254,7 @@ class JobWorker:
                     isinstance(e, (ProviderUnavailableError, UserBudgetExhaustedError))
                     or get_tier().on_quota == "pause"
                 ):
+                    pause_hinted = bool(e.reset_after)
                     pause_after = e.reset_after or settings.QUOTA_PAUSE_SECONDS
                 else:
                     error = str(e) or "quota exhausted"
@@ -286,6 +288,8 @@ class JobWorker:
                 pause_after = None
                 error = f"quota did not return within {settings.JOB_MAX_PAUSE_HOURS:g}h"
                 db_job.attempts = db_job.max_attempts
+            if pause_after is not None and not pause_hinted:
+                pause_after = unhinted_pause_seconds(db_job.pause_count or 0)
             if pause_after is not None:
                 resume_at = datetime.now(timezone.utc) + timedelta(seconds=pause_after)
                 await jobs_repo.pause(
@@ -375,3 +379,14 @@ async def _hook(handler, name: str, payload: dict, ctx: JobContext) -> None:
             await fn(payload)
     except Exception as e:
         log_error(logger, e, context={"event": f"job_{name}_failed"})
+
+
+def unhinted_pause_seconds(pause_count: int) -> float:
+    """How long to pause when the provider's 429 named no retry time.
+
+    A bare 429 is most often a per-minute limit (requests or tokens), so the
+    first pause is short and each consecutive one doubles, up to
+    QUOTA_PAUSE_SECONDS. A flat 15 minutes made every per-minute blip cost a
+    quarter of an hour (the first live cel eval stalled exactly so)."""
+    first = settings.QUOTA_PAUSE_MIN_SECONDS
+    return float(min(settings.QUOTA_PAUSE_SECONDS, first * (2 ** min(pause_count, 16))))

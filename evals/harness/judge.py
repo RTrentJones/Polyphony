@@ -119,9 +119,37 @@ class Judge:
             self._client = LLMClient(PROVIDERS[self.provider_id])
         return self._client
 
+    def _next_in_chain(self) -> bool:
+        """Move to the next chain provider with a key (after the current one
+        failed for good, e.g. its model was retired). False when none is left."""
+        from app.llm.providers import PROVIDERS, provider_api_key
+
+        chain = [p.strip() for p in self._cfg.judge_provider.split(",") if p.strip()]
+        if self.provider_id not in chain:
+            return False
+        for name in chain[chain.index(self.provider_id) + 1 :]:
+            if provider_api_key(PROVIDERS[name]):
+                print(f"eval judge: {self.provider_id!r} failed — using {name!r}")
+                self.provider_id, self._client, self.model_override = name, None, None
+                return True
+        return False
+
     async def score(self, rubric: str, content: str) -> Judgment:
-        client = self._ensure()
+        from openai import NotFoundError
+
         prompt = f"RUBRIC:\n{rubric}\n\nRESPONSE TO SCORE:\n{content}\n\nJSON:"
+        while True:
+            try:
+                return await self._score_once(prompt)
+            except NotFoundError:
+                # A vendor retired the judge model (a 404 is not transient):
+                # grade with the next provider in the chain instead of failing
+                # the whole step it belongs to.
+                if not self._next_in_chain():
+                    raise
+
+    async def _score_once(self, prompt: str) -> Judgment:
+        client = self._ensure()
         result = await client.generate(
             [
                 {"role": "system", "content": _SYSTEM},
