@@ -29,6 +29,59 @@ def _normalize_quotes(text: str) -> str:
     return text.translate(_SMART_QUOTES)
 
 
+# A section heading that names its first-person narrator: "Jonathan Harker's
+# Journal", "_Dr. Seward's Diary._", "Letter, Mina Murray to Lucy Westenra",
+# "Telegram from X to Y". Matched on short, heading-like paragraphs only.
+_NARRATOR_HEAD = re.compile(
+    r"^[\s_*]*(?:"
+    r"(?P<owner>[A-Za-z][\w.' -]{1,60}?)'s\s+(?:phonograph\s+)?"
+    r"(?:journal|diary|memorandum|memoranda|log|notebook|narrative|statement|"
+    r"account|papers|confession)\b"
+    r"|(?:letter|telegram|note|postcard)[,:]?\s+(?:from\s+)?"
+    r"(?P<writer>[A-Za-z][\w.' -]{1,60}?)[,\s]+to\s"
+    r")",
+    re.I,
+)
+_CHAPTER_HEAD = re.compile(r"^[\s_*]*(?:chapter|book|part)\b[\s\w.:-]{0,60}$", re.I)
+_FIRST_PERSON = re.compile(r"\b(?:I|[Mm]y|[Mm]e|[Mm]yself|[Ww]e|[Oo]ur|[Uu]s)\b")
+_HEADING_MAX_CHARS = 140
+
+
+def _narration_only(paragraph: str) -> str:
+    """The paragraph minus quoted speech — a narrator's "I" is outside quotes."""
+    return re.sub(r'"[^"]*"', " ", _normalize_quotes(paragraph))
+
+
+def _is_narrator_heading(para: str) -> bool:
+    flat = " ".join(_normalize_quotes(para).split())
+    return len(flat) <= _HEADING_MAX_CHARS and bool(_NARRATOR_HEAD.match(flat))
+
+
+def narrator_sections(text: str) -> list[tuple[str, list[tuple[int, str]]]]:
+    """[(narrator as headed, [(paragraph index, paragraph)])] for every section
+    whose heading names a first-person narrator. A section runs until the next
+    narrator or chapter heading (SPEC-09, eval-audit backlog item 1)."""
+    sections: list[tuple[str, list[tuple[int, str]]]] = []
+    current: Optional[tuple[str, list[tuple[int, str]]]] = None
+    for i, para in enumerate(text.split("\n\n")):
+        para = para.strip()
+        if not para:
+            continue
+        flat = " ".join(_normalize_quotes(para).split())
+        head = _NARRATOR_HEAD.match(flat) if len(flat) <= _HEADING_MAX_CHARS else None
+        if head:
+            who = (head.group("owner") or head.group("writer") or "").strip(" _*.,")
+            current = (who, [])
+            sections.append(current)
+            continue
+        if len(flat) <= _HEADING_MAX_CHARS and _CHAPTER_HEAD.match(flat):
+            current = None
+            continue
+        if current is not None:
+            current[1].append((i, para))
+    return [s for s in sections if s[0]]
+
+
 def stratified_sample(text: str, budget: int = 14000, windows: int = 4) -> str:
     """Evenly-spaced windows across the WHOLE manuscript, not just the head.
 
@@ -151,8 +204,11 @@ JSON array:"""
             if not para:
                 continue
 
-            # Check if character appears in paragraph
-            if self._character_in_paragraph(character_name, para):
+            # Check if character appears in paragraph ("X's Journal" is a
+            # heading, not voice — SPEC-09 attributes the section beneath it).
+            if self._character_in_paragraph(
+                character_name, para
+            ) and not _is_narrator_heading(para):
                 chunk_type = self._classify_chunk(para, character_name)
 
                 chunks.append(
@@ -182,6 +238,88 @@ JSON array:"""
                     }
                 )
 
+        return chunks
+
+    def extract_narration(
+        self,
+        text: str,
+        character_name: str,
+        *,
+        aliases: Optional[List[str]] = None,
+        cast: Optional[List[Dict]] = None,
+        is_narrator: bool = False,
+    ) -> List[Dict[str, str]]:
+        """Voice the name-gate cannot see (SPEC-09, eval-audit backlog item 1).
+
+        A diarist rarely names themselves, so their narration — their actual
+        voice — was never indexed. This returns:
+        - paragraphs naming the character by an ALIAS ("Mrs. Harker");
+        - first-person paragraphs in sections whose heading names them as the
+          narrator ("Jonathan Harker's Journal", "Letter, Mina Murray to …"),
+          resolved honorific-aware against the whole cast and skipped when the
+          heading could be two characters;
+        - when the source has no such headings and this character's role is
+          narrator, every first-person narration paragraph.
+        """
+        from app.parsing.names import match
+
+        forms = [character_name, *(aliases or [])]
+        cast = cast or [{"name": character_name, "aliases": aliases or []}]
+        chunks: List[Dict[str, str]] = []
+        seen: set = set()
+
+        def add(i: int, para: str, where: str) -> None:
+            if para in seen:
+                return
+            seen.add(para)
+            chunks.append(
+                {
+                    "text": para,
+                    "chunk_type": self._classify_chunk(para, character_name),
+                    "source_location": f"{where}_{i}",
+                    "character_name": character_name,
+                }
+            )
+
+        # Aliases match CASE-SENSITIVELY: an alias is a proper noun, and "Will"
+        # or "Hope" must not claim every "will" and "hope" in the book.
+        alias_res = [
+            re.compile(r"(?<!\w)" + r"\s+".join(map(re.escape, a.split())) + r"(?!\w)")
+            for a in aliases or []
+            if a.strip()
+        ]
+        for i, para in enumerate(text.split("\n\n")):
+            para = para.strip()
+            if (
+                para
+                and not _is_narrator_heading(para)
+                and any(r.search(para) for r in alias_res)
+            ):
+                add(i, para, "paragraph")
+
+        def owner_of(headed: str) -> Optional[str]:
+            hits = [
+                c["name"]
+                for c in cast
+                if any(match(headed, f) for f in [c["name"], *(c.get("aliases") or [])])
+            ]
+            return hits[0] if len(set(hits)) == 1 else None
+
+        sections = narrator_sections(text)
+        for headed, paras in sections:
+            if owner_of(headed) != character_name and not (
+                len(cast) == 1 and any(match(headed, f) for f in forms)
+            ):
+                continue
+            for i, para in paras:
+                if _FIRST_PERSON.search(_narration_only(para)):
+                    add(i, para, "narration")
+
+        if not sections and is_narrator:
+            for i, para in enumerate(text.split("\n\n")):
+                para = para.strip()
+                if para and _FIRST_PERSON.search(_narration_only(para)):
+                    add(i, para, "narration")
         return chunks
 
     def extract_dialogue_only(self, text: str, character_name: str) -> List[str]:

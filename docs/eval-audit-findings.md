@@ -55,17 +55,23 @@ makes the voice fixes provable in Tracer.
 
 ## Backlog (deeper / lower-confidence — not yet fixed)
 
-1. **First-person / epistolary narrators get little indexed voice** (architectural).
-   Voice chunking gates on paragraphs containing the character's *name*; a diarist
-   rarely names themselves, so their narration — their actual voice — isn't
-   captured. Data: Aldous 3 desc chunks (0 dialogue); Victor/Emeric, Cosima,
-   Cassidy 0 chunks. Needs narrator-section attribution (LLM segmentation or a
-   heuristic), not just name-mention.
-2. **Format-fragile paragraph splitting.** HTML joins lines with a single `\n`, so
-   `split("\n\n")` yields one chunk = the whole manuscript (embedding truncates to
-   ~256 tokens → voice destroyed); PDF is one-chunk-per-page. Normalize paragraphs
-   in the parser, or record upload format as an eval covariate. (Corpora are TXT,
-   so unaffected today.)
+1. ~~**First-person / epistolary narrators get little indexed voice**~~ —
+   **closed (SPEC-09).** Voice indexing now attributes first-person paragraphs in
+   sections whose heading names the narrator ("X's Journal", "_Dr. Y's Diary._",
+   "Letter, X to Y") to that character — resolved honorific-aware against the whole
+   cast and skipped when ambiguous — plus paragraphs naming a character by a
+   recorded alias, and, in a source with no such headings, all first-person
+   narration for a character whose role is narrator. Extraction's map calls also
+   report narrators, so diarists are proposed. Stub e2e (Dracula) `ingestion`
+   0.375 → 0.72+ (see SPEC-09 report). *Original:* voice chunking gated on
+   paragraphs containing the character's *name*; a diarist rarely names themselves.
+2. ~~**Format-fragile paragraph splitting.**~~ — **closed (SPEC-09).**
+   `DocumentParser` returns blank-line-separated paragraphs for every format (HTML
+   block elements and `<br>`, DOCX paragraphs, a PDF line-joining heuristic that
+   rejoins hard wraps, hyphenation and page breaks), and `Source.format`
+   (`txt|html|docx|pdf|paste`) is recorded as the eval covariate. *Original:* HTML
+   joined lines with a single `\n`, so `split("\n\n")` yielded one chunk = the whole
+   manuscript; PDF was one-chunk-per-page.
 3. **Continuity: no cross-chunk comparison, `fact_sheet[:4000]` truncation, no
    finding dedup.** A contradiction between two prose chunks (not vs the bible) is
    undetectable; a large bible is truncated out of the window; duplicates inflate.

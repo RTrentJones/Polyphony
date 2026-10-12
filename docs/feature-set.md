@@ -32,6 +32,12 @@ product's whole history.
 | Deleting a source never deletes the cast | — | ⬜ | `characters.source_id` → `SET NULL` **and** drop the ORM cascade — both halves or neither |
 | Per-user content-hash dedupe | — | ✅ | Deliberately per-user: a global unique leaks a cross-tenant existence oracle (migration `0003`) |
 | Extraction → **proposed** canon, reviewed per item | R4.4 | ⬜ | Proposes; never commits silently |
+| Extraction at manuscript scale (map-reduce) | R4.4 | ✅ | SPEC-09: ~12k-token windows, alias-aware merge, batched full entries, synopsis last; truncated window retried smaller, never fails the run; per-window checkpoint |
+| Extraction cost preflight | R4.4, R7.3, R7.5 | ✅ | Estimate returned on enqueue; refused with "first N chapters" when it cannot finish within `JOB_MAX_PAUSE_HOURS` |
+| Proposals ranked by mentions / windows | R4.4 | ✅ | One-window names pre-deselected unless a narrator (eval-plan E5) |
+| Character aliases (`characters.aliases`) | R1.4, R4.5 | ✅ | Proposed by extraction, editable; honoured by fidelity (`Canon.principals`, `canon_terms`), commit merging and scene casting |
+| Paragraph normalisation for every format | — | ✅ | HTML block elements, DOCX paragraphs, PDF line-joining → blank-line paragraphs; `Source.format` recorded as an eval covariate |
+| Narrator voice attribution | — | ✅ | First-person sections headed "X's Journal" / "Letter, X to Y" (or a lone narrator) are indexed as X's voice |
 
 ## 3. Generation
 
