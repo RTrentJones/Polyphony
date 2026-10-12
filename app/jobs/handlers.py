@@ -266,6 +266,12 @@ async def _run_generate_outline(payload: dict) -> None:
         await session.commit()
 
 
+SUPERSEDED_NOTE = (
+    "The source was edited after this extraction was queued; the extraction "
+    "of the edited text replaces it."
+)
+
+
 async def _run_extract_canon(payload: dict) -> None:
     """Extract a Source into proposed canon, held on the run for review (Phase 6).
 
@@ -289,6 +295,24 @@ async def _run_extract_canon(payload: dict) -> None:
     async with get_async_session() as session:
         source = await session.get(Source, source_id)
         text = source.content_text if source is not None else ""
+        current_hash = getattr(source, "content_hash", None)
+    queued_hash = payload.get("content_hash")
+    if queued_hash and current_hash and queued_hash != current_hash:
+        # The source was edited after this run was queued (or while it was
+        # paused). The edit queued its own run for the new text; extracting
+        # the new text here too would spend twice and file its proposals
+        # under the wrong run.
+        async with get_async_session() as session:
+            run = await session.get(ExtractionRun, run_id)
+            if run is not None and run.status in ("pending", "processing", "paused"):
+                run.status = "cancelled"
+                run.error = SUPERSEDED_NOTE
+                await session.commit()
+        logger.info(
+            "Extraction superseded by a source edit",
+            extra_fields={"event": "extraction_superseded", "run_id": str(run_id)},
+        )
+        return
     if not text:
         async with get_async_session() as session:
             run = await session.get(ExtractionRun, run_id)

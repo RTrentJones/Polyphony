@@ -344,8 +344,10 @@ async def generate_plan(
         domain=("book_plan", plan.id),
     )
     if job.domain_id != plan.id:  # lost a race to an identical request
+        # Plain values first: the rollback expires every ORM instance.
+        won = {"plan_id": str(job.domain_id), "job_id": str(job.id)}
         await db.rollback()
-        return {"plan_id": str(job.domain_id), "job_id": str(job.id)}
+        return won
     await db.commit()
     return {"plan_id": str(plan.id), "job_id": str(job.id), "status": "generating"}
 
@@ -429,8 +431,10 @@ async def confirm_premise(
         domain=("book_plan", plan.id),
     )
     if job.domain_id != plan.id:  # lost a race to an identical request
+        # Plain values first: the rollback expires every ORM instance.
+        won = {"plan_id": str(job.domain_id), "job_id": str(job.id)}
         await db.rollback()
-        return {"plan_id": str(job.domain_id), "job_id": str(job.id)}
+        return won
     await db.commit()
     return {"plan_id": str(plan.id), "job_id": str(job.id), "status": "generating"}
 
@@ -916,8 +920,10 @@ async def start_continuity_check(
         domain=("continuity_report", report.id),
     )
     if job.domain_id != report.id:  # lost a race to an identical request
+        # Plain values first: the rollback expires every ORM instance.
+        won = {"report_id": str(job.domain_id), "job_id": str(job.id)}
         await db.rollback()
-        return {"report_id": str(job.domain_id), "job_id": str(job.id)}
+        return won
     await db.commit()
     await db.refresh(report)
 

@@ -88,6 +88,9 @@ async def enqueue_extraction(
         "run_id": str(run.id),
         "source_id": str(source_id),
         "user_id": str(user_id),
+        # The revision this run extracts: an edit queues a new run, and this
+        # one retires instead of extracting text it was not queued for.
+        "content_hash": getattr(source, "content_hash", None),
     }
     if max_chapters:
         payload["max_chapters"] = int(max_chapters)

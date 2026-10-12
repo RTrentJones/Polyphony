@@ -8,6 +8,7 @@ import ast
 import dataclasses
 import pathlib
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
 import pytest
 from sqlalchemy import select
@@ -685,3 +686,71 @@ async def test_scene_provenance_must_come_from_the_same_book(
     assert r.status_code == 404, r.text
     r = await client.post(url, json={**body, "source_id": own}, headers=auth_headers)
     assert r.status_code == 200, r.text
+
+
+async def test_an_extraction_queued_before_an_edit_retires_unspent(
+    client, auth_headers, async_session, test_book, monkeypatch
+):
+    """Editing a source queues a run for the new text; the run queued for the
+    old text must not extract the new text too (double spend, wrong run)."""
+    import app.parsing.canon_extractor as extractor
+    from app.jobs.handlers import SUPERSEDED_NOTE
+
+    _bind(monkeypatch, async_session)
+
+    async def must_not_run(*a, **kw):
+        raise AssertionError("a superseded run spent model calls")
+
+    monkeypatch.setattr(extractor, "extract_canon", must_not_run)
+    src = (
+        await client.post(
+            "/api/v1/sources/paste",
+            json={"title": "T", "content_text": "Zara.", "book_id": str(test_book.id)},
+            headers=auth_headers,
+        )
+    ).json()
+    old_job = await async_session.get(Job, UUID(src["job_id"]))
+    old_payload = dict(old_job.payload)
+    r = await client.patch(
+        f"/api/v1/sources/{src['id']}",
+        json={"content_text": "Zara and Milo."},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json().get("extraction_run_id") != src["extraction_run_id"]
+
+    await HANDLERS["extract_canon"].run(old_payload)
+    old_run = await async_session.get(ExtractionRun, UUID(src["extraction_run_id"]))
+    await async_session.refresh(old_run)
+    assert old_run.status == "cancelled"
+    assert old_run.error == SUPERSEDED_NOTE
+
+
+async def test_a_lost_outline_race_returns_the_winning_job(
+    client, auth_headers, async_session, test_book, monkeypatch
+):
+    """Both requests miss find_active; the dedupe index hands the loser the
+    winner's job, read before the rollback expires it (no 500)."""
+    import app.api.plans as plans_mod
+
+    test_book.synopsis = "A lich audits the afterlife."
+    await async_session.commit()
+    url = f"/api/v1/books/{test_book.id}/plans/generate"
+    first = await client.post(url, json={"kind": "outline"}, headers=auth_headers)
+    assert first.status_code == 200, first.text
+
+    winner_id = UUID(first.json()["job_id"])
+
+    async def miss(db, key):
+        return None
+
+    async def winner(db, **kw):
+        # What Postgres's savepoint recovery hands the loser: the winner's job,
+        # loaded in the loser's session (repository.enqueue).
+        return await db.get(Job, winner_id)
+
+    monkeypatch.setattr(plans_mod.jobs_repo, "find_active", miss)
+    monkeypatch.setattr(plans_mod.jobs_repo, "enqueue", winner)
+    again = await client.post(url, json={"kind": "outline"}, headers=auth_headers)
+    assert again.status_code == 200, again.text
+    assert again.json()["job_id"] == first.json()["job_id"]
