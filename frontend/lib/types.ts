@@ -129,8 +129,10 @@ export interface SourceUploadResponse {
   author?: string | null
   word_count: number
   status: SourceStatus
-  /** Handle to the extraction whose proposals must be reviewed + committed. */
-  extraction_run_id: string
+  /** Handle to the extraction whose proposals must be reviewed + committed;
+   *  null when the preflight refused (see `preflight`). */
+  extraction_run_id: string | null
+  preflight?: ExtractionPreflight | null
   message: string
 }
 
@@ -413,6 +415,32 @@ export interface CharacterProposal {
   name: string
   role?: string | null
   description?: string | null
+  // The full bible entry extraction proposes (SPEC-09).
+  goals?: string | null
+  arc?: string | null
+  relationships?: Record<string, string> | null
+  personality_traits?: Record<string, string> | null
+  voice_characteristics?: Record<string, string> | null
+  aliases?: string[] | null
+  /** Ranking: name occurrences in the source, and windows it was seen in. */
+  mentions?: number
+  windows?: number
+  /** The review's default (seen in 2+ windows, or a narrator). */
+  selected?: boolean
+}
+
+/** What an extraction will cost, returned by every enqueueing endpoint. */
+export interface ExtractionPreflight {
+  windows: number
+  map_calls: number
+  reduce_calls: number
+  requests: number
+  estimated_tokens: number
+  capacity_tokens: number
+  fits: boolean
+  /** When refused: the largest opening (in chapters) that fits, if any. */
+  max_chapters: number | null
+  message?: string
 }
 
 export interface CanonEntryProposal {
@@ -426,6 +454,8 @@ export interface ExtractionProposals {
   canon_entries: CanonEntryProposal[]
   style: Partial<StyleGuide>
   synopsis: string
+  stats?: { windows: number; calls?: number; tokens?: number; max_chapters?: number }
+  warnings?: string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -460,6 +490,14 @@ export interface ExtractionRun {
   status: 'pending' | 'ready' | 'failed' | 'committed' | string
   proposals: ExtractionProposals | Record<string, never>
   error?: string | null
+  /** Map-reduce progress while pending (SPEC-09). */
+  progress?: {
+    phase?: string | null
+    windows_total?: number | null
+    windows_done?: number | null
+    reduce_total?: number | null
+    reduce_done?: number | null
+  }
 }
 
 /** POST /books/{id}/extractions/{run_id}/commit body — the reviewed selection. */

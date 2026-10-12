@@ -38,10 +38,29 @@ user-level `/api/v1/scenes` router.
 4. **Queries.** `list_book_scenes` filters `Scene.book_id == book_id` (drop the OR across source).
    Scene reads and writes authorise through the book (`Scene.book_id → Book.user_id`), keeping
    `user_id` as the tenant guard.
-5. **Retire the user-level list.** `GET /api/v1/scenes/` is removed (the frontend no longer calls
+5. **Retire the user-level list.** *(Superseded by the adjustment below.)* `GET /api/v1/scenes/` is removed (the frontend no longer calls
    it after PR #28; confirm with a grep of `frontend/`). `GET/DELETE /api/v1/scenes/{id}` move under
    `/books/scenes/{id}` beside the existing content and revision routes, with the old paths kept as
    thin aliases for one release.
+
+### Adjustment (implementation, 2026-10)
+
+Two external consumers depend on the user-level routes: the wrapper repo's deployed verify gate
+asserts `GET /api/v1/scenes/` returns 401 unauthenticated, and the eval harness (and the frontend)
+poll `GET /api/v1/scenes/{id}`. So, instead of design point 5:
+
+- `GET /api/v1/scenes/` **stays** (authenticated) but lists only scenes reachable through the
+  user's books (`JOIN books ON scenes.book_id = books.id WHERE books.user_id = :me`).
+- `GET/DELETE /api/v1/scenes/{id}` **stay** where they are, authorised through the book by the same
+  `owned_scene` helper the `/books/scenes/{id}/*` routes use. No `/books/scenes/{id}` alias was added:
+  nothing needs it.
+- The migration ships as `0012_spec04_scene_book_id` (revision `spec04_scene_book_id`), not `0009`,
+  which SPEC-01 had already taken.
+- Until SPEC-13 adds soft delete, a scene deleted with its chapter (or on its own) is first appended
+  to `entity_versions` (`entity_type='scene'`, `reason='deleted'`) with its prose and revision
+  history, so it is preserved for SPEC-13's Trash to restore.
+- A `before_insert` hook on `Scene` derives `book_id` from the chapter (else the source) when a
+  creator leaves it unset; the API always sets it explicitly.
 
 ## Acceptance
 

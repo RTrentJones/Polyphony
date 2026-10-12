@@ -143,11 +143,16 @@ async def _run_generate_outline(payload: dict) -> None:
 async def _run_extract_canon(payload: dict) -> None:
     """Extract a Source into proposed canon, held on the run for review (Phase 6).
 
-    Writes proposals, never real entities. QuotaExhaustedError propagates so the
-    worker pauses (free tier). Extraction is reprocess-idempotent (re-runnable).
+    Writes proposals, never real entities. Map-reduce over ~12k-token windows
+    (SPEC-09): every finished model call is checkpointed on the run's
+    `progress`, so a quota pause (QuotaExhaustedError propagates and the worker
+    pauses) resumes at the next window instead of re-spending finished ones.
+    `max_chapters` (the preflight's "first N chapters" alternative) limits the
+    run to the opening chapters the author chose.
     """
     from app.core.orm_models import ExtractionRun, Source
     from app.parsing.canon_extractor import extract_canon
+    from app.parsing.extraction_plan import first_chapters
 
     run_id = UUID(payload["run_id"])
     source_id = UUID(payload["source_id"])
@@ -156,6 +161,8 @@ async def _run_extract_canon(payload: dict) -> None:
     async with get_async_session() as session:
         source = await session.get(Source, source_id)
         text = source.content_text if source is not None else ""
+        run = await session.get(ExtractionRun, run_id)
+        progress = dict((run.progress if run is not None else None) or {})
     if not text:
         async with get_async_session() as session:
             run = await session.get(ExtractionRun, run_id)
@@ -164,8 +171,34 @@ async def _run_extract_canon(payload: dict) -> None:
                 run.error = "source has no stored content"
                 await session.commit()
         return
+    if payload.get("max_chapters"):
+        text = first_chapters(text, int(payload["max_chapters"]))
 
-    proposals = await extract_canon(text, user_id=user_id)
+    async def save_checkpoint(data: dict) -> None:
+        # Progress for the review screen + the checkpoint a resume picks up.
+        async with get_async_session() as session:
+            row = await session.get(ExtractionRun, run_id)
+            if row is not None:
+                row.progress = {
+                    "phase": data.get("phase"),
+                    "windows_total": data.get("windows_total"),
+                    "windows_done": data.get("windows_done"),
+                    "reduce_total": data.get("reduce_total"),
+                    "reduce_done": data.get("reduce_done"),
+                    "checkpoint": data,
+                }
+                if row.status == "paused":
+                    row.status = "pending"
+                await session.commit()
+
+    proposals = await extract_canon(
+        text,
+        user_id=user_id,
+        checkpoint=payload.get("checkpoint") or progress.get("checkpoint"),
+        save_checkpoint=save_checkpoint,
+    )
+    if payload.get("max_chapters"):
+        proposals["stats"]["max_chapters"] = int(payload["max_chapters"])
 
     async with get_async_session() as session:
         run = await session.get(ExtractionRun, run_id)
@@ -173,6 +206,12 @@ async def _run_extract_canon(payload: dict) -> None:
             run.proposals = proposals
             run.status = "ready"
             run.error = None
+            # The checkpoint has served its purpose; keep only the summary.
+            run.progress = {
+                "phase": "done",
+                "windows_total": proposals["stats"].get("windows"),
+                "windows_done": proposals["stats"].get("windows"),
+            }
             await session.commit()
 
 

@@ -112,6 +112,25 @@ def _cast(prompt: str) -> list[str]:
     return seen
 
 
+_NARRATOR_HEAD = re.compile(
+    r"^[\s_*]*([A-Za-z][\w.]*(?:[ \t]+[A-Za-z][\w.]*){0,3})[’']s[ \t]+"
+    r"(?:journal|diary)\b",
+    re.I | re.M,
+)
+
+
+def _narrators(prompt: str) -> list[str]:
+    """First-person narrators the source block's own headings name ("Jonathan
+    Harker's Journal") — what a model reading the window would report."""
+    src = _blocks(prompt).get("source", "")
+    out: list[str] = []
+    for m in _NARRATOR_HEAD.finditer(src):
+        name = " ".join(w if not w.isupper() else w.title() for w in m.group(1).split())
+        if name not in out:
+            out.append(name)
+    return out
+
+
 def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
     cast = _cast(prompt)
     lead = cast[0] if cast else "the protagonist"
@@ -196,7 +215,11 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
                 ],
                 "canon_entries": [],
                 "style": {"pov": "third", "tense": "past", "tone": "", "comps": ""},
-                "style_signals": {},
+                "style_signals": (
+                    {"narration": "first-person", "narrators": _narrators(prompt)}
+                    if _narrators(prompt)
+                    else {}
+                ),
                 "synopsis": f"A story about {', '.join(cast)}.",
             }
         )
@@ -219,6 +242,8 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
                 ]
             }
         )
+    if "Write the book's synopsis" in prompt:
+        return json.dumps({"synopsis": f"A story about {', '.join(cast[:4]) or lead}."})
     if "continuity editor" in prompt:
         return json.dumps({"findings": []}) if "findings" in prompt else "[]"
     if "narrative planner" in prompt:

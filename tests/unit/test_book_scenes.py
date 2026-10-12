@@ -25,7 +25,7 @@ class TestBookScenes:
             content="chapter prose",
             characters=["Milo"],
         )
-        # standalone — reaches the book only through its source
+        # chapter-less — its book_id is derived from its source on insert (SPEC-04)
         s_std = Scene(
             user_id=test_book.user_id,
             source_id=test_source.id,

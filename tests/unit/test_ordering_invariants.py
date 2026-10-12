@@ -46,11 +46,14 @@ class TestUniqueConstraints:
             await async_session.commit()
         await async_session.rollback()
 
-    async def test_standalone_scenes_may_share_position_zero(
-        self, async_session, test_user
+    async def test_chapterless_scenes_may_share_position_zero(
+        self, async_session, test_user, owned_book
     ):
-        async_session.add(Scene(user_id=test_user.id, position=0))
-        async_session.add(Scene(user_id=test_user.id, position=0))
+        # Legacy source-drafted scenes sit in a book but no chapter (SPEC-04).
+        for _ in range(2):
+            async_session.add(
+                Scene(user_id=test_user.id, book_id=owned_book.id, position=0)
+            )
         await async_session.commit()  # NULL chapter_id is distinct
 
 
