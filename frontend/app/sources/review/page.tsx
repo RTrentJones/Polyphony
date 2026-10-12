@@ -17,6 +17,8 @@ import Card from '@/components/Card'
 import KeyValueEditor from '@/components/KeyValueEditor'
 import Loading from '@/components/Loading'
 import ProtectedRoute from '@/components/ProtectedRoute'
+import { booksApi } from '@/lib/books-store'
+import { canonApi } from '@/lib/canon-store'
 import { rateLimitedPollDelay } from '@/lib/rate-limit'
 import { useExtractionStore } from '@/lib/store'
 import type {
@@ -67,6 +69,7 @@ function ReviewContent() {
     comps: '',
   })
   const [synopsis, setSynopsis] = useState({ approved: false, value: '' })
+  const [existing, setExisting] = useState({ synopsis: false, style: false })
   const [progress, setProgress] = useState<ExtractionRun['progress']>(undefined)
   const [windowsTotal, setWindowsTotal] = useState(0)
   const [warnings, setWarnings] = useState<string[]>([])
@@ -89,14 +92,27 @@ function ReviewContent() {
         setWindowsTotal(p.stats?.windows ?? 0)
         setWarnings(p.warnings ?? [])
         setEntries(p.canon_entries.map((e) => ({ ...e, approved: true })))
+        // Never pre-approve a proposal that would overwrite what the author
+        // already wrote: the extracted synopsis/style is a suggestion, and the
+        // book's own synopsis is usually far richer than 2-4 sentences.
+        const [book, canon] = await Promise.all([
+          booksApi.getBook(bookId).catch(() => null),
+          canonApi.getCanon(bookId).catch(() => null),
+        ])
+        const hasSynopsis = Boolean(book?.synopsis?.trim())
+        const hasStyle = Boolean(
+          canon?.style && (canon.style.pov || canon.style.tense || canon.style.tone)
+        )
+        setExisting({ synopsis: hasSynopsis, style: hasStyle })
         setStyle({
-          approved: Boolean(p.style?.pov || p.style?.tense || p.style?.tone),
+          approved:
+            !hasStyle && Boolean(p.style?.pov || p.style?.tense || p.style?.tone),
           pov: p.style?.pov ?? '',
           tense: p.style?.tense ?? '',
           tone: p.style?.tone ?? '',
           comps: p.style?.comps ?? '',
         })
-        setSynopsis({ approved: Boolean(p.synopsis), value: p.synopsis ?? '' })
+        setSynopsis({ approved: !hasSynopsis && Boolean(p.synopsis), value: p.synopsis ?? '' })
       } else if (run.status === 'pending' || run.status === 'paused') {
         setProgress(run.progress)
         timer.current = setTimeout(load, 2000) // still extracting; poll
@@ -205,7 +221,7 @@ function ReviewContent() {
     return (
       <div className="max-w-3xl mx-auto p-6">
         <p className="text-red-600 mb-4">{error}</p>
-        <Button onClick={() => router.push('/sources')}>Back to Sources</Button>
+        <Button onClick={() => router.push(`/books/detail?id=${bookId}&tab=sources`)}>Back to Sources</Button>
       </div>
     )
   }
@@ -218,7 +234,7 @@ function ReviewContent() {
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-6">
       <button
-        onClick={() => router.push('/sources')}
+        onClick={() => router.push(`/books/detail?id=${bookId}&tab=sources`)}
         className="flex items-center text-gray-600 hover:text-gray-900"
       >
         <ArrowLeft className="w-4 h-4 mr-1" /> Sources
@@ -446,6 +462,12 @@ function ReviewContent() {
           />
           Synopsis
         </label>
+        {existing.synopsis && (
+          <p className="text-sm text-amber-700 mb-2" data-testid="synopsis-replaces">
+            Your book already has a synopsis. Approving this replaces it (the
+            current one stays in its version history).
+          </p>
+        )}
         <textarea
           className="border rounded px-2 py-1 w-full"
           rows={4}
@@ -455,7 +477,7 @@ function ReviewContent() {
       </Card>
 
       <div className="flex justify-end gap-3">
-        <Button variant="secondary" onClick={() => router.push('/sources')}>
+        <Button variant="secondary" onClick={() => router.push(`/books/detail?id=${bookId}&tab=sources`)}>
           Cancel
         </Button>
         <Button onClick={commit} disabled={committing}>

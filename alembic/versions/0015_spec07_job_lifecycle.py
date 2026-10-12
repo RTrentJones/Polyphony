@@ -1,7 +1,7 @@
 """jobs lifecycle — pause bound, cancel, checkpoint, dedupe, domain link (SPEC-07/08).
 
 Revision ID: spec07_job_lifecycle
-Revises: spec09_extraction_scale
+Revises: spec11_drop_character_chunks
 Create Date: 2026-10-12
 
 """
@@ -11,7 +11,7 @@ from typing import Sequence, Union
 from alembic import op
 
 revision: str = "spec07_job_lifecycle"
-down_revision: Union[str, None] = "spec09_extraction_scale"
+down_revision: Union[str, None] = "spec11_drop_character_chunks"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

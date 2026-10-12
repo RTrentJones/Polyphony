@@ -12,6 +12,7 @@ import { ArrowLeft, FileText, History, RotateCcw, Save } from 'lucide-react'
 import Button from '@/components/Button'
 import Card from '@/components/Card'
 import Loading from '@/components/Loading'
+import SceneGrounding from '@/components/SceneGrounding'
 import { ToastContainer, type ToastType } from '@/components/Toast'
 import { booksApi } from '@/lib/books-store'
 import type { Scene, SceneRevision } from '@/lib/types'
@@ -202,6 +203,7 @@ function SceneEditorContent() {
               </span>
             </div>
           </Card>
+          {scene.status === 'completed' && <SceneGrounding sceneId={scene.id} />}
         </div>
 
         {/* Revision history */}

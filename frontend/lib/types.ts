@@ -469,14 +469,17 @@ export interface ExtractionProposals {
 /** A character's indexed voice chunk (GET /characters/{id}/chunks). */
 export interface VoiceChunk {
   id: string
+  source_id?: string | null
   chunk_type: string
   text: string
   source: string
   word_count: number
+  created_at?: string | null
 }
 
 /** A scored retrieval hit (POST /characters/{id}/retrieve). */
 export interface RetrievalHit {
+  id?: string | null
   text: string
   score: number | null
   chunk_type: string

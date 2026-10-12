@@ -11,6 +11,7 @@ import Button from '@/components/Button'
 import GenerateSceneModal from '@/components/book/GenerateSceneModal'
 import Card from '@/components/Card'
 import Loading from '@/components/Loading'
+import SceneGrounding from '@/components/SceneGrounding'
 import type { ToastType } from '@/components/Toast'
 import { booksApi } from '@/lib/books-store'
 import type { BookChapter, BookSceneSummary } from '@/lib/types'
@@ -162,6 +163,7 @@ export default function ScenesPanel({
                         ? 'Generating…'
                         : 'No content yet')}
                 </p>
+                {s.status === 'completed' && <SceneGrounding sceneId={s.id} />}
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <Button

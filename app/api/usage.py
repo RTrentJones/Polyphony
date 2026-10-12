@@ -40,7 +40,42 @@ async def get_usage(
         )
     ).scalar_one()
 
+    from app.core.estimates import requests_left_today
+    from app.llm.providers import active_provider
+    from app.llm.tier import effective_rpd
+
+    by_purpose = (
+        await db.execute(
+            select(
+                APIUsage.endpoint,
+                func.coalesce(func.sum(APIUsage.tokens_used), 0),
+                func.coalesce(func.sum(APIUsage.cost_usd), 0),
+                func.count(APIUsage.id),
+            )
+            .where(
+                APIUsage.user_id == current_user.id,
+                APIUsage.timestamp >= since_30d,
+            )
+            .group_by(APIUsage.endpoint)
+        )
+    ).all()
+    deployment_30d = await budget.deployment_cost_30d(db)
+
     return {
+        "requests_left_today": await requests_left_today(),
+        "requests_per_day": effective_rpd(active_provider(), fast=False),
+        "by_purpose_30d": [
+            {
+                "purpose": purpose or "llm",
+                "tokens": int(tokens or 0),
+                "usd": float(cost or 0),
+                "calls": int(calls or 0),
+            }
+            for purpose, tokens, cost, calls in sorted(
+                by_purpose, key=lambda r: -(r[1] or 0)
+            )
+        ],
+        "deployment_cost_30d_usd": deployment_30d,
         "tier": tier.name,
         "on_quota": tier.on_quota,
         "tokens_used_24h": used,

@@ -59,10 +59,22 @@ def _normalize_proposal(raw: dict, name: str) -> dict:
 
 
 async def propose(
-    character, name: str, beat_description: str, prior_objections: list[dict], user_id
+    character,
+    name: str,
+    beat_description: str,
+    prior_objections: list[dict],
+    user_id,
+    *,
+    grounding: Optional[list] = None,
 ) -> dict:
-    """One character agent's proposal — scoped to its OWN context only."""
-    context = await build_character_context(character, name, beat_description)
+    """One character agent's proposal — scoped to its OWN context only.
+
+    `grounding`, when given, collects the voice chunks retrieved for this agent
+    (character_id, chunk_id, score) — the same record the prose workflow keeps.
+    """
+    context = await build_character_context(
+        character, name, beat_description, grounding=grounding
+    )
     feedback = ""
     if prior_objections:
         notes = "; ".join(
@@ -271,6 +283,10 @@ async def run_ensemble(
     round_no = start_round
     for round_no in range(start_round, tier.max_rounds + 1):
         st["round"] = round_no
+        # Each round re-retrieves; the kept draft's grounding is what it was
+        # actually written from, so it travels with the candidate — and with
+        # the checkpoint, so a resumed round keeps what its proposals retrieved.
+        round_grounding: list = list(st.get("grounding") or [])
         proposals: list[dict] = list(st.get("proposals") or [])
         for name in agents[len(proposals) :]:
             proposals.append(
@@ -280,9 +296,11 @@ async def run_ensemble(
                     beat_description,
                     prior_objections,
                     user_id,
+                    grounding=round_grounding,
                 )
             )
             st["proposals"] = proposals
+            st["grounding"] = round_grounding
             await _checkpoint()
         draft = st.get("draft")
         if draft is None:
@@ -305,7 +323,12 @@ async def run_ensemble(
             )
             st["review"] = review
             await _checkpoint()
-        candidate = {"prose": draft, "evaluation": review, "rounds": round_no}
+        candidate = {
+            "prose": draft,
+            "evaluation": review,
+            "rounds": round_no,
+            "grounding": round_grounding,
+        }
         if best is None or _score(review) > _score(best["evaluation"]):
             best = candidate
 
@@ -412,6 +435,9 @@ async def run_ensemble_scene_workflow(
             await _save()
         prose_parts: list[str] = list(checkpoint.get("prose") or [])
         evaluations: list[dict] = list(checkpoint.get("evaluations") or [])
+        # {beat_index: [{character_id, chunk_id, score}]} — the prose workflow's
+        # shape, so one grounding endpoint reads both modes (R5.3).
+        grounding: dict[str, list] = dict(checkpoint.get("grounding") or {})
         prior_tail = prior_scene_tail
         if prose_parts:
             prior_tail = " ".join("\n\n".join(prose_parts).split()[-PREV_TAIL_WORDS:])
@@ -435,11 +461,13 @@ async def run_ensemble_scene_workflow(
             )
             prose_parts.append(result["prose"])
             evaluations.append(result["evaluation"])
+            grounding[str(idx)] = result.get("grounding") or []
             joined = "\n\n".join(prose_parts)
             prior_tail = " ".join(joined.split()[-PREV_TAIL_WORDS:])
             checkpoint.update(
                 prose=prose_parts,
                 evaluations=evaluations,
+                grounding=grounding,
                 beat_state=None,
                 beat_index=idx,
                 progress={
@@ -475,6 +503,7 @@ async def run_ensemble_scene_workflow(
                 "mode": "ensemble",
                 "converged": converged,
                 "beats": evaluations,
+                "grounding": grounding,
             }
             await session.commit()
 

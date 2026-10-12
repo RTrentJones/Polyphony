@@ -94,10 +94,11 @@ product's whole history.
 |---|---|---|---|
 | Voice chunks embedded per character | — | ✅ | fastembed/ONNX, 384-dim, pgvector HNSW cosine |
 | Chunks carry `book_id`; retrieval filters by book | R3.3 | ⬜ | Column exists, **never passed**; `retrieve_similar` has no `book_id` param at all |
-| Chunk browser / editor with re-embed | R5.2 | ⬜ | Store is **write-only** today: the only fix for one bad sample is deleting the character |
-| Retrieval inspector (chunks + scores) | R5.3 | ⬜ | Score is already computed at `store.py:113-130` and **discarded** |
+| Chunk browser / editor with re-embed | R5.2 | ✅ | Canon tab → character → **Voice** (`VoicePanel`): paged list (type, source, words) with type filter, inline edit (re-embeds via PATCH), delete, and "Add samples" (one per paragraph). API pages with `skip/limit` and filters by `source_id`/`chunk_type` (SPEC-11) |
+| Retrieval inspector (chunks + scores) | R5.3 | ✅ | Voice → "Test retrieval": ranked hits with scores and the `RAG_SCORE_THRESHOLD` line drawn; "Test a line" shows the samples that grounded it (SPEC-11) |
+| Grounding provenance per generated scene | R5.3 | ✅ | Prose and ensemble store `{beat: [{character_id, chunk_id, score}]}` on `Scene.evaluation_scores["grounding"]`; `GET /books/scenes/{id}/grounding` resolves to current text (deleted chunks marked); "Why does it sound like this?" in the scene list and editor (SPEC-11) |
 | Structured character field editors | R5.4 | ⬜ | `personality_traits` / `voice_characteristics` / `relationships` have **no UI at all** |
-| `character_chunks` mirror table | — | ⬜ | Written by both ingest paths, **never read** — reconcile or drop |
+| `character_chunks` mirror table | — | ❌ | Dropped (SPEC-11): no longer written, ORM model removed, migration `spec11_drop_character_chunks` drops the table; `voice_chunks` is the one store |
 | Retrieval scoped by user | — | ✅ | Opt-in per call; `dialogue.py` omits it while `context.py` passes it — half-wired |
 
 ## 7. Text handling
