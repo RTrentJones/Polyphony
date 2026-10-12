@@ -20,6 +20,9 @@ STUB_PORT=${STUB_PORT:-8099}
 export STUB_LLM_BASE_URL=http://127.0.0.1:$STUB_PORT/v1
 export EVAL_BASE_URL=${EVAL_BASE_URL:-http://localhost:$APP_PORT}
 export EVAL_JUDGE_PROVIDER=stub EVAL_RPM=600 DEBUG=true
+# Serve the static frontend when it has been built (frontend/out), so the
+# browser journey can drive the real site.
+export STATIC_DIR=${STATIC_DIR:-frontend/out}
 export EVAL_CACHE_DIR=$(mktemp -d)
 PY=${PYTHON:-python}
 
@@ -47,4 +50,10 @@ $PY -m evals.run --book dracula --steps all --out eval-report-e2e-dracula.json |
 $PY -m evals.gate eval-report-e2e-dracula.json \
   "extraction.score>0" "ingestion.n_characters>0" "outline.n_nodes>0" \
   "prose.words>0" "attribution.generated>0" "continuity.n_injected>0" || rc=1
+# The browser journey through the real site (needs `npm run build` and a
+# Playwright Chromium; set PLAYWRIGHT_CHROMIUM to use a preinstalled one).
+if [ "${RUN_BROWSER_E2E:-0}" = "1" ]; then
+  BASE_URL=http://localhost:$APP_PORT E2E_SHOTS=${E2E_SHOTS:-e2e-shots} \
+    $PY scripts/e2e_browser.py || rc=1
+fi
 exit $rc

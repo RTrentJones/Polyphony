@@ -47,6 +47,16 @@ import type {
 // ---------------------------------------------------------------------------
 
 export const booksApi = {
+  /** GET /books/{id} — a book's details without touching the store. */
+  async getBook(bookId: string): Promise<BookDetail> {
+    try {
+      const { data } = await apiClient.get<BookDetail>(`/books/${bookId}`)
+      return data
+    } catch (err) {
+      throw toApiError(err)
+    }
+  },
+
   // -- Scenes shared with the classic scene endpoints ------------------------
 
   /** GET /scenes/{id} — used to poll generation status. */

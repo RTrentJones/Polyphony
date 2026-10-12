@@ -103,3 +103,4 @@ gl-export-*.json
 e2e-*.log
 .eval-cache/
 .claude/worktrees/
+e2e-shots/

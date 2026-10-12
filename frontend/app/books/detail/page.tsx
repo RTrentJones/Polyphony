@@ -85,7 +85,11 @@ function BookDetailContent() {
   const { currentBook, isLoading, error, fetchBook, updateBook, fetchChapter } =
     useBookStore()
 
-  const [activeTab, setActiveTab] = useState<TabKey>('chapters')
+  // `?tab=` deep-links a tab (e.g. back from the extraction review to Sources).
+  const initialTab = searchParams.get('tab') as TabKey | null
+  const [activeTab, setActiveTab] = useState<TabKey>(
+    initialTab && TABS.some((t) => t.key === initialTab) ? initialTab : 'chapters'
+  )
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [editOpen, setEditOpen] = useState(false)
   const [addSourceOpen, setAddSourceOpen] = useState(false)
