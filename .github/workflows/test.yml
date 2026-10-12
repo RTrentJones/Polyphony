@@ -158,6 +158,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Test
+        run: npm test
+
       # A red build here means the static export the container serves is broken.
       - name: Build (static export)
         run: npm run build
