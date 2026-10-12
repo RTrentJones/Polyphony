@@ -7,16 +7,19 @@ from uuid import UUID
 from fastapi import (
     APIRouter,
     Depends,
+    Header,
     HTTPException,
+    Query,
     Response,
     status,
 )
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.characters.cast import resolve_cast
 from app.core.budget import check_user_budget
 from app.core.database import get_db
 from app.core.orm_models import (
@@ -40,7 +43,10 @@ from app.exports.builder import (
 )
 from app.jobs import repository as jobs_repo
 from app.llm.tier import get_tier
+from app.versioning import entities as entity_versions
+from app.versioning import trash
 from app.versioning.synopsis import record_synopsis
+from app.versioning.trash import live, renumber_two_phase as _renumber_two_phase
 
 router = APIRouter()
 
@@ -82,8 +88,12 @@ class PositionUpdate(BaseModel):
 
 
 class ChapterSceneRequest(BaseModel):
-    source_id: Optional[UUID] = None  # provenance of the character bible
-    characters: list[str] = Field(..., min_length=1)
+    source_id: Optional[UUID] = None  # provenance only
+    # The cast, as character IDs of this book (SPEC-01). `characters` (names) is
+    # the deprecated input, resolved against the book's cast by name/alias; an
+    # unknown name is rejected rather than silently generated voice-blind.
+    character_ids: list[UUID] = Field(default_factory=list)
+    characters: list[str] = Field(default_factory=list)
     scene_description: str = Field(..., min_length=10)
     setting: str
     emotional_tone: str
@@ -130,7 +140,7 @@ async def _owned_chapter(
 ) -> ChapterORM:
     chapter = (
         await db.execute(
-            select(ChapterORM)
+            live(select(ChapterORM), ChapterORM)
             .join(BookORM, ChapterORM.book_id == BookORM.id)
             .where(ChapterORM.id == chapter_id, BookORM.user_id == user.id)
         )
@@ -142,18 +152,26 @@ async def _owned_chapter(
     return chapter
 
 
-async def _renumber_two_phase(db: AsyncSession, ordered: list) -> None:
-    """Renumber rows to 0..n-1 under an immediate UNIQUE (parent, position).
-
-    Phase 1 parks every row on a negative temp position — the API validates
-    client positions >= 0, so negatives can never collide with real data —
-    then phase 2 lands the final contiguous order. Caller commits.
-    """
-    for idx, item in enumerate(ordered):
-        item.position = -(idx + 1)
-    await db.flush()
-    for idx, item in enumerate(ordered):
-        item.position = idx
+async def owned_scene(scene_id: UUID, user: UserORM, db: AsyncSession, *options):
+    """A scene, authorised through its book (SPEC-04): the book is the root, and
+    `Scene.user_id` stays as the tenant guard. 404 for anyone else's scene."""
+    scene = (
+        await db.execute(
+            live(select(SceneORM), SceneORM)
+            .options(*options)
+            .join(BookORM, SceneORM.book_id == BookORM.id)
+            .where(
+                SceneORM.id == scene_id,
+                BookORM.user_id == user.id,
+                SceneORM.user_id == user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not scene:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Scene not found"
+        )
+    return scene
 
 
 def _chapter_dict(c: ChapterORM) -> dict:
@@ -164,6 +182,10 @@ def _chapter_dict(c: ChapterORM) -> dict:
         "title": c.title,
         "summary": c.summary,
         "status": c.status,
+        # From the outline node it was promoted from (SPEC-10): scene defaults.
+        "plan_node_id": str(c.plan_node_id) if c.plan_node_id else None,
+        "pov_character_id": str(c.pov_character_id) if c.pov_character_id else None,
+        "character_ids": c.character_ids or [],
     }
 
 
@@ -235,7 +257,7 @@ async def get_book(
     chapters = (
         (
             await db.execute(
-                select(ChapterORM)
+                live(select(ChapterORM), ChapterORM)
                 .where(ChapterORM.book_id == book.id)
                 .order_by(ChapterORM.position)
             )
@@ -305,6 +327,7 @@ async def create_chapter(
     db: AsyncSession = Depends(get_db),
 ):
     await _owned_book(book_id, current_user, db)
+    user_id = current_user.id  # a plain value survives the rollback below
     if payload.position is None:
         # Append: concurrent appends can both compute max+1; the UNIQUE
         # (book_id, position) constraint turns that into an IntegrityError —
@@ -312,9 +335,10 @@ async def create_chapter(
         for attempt in (1, 2):
             max_pos = (
                 await db.execute(
-                    select(func.coalesce(func.max(ChapterORM.position), -1)).where(
-                        ChapterORM.book_id == book_id
-                    )
+                    live(
+                        select(func.coalesce(func.max(ChapterORM.position), -1)),
+                        ChapterORM,
+                    ).where(ChapterORM.book_id == book_id)
                 )
             ).scalar_one()
             chapter = ChapterORM(
@@ -325,6 +349,9 @@ async def create_chapter(
             )
             db.add(chapter)
             try:
+                await entity_versions.record(
+                    db, "chapter", chapter, reason="created", created_by=user_id
+                )
                 await db.commit()
                 break
             except IntegrityError:
@@ -340,7 +367,7 @@ async def create_chapter(
         to_shift = (
             (
                 await db.execute(
-                    select(ChapterORM)
+                    live(select(ChapterORM), ChapterORM)
                     .where(
                         ChapterORM.book_id == book_id,
                         ChapterORM.position >= payload.position,
@@ -364,6 +391,9 @@ async def create_chapter(
             position=payload.position,
         )
         db.add(chapter)
+        await entity_versions.record(
+            db, "chapter", chapter, reason="created", created_by=current_user.id
+        )
         await db.commit()
     await db.refresh(chapter)
     return _chapter_dict(chapter)
@@ -379,7 +409,7 @@ async def get_chapter(
     scenes = (
         (
             await db.execute(
-                select(SceneORM)
+                live(select(SceneORM), SceneORM)
                 .where(SceneORM.chapter_id == chapter.id)
                 .order_by(SceneORM.position)
             )
@@ -387,11 +417,15 @@ async def get_chapter(
         .scalars()
         .all()
     )
+    from app.api.jobs import latest_jobs
+
+    jobs = await latest_jobs(db, "scene", [s.id for s in scenes])
     return {
         **_chapter_dict(chapter),
         "scenes": [
             {
                 "id": str(s.id),
+                "job": jobs.get(str(s.id)),
                 "position": s.position,
                 "status": s.status,
                 "word_count": s.word_count,
@@ -411,10 +445,23 @@ async def update_chapter(
     db: AsyncSession = Depends(get_db),
 ):
     chapter = await _owned_chapter(chapter_id, current_user, db)
-    for field_name in ("title", "summary", "status"):
-        value = getattr(payload, field_name)
-        if value is not None:
+    changes = {
+        f: getattr(payload, f)
+        for f in ("title", "summary", "status")
+        if getattr(payload, f) is not None
+        and getattr(payload, f) != getattr(chapter, f)
+    }
+    if changes:
+        # Chapter titles and summaries are versioned (SPEC-13, F16); a chapter
+        # from before then keeps its current text as v1.
+        await entity_versions.ensure_baseline(
+            db, "chapter", chapter, created_by=current_user.id
+        )
+        for field_name, value in changes.items():
             setattr(chapter, field_name, value)
+        await entity_versions.record(
+            db, "chapter", chapter, reason="edited", created_by=current_user.id
+        )
     await db.commit()
     return _chapter_dict(chapter)
 
@@ -431,7 +478,7 @@ async def move_chapter(
     siblings = (
         (
             await db.execute(
-                select(ChapterORM)
+                live(select(ChapterORM), ChapterORM)
                 .where(ChapterORM.book_id == chapter.book_id)
                 .order_by(ChapterORM.position)
             )
@@ -450,13 +497,66 @@ async def move_chapter(
 @router.delete("/chapters/{chapter_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_chapter(
     chapter_id: UUID,
+    scenes: Optional[str] = Query(None, pattern="^(move|delete)$"),
+    to: Optional[UUID] = None,
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Move a chapter to the Trash without silently orphaning its prose.
+
+    A chapter with scenes needs `?scenes=move&to={chapter_id}` (they are appended
+    to that chapter of the same book, in order) or `?scenes=delete` (they go to
+    the Trash with the chapter and come back with it, SPEC-13). Neither → 409
+    with the count, so the UI can ask the author; nothing changes (SPEC-04).
+    """
     chapter = await _owned_chapter(chapter_id, current_user, db)
-    await db.delete(chapter)
+    owned = await _chapter_scenes(db, chapter.id)
+    if owned and scenes is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "Chapter has scenes: move them to another chapter "
+                "(scenes=move&to=<chapter_id>) or delete them (scenes=delete).",
+                "scene_count": len(owned),
+            },
+        )
+    if owned and scenes == "move":
+        if to is None or to == chapter.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="scenes=move needs `to`: another chapter of this book",
+            )
+        target = await _owned_chapter(to, current_user, db)
+        if target.book_id != chapter.book_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Scenes can only move to a chapter of the same book",
+            )
+        # Read the target's scenes BEFORE re-parenting: an autoflush of the new
+        # chapter_id with the old positions could collide on the UNIQUE.
+        ordered = [*await _chapter_scenes(db, target.id), *owned]
+        for s in owned:
+            s.chapter_id = target.id
+        await _renumber_two_phase(db, ordered)
+    await db.flush()
+    # Whatever scenes remain (scenes=delete) are trashed with the chapter.
+    await trash.soft_delete(db, "chapter", chapter, created_by=current_user.id)
     await db.commit()
     return None
+
+
+async def _chapter_scenes(db: AsyncSession, chapter_id: UUID) -> list:
+    return list(
+        (
+            await db.execute(
+                live(select(SceneORM), SceneORM)
+                .where(SceneORM.chapter_id == chapter_id)
+                .order_by(SceneORM.position)
+            )
+        )
+        .scalars()
+        .all()
+    )
 
 
 # --- Book-scoped scenes -----------------------------------------------------------
@@ -468,24 +568,14 @@ async def list_book_scenes(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Every scene that belongs to this book — those drafted into a chapter AND
-    standalone source-based scenes — so nothing generated is invisible. A scene is
-    the book's if its chapter is in the book OR its source is (book is the root;
-    scenes reach it through either)."""
+    """Every scene of this book — filed in a chapter or not — so nothing
+    generated is invisible. Scenes carry their book (SPEC-04)."""
     await _owned_book(book_id, current_user, db)
-    chapter_ids = select(ChapterORM.id).where(ChapterORM.book_id == book_id)
-    source_ids = select(SourceORM.id).where(SourceORM.book_id == book_id)
     scenes = (
         (
             await db.execute(
-                select(SceneORM)
-                .where(
-                    SceneORM.user_id == current_user.id,
-                    or_(
-                        SceneORM.chapter_id.in_(chapter_ids),
-                        SceneORM.source_id.in_(source_ids),
-                    ),
-                )
+                live(select(SceneORM), SceneORM)
+                .where(SceneORM.book_id == book_id)
                 .order_by(SceneORM.created_at.desc())
             )
         )
@@ -504,10 +594,14 @@ async def list_book_scenes(
         ).all()
         titles = {cid: title for cid, title in rows}
 
+    from app.api.jobs import latest_jobs
+
+    jobs = await latest_jobs(db, "scene", [s.id for s in scenes])
     return {
         "scenes": [
             {
                 "id": str(s.id),
+                "job": jobs.get(str(s.id)),
                 "title": s.title,
                 "status": s.status,
                 "chapter_id": str(s.chapter_id) if s.chapter_id else None,
@@ -530,16 +624,43 @@ async def generate_scene_into_chapter(
     payload: ChapterSceneRequest,
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, max_length=200),
 ):
-    """Prose-mode generation (one LLM call per beat) landing in the chapter."""
+    """Prose-mode generation (one LLM call per beat) landing in the chapter.
+
+    Two scenes in one chapter are legitimate, so duplicates are recognised by a
+    client-supplied `Idempotency-Key` header (SPEC-07): a repeat while the first
+    is in flight returns that scene and job instead of spending again.
+    """
     chapter = await _owned_chapter(chapter_id, current_user, db)
+    dedupe_key = (
+        f"scene:{current_user.id}:{idempotency_key}" if idempotency_key else None
+    )
+
+    async def _existing() -> Optional[dict]:
+        if dedupe_key is None:
+            return None
+        job = await jobs_repo.find_active(db, dedupe_key)
+        if job is None:
+            return None
+        return {
+            "scene_id": str(job.domain_id),
+            "job_id": str(job.id),
+            "chapter_id": str(chapter_id),
+            "status": "processing",
+        }
+
+    if (found := await _existing()) is not None:
+        return found
 
     if payload.source_id:
         owned = (
             await db.execute(
-                select(SourceORM).where(
+                live(select(SourceORM), SourceORM).where(
                     SourceORM.id == payload.source_id,
                     SourceORM.user_id == current_user.id,
+                    # Provenance stays inside the book (book is the root).
+                    SourceORM.book_id == chapter.book_id,
                 )
             )
         ).scalar_one_or_none()
@@ -550,25 +671,46 @@ async def generate_scene_into_chapter(
 
     await check_user_budget(db, current_user.id)
 
-    # Plain values survive the rollback of a failed insert attempt below
-    # (ORM instances get expired on rollback).
-    chapter_summary = chapter.summary or ""
-    book_id = str(chapter.book_id)
+    # The cast is resolved against THIS book before anything is spent (SPEC-01).
+    cast = await resolve_cast(
+        db,
+        chapter.book_id,
+        character_ids=payload.character_ids,
+        names=payload.characters,
+    )
+    cast_names = [c.name for c in cast]
+    cast_ids = [str(c.id) for c in cast]
 
-    # Previous scene's tail for narrative continuity
-    prev_scene = (
-        await db.execute(
-            select(SceneORM)
-            .where(SceneORM.chapter_id == chapter.id, SceneORM.status == "completed")
-            .order_by(SceneORM.position.desc())
-            .limit(1)
+    # Preflight with the same estimator the modal shows (SPEC-12/14, BRD R7.3):
+    # refuse with the estimate rather than start a scene that cannot finish.
+    from app.core import estimates
+    from app.planning.canon import build_canon, render_character
+
+    canon = await build_canon(db, chapter.book_id)
+    est = estimates.scene(
+        canon_chars=len(canon.full_block()),
+        cast_context_chars=sum(len(render_character(c)) + 1500 for c in cast),
+        target_words=payload.target_word_count,
+        mode=payload.mode,
+        cast_size=len(cast),
+    )
+    assessed = await estimates.assess(db, current_user.id, est)
+    if not assessed["allowed"]:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"message": assessed["reason"], "estimate": assessed},
         )
-    ).scalar_one_or_none()
-    prior_tail = ""
-    if prev_scene is not None:
-        prior_tail = " ".join(scene_text(prev_scene).split()[-500:])
+
+    # Plain values survive the rollback of a failed insert attempt below
+    # (ORM instances get expired on rollback). The chapter summary and the prior
+    # scene's tail are NOT carried in the job: they go stale across a pause, so
+    # the handler recomputes them from the DB when it starts (SPEC-08).
+    book_id = str(chapter.book_id)
+    user_id = current_user.id
 
     request_dict = payload.model_dump(mode="json")
+    request_dict["characters"] = cast_names
+    request_dict["character_ids"] = cast_ids
 
     # Concurrent appends can both compute max+1; the UNIQUE constraint turns
     # that into an IntegrityError — recreate scene AND job (both roll back)
@@ -576,19 +718,21 @@ async def generate_scene_into_chapter(
     for attempt in (1, 2):
         next_pos = (
             await db.execute(
-                select(func.coalesce(func.max(SceneORM.position), -1)).where(
-                    SceneORM.chapter_id == chapter_id
-                )
+                live(
+                    select(func.coalesce(func.max(SceneORM.position), -1)), SceneORM
+                ).where(SceneORM.chapter_id == chapter_id)
             )
         ).scalar_one() + 1
         scene = SceneORM(
-            user_id=current_user.id,
+            user_id=user_id,
+            book_id=UUID(book_id),
             source_id=payload.source_id,
             chapter_id=chapter_id,
             position=next_pos,
             setting=payload.setting,
             emotional_tone=payload.emotional_tone,
-            characters=payload.characters,
+            characters=cast_names,
+            character_ids=cast_ids,
             scene_description=payload.scene_description,
             scene_request=request_dict,
             status="processing",
@@ -604,25 +748,32 @@ async def generate_scene_into_chapter(
         )
         # Job + scene commit atomically: no 'processing' scene without a
         # durable job.
-        await jobs_repo.enqueue(
+        job = await jobs_repo.enqueue(
             db,
             kind=job_kind,
             payload={
                 "scene_id": str(scene.id),
                 "request": request_dict,
-                "user_id": str(current_user.id),
-                "chapter_summary": chapter_summary,
-                "prior_tail": prior_tail,
+                "user_id": str(user_id),
                 "book_id": book_id,
             },
-            user_id=current_user.id,
+            user_id=user_id,
             max_attempts=1,  # a retry re-spends LLM budget; user can re-trigger
+            dedupe_key=dedupe_key,
+            domain=("scene", scene.id),
         )
+        if job.domain_id != scene.id:  # an identical request won the race
+            await db.rollback()
+            return await _existing()
+        job_id = str(job.id)
         try:
             await db.commit()
             break
         except IntegrityError:
             await db.rollback()
+            # The unique index on the idempotency key, not a position clash.
+            if (found := await _existing()) is not None:
+                return found
             if attempt == 2:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -630,11 +781,23 @@ async def generate_scene_into_chapter(
                 )
     await db.refresh(scene)
 
+    # Say which mode actually runs: on the free tier ensemble falls back to
+    # prose, and that used to happen silently (SPEC-12).
+    mode_used = "ensemble" if job_kind == "generate_ensemble_scene" else "prose"
     return {
         "scene_id": str(scene.id),
+        "job_id": job_id,
         "chapter_id": str(chapter_id),
         "position": scene.position,
         "status": scene.status,
+        "mode_requested": payload.mode,
+        "mode_used": mode_used,
+        "mode_reason": (
+            f"Ensemble is not available on the {get_tier().name} tier; "
+            "the scene is written in prose mode."
+            if payload.mode != mode_used
+            else None
+        ),
     }
 
 
@@ -656,19 +819,22 @@ async def create_manual_scene(
     /scenes/{id}/content. A scene created with content is immediately part of
     the chapter's prose (continuity/export read it), so status is 'completed'
     when content is supplied, else 'draft'."""
-    await _owned_chapter(chapter_id, current_user, db)
+    chapter = await _owned_chapter(chapter_id, current_user, db)
+    book_id = chapter.book_id  # plain values survive a rollback below
+    user_id = current_user.id
     content = payload.content or ""
     # Append with a one-shot retry on position conflict (see create_chapter).
     for attempt in (1, 2):
         next_pos = (
             await db.execute(
-                select(func.coalesce(func.max(SceneORM.position), -1)).where(
-                    SceneORM.chapter_id == chapter_id
-                )
+                live(
+                    select(func.coalesce(func.max(SceneORM.position), -1)), SceneORM
+                ).where(SceneORM.chapter_id == chapter_id)
             )
         ).scalar_one() + 1
         scene = SceneORM(
-            user_id=current_user.id,
+            user_id=user_id,
+            book_id=book_id,
             chapter_id=chapter_id,
             position=next_pos,
             title=payload.title,
@@ -710,17 +876,7 @@ async def update_scene_content(
     db: AsyncSession = Depends(get_db),
 ):
     """Save an edit to the draft prose, snapshotting the previous state."""
-    scene = (
-        await db.execute(
-            select(SceneORM).where(
-                SceneORM.id == scene_id, SceneORM.user_id == current_user.id
-            )
-        )
-    ).scalar_one_or_none()
-    if not scene:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Scene not found"
-        )
+    scene = await owned_scene(scene_id, current_user, db)
 
     previous = scene_text(scene)
     if previous:
@@ -749,17 +905,9 @@ async def list_scene_revisions(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    scene = (
-        await db.execute(
-            select(SceneORM)
-            .options(selectinload(SceneORM.revisions))
-            .where(SceneORM.id == scene_id, SceneORM.user_id == current_user.id)
-        )
-    ).scalar_one_or_none()
-    if not scene:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Scene not found"
-        )
+    scene = await owned_scene(
+        scene_id, current_user, db, selectinload(SceneORM.revisions)
+    )
     return {
         "scene_id": str(scene.id),
         "revisions": [
@@ -783,14 +931,8 @@ async def move_scene(
     db: AsyncSession = Depends(get_db),
 ):
     """Reorder a scene within its chapter."""
-    scene = (
-        await db.execute(
-            select(SceneORM).where(
-                SceneORM.id == scene_id, SceneORM.user_id == current_user.id
-            )
-        )
-    ).scalar_one_or_none()
-    if not scene or scene.chapter_id is None:
+    scene = await owned_scene(scene_id, current_user, db)
+    if scene.chapter_id is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Scene not found in a chapter",
@@ -798,7 +940,7 @@ async def move_scene(
     siblings = (
         (
             await db.execute(
-                select(SceneORM)
+                live(select(SceneORM), SceneORM)
                 .where(SceneORM.chapter_id == scene.chapter_id)
                 .order_by(SceneORM.position)
             )
@@ -821,10 +963,15 @@ async def move_scene(
 async def export_book(
     book_id: UUID,
     format: str = "md",
+    include_synopsis: bool = False,
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Export the book's current draft state as md | docx | epub."""
+    """Export the book's current draft state as md | docx | epub.
+
+    The synopsis is the author's storyboard, not manuscript prose, so it is left
+    out unless `include_synopsis=true`.
+    """
     if format not in CONTENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -834,7 +981,7 @@ async def export_book(
     chapters = (
         (
             await db.execute(
-                select(ChapterORM)
+                live(select(ChapterORM), ChapterORM)
                 .options(selectinload(ChapterORM.scenes))
                 .where(ChapterORM.book_id == book.id)
                 .order_by(ChapterORM.position)
@@ -847,7 +994,7 @@ async def export_book(
     export = BookExport(
         title=book.title,
         author=book.author or "",
-        synopsis=book.synopsis or "",
+        synopsis=(book.synopsis or "") if include_synopsis else "",
         chapters=[
             ChapterExport(
                 title=c.title,
@@ -855,7 +1002,7 @@ async def export_book(
                 scenes=[
                     SceneExport(title=s.title or "", content=scene_text(s))
                     for s in sorted(c.scenes, key=lambda s: s.position)
-                    if scene_text(s)
+                    if scene_text(s) and s.deleted_at is None
                 ],
             )
             for c in chapters

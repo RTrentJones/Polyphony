@@ -18,6 +18,18 @@ The whole canon stays in context at every stage — we never truncate; that is
 what the 1M window is for. Each stage's LLM call is its own function so the
 orchestration (order, the audit->repair gate, stage progress) is testable with a
 mocked client.
+
+Premise checkpoint (SPEC-10, BRD R1.3): with `confirm_premise` the job runs
+S1 only (`generate_premise`) and stops; the plan shows the restated premise to
+the author, and confirming it enqueues a continuation that passes the
+(possibly edited) skeleton back in as `skeleton=` — authoritative, so S1 is
+never re-run or second-guessed by a canon-drift restart.
+
+Checkpoints (SPEC-08): after the skeleton, after chapters, after each act's
+beats and through the repair pass, so a run paused for quota resumes from its
+last completed call. The audit is deterministic and needs none. A canon change
+during the pause discards the checkpoint — stages generated against two canons
+would be worse than paying twice.
 """
 
 from __future__ import annotations
@@ -31,11 +43,13 @@ from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_array, extract_json_object
 from app.planning.canon import Canon
 from app.planning.fidelity import FidelityAudit, audit_outline
-from app.planning.outline import validate_outline_nodes
+from app.planning.outline import CastIndex, validate_outline_nodes
 
 logger = setup_logging("planning.staged_outline")
 
 StageCallback = Optional[Callable[[str], Awaitable[None]]]
+CheckpointCallback = Optional[Callable[[dict], Awaitable[None]]]
+NoteCallback = Optional[Callable[[str], Awaitable[None]]]
 
 
 async def _stage_skeleton(canon: Canon, chapters_target: int, user_id) -> dict:
@@ -84,11 +98,18 @@ async def _stage_chapters(
             "You MUST give each of them a role across the chapters, present in the "
             f"`pov` or `characters` of specific chapters: {', '.join(repair_missing)}"
         )
+    # A premise the author confirmed (or rewrote) is the ground truth for the
+    # rest of the outline, and the model is told so (SPEC-10).
+    confirmed = (
+        " (confirmed by the author: treat it as authoritative)"
+        if skeleton.get("confirmed")
+        else ""
+    )
     prompt = f"""{STORY_MATERIAL_NOTICE}
 
 {canon.full_block()}
 
-Premise: {skeleton.get("premise_restated", "")}
+Premise{confirmed}: {skeleton.get("premise_restated", "")}
 Central conflict: {skeleton.get("central_conflict", "")}
 Acts: {skeleton.get("acts", [])}
 
@@ -126,9 +147,12 @@ Here are the chapters of act {act_index}, in order:
 For EACH chapter, write 2-4 scene beats. Keep every character name faithful to
 the canon. Each beat's summary must say what CHANGES, not just what happens.
 
-Return ONLY a JSON array mirroring the chapters, each with its beats as children:
+Return ONLY a JSON array mirroring the chapters, each with its beats as
+children. Echo each chapter's act_index, pov, characters and threads unchanged:
 [
   {{"title": "<chapter title>", "summary": "<chapter summary>",
+    "act_index": <int>, "pov": "<pov>", "characters": ["<names>"],
+    "threads": ["<threads>"],
     "children": [{{"title": "beat title", "summary": "what changes", "children": []}}]}}
 ]
 
@@ -143,6 +167,27 @@ JSON:"""
     return extract_json_array(result.text)
 
 
+_STRUCTURAL = ("act_index", "pov", "characters", "threads")
+_EMPTY = (None, "", [])
+
+
+def merge_structural(chapters: list[dict], nodes: list[dict]) -> list[dict]:
+    """Carry S2's structural fields onto S3's nodes by position.
+
+    The beat stage is asked to echo them, but a model may not; S2 is where the
+    cast was chosen, so it is the fallback for any field a node lacks."""
+    merged = []
+    for i, node in enumerate(nodes):
+        source = chapters[i] if i < len(chapters) else None
+        if isinstance(node, dict) and isinstance(source, dict):
+            node = dict(node)
+            for key in _STRUCTURAL:
+                if node.get(key) in _EMPTY and source.get(key) not in _EMPTY:
+                    node[key] = source[key]
+        merged.append(node)
+    return merged
+
+
 def _by_act(chapters: list[dict]) -> dict[int, list[dict]]:
     acts: dict[int, list[dict]] = {}
     for ch in chapters:
@@ -153,15 +198,77 @@ def _by_act(chapters: list[dict]) -> dict[int, list[dict]]:
     return acts
 
 
-async def _stage_beats(canon: Canon, chapters: list[dict], user_id) -> list[dict]:
-    """S3: beats batched by act (~4 calls), reassembled in chapter order."""
-    nodes: list[dict] = []
-    for act_index in sorted(_by_act(chapters)):
-        act_chapters = _by_act(chapters)[act_index]
-        nodes.extend(
-            await _stage_beats_for_act(canon, act_index, act_chapters, user_id)
+async def _stage_beats(
+    canon: Canon,
+    chapters: list[dict],
+    user_id,
+    done: Optional[dict] = None,
+    on_act: Optional[Callable[[dict], Awaitable[None]]] = None,
+) -> list[dict]:
+    """S3: beats batched by act (~4 calls), reassembled in chapter order.
+
+    `done` maps str(act_index) -> that act's nodes from a checkpoint; those
+    acts are not called again. `on_act(done)` runs after each new act.
+    """
+    done = dict(done or {})
+    by_act = _by_act(chapters)
+    for act_index in sorted(by_act):
+        if str(act_index) in done:
+            continue
+        done[str(act_index)] = await _stage_beats_for_act(
+            canon, act_index, by_act[act_index], user_id
         )
-    return nodes
+        if on_act is not None:
+            await on_act(done)
+    nodes: list[dict] = []
+    for act_index in sorted(by_act):
+        nodes.extend(done[str(act_index)])
+    # Nodes come back in act order, so align S2 the same way for the merge.
+    ordered = [ch for act_index in sorted(by_act) for ch in by_act[act_index]]
+    return merge_structural(ordered, nodes)
+
+
+def canon_hash(canon: Canon) -> str:
+    import hashlib
+
+    return hashlib.sha256(canon.full_block().encode("utf-8")).hexdigest()[:16]
+
+
+def _cast_index(canon: Canon) -> Optional[CastIndex]:
+    index = CastIndex(canon.characters)
+    return index if index.names else None
+
+
+async def generate_premise(
+    canon: Canon,
+    *,
+    chapters_target: int = 12,
+    user_id: Optional[UUID] = None,
+    on_stage: StageCallback = None,
+    checkpoint: Optional[dict] = None,
+    save_checkpoint: CheckpointCallback = None,
+) -> dict:
+    """S1 alone, for the premise checkpoint (SPEC-10): one call, then stop.
+
+    A checkpointed skeleton for the same canon is reused, so a run that paused
+    before it could record the result does not pay twice."""
+    chash = canon_hash(canon)
+    ck = checkpoint or {}
+    if ck.get("canon_hash") == chash and isinstance(ck.get("skeleton"), dict):
+        return ck["skeleton"]
+    if on_stage is not None:
+        await on_stage("skeleton")
+    skeleton = await _stage_skeleton(canon, chapters_target, user_id)
+    if save_checkpoint is not None:
+        await save_checkpoint(
+            {
+                "canon_hash": chash,
+                "skeleton": skeleton,
+                "passes": [],
+                "progress": {"stage": "skeleton", "done": 1, "total": 1},
+            }
+        )
+    return skeleton
 
 
 async def generate_staged_outline(
@@ -170,31 +277,93 @@ async def generate_staged_outline(
     chapters_target: int = 12,
     user_id: Optional[UUID] = None,
     on_stage: StageCallback = None,
+    checkpoint: Optional[dict] = None,
+    save_checkpoint: CheckpointCallback = None,
+    on_restart: NoteCallback = None,
+    skeleton: Optional[dict] = None,
+    on_premise: CheckpointCallback = None,
 ) -> tuple[list[dict], list[str]]:
     """Run S1-S4 and return (validated nodes, warnings).
 
     The S4 fidelity gate is deterministic: if a principal is missing, regenerate
     the beats ONCE, then save whatever we have with warnings attached — never
     hard-fail an expensive job on a heuristic (docs/BRD.md R1.6).
+
+    Checkpoint shape: {canon_hash, skeleton, passes: [{chapters, acts}],
+    progress}. Pass 0 is the first draft, pass 1 the repair; both are replayed
+    deterministically from what was saved.
+
+    `skeleton` is an author-confirmed S1 result (SPEC-10): it replaces the
+    stage and survives a canon-drift restart. `on_premise(skeleton)` runs once
+    S1 is known, so the plan can show the premise while later stages run.
     """
     principals = canon.principals()
     known = canon.canon_terms()
+    chash = canon_hash(canon)
+    ck = dict(checkpoint or {})
+    if ck.get("canon_hash") not in (None, chash):
+        from app.orchestration.prose import CANON_CHANGED_NOTE
+
+        logger.info(
+            "Canon changed during pause; restarting outline from scratch",
+            extra_fields={"event": "outline_checkpoint_discarded"},
+        )
+        ck = {}
+        if on_restart is not None:
+            await on_restart(CANON_CHANGED_NOTE)
+    ck["canon_hash"] = chash
+    if skeleton is not None:
+        ck["skeleton"] = skeleton
+    passes: list[dict] = [dict(p) for p in ck.get("passes") or []]
+    ck["passes"] = passes
 
     async def _emit(stage: str) -> None:
         if on_stage is not None:
             await on_stage(stage)
 
-    await _emit("skeleton")
-    skeleton = await _stage_skeleton(canon, chapters_target, user_id)
+    async def _save(stage: str) -> None:
+        # Progress counts model calls: skeleton + per pass (chapters + acts).
+        done = (1 if "skeleton" in ck else 0) + sum(
+            (1 if "chapters" in p else 0) + len(p.get("acts") or {}) for p in passes
+        )
+        total = 1 + sum(1 + len(_by_act(p.get("chapters") or [])) for p in passes)
+        ck["progress"] = {"stage": stage, "done": done, "total": max(total, done)}
+        if save_checkpoint is not None:
+            await save_checkpoint(ck)
 
-    await _emit("chapters")
-    chapters = await _stage_chapters(canon, skeleton, user_id)
+    async def _run_pass(index: int, repair_missing: Optional[list[str]]) -> list:
+        if len(passes) <= index:
+            passes.append({})
+        p = passes[index]
+        if "chapters" not in p:
+            await _emit("chapters")
+            p["chapters"] = await _stage_chapters(
+                canon, ck["skeleton"], user_id, repair_missing=repair_missing
+            )
+            p["acts"] = {}
+            await _save("chapters")
 
-    await _emit("beats")
-    nodes = await _stage_beats(canon, chapters, user_id)
+        async def _on_act(done: dict) -> None:
+            p["acts"] = done
+            await _save("beats")
+
+        await _emit("beats")
+        return await _stage_beats(
+            canon, p["chapters"], user_id, done=p.get("acts"), on_act=_on_act
+        )
+
+    if "skeleton" not in ck:
+        await _emit("skeleton")
+        ck["skeleton"] = await _stage_skeleton(canon, chapters_target, user_id)
+        await _save("skeleton")
+    if on_premise is not None:
+        await on_premise(ck["skeleton"])
+
+    nodes = await _run_pass(0, None)
 
     await _emit("audit")
-    audit: FidelityAudit = audit_outline(nodes, principals, known)
+    cast = _cast_index(canon)
+    audit: FidelityAudit = audit_outline(nodes, principals, known, cast=cast)
     if not audit.passed:
         logger.warning(
             "Outline failed the principal-cast gate; regenerating once",
@@ -206,12 +375,7 @@ async def generate_staged_outline(
         )
         # Repair at the CHAPTER stage (where cast is chosen) with the missing
         # principals as explicit feedback, then re-derive beats (PR review #5).
-        await _emit("chapters")
-        chapters = await _stage_chapters(
-            canon, skeleton, user_id, repair_missing=audit.missing
-        )
-        await _emit("beats")
-        nodes = await _stage_beats(canon, chapters, user_id)
-        audit = audit_outline(nodes, principals, known)
+        nodes = await _run_pass(1, audit.missing)
+        audit = audit_outline(nodes, principals, known, cast=cast)
 
-    return validate_outline_nodes(nodes), list(audit.warnings)
+    return validate_outline_nodes(nodes, cast=cast), list(audit.warnings)

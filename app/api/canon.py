@@ -23,6 +23,7 @@ from app.core.orm_models import (
 )
 from app.core.security import get_current_active_user
 from app.versioning import repository as versions_repo
+from app.versioning import trash
 
 router = APIRouter()
 
@@ -110,7 +111,7 @@ async def get_canon(
     entries = (
         (
             await db.execute(
-                select(CanonEntryORM)
+                trash.live(select(CanonEntryORM), CanonEntryORM)
                 .where(CanonEntryORM.book_id == book_id)
                 .order_by(CanonEntryORM.position, CanonEntryORM.name)
             )
@@ -176,7 +177,7 @@ async def _owned_entry(
     await _owned_book(book_id, current_user, db)
     entry = (
         await db.execute(
-            select(CanonEntryORM).where(
+            trash.live(select(CanonEntryORM), CanonEntryORM).where(
                 CanonEntryORM.id == entry_id, CanonEntryORM.book_id == book_id
             )
         )
@@ -233,8 +234,9 @@ async def delete_canon_entry(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Move a canon entry to the book's Trash (SPEC-13)."""
     entry = await _owned_entry(book_id, entry_id, current_user, db)
-    await db.delete(entry)
+    await trash.soft_delete(db, "canon_entry", entry, created_by=current_user.id)
     await db.commit()
     return None
 

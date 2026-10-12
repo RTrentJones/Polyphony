@@ -72,8 +72,9 @@ def _render_json_field(value: Any) -> Optional[str]:
     if isinstance(value, str):
         return clean_for_llm(value) or None
     if isinstance(value, dict):
+        # A bare key ({"wry": ""} / {"wry": True}) renders as just the key.
         parts = [
-            f"{k}: {v}" if not isinstance(v, bool) else str(k)
+            f"{k}: {v}" if not isinstance(v, bool) and v != "" else str(k)
             for k, v in value.items()
             if v is not None and v is not False
         ]
@@ -84,9 +85,22 @@ def _render_json_field(value: Any) -> Optional[str]:
     return str(value)
 
 
+def _aliases(character: Any) -> list[str]:
+    return [
+        a.strip()
+        for a in (getattr(character, "aliases", None) or [])
+        if isinstance(a, str) and a.strip()
+    ]
+
+
 def render_character(character: Any) -> str:
     """One character's full bible entry as markdown."""
     lines = [f"### {character.name}"]
+    aliases = _aliases(character)
+    if aliases:
+        # "the CEL" read as a company name because nothing told the model it
+        # was Edric Thane's title (BRD §7).
+        lines.append("Also known as: " + "; ".join(clean_for_llm(a) for a in aliases))
 
     for attr, label in _CHARACTER_FIELDS:
         value = clean_for_llm(getattr(character, attr, None))
@@ -283,6 +297,7 @@ class Canon:
         for c in self.characters:
             if getattr(c, "name", None):
                 terms.update(_name_aliases(c.name))
+                terms.update(_aliases(c))
         for e in self.canon_entries:
             if getattr(e, "name", None):
                 terms.add(e.name)
@@ -299,13 +314,21 @@ class Canon:
             )
         ]
         chosen = marked or list(self.characters)
-        return [{"name": c.name, "aliases": _name_aliases(c.name)} for c in chosen]
+        # Recorded aliases count as presence: an outline that says "the CEL"
+        # has cast Edric Thane (SPEC-09).
+        return [
+            {"name": c.name, "aliases": [*_name_aliases(c.name), *_aliases(c)]}
+            for c in chosen
+        ]
 
 
 async def build_canon(session: AsyncSession, book_id: UUID) -> Canon:
     """S0: assemble a book's whole Canon from the DB (no LLM). Book is the root,
     so every piece is queried by book_id."""
     from app.core.orm_models import Book, CanonEntry, Character, StyleGuide
+    from app.versioning.trash import live
+
+    # Trashed characters and entries never reach a prompt (SPEC-13).
 
     book = await session.get(Book, book_id)
     if book is None:
@@ -313,7 +336,7 @@ async def build_canon(session: AsyncSession, book_id: UUID) -> Canon:
     characters = list(
         (
             await session.execute(
-                select(Character)
+                live(select(Character), Character)
                 .where(Character.book_id == book_id)
                 .order_by(Character.name)
             )
@@ -324,7 +347,7 @@ async def build_canon(session: AsyncSession, book_id: UUID) -> Canon:
     canon_entries = list(
         (
             await session.execute(
-                select(CanonEntry)
+                live(select(CanonEntry), CanonEntry)
                 .where(CanonEntry.book_id == book_id)
                 .order_by(CanonEntry.position)
             )

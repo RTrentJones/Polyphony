@@ -17,6 +17,9 @@ tunnel; Neon Postgres with pgvector; Gemini free tier by default).
 > first, then the code. The catalogue is [docs/feature-set.md](docs/feature-set.md);
 > the decisions are in [docs/ADR-002-book-as-root.md](docs/ADR-002-book-as-root.md).
 >
+> The current state against the BRD is reviewed in [docs/REVIEW-2026-10.md](docs/REVIEW-2026-10.md),
+> and the work it implies is broken into sequenced deliverables in [docs/specs/](docs/specs/README.md).
+>
 > The original microservices design spec lives at
 > [docs/archive/DESIGN-SPEC-v1.md](docs/archive/DESIGN-SPEC-v1.md); the
 > consolidation decisions are recorded in
@@ -54,7 +57,8 @@ Groq, xAI, OpenAI) — one `openai` SDK client parameterized by `base_url`.
 Select with env config, no code changes:
 
 ```
-LLM_PROVIDER=gemini          # default; needs GEMINI_API_KEY
+LLM_PROVIDER=gemini          # default; needs GEMINI_API_KEY (stub = local tests)
+LLM_TIER=free                # the one graduation switch: free | paid
 LLM_MODEL=                   # optional override (default gemini-2.5-flash)
 LLM_MODEL_FAST=              # optional override (default gemini-2.5-flash-lite)
 ```
@@ -77,6 +81,21 @@ Multi-user JWT auth, hardened:
 - First boot: `ADMIN_EMAIL`/`ADMIN_PASSWORD` create the admin user when the
   users table is empty.
 
+**Rate limits** (`app/core/rate_limit.py`) key on the real client, never the
+Cloudflare tunnel. The client IP is `CF-Connecting-IP` only when the TCP peer is
+in `TRUSTED_PROXY_CIDRS` (default loopback + Docker's private bridge ranges;
+from any other peer the header is ignored, and uvicorn runs with
+`--no-proxy-headers` so the app alone makes that call). Login is 5/minute per IP
+plus `LOGIN_EMAIL_RATE_LIMIT` (20/hour) failed attempts per email across all
+IPs; register is 3/hour per IP. Everything else is limited per user (the bearer
+token's subject, decoded without a DB hit) or per IP when anonymous: the
+`RATE_LIMIT_PER_MINUTE`/`_PER_HOUR` defaults per route, a separate
+`RATE_LIMIT_POLL` (120/minute) bucket for the GETs the UI polls, and
+`RATE_LIMIT_LLM` (10/minute) shared by every LLM-enqueueing POST (the token
+budget is the real control). 429s carry `Retry-After`; the UI's polling waits
+it out. Each request log line records `peer` and `cf_connecting_ip` so the
+tunnel topology can be checked against the trusted CIDRs.
+
 ## Develop
 
 ```bash
@@ -90,7 +109,27 @@ make preview                 # compose profile preview: the as-shipped image
 ```
 
 The frontend in dev: `cd frontend && npm install && npm run dev` (talks to
-`localhost:8000` via the Next.js rewrite).
+`localhost:8000` via the Next.js rewrite). Frontend checks: `npm run type-check`,
+`npm run lint`, `npm test` (Vitest), `npm run build`.
+
+### End to end, with no API key
+
+`evals/stub_llm.py` is a deterministic, OpenAI-compatible stub model that answers
+only from what each prompt contains, so the whole app can run end to end with no
+key, no quota and no cost — and a pipeline that stops delivering the canon to the
+model fails visibly. `LLM_PROVIDER=stub` selects it.
+
+```bash
+# needs an empty pgvector database at $DATABASE_URL
+scripts/e2e_stub.sh                         # API flows + eval gates (cel fidelity, dracula)
+(cd frontend && npm ci && npm run build)
+RUN_BROWSER_E2E=1 scripts/e2e_stub.sh       # …plus the Playwright browser journey
+```
+
+CI runs the same script on every PR (`test.yml` → `e2e`). The live-model evals
+(`evals.yml`) are dispatched on demand and gate on `cast_fidelity >= 0.9` for the
+`cel` corpus. Specs for in-flight work live in [docs/specs](docs/specs/README.md);
+parallel work follows [docs/specs/PARALLEL-WORK.md](docs/specs/PARALLEL-WORK.md).
 
 ## Ship
 

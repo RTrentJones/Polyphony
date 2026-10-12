@@ -6,17 +6,20 @@ inserted the row twice with the same PK and without user_id — both fixed
 structurally here.)
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 
 from app.core.database import get_db
+from app.api.books import owned_scene
 from app.core.orm_models import (
+    Book as BookORM,
     Scene as SceneORM,
     User as UserORM,
 )
 from app.core.security import get_current_active_user
+from app.versioning import trash
 
 router = APIRouter()
 
@@ -25,6 +28,12 @@ router = APIRouter()
 # `POST /scenes/generate` created chapter-less scenes and is deliberately gone:
 # the book is the root, so nothing loose is generable. These endpoints only READ,
 # list, and delete scenes.
+#
+# Scenes are book-rooted (SPEC-04): every read here authorises through the book
+# (`Scene.book_id -> Book.user_id`), keeping `Scene.user_id` as the tenant guard.
+# The list stays (the deployed verify gate asserts it 401s unauthenticated) but
+# shows only scenes reachable through the user's books; `GET/DELETE /{id}` stay
+# because the eval harness and the frontend poll them.
 
 
 @router.get("/", response_model=dict)
@@ -35,12 +44,16 @@ async def list_scenes(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List the current user's generated scenes."""
-    query = select(SceneORM).where(SceneORM.user_id == current_user.id)
+    """List the scenes of the current user's books (never a book-less orphan)."""
+    on_book = SceneORM.book_id == BookORM.id
+    owner = (
+        BookORM.user_id == current_user.id,
+        SceneORM.user_id == current_user.id,
+        SceneORM.deleted_at.is_(None),
+    )
+    query = select(SceneORM).join(BookORM, on_book).where(*owner)
     count_query = (
-        select(func.count())
-        .select_from(SceneORM)
-        .where(SceneORM.user_id == current_user.id)
+        select(func.count()).select_from(SceneORM).join(BookORM, on_book).where(*owner)
     )
     if source_id:
         query = query.where(SceneORM.source_id == source_id)
@@ -54,6 +67,8 @@ async def list_scenes(
         "scenes": [
             {
                 "id": str(s.id),
+                "book_id": str(s.book_id),
+                "chapter_id": str(s.chapter_id) if s.chapter_id else None,
                 "source_id": str(s.source_id) if s.source_id else None,
                 "characters": s.characters,
                 "status": s.status,
@@ -80,19 +95,11 @@ async def get_scene(
     db: AsyncSession = Depends(get_db),
 ):
     """Get full scene details."""
-    result = await db.execute(
-        select(SceneORM).where(
-            SceneORM.id == scene_id, SceneORM.user_id == current_user.id
-        )
-    )
-    scene = result.scalar_one_or_none()
-    if not scene:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Scene not found"
-        )
-
+    scene = await owned_scene(scene_id, current_user, db)
     return {
         "id": str(scene.id),
+        "book_id": str(scene.book_id),
+        "chapter_id": str(scene.chapter_id) if scene.chapter_id else None,
         "source_id": str(scene.source_id) if scene.source_id else None,
         "status": scene.status,
         "content": scene.generated_content,
@@ -111,18 +118,9 @@ async def delete_scene(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a scene."""
-    result = await db.execute(
-        select(SceneORM).where(
-            SceneORM.id == scene_id, SceneORM.user_id == current_user.id
-        )
-    )
-    scene = result.scalar_one_or_none()
-    if not scene:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Scene not found"
-        )
-
-    await db.delete(scene)
+    """Move a scene to its book's Trash (SPEC-13), its prose and revision
+    history kept in entity_versions first (SPEC-04)."""
+    scene = await owned_scene(scene_id, current_user, db)
+    await trash.soft_delete(db, "scene", scene, created_by=current_user.id)
     await db.commit()
     return None

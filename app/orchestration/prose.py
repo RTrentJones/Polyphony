@@ -1,12 +1,14 @@
 """Prose-mode scene generation: one LLM call per beat.
 
-The turn-based workflow (workflow.py) costs 25-40 calls per scene — untenable
-against Gemini's ~10 RPM free tier. Prose mode assembles every character's
-voice context into a single beat prompt and writes the beat's full prose in
-one call: 1 planning call + 3-5 beat calls per scene.
+Prose mode assembles every character's voice context into a single beat prompt
+and writes the beat's full prose in one call: 1 planning call + 3-5 beat calls
+per scene. It is the default mode and the only one the free tier allows.
 
-Used for generate-into-chapter; the turn-based path remains for standalone
-scene generation and character voice testing.
+Every call carries the book's whole Canon — synopsis, cast, canon entries and
+style guide — fenced as story material (SPEC-01; docs/BRD.md R1.1, R2.3). This
+path used to see only the request form, so a book whose style guide said "first
+person, present tense" was written however the form happened to say, and a
+scene set in Aeon Holdings knew nothing about Aeon Holdings.
 """
 
 from datetime import datetime, timezone
@@ -15,18 +17,50 @@ from uuid import UUID
 
 from app.characters.context import build_cast_context
 from app.core.database import get_async_session
+from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.logging_config import log_business_event, log_error, setup_logging
 from app.core.orm_models import Scene, SceneBeat
-from app.core.llm_text import clean_for_llm
 from app.llm.client import get_llm_client
 from app.llm.errors import QuotaExhaustedError
 
-from .workflow import plan_scene_beats
+from .workflow import plan_scene_beats, scene_block
 
 logger = setup_logging("orchestration.prose")
 
 # Tail of the previous scene fed into the next one for continuity
 PREV_TAIL_WORDS = 500
+
+# Recorded on the job when a resume discards its checkpoint (SPEC-08 §4).
+CANON_CHANGED_NOTE = (
+    "The canon changed while this job was paused (or the scene before it was "
+    "edited), so it restarted from scratch rather than mix work generated "
+    "against two versions of the book."
+)
+
+
+def scene_cast(canon, scene_request: dict) -> list:
+    """The scene's cast as Character rows from the book's Canon.
+
+    Resolved by ID (the API validated them against the book); legacy payloads
+    that carry only names resolve by exact name. A row that is not in this book's
+    Canon is never invented."""
+    ids = {str(i) for i in scene_request.get("character_ids") or []}
+    by_id = {str(c.id): c for c in canon.characters}
+    if ids:
+        return [by_id[i] for i in scene_request.get("character_ids") if i in by_id]
+    names = scene_request.get("characters") or []
+    by_name = {c.name: c for c in canon.characters}
+    return [by_name[n] for n in names if n in by_name]
+
+
+def resolve_pov(scene_request: dict, canon) -> str:
+    """The request's POV wins; else the book's style guide; else a default."""
+    if scene_request.get("pov_character"):
+        return clean_for_llm(scene_request["pov_character"])
+    style = getattr(canon, "style", None)
+    if style is not None and getattr(style, "pov", None):
+        return f"as the book's style guide specifies ({clean_for_llm(style.pov)})"
+    return "third person limited"
 
 
 async def write_beat_prose(
@@ -37,45 +71,61 @@ async def write_beat_prose(
     chapter_summary: str = "",
     user_id: Optional[UUID] = None,
     target_words: int = 300,
+    *,
+    canon_block: str = "",
+    pov: str = "third person limited",
 ) -> str:
-    """Write one beat's full prose (narration + in-voice dialogue) in one call."""
-    setting = clean_for_llm(scene_request["setting"])
-    tone = clean_for_llm(scene_request["emotional_tone"])
-    beat_desc = clean_for_llm(beat["description"])
-    pov = scene_request.get("pov_character") or "third person limited"
+    """Write one beat's full prose (narration + in-voice dialogue) in one call.
+
+    Prompt layout: a stable prefix (notice, whole canon, chapter) that is the
+    same for every beat of the scene, then the per-beat suffix (scene brief,
+    the beat's cast, the prose so far, the beat itself).
+    """
     style_notes = scene_request.get("style_notes") or ""
     prior_block = (
-        "The scene so far (continue seamlessly from this):\n" + prior_prose_tail
+        "The scene so far (continue seamlessly from it):\n"
+        + as_quoted_block(prior_prose_tail, "prior")
         if prior_prose_tail
         else "This beat opens the scene."
     )
+    chapter = as_quoted_block(chapter_summary, "chapter")
+    overrides = (
+        "\nAuthor's style notes for THIS scene (they override the style guide):\n"
+        + as_quoted_block(style_notes, "style_notes")
+        if style_notes
+        else ""
+    )
 
-    prompt = f"""You are a skilled novelist writing one beat of a scene.
+    prompt = f"""{STORY_MATERIAL_NOTICE}
 
-{f"Chapter context: {chapter_summary}" if chapter_summary else ""}
-Setting: {setting}
-Emotional tone: {tone}
-Point of view: {pov}
-{f"Style notes: {style_notes}" if style_notes else ""}
+{canon_block}
+
+{chapter}
+
+You are a skilled novelist writing one beat of a scene in THIS book. Stay
+faithful to the canon above: its people, places, terms, and its style guide
+(point of view, tense, tone) unless the author's notes below override it.
+
+{scene_block(scene_request)}
+Point of view: {pov}{overrides}
 
 CHARACTERS IN THIS BEAT — write each one's dialogue in THEIR OWN voice,
-matching the voice samples exactly:
+matching their voice samples:
 
 {cast_context}
 
 {prior_block}
 
-BEAT TO WRITE: {beat_desc}
+BEAT TO WRITE: {clean_for_llm(beat["description"])}
 
 Write approximately {target_words} words of polished NARRATIVE PROSE. Ground the
 reader in the setting and in the characters' actions, gestures, expressions, and
 interiority — description and action carry the scene; dialogue PUNCTUATES it, it
-does not dominate. Aim for well-formed paragraphs of prose, not a back-and-forth
-transcript. When a character does speak, give each a DISTINCT voice — diction,
-cadence, and syntax differing enough that a reader could tell who is speaking
-without the tags, grounded in the voice samples above. Do NOT use headings, beat
-labels, character-name prefixes (e.g. "Milo:"), or stage directions — just the
-prose. Do NOT repeat the scene so far.
+does not dominate. When a character does speak, give each a DISTINCT voice —
+diction, cadence, and syntax differing enough that a reader could tell who is
+speaking without the tags. Do NOT use headings, beat labels, character-name
+prefixes (e.g. "Milo:"), or stage directions — just the prose. Do NOT repeat the
+scene so far.
 
 Prose:"""
 
@@ -96,37 +146,103 @@ async def run_prose_scene_workflow(
     chapter_summary: str = "",
     prior_scene_tail: str = "",
     book_id: Optional[UUID] = None,
+    *,
+    checkpoint: Optional[dict] = None,
+    save_checkpoint=None,
+    on_restart=None,
 ) -> dict:
-    """Prose-mode workflow for a Scene row the API layer already created."""
+    """Prose-mode workflow for a Scene row the API layer already created.
+
+    `checkpoint`/`save_checkpoint` make a resumed job continue from its last
+    completed model call instead of re-spending every beat (SPEC-08);
+    `on_restart(note)` records why a checkpoint was discarded.
+    """
+    from app.planning.canon import build_canon
+
     started = datetime.now(timezone.utc)
+    checkpoint = dict(checkpoint or {})
     try:
-        beats = await plan_scene_beats(scene_request, user_id)
+        if book_id is None:
+            raise RuntimeError("scene generation needs its book (book is the root)")
+        async with get_async_session() as session:
+            canon = await build_canon(session, book_id)
+        canon_block = canon.full_block()
+        cast = scene_cast(canon, scene_request)
+        names = [c.name for c in cast]
+        request = {**scene_request, "characters": names}
+        pov = resolve_pov(scene_request, canon)
+        canon_hash = _canon_hash(canon_block, chapter_summary, prior_scene_tail)
+
+        if checkpoint.get("canon_hash") not in (None, canon_hash):
+            # The canon changed while the job was paused: stages generated
+            # against two canons would be worse than paying twice.
+            logger.info(
+                "Canon changed during pause; restarting scene from scratch",
+                extra_fields={"event": "scene_checkpoint_discarded"},
+            )
+            checkpoint = {}
+            if on_restart is not None:
+                await on_restart(CANON_CHANGED_NOTE)
+
+        beats = checkpoint.get("beats")
+        if beats is None:
+            beats = await plan_scene_beats(
+                request,
+                user_id,
+                canon_block=canon_block,
+                chapter_summary=chapter_summary,
+            )
+            checkpoint = {
+                "canon_hash": canon_hash,
+                "beats": beats,
+                "prose": [],
+                "progress": {"stage": "beats", "done": 0, "total": len(beats)},
+            }
+            await _save(save_checkpoint, checkpoint)
 
         target_total = int(scene_request.get("target_word_count") or 500)
         per_beat_words = max(120, target_total // max(1, len(beats)))
+        by_name = {c.name: c for c in cast}
 
-        prose_parts: list[str] = []
+        prose_parts: list[str] = list(checkpoint.get("prose") or [])
+        grounding: dict = dict(checkpoint.get("grounding") or {})
         prior_tail = prior_scene_tail
+        if prose_parts:
+            prior_tail = " ".join("\n\n".join(prose_parts).split()[-PREV_TAIL_WORDS:])
 
-        for beat in beats:
+        for idx in range(len(prose_parts), len(beats)):
+            beat = beats[idx]
+            beat_cast = [by_name[n] for n in beat["characters"] if n in by_name]
+            beat_grounding: list = []
             cast_context = await build_cast_context(
-                beat["characters"],
-                beat["description"],
-                user_id=user_id,
-                book_id=book_id,
+                beat_cast, beat["description"], grounding=beat_grounding
             )
             prose = await write_beat_prose(
                 beat,
-                scene_request,
+                request,
                 cast_context,
                 prior_tail,
                 chapter_summary=chapter_summary,
                 user_id=user_id,
                 target_words=per_beat_words,
+                canon_block=canon_block,
+                pov=pov,
             )
             prose_parts.append(prose)
+            grounding[str(idx)] = beat_grounding
             joined = "\n\n".join(prose_parts)
             prior_tail = " ".join(joined.split()[-PREV_TAIL_WORDS:])
+            checkpoint.update(
+                prose=prose_parts,
+                grounding=grounding,
+                beat_index=idx,
+                progress={
+                    "stage": "beats",
+                    "done": len(prose_parts),
+                    "total": len(beats),
+                },
+            )
+            await _save(save_checkpoint, checkpoint)
 
         scene_text = "\n\n".join(prose_parts)
         word_count = len(scene_text.split())
@@ -148,6 +264,11 @@ async def run_prose_scene_workflow(
             scene.word_count = word_count
             scene.status = "completed"
             scene.generation_time_ms = elapsed_ms
+            scene.evaluation_scores = {
+                **(scene.evaluation_scores or {}),
+                "mode": "prose",
+                "grounding": grounding,
+            }
             for beat_idx, beat in enumerate(beats):
                 session.add(
                     SceneBeat(
@@ -173,11 +294,15 @@ async def run_prose_scene_workflow(
         }
 
     except QuotaExhaustedError:
-        # Not a failure — the quota is temporarily gone. Leave the scene in
-        # 'processing' and let the error propagate so the worker PAUSES the job
-        # and resumes it when quota returns (docs/BRD.md R7.2). No lost work.
+        # Not a failure — the quota is temporarily gone. Let the error propagate
+        # so the worker PAUSES the job and resumes it (from its checkpoint) when
+        # quota returns (docs/BRD.md R7.2).
         raise
     except Exception as e:
+        from app.jobs.cancel import JobCancelled
+
+        if isinstance(e, JobCancelled):
+            raise
         log_error(
             logger,
             e,
@@ -191,3 +316,21 @@ async def run_prose_scene_workflow(
         except Exception:
             pass
         return {"scene_id": str(scene_id), "status": "failed", "error": str(e)}
+
+
+def _canon_hash(
+    canon_block: str, chapter_summary: str, prior_scene_tail: str = ""
+) -> str:
+    """Fingerprint of everything a checkpointed beat was written against: the
+    canon, the chapter, and the prose of the scene before this one. Editing any
+    of them while the job is paused restarts it rather than continuing from
+    beats that no longer follow."""
+    import hashlib
+
+    parts = (canon_block, chapter_summary or "", prior_scene_tail or "")
+    return hashlib.sha256("\x00".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
+async def _save(save_checkpoint, data: dict) -> None:
+    if save_checkpoint is not None:
+        await save_checkpoint(data)

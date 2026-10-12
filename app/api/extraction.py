@@ -28,13 +28,17 @@ from app.core.orm_models import (
 )
 from app.core.security import get_current_active_user
 from app.jobs import repository as jobs_repo
-from app.parsing.extraction_service import enqueue_extraction
+from app.parsing.canon_extractor import CATEGORIES
+from app.parsing.extraction_service import (
+    ExtractionTooLarge,
+    enqueue_extraction,
+    too_large_http,
+)
+from app.parsing.names import norm
 from app.versioning import repository as versions_repo
 from app.versioning.synopsis import record_synopsis
 
 router = APIRouter()
-
-CATEGORIES = {"world", "location", "faction", "item", "concept", "org"}
 
 
 # Proposals allow a blank name so the SERVER (never the frontend) decides what to
@@ -44,8 +48,63 @@ CATEGORIES = {"world", "location", "faction", "item", "concept", "org"}
 # supplied as '' / null" (apply it, so an author can CLEAR an existing value).
 class CharacterProposal(BaseModel):
     name: str = Field(..., max_length=255)
-    role: Optional[str] = None
+    role: Optional[str] = Field(None, max_length=100)
     description: Optional[str] = None
+    # The full bible entry extraction now proposes (SPEC-09). Same contract:
+    # applied when supplied (null clears), untouched when omitted.
+    goals: Optional[str] = None
+    arc: Optional[str] = None
+    relationships: Optional[dict] = None
+    personality_traits: Optional[dict] = None
+    voice_characteristics: Optional[dict] = None
+    # Aliases MERGE into an existing character's (an author-recorded alias is
+    # never dropped by a later import); null clears them.
+    aliases: Optional[list[str]] = None
+    # Ranking only (mentions/windows); accepted so a client can echo a proposal
+    # back unchanged, never written.
+    mentions: Optional[int] = None
+    windows: Optional[int] = None
+
+
+# Bible fields applied by name when supplied (aliases merge separately).
+_CHARACTER_FIELDS = (
+    "role",
+    "description",
+    "goals",
+    "arc",
+    "relationships",
+    "personality_traits",
+    "voice_characteristics",
+)
+
+
+def _merge_aliases(name: str, existing, supplied) -> Optional[list[str]]:
+    """Union of existing + supplied aliases, minus the row's own name (case- and
+    punctuation-insensitive dedup, first spelling kept)."""
+    out: list[str] = []
+    seen = {norm(name)}
+    for a in [*(existing or []), *(supplied or [])]:
+        a = " ".join(str(a or "").split())
+        if a and norm(a) not in seen:
+            seen.add(norm(a))
+            out.append(a)
+    return out or None
+
+
+def _alias_match(rows, name: str, aliases: Optional[list[str]]):
+    """The ONE existing character this proposal names: the proposal's name is
+    one of the character's aliases, or the character's name is one of the
+    proposal's aliases (normalised). A shared alias alone is not enough — two
+    Harkers may both be "Harker" — and an ambiguous hit returns None, so the
+    proposal is created rather than merged into the wrong person."""
+    key = norm(name)
+    proposal_aliases = {norm(a) for a in aliases or []} - {""}
+    hits = []
+    for r in rows:
+        row_aliases = {norm(a) for a in (r.aliases or [])}
+        if (key in row_aliases or norm(r.name) in proposal_aliases) and r not in hits:
+            hits.append(r)
+    return hits[0] if len(hits) == 1 else None
 
 
 class CanonEntryProposal(BaseModel):
@@ -87,6 +146,12 @@ async def _owned_book(
     return book
 
 
+class ExtractRequest(BaseModel):
+    # Extract only the opening chapters — the preflight's alternative when the
+    # whole source cannot finish within the budget window (SPEC-09).
+    max_chapters: Optional[int] = Field(None, ge=1)
+
+
 @router.post(
     "/books/{book_id}/sources/{source_id}/extract",
     response_model=dict,
@@ -95,10 +160,15 @@ async def _owned_book(
 async def start_extraction(
     book_id: UUID,
     source_id: UUID,
+    payload: Optional[ExtractRequest] = None,
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Kick off extraction of a source into proposed canon (background job)."""
+    """Kick off extraction of a source into proposed canon (background job).
+
+    Preflights first: the response carries the estimate (windows, requests,
+    tokens), and a source that cannot finish within the budget window is
+    refused (429) with a "first N chapters" alternative (SPEC-09)."""
     book = await _owned_book(book_id, current_user, db)
     source = (
         await db.execute(
@@ -106,6 +176,7 @@ async def start_extraction(
                 SourceORM.id == source_id,
                 SourceORM.book_id == book_id,
                 SourceORM.user_id == current_user.id,
+                SourceORM.deleted_at.is_(None),
             )
         )
     ).scalar_one_or_none()
@@ -121,11 +192,24 @@ async def start_extraction(
         )
     await check_user_budget(db, current_user.id)
 
-    run = await enqueue_extraction(
-        db, book_id=book.id, source_id=source.id, user_id=current_user.id
-    )
+    try:
+        run = await enqueue_extraction(
+            db,
+            book_id=book.id,
+            source_id=source.id,
+            user_id=current_user.id,
+            text=source.content_text,
+            max_chapters=payload.max_chapters if payload else None,
+        )
+    except ExtractionTooLarge as e:
+        raise too_large_http(e)
     await db.commit()
-    return {"run_id": str(run.id), "status": run.status}
+    return {
+        "run_id": str(run.id),
+        "job_id": str(run.job_id),
+        "status": run.status,
+        "preflight": run.preflight,
+    }
 
 
 async def _owned_run(
@@ -155,12 +239,20 @@ async def get_extraction(
 ):
     """The extraction run + its proposals, for the review screen."""
     run = await _owned_run(book_id, run_id, current_user, db)
+    from app.api.jobs import latest_jobs
+
+    jobs = await latest_jobs(db, "extraction_run", [run.id])
     return {
         "id": str(run.id),
+        "job": jobs.get(str(run.id)),
         "source_id": str(run.source_id) if run.source_id else None,
         "status": run.status,
         "proposals": run.proposals or {},
         "error": run.error,
+        # Map-reduce progress for the waiting screen; the checkpoint stays private.
+        "progress": {
+            k: v for k, v in (run.progress or {}).items() if k != "checkpoint"
+        },
     }
 
 
@@ -229,7 +321,9 @@ async def commit_extraction(
         c.name: c
         for c in (
             await db.execute(
-                select(CharacterORM).where(CharacterORM.book_id == book_id)
+                select(CharacterORM).where(
+                    CharacterORM.book_id == book_id, CharacterORM.deleted_at.is_(None)
+                )
             )
         )
         .scalars()
@@ -239,7 +333,10 @@ async def commit_extraction(
         e.name: e
         for e in (
             await db.execute(
-                select(CanonEntryORM).where(CanonEntryORM.book_id == book_id)
+                select(CanonEntryORM).where(
+                    CanonEntryORM.book_id == book_id,
+                    CanonEntryORM.deleted_at.is_(None),
+                )
             )
         )
         .scalars()
@@ -253,7 +350,12 @@ async def commit_extraction(
             )
             continue
         supplied = c.model_fields_set
-        row = existing_chars.get(c.name)
+        # Exact name first, then alias-aware: a proposal named "Mrs. Harker", or
+        # one listing an existing character's name among its aliases, merges into
+        # that character instead of creating a duplicate (SPEC-09).
+        row = existing_chars.get(c.name) or _alias_match(
+            existing_chars.values(), c.name, c.aliases
+        )
         is_new = row is None
         if is_new:
             row = CharacterORM(
@@ -261,9 +363,10 @@ async def commit_extraction(
                 user_id=current_user.id,
                 source_id=run.source_id,
                 name=c.name,
-                role=c.role,
-                description=c.description,
+                **{f: getattr(c, f) for f in _CHARACTER_FIELDS if f in supplied},
             )
+            if "aliases" in supplied:
+                row.aliases = _merge_aliases(c.name, None, c.aliases)
             db.add(row)
             existing_chars[c.name] = row
         else:
@@ -271,10 +374,17 @@ async def commit_extraction(
             # Keyed on model_fields_set, not truthiness, so an author can CLEAR a
             # role/description (send "") and an omitted field is left untouched —
             # matching the character mutation API (PR review #1, round 6).
-            if "role" in supplied:
-                row.role = c.role
-            if "description" in supplied:
-                row.description = c.description
+            for f in _CHARACTER_FIELDS:
+                if f in supplied:
+                    setattr(row, f, getattr(c, f))
+            # A proposal merged by alias brings its own name along as an alias.
+            extra = [c.name] if c.name != row.name else []
+            if "aliases" in supplied and c.aliases is None:
+                row.aliases = None  # supplied null clears
+            elif "aliases" in supplied or extra:
+                row.aliases = _merge_aliases(
+                    row.name, row.aliases, [*(c.aliases or []), *extra]
+                )
         await db.flush()
         # FULL snapshot so an imported version is a complete-state restore.
         await versions_repo.snapshot(
@@ -287,7 +397,8 @@ async def commit_extraction(
             created_by=current_user.id,
         )
         result["characters"]["created" if is_new else "updated"].append(str(row.id))
-        committed_char_ids.append(str(row.id))
+        if str(row.id) not in committed_char_ids:  # two proposals may merge into one
+            committed_char_ids.append(str(row.id))
 
     for e in payload.canon_entries:
         if not e.name or not e.name.strip():
@@ -405,9 +516,12 @@ async def commit_extraction(
     # Voice indexing is a RETRYABLE job over the EXPLICIT approved character IDs
     # (created + merged), so a merged existing character is indexed too, and a
     # transient vector failure is retried per-source, not skipped (PR review #2/#3).
-    target_ids = result["characters"]["created"] + result["characters"]["updated"]
+    target_ids = list(
+        dict.fromkeys(result["characters"]["created"] + result["characters"]["updated"])
+    )
+    index_job = None
     if run.source_id and target_ids:
-        await jobs_repo.enqueue(
+        index_job = await jobs_repo.enqueue(
             db,
             kind="index_characters_voice",
             payload={
@@ -429,4 +543,9 @@ async def commit_extraction(
             status_code=status.HTTP_409_CONFLICT,
             detail="Commit conflicted with existing canon; review and retry",
         )
-    return {"run_id": str(run.id), "status": run.status, "result": result}
+    return {
+        "run_id": str(run.id),
+        "status": run.status,
+        "result": result,
+        "job_id": str(index_job.id) if index_job is not None else None,
+    }

@@ -49,3 +49,25 @@ async def test_set_scene_content_uses_put():
     path = put.await_args.args[0]
     assert path == "/api/v1/books/scenes/sid/content"
     await c.aclose()
+
+
+async def test_a_429_is_waited_out_and_retried(monkeypatch):
+    # SPEC-05: the app rate-limits per user; the harness honours Retry-After.
+    import evals.harness.client as mod
+
+    slept: list[float] = []
+
+    async def fake_sleep(s):
+        slept.append(s)
+
+    monkeypatch.setattr(mod.asyncio, "sleep", fake_sleep)
+    c = PolyphonyClient("http://localhost:8000")
+    limited = httpx.Response(
+        429, headers={"Retry-After": "7"}, request=httpx.Request("GET", "http://t")
+    )
+    get = AsyncMock(side_effect=[limited, _resp(200, {"ok": True})])
+    c._http.get = get
+    r = await c._get("/api/v1/books/b/plans")
+    assert r.status_code == 200 and get.await_count == 2
+    assert slept == [7.0]
+    await c.aclose()

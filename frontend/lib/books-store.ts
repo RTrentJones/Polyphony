@@ -33,6 +33,7 @@ import type {
   PlanNode,
   PlotThread,
   PlotThreadListResponse,
+  PromoteAllResponse,
   PromoteNodeResponse,
   Scene,
   SceneContentSaveResponse,
@@ -47,6 +48,16 @@ import type {
 // ---------------------------------------------------------------------------
 
 export const booksApi = {
+  /** GET /books/{id} — a book's details without touching the store. */
+  async getBook(bookId: string): Promise<BookDetail> {
+    try {
+      const { data } = await apiClient.get<BookDetail>(`/books/${bookId}`)
+      return data
+    } catch (err) {
+      throw toApiError(err)
+    }
+  },
+
   // -- Scenes shared with the classic scene endpoints ------------------------
 
   /** GET /scenes/{id} — used to poll generation status. */
@@ -163,6 +174,9 @@ export const booksApi = {
 // Books + chapters store
 // ---------------------------------------------------------------------------
 
+/** What happens to a deleted chapter's scenes (SPEC-04): never silently orphaned. */
+export type ChapterScenesOnDelete = { mode: 'move'; to: string } | { mode: 'delete' }
+
 interface BookState {
   books: BookSummary[]
   currentBook: BookDetail | null
@@ -181,7 +195,12 @@ interface BookState {
   fetchChapter: (chapterId: string) => Promise<ChapterDetail>
   updateChapter: (chapterId: string, data: ChapterUpdateData) => Promise<void>
   moveChapter: (bookId: string, chapterId: string, position: number) => Promise<void>
-  deleteChapter: (bookId: string, chapterId: string) => Promise<void>
+  /** A chapter with scenes needs `scenes` (else the API answers 409). */
+  deleteChapter: (
+    bookId: string,
+    chapterId: string,
+    scenes?: ChapterScenesOnDelete
+  ) => Promise<void>
 
   generateScene: (
     chapterId: string,
@@ -316,11 +335,19 @@ export const useBookStore = create<BookState>((set, get) => ({
     }
   },
 
-  deleteChapter: async (bookId, chapterId) => {
+  deleteChapter: async (bookId, chapterId, scenes) => {
     try {
-      await apiClient.delete(`/books/chapters/${chapterId}`)
+      const params =
+        scenes?.mode === 'move'
+          ? { scenes: 'move', to: scenes.to }
+          : scenes?.mode === 'delete'
+            ? { scenes: 'delete' }
+            : undefined
+      await apiClient.delete(`/books/chapters/${chapterId}`, { params })
       set((state) => {
         const { [chapterId]: _removed, ...rest } = state.chapterDetails
+        // Moved scenes changed their target chapter too: drop its cached list.
+        if (scenes?.mode === 'move') delete rest[scenes.to]
         return { chapterDetails: rest }
       })
       await get().fetchBook(bookId)
@@ -331,9 +358,15 @@ export const useBookStore = create<BookState>((set, get) => ({
 
   generateScene: async (chapterId, request) => {
     try {
+      const { idempotencyKey, ...body } = request as ChapterSceneRequest & {
+        idempotencyKey?: string
+      }
       const { data } = await apiClient.post<ChapterSceneGenerateResponse>(
         `/books/chapters/${chapterId}/scenes/generate`,
-        request
+        body,
+        // A double-click or a retried request returns the first scene instead of
+        // spending twice (SPEC-07).
+        idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined
       )
       return data
     } catch (err) {
@@ -367,7 +400,16 @@ interface PlanningState {
     kind: PlanKind,
     chaptersTarget: number
   ) => Promise<PlanGenerateResponse>
-  promoteNode: (bookId: string, nodeIndex: number) => Promise<PromoteNodeResponse>
+  promoteNode: (
+    bookId: string,
+    node: { nodeId?: string; nodeIndex: number }
+  ) => Promise<PromoteNodeResponse>
+  promoteAll: (bookId: string) => Promise<PromoteAllResponse>
+  confirmPremise: (
+    bookId: string,
+    planId: string,
+    edits?: { premise_restated?: string; central_conflict?: string }
+  ) => Promise<PlanGenerateResponse>
 
   fetchThreads: (bookId: string) => Promise<void>
   createThread: (bookId: string, data: ThreadCreateData) => Promise<void>
@@ -420,12 +462,36 @@ export const usePlanningStore = create<PlanningState>((set, get) => ({
     }
   },
 
-  promoteNode: async (bookId, nodeIndex) => {
+  promoteNode: async (bookId, { nodeId, nodeIndex }) => {
     try {
       const { data } = await apiClient.post<PromoteNodeResponse>(
         `/books/${bookId}/plans/promote`,
-        { node_index: nodeIndex }
+        nodeId ? { node_id: nodeId } : { node_index: nodeIndex }
       )
+      return data
+    } catch (err) {
+      throw toApiError(err)
+    }
+  },
+
+  promoteAll: async (bookId) => {
+    try {
+      const { data } = await apiClient.post<PromoteAllResponse>(
+        `/books/${bookId}/plans/promote-all`
+      )
+      return data
+    } catch (err) {
+      throw toApiError(err)
+    }
+  },
+
+  confirmPremise: async (bookId, planId, edits = {}) => {
+    try {
+      const { data } = await apiClient.post<PlanGenerateResponse>(
+        `/books/${bookId}/plans/${planId}/confirm-premise`,
+        edits
+      )
+      await get().fetchPlans(bookId)
       return data
     } catch (err) {
       throw toApiError(err)

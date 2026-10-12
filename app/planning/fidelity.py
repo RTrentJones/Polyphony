@@ -155,11 +155,49 @@ class FidelityAudit:
         }
 
 
+def _structural_cast(nodes: list[dict], cast) -> tuple[list[str], list[str]]:
+    """(names the top-level structural fields resolve to, entries that resolve
+    to nobody in the cast). `pov` and `characters`/`character_ids` are STRICT
+    cast (R1.5): they name who is in a chapter, so an entry outside the canon is
+    reported per chapter, never left to the advisory proper-noun heuristic."""
+    names: list[str] = []
+    bad: list[str] = []
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        refs = node.get("character_ids")
+        if not isinstance(refs, list):
+            refs = node.get("characters")
+        refs = list(refs) if isinstance(refs, list) else []
+        if isinstance(node.get("pov"), str) and node["pov"].strip():
+            refs.append(node["pov"])
+        outside = []
+        for ref in refs:
+            cid = cast.resolve(ref)
+            if cid is None:
+                outside.append(str(ref))
+            else:
+                names.append(cast.names[cid])
+        if outside:
+            bad.append(f"{node.get('title', '?')}: {', '.join(outside)}")
+    return names, bad
+
+
 def audit_outline(
-    nodes: list[dict], principals: list[dict], known_terms: set[str]
+    nodes: list[dict], principals: list[dict], known_terms: set[str], cast=None
 ) -> FidelityAudit:
-    """Audit a generated outline against the canon's principals + known terms."""
+    """Audit a generated outline against the canon's principals + known terms.
+
+    With `cast` (an app.planning.outline.CastIndex), the structural cast fields
+    count toward recall by the character they resolve to (so `character_ids`
+    count, not just names in prose), and an entry naming nobody in the cast is
+    its own warning.
+    """
     text = flatten_outline(nodes)
+    structural_bad: list[str] = []
+    if cast is not None:
+        names, structural_bad = _structural_cast(nodes, cast)
+        text = "  ".join([text, *names])
     recall, present, missing = principal_recall(text, principals)
 
     allow = set(known_terms)
@@ -172,6 +210,11 @@ def audit_outline(
     if missing:
         warnings.append(
             "Outline is missing principal characters: " + ", ".join(missing)
+        )
+    if structural_bad:
+        warnings.append(
+            "Chapters cast characters who are not in the canon (dropped from "
+            "their cast): " + "; ".join(structural_bad[:12])
         )
     if unknown:
         warnings.append(

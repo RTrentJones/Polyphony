@@ -12,6 +12,10 @@
  *   the new access token, and retries the original request. If the refresh
  *   fails, the auth store is cleared and the user is sent to /auth/login.
  *
+ * - On a 429 a GET is retried after the server's `Retry-After` (backing off,
+ *   capped; lib/rate-limit.ts), so every polling loop slows down when the
+ *   backend asks it to. Other methods surface a "try again in Ns" message.
+ *
  * The store module is imported lazily inside the interceptors to stay safe
  * against the api-client <-> store circular dependency.
  */
@@ -25,6 +29,14 @@ import type {
   Source,
   SourceCharactersResponse,
 } from './types'
+import {
+  MAX_429_RETRIES,
+  backoffDelayMs,
+  isRetryable429,
+  parseRetryAfter,
+  rateLimitMessage,
+  sleep,
+} from './rate-limit'
 
 const AUTH_PATHS_WITHOUT_REFRESH = ['/auth/login', '/auth/register', '/auth/refresh']
 
@@ -44,8 +56,22 @@ export function toApiError(err: unknown): ApiError {
       // FastAPI validation errors: [{ loc, msg, type }, ...]
       const first = detail[0] as { msg?: string }
       if (first?.msg) message = first.msg
+    } else if (detail && typeof detail === 'object' && 'message' in detail) {
+      // Structured errors: { message, unknown?: [...] } (e.g. a cast that is
+      // not in this book — SPEC-01).
+      const d = detail as { message?: string; unknown?: string[] }
+      message = d.message || message
+      if (d.unknown?.length) message += ` (${d.unknown.join(', ')})`
     } else if (!err.response) {
       message = 'Could not reach the server. Please try again.'
+    }
+    // A 429 that explains itself (a budget, preflight or ceiling refusal) keeps
+    // its own message; only a bare rate-limit 429 gets the generic wording.
+    const explained =
+      (typeof detail === 'string' && detail) ||
+      (detail && typeof detail === 'object' && 'message' in detail)
+    if (err.response?.status === 429 && !explained) {
+      message = rateLimitMessage(parseRetryAfter(err.response.headers?.['retry-after']))
     }
     return { message, status: err.response?.status, detail }
   }
@@ -101,8 +127,19 @@ api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const original = error.config as
-      | (InternalAxiosRequestConfig & { _retry?: boolean })
+      | (InternalAxiosRequestConfig & { _retry?: boolean; _rateRetries?: number })
       | undefined
+
+    // Rate limited: wait as told, then retry the read (polls back off here).
+    if (original && isRetryable429(error.response?.status, original.method)) {
+      const attempt = original._rateRetries ?? 0
+      if (attempt < MAX_429_RETRIES) {
+        original._rateRetries = attempt + 1
+        const retryAfter = parseRetryAfter(error.response?.headers?.['retry-after'])
+        await sleep(backoffDelayMs(attempt, retryAfter))
+        return api(original)
+      }
+    }
     const url = original?.url ?? ''
     const isAuthEndpoint = AUTH_PATHS_WITHOUT_REFRESH.some((p) => url.includes(p))
 

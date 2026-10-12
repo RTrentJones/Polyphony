@@ -1,11 +1,12 @@
 """LLM-drafted outlines / beat sheets.
 
-An outline is a JSON list of nodes: {"title", "summary", "children": [...]}.
-Top-level nodes map naturally onto chapters ("promote" endpoint).
+An outline is a JSON list of nodes: {"node_id", "title", "summary", "children"}.
+Top-level nodes map naturally onto chapters ("promote" endpoint) and carry the
+chapter's structural cast: pov, character_ids, act_index, threads (SPEC-10).
 """
 
-from typing import Optional
-from uuid import UUID
+from typing import Any, Iterable, Optional
+from uuid import UUID, uuid4
 
 from app.core.llm_text import (
     MAX_CANON_CHARS,
@@ -20,21 +21,135 @@ from app.llm.json_utils import extract_json_array
 logger = setup_logging("planning.outline")
 
 
-def validate_outline_nodes(nodes) -> list[dict]:
-    """Normalize/validate outline JSON into [{title, summary, children}]."""
+class CastIndex:
+    """A book's cast as a lookup for outline structural fields (SPEC-10).
+
+    Resolves a character id, exact name, recorded alias, or an unambiguous name
+    token ("Milo" for Milo Voss) to the character's id. Built from anything with
+    `id`, `name` and optional `aliases` (ORM rows or test stand-ins); a
+    character without an id cannot be referenced and is skipped.
+    """
+
+    def __init__(self, characters: Iterable[Any]):
+        self.names: dict[str, str] = {}
+        self._forms: dict[str, str] = {}
+        tokens: dict[str, set[str]] = {}
+        for c in characters or []:
+            cid = getattr(c, "id", None)
+            name = (getattr(c, "name", None) or "").strip()
+            if cid is None or not name:
+                continue
+            cid = str(cid)
+            self.names[cid] = name
+            for form in [name, *(getattr(c, "aliases", None) or [])]:
+                if isinstance(form, str) and form.strip():
+                    self._forms.setdefault(form.strip().lower(), cid)
+            for tok in name.split():
+                if len(tok) > 1:
+                    tokens.setdefault(tok.lower(), set()).add(cid)
+        for tok, ids in tokens.items():
+            if len(ids) == 1:
+                self._forms.setdefault(tok, next(iter(ids)))
+
+    def resolve(self, ref: Any) -> Optional[str]:
+        """The id of the character `ref` names, or None."""
+        if not isinstance(ref, (str, UUID)):
+            return None
+        text = str(ref).strip()
+        if text in self.names:
+            return text
+        return self._forms.get(text.lower())
+
+
+def _uuid_str(value: Any) -> Optional[str]:
+    try:
+        return str(UUID(str(value)))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def _structural_fields(node: dict, cast: Optional[CastIndex], strict: bool) -> dict:
+    """pov / character_ids / act_index / threads of a top-level node.
+
+    `character_ids` may arrive as ids or, from the model's `characters`, as
+    names; with a cast both resolve to ids of THIS book. Without one (a restore,
+    which must not depend on today's cast) stored ids are kept as they are.
+    """
+    out: dict = {}
+    unknown: list[str] = []
+    refs = node.get("character_ids")
+    if not isinstance(refs, list):
+        refs = node.get("characters")
+    ids: list[str] = []
+    for ref in refs if isinstance(refs, list) else []:
+        cid = cast.resolve(ref) if cast is not None else _uuid_str(ref)
+        if cid is None:
+            unknown.append(str(ref))
+        elif cid not in ids:
+            ids.append(cid)
+    pov = node.get("pov")
+    if isinstance(pov, str) and pov.strip():
+        pov = pov.strip()[:255]
+        if cast is not None:
+            pid = cast.resolve(pov)
+            if pid is None:
+                unknown.append(pov)
+                pov = ""
+            else:
+                # The POV character is in the chapter by definition.
+                pov = cast.names[pid]
+                if pid not in ids:
+                    ids.insert(0, pid)
+        if pov:
+            out["pov"] = pov
+    if ids or isinstance(refs, list):
+        out["character_ids"] = ids
+    act = node.get("act_index")
+    if isinstance(act, int) and not isinstance(act, bool) and act >= 0:
+        out["act_index"] = act
+    threads = node.get("threads")
+    if isinstance(threads, list):
+        out["threads"] = [str(t).strip()[:255] for t in threads if str(t).strip()]
+    if strict and unknown:
+        raise ValueError(
+            "Not in this book's cast: " + ", ".join(dict.fromkeys(unknown))
+        )
+    return out
+
+
+def validate_outline_nodes(
+    nodes, *, cast: Optional[Iterable[Any]] = None, strict: bool = False
+) -> list[dict]:
+    """Normalize/validate outline JSON into [{node_id, title, summary, children,
+    pov?, character_ids?, act_index?, threads?}].
+
+    Every node gets a stable `node_id`, kept when it already has a valid one, so
+    edits, versions and restores preserve the link a promoted chapter holds.
+    Top-level nodes keep their structural cast (SPEC-10): with `cast`, names
+    resolve through aliases to this book's character ids, and an unknown is
+    dropped (generation; the fidelity audit warns) or, with `strict`, rejected
+    (the author's own edit).
+    """
+    index = cast if cast is None or isinstance(cast, CastIndex) else CastIndex(cast)
+    return _validate(nodes, index, strict, top=True)
+
+
+def _validate(nodes, cast: Optional[CastIndex], strict: bool, top: bool) -> list:
     if not isinstance(nodes, list):
         raise ValueError("Outline must be a list of nodes")
     normalized = []
     for node in nodes:
         if not isinstance(node, dict) or not str(node.get("title", "")).strip():
             continue
-        normalized.append(
-            {
-                "title": str(node.get("title", "")).strip()[:500],
-                "summary": str(node.get("summary", "")).strip()[:2000],
-                "children": validate_outline_nodes(node.get("children", []) or []),
-            }
-        )
+        out = {
+            "node_id": _uuid_str(node.get("node_id")) or str(uuid4()),
+            "title": str(node.get("title", "")).strip()[:500],
+            "summary": str(node.get("summary", "")).strip()[:2000],
+            "children": _validate(node.get("children", []) or [], cast, strict, False),
+        }
+        if top:
+            out.update(_structural_fields(node, cast, strict))
+        normalized.append(out)
     return normalized
 
 

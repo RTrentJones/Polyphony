@@ -55,33 +55,39 @@ makes the voice fixes provable in Tracer.
 
 ## Backlog (deeper / lower-confidence — not yet fixed)
 
-1. **First-person / epistolary narrators get little indexed voice** (architectural).
-   Voice chunking gates on paragraphs containing the character's *name*; a diarist
-   rarely names themselves, so their narration — their actual voice — isn't
-   captured. Data: Aldous 3 desc chunks (0 dialogue); Victor/Emeric, Cosima,
-   Cassidy 0 chunks. Needs narrator-section attribution (LLM segmentation or a
-   heuristic), not just name-mention.
-2. **Format-fragile paragraph splitting.** HTML joins lines with a single `\n`, so
-   `split("\n\n")` yields one chunk = the whole manuscript (embedding truncates to
-   ~256 tokens → voice destroyed); PDF is one-chunk-per-page. Normalize paragraphs
-   in the parser, or record upload format as an eval covariate. (Corpora are TXT,
-   so unaffected today.)
-3. **Continuity: no cross-chunk comparison, `fact_sheet[:4000]` truncation, no
+1. ~~**First-person / epistolary narrators get little indexed voice**~~ —
+   **closed (SPEC-09).** Voice indexing now attributes first-person paragraphs in
+   sections whose heading names the narrator ("X's Journal", "_Dr. Y's Diary._",
+   "Letter, X to Y") to that character — resolved honorific-aware against the whole
+   cast and skipped when ambiguous — plus paragraphs naming a character by a
+   recorded alias, and, in a source with no such headings, all first-person
+   narration for a character whose role is narrator. Extraction's map calls also
+   report narrators, so diarists are proposed. Stub e2e (Dracula) `ingestion`
+   0.375 → 0.72+ (see SPEC-09 report). *Original:* voice chunking gated on
+   paragraphs containing the character's *name*; a diarist rarely names themselves.
+2. ~~**Format-fragile paragraph splitting.**~~ — **closed (SPEC-09).**
+   `DocumentParser` returns blank-line-separated paragraphs for every format (HTML
+   block elements and `<br>`, DOCX paragraphs, a PDF line-joining heuristic that
+   rejoins hard wraps, hyphenation and page breaks), and `Source.format`
+   (`txt|html|docx|pdf|paste`) is recorded as the eval covariate. *Original:* HTML
+   joined lines with a single `\n`, so `split("\n\n")` yielded one chunk = the whole
+   manuscript; PDF was one-chunk-per-page.
+3. *(closed — SPEC-02: no cut, rolling carry between chunks, dedup)* **Continuity: no cross-chunk comparison, `fact_sheet[:4000]` truncation, no
    finding dedup.** A contradiction between two prose chunks (not vs the bible) is
    undetectable; a large bible is truncated out of the window; duplicates inflate.
-4. **`sanitize_for_llm` mangles voice samples** in the prose path (`--`→`[FILTERED]`,
+4. ~~**`sanitize_for_llm` mangles voice samples**~~ — **closed (`sanitize_for_llm` deleted; `clean_for_llm` + fencing).** in the prose path (`--`→`[FILTERED]`,
    `html.escape` turns `don't`→`don&#x27;t`). Voice samples need injection
    sanitization but not HTML-escaping.
-5. **Per-beat casting discarded.** `parse_beats` assigns the full cast to every
+5. ~~**Per-beat casting discarded.**~~ — **closed (SPEC-01: structured per-beat casts).** `parse_beats` assigns the full cast to every
    beat; the planning call's per-beat character lists are thrown away. Needs
    structured (JSON) beat output to preserve.
-6. **Thinking-token starvation is latent under a model override.** `reasoning_effort:
+6. ~~**Thinking-token starvation is latent under a model override.**~~ — **closed (SPEC-03 thinking guard).** `reasoning_effort:
    none` disables thinking on `gemini-2.5-flash` (default is safe), but
    `LLM_MODEL=gemini-2.5-pro` reinstates reasoning tokens against small `max_tokens`
    caps. Pin the model or refuse non-flash Gemini.
-7. **Continuity parse-failure vs clean.** G4 removed the dominant parse-failure
+7. ~~**Continuity parse-failure vs clean.**~~ — **closed (SPEC-02: `incomplete` status + coverage).** G4 removed the dominant parse-failure
    causes; a residual safety-block still yields `[]` (indistinguishable from a
    clean check). A retry or an explicit "check incomplete" status would close it.
-8. **Judge self-grading on by default** (Gemini judging Gemini). Surfaced in the
+8. **Judge self-grading on by default** *(mitigated: `evals.yml` defaults the judge to groq/openrouter; still self-graded until one of those keys is set)* (Gemini judging Gemini). Surfaced in the
    scorecard; swap `EVAL_JUDGE_PROVIDER` once a non-Gemini key exists.
-9. **`voice_chunks.book_id` is never populated** — inert plumbing (harmless).
+9. ~~**`voice_chunks.book_id` is never populated**~~ — **closed (book_id required at index time).** — inert plumbing (harmless).

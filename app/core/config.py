@@ -51,8 +51,17 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: Optional[str] = None
     ADMIN_PASSWORD: Optional[str] = None
 
-    # Per-user LLM budget (tokens per rolling 24h; 0 disables the check)
-    USER_DAILY_TOKEN_LIMIT: int = 200_000
+    # Per-user LLM budget override (tokens per rolling 24h; 0 disables the
+    # check). Unset = the tier's own limit (app/llm/tier.py) — so LLM_TIER alone
+    # moves the cap when graduating to paid.
+    USER_DAILY_TOKEN_LIMIT: Optional[int] = None
+    # Provider requests-per-day override (unset = the provider row's published
+    # free-tier ceiling on the free tier, untracked on paid).
+    LLM_MAX_RPD: Optional[int] = None
+    # Ceiling on the total time one generate() may spend backing off 429s
+    # before giving up as QuotaExhausted (which pauses a job). Keeps request-
+    # path calls under the proxy's origin timeout.
+    LLM_MAX_RETRY_WAIT_SECONDS: float = 90.0
 
     # Tiering (app/llm/tier.py). free = pause-and-resume on quota, ensemble off;
     # paid = fail-fast on quota, ensemble on. Graduation is one config flip.
@@ -80,6 +89,9 @@ class Settings(BaseSettings):
     # Scene generation + extraction can legitimately run for minutes; a
     # 'running' job locked longer than this is presumed orphaned and reaped.
     JOB_STALE_AFTER_SECONDS: int = 1800
+    # A quota pause is bounded (SPEC-07): a job that makes no progress for this
+    # long goes dead with a clear error instead of re-pausing forever.
+    JOB_MAX_PAUSE_HOURS: float = 48.0
 
     @field_validator("SECRET_KEY")
     @classmethod
@@ -123,6 +135,17 @@ class Settings(BaseSettings):
     # Rate limiting
     RATE_LIMIT_PER_MINUTE: int = 60
     RATE_LIMIT_PER_HOUR: int = 1000
+    # Route classes (app/core/rate_limit.py), per user. Polling GETs get their
+    # own generous bucket; LLM-enqueueing POSTs a tight one (the token budget is
+    # the real control; this stops runaway clients).
+    RATE_LIMIT_POLL: str = "120/minute"
+    RATE_LIMIT_LLM: str = "10/minute"
+    # Failed logins per email, across every IP (credential stuffing).
+    LOGIN_EMAIL_RATE_LIMIT: str = "20/hour"
+    # Peers whose CF-Connecting-IP header is believed: the cloudflared tunnel.
+    # Default: loopback + the private ranges Docker hands its bridge networks.
+    # From any other peer the header is ignored (it is client-controlled).
+    TRUSTED_PROXY_CIDRS: str = "127.0.0.0/8,::1/128,172.16.0.0/12,192.168.0.0/16"
 
     # RAG settings
     RAG_TOP_K: int = 5

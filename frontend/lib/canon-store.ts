@@ -15,6 +15,7 @@ import type {
   CharacterUpdateData,
   EntityVersionDetail,
   EntityVersionSummary,
+  RestoreVersionResult,
   StyleGuide,
   VersionedEntityType,
 } from './types'
@@ -60,11 +61,12 @@ export const canonApi = {
     entityType: VersionedEntityType,
     entityId: string,
     versionNo: number
-  ): Promise<void> {
+  ): Promise<RestoreVersionResult> {
     try {
-      await apiClient.post(
+      const { data } = await apiClient.post<RestoreVersionResult>(
         `/books/${bookId}/versions/${entityType}/${entityId}/restore/${versionNo}`
       )
+      return data
     } catch (err) {
       throw toApiError(err)
     }
@@ -136,7 +138,10 @@ export const canonApi = {
 
   async listCharacters(bookId: string): Promise<Character[]> {
     try {
-      const { data } = await apiClient.get<{ characters: Character[] }>('/characters/')
+      const { data } = await apiClient.get<{ characters: Character[] }>(
+        '/characters/',
+        { params: { book_id: bookId } }
+      )
       return data.characters.filter((c) => c.book_id === bookId)
     } catch (err) {
       throw toApiError(err)

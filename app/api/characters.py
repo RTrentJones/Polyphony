@@ -1,6 +1,8 @@
 """Character bible endpoints: CRUD, voice seeding, voice testing."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import asyncio
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -11,19 +13,26 @@ from datetime import datetime, timezone
 
 from app.characters.dialogue import generate_dialogue
 from app.characters.serialize import character_snapshot as _character_content
+from app.core.budget import check_user_budget
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.orm_models import (
     Book as BookORM,
     Character as CharacterORM,
-    CharacterChunk as CharacterChunkORM,
     Source as SourceORM,
     User as UserORM,
 )
 from app.core.security import get_current_active_user
 from app.rag.store import get_chunk_store
 from app.versioning import repository as versions_repo
+from app.versioning import trash
 
 router = APIRouter()
+
+# test-dialogue is the one LLM call allowed inside a request (SPEC-07): a fast
+# model and a short answer, held well under the proxy's 100 s origin timeout so
+# 429 backoff can never surface as a 524 while the call carries on server-side.
+TEST_DIALOGUE_BUDGET_SECONDS = 45.0
 
 
 class CharacterCreate(BaseModel):
@@ -40,6 +49,9 @@ class CharacterCreate(BaseModel):
     goals: Optional[str] = None
     arc: Optional[str] = None
     notes: Optional[str] = None
+    # Other names for this character ("the CEL"); honoured by fidelity and
+    # scene casting (SPEC-09).
+    aliases: Optional[list[str]] = None
 
 
 class CharacterUpdate(BaseModel):
@@ -52,6 +64,7 @@ class CharacterUpdate(BaseModel):
     goals: Optional[str] = None
     arc: Optional[str] = None
     notes: Optional[str] = None
+    aliases: Optional[list[str]] = None
 
 
 class VoiceSamples(BaseModel):
@@ -75,8 +88,12 @@ class VoiceTest(BaseModel):
 
 def _owned_select(current_user: UserORM):
     # user_id is NOT NULL (backfilled by migration 0005), so direct ownership
-    # is the whole story — no legacy via-manuscript fallback needed.
-    return select(CharacterORM).where(CharacterORM.user_id == current_user.id)
+    # is the whole story — no legacy via-manuscript fallback needed. A trashed
+    # character is reachable only through the Trash (SPEC-13).
+    return trash.live(
+        select(CharacterORM).where(CharacterORM.user_id == current_user.id),
+        CharacterORM,
+    )
 
 
 async def _owned_character(
@@ -96,11 +113,15 @@ async def _owned_character(
 
 @router.get("/", response_model=dict)
 async def list_characters(
+    book_id: Optional[UUID] = None,
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """All of the current user's characters (extracted and manual)."""
-    result = await db.execute(_owned_select(current_user).order_by(CharacterORM.name))
+    """The current user's characters, optionally one book's cast."""
+    query = _owned_select(current_user)
+    if book_id is not None:
+        query = query.where(CharacterORM.book_id == book_id)
+    result = await db.execute(query.order_by(CharacterORM.name))
     characters = result.scalars().all()
     return {
         "characters": [
@@ -143,7 +164,7 @@ async def create_character(
     if payload.source_id is not None:
         source = (
             await db.execute(
-                select(SourceORM).where(
+                trash.live(select(SourceORM), SourceORM).where(
                     SourceORM.id == payload.source_id,
                     SourceORM.book_id == payload.book_id,
                     SourceORM.user_id == current_user.id,
@@ -168,6 +189,7 @@ async def create_character(
         goals=payload.goals,
         arc=payload.arc,
         notes=payload.notes,
+        aliases=[a.strip() for a in payload.aliases or [] if a.strip()] or None,
     )
     db.add(character)
     try:
@@ -215,6 +237,7 @@ async def get_character(
         "goals": character.goals,
         "arc": character.arc,
         "notes": character.notes,
+        "aliases": character.aliases or [],
         "dialogue_count": character.dialogue_count,
         "indexed_at": (
             character.indexed_at.isoformat() if character.indexed_at else None
@@ -242,6 +265,7 @@ async def update_character(
         "goals",
         "arc",
         "notes",
+        "aliases",
     ):
         value = getattr(payload, field_name)
         if value is not None:
@@ -272,10 +296,14 @@ async def delete_character(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a character and its indexed voice."""
+    """Move a character to the book's Trash (SPEC-13).
+
+    Its voice chunks stay: retrieval is scoped by character and a trashed
+    character is never cast, so the voice is unreachable until a restore brings
+    it back intact. Purging from the Trash removes chunks and row together.
+    """
     character = await _owned_character(character_id, current_user, db)
-    await get_chunk_store().delete_character(str(character.id))
-    await db.delete(character)
+    await trash.soft_delete(db, "character", character, created_by=current_user.id)
     await db.commit()
     return None
 
@@ -305,15 +333,9 @@ async def add_voice_samples(
         book_id=str(character.book_id),
         chunks=chunks,
     )
-    for chunk in chunks:
-        db.add(
-            CharacterChunkORM(
-                character_id=character.id,
-                chunk_type=chunk["chunk_type"],
-                content=chunk["text"],
-                source_location="manual",
-            )
-        )
+    # voice_chunks is the one store of a character's voice. The ORM mirror once
+    # written here was never read and drifted after every chunk edit (SPEC-11,
+    # F18); its table is dropped.
     if indexed:
         character.indexed_at = datetime.now(timezone.utc)
         if payload.chunk_type == "dialogue":
@@ -329,17 +351,41 @@ async def test_dialogue(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Test a character's voice before using them in scenes."""
+    """Test a character's voice before using them in scenes.
+
+    Synchronous by design (one quick call), so it is bounded instead: the
+    author's daily budget is checked first, and the whole call — including any
+    429 backoff — gets TEST_DIALOGUE_BUDGET_SECONDS.
+    """
+    from app.llm.errors import QuotaExhaustedError
+
     character = await _owned_character(character_id, current_user, db)
-    response = await generate_dialogue(
-        character_id=str(character.id),
-        character_name=character.name,
-        beat_description=payload.prompt,
-        scene_context={"description": payload.context or payload.prompt},
-        emotional_state="neutral",
-        other_characters=[],
-        user_id=current_user.id,
-    )
+    await check_user_budget(db, current_user.id)
+    try:
+        response = await asyncio.wait_for(
+            generate_dialogue(
+                character_id=str(character.id),
+                character_name=character.name,
+                beat_description=payload.prompt,
+                scene_context={"description": payload.context or payload.prompt},
+                emotional_state="neutral",
+                other_characters=[],
+                user_id=current_user.id,
+            ),
+            timeout=TEST_DIALOGUE_BUDGET_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="The model is busy right now; try the voice test again shortly.",
+        )
+    except QuotaExhaustedError as e:
+        headers = {"Retry-After": str(int(e.reset_after))} if e.reset_after else None
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="The AI quota is used up for now; try the voice test later.",
+            headers=headers,
+        )
     return response
 
 
@@ -347,15 +393,32 @@ async def test_dialogue(
 
 
 @router.get("/{character_id}/chunks", response_model=dict)
-async def list_character_chunks(
+async def list_voice_chunks(
     character_id: UUID,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    source_id: Optional[UUID] = None,
+    chunk_type: Optional[str] = Query(None, max_length=50),
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Browse a character's indexed voice chunks (the vector-store contents)."""
+    """Browse a character's indexed voice chunks, a page at a time."""
     character = await _owned_character(character_id, current_user, db)
-    chunks = await get_chunk_store().list_chunks(str(character.id))
-    return {"character_id": str(character.id), "chunks": chunks}
+    store = get_chunk_store()
+    filters = dict(
+        source_id=str(source_id) if source_id else None, chunk_type=chunk_type
+    )
+    chunks = await store.list_chunks(
+        str(character.id), skip=skip, limit=limit, **filters
+    )
+    total = await store.count_chunks(str(character.id), **filters)
+    return {
+        "character_id": str(character.id),
+        "chunks": chunks,
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+    }
 
 
 @router.patch("/{character_id}/chunks/{chunk_id}", response_model=dict)
@@ -410,15 +473,19 @@ async def inspect_retrieval(
     it; this surfaces it so an author can see WHY a voice sample was chosen.
     """
     character = await _owned_character(character_id, current_user, db)
+    # Ask for the top k with NO threshold so the author also sees what the
+    # threshold drops; `threshold` lets the UI draw the line generation uses.
     results = await get_chunk_store().retrieve_similar(
         character_id=str(character.id),
         query=payload.query,
         k=payload.k,
+        score_threshold=-1.0,
         user_id=str(current_user.id),
         book_id=str(character.book_id),
     )
     return {
         "character_id": str(character.id),
         "query": payload.query,
+        "threshold": settings.RAG_SCORE_THRESHOLD,
         "results": results,
     }

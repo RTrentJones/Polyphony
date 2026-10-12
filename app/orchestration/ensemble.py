@@ -27,7 +27,7 @@ from __future__ import annotations
 from typing import Optional
 from uuid import UUID
 
-from app.characters.context import build_character_context, load_characters_for_book
+from app.characters.context import build_agent_context, load_characters_for_book
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.logging_config import setup_logging
 from app.llm.client import get_llm_client
@@ -59,10 +59,24 @@ def _normalize_proposal(raw: dict, name: str) -> dict:
 
 
 async def propose(
-    character, name: str, beat_description: str, prior_objections: list[dict], user_id
+    character,
+    name: str,
+    beat_description: str,
+    prior_objections: list[dict],
+    user_id,
+    *,
+    grounding: Optional[list] = None,
 ) -> dict:
-    """One character agent's proposal — scoped to its OWN context only."""
-    context = await build_character_context(character, name, beat_description)
+    """One character agent's proposal — scoped to its OWN context only.
+
+    `grounding`, when given, collects the voice chunks retrieved for this agent
+    (character_id, chunk_id, score) — the same record the prose workflow keeps.
+    """
+    # How this character speaks (<voice>) and moves (<physicality>), retrieved
+    # separately so dialogue cannot crowd action out (BRD R6.2, SPEC-14).
+    context = await build_agent_context(
+        character, name, beat_description, grounding=grounding
+    )
     feedback = ""
     if prior_objections:
         notes = "; ".join(
@@ -77,9 +91,12 @@ async def propose(
 
 You ARE {name}. You do not know the plot — only what {name} knows.
 
-{as_quoted_block(context, "character")}
+{context}
 
 The moment: {clean_for_llm(beat_description)}{feedback}
+
+Ground your ACTIONS in how {name} moves (<physicality>) and your LINES in how
+{name} speaks (<voice>).
 
 Your character may say NOTHING. What do they DO? Return ONLY a JSON object:
 {{
@@ -111,6 +128,7 @@ async def narrate(
     prior_tail: str,
     user_id,
     present: Optional[list[str]] = None,
+    chapter_summary: str = "",
 ) -> str:
     """Narrator: synthesize the proposals into prose (full canon + beat).
 
@@ -139,8 +157,11 @@ async def narrate(
 
 {canon_context}
 
+{as_quoted_block(chapter_summary, "chapter")}
+
 Setting: {clean_for_llm(str(scene_request.get("setting", "")))}
-Prior scene tail: {clean_for_llm(prior_tail)[:600]}
+The scene so far (continue seamlessly from it):
+{as_quoted_block(prior_tail, "prior") or "(this beat opens the scene)"}
 
 Characters present in this beat: {", ".join(present)}
 
@@ -163,14 +184,22 @@ Prose:"""
 
 
 async def editor_review(
-    draft: str, canon_context: str, beat_description: str, present: list[str], user_id
+    draft: str,
+    canon_context: str,
+    beat_description: str,
+    present: list[str],
+    user_id,
+    chapter_summary: str = "",
 ) -> dict:
     """Story editor: measured review — arc fit, coverage, who actually acts."""
     prompt = f"""{STORY_MATERIAL_NOTICE}
 
 {canon_context}
 
+{as_quoted_block(chapter_summary, "chapter")}
+
 The beat to cover: {clean_for_llm(beat_description)}
+It must serve this chapter's intent (above) as well as the book's arc.
 Characters present: {", ".join(present)}
 
 Review this draft:
@@ -236,6 +265,9 @@ async def run_ensemble(
     book_id: UUID,
     canon_context: str,
     prior_tail: str = "",
+    state: Optional[dict] = None,
+    save_state=None,
+    chapter_summary: str = "",
 ) -> dict:
     """Run the ensemble loop for one beat. Returns {prose, evaluation, rounds}.
 
@@ -244,6 +276,10 @@ async def run_ensemble(
     appear in narration AND editor validation, never silently dropped (PR review
     #6). Convergence is measured; non-convergence keeps the best draft with
     objections (never a hard fail).
+
+    `state`/`save_state` checkpoint the beat after every model call — each
+    agent's proposal, the narration, the review (SPEC-08) — so a resumed beat
+    makes only the calls it had not finished.
     """
     tier = get_tier()
     present = list(dict.fromkeys(scene_request.get("characters") or []))  # dedup, order
@@ -253,30 +289,70 @@ async def run_ensemble(
         agents, user_id=user_id, book_id=book_id
     )
 
-    prior_objections: list[dict] = []
-    best: Optional[dict] = None
+    st = dict(state or {})
+    prior_objections: list[dict] = list(st.get("prior_objections") or [])
+    best: Optional[dict] = st.get("best")
+    start_round = int(st.get("round") or 1)
 
-    for round_no in range(1, tier.max_rounds + 1):
-        proposals = [
-            await propose(
-                characters.get(name), name, beat_description, prior_objections, user_id
+    async def _checkpoint() -> None:
+        if save_state is not None:
+            await save_state(st)
+
+    round_no = start_round
+    for round_no in range(start_round, tier.max_rounds + 1):
+        st["round"] = round_no
+        # Each round re-retrieves; the kept draft's grounding is what it was
+        # actually written from, so it travels with the candidate — and with
+        # the checkpoint, so a resumed round keeps what its proposals retrieved.
+        round_grounding: list = list(st.get("grounding") or [])
+        proposals: list[dict] = list(st.get("proposals") or [])
+        for name in agents[len(proposals) :]:
+            proposals.append(
+                await propose(
+                    characters.get(name),
+                    name,
+                    beat_description,
+                    prior_objections,
+                    user_id,
+                    grounding=round_grounding,
+                )
             )
-            for name in agents
-        ]
-        draft = await narrate(
-            proposals,
-            scene_request,
-            canon_context,
-            prior_tail,
-            user_id,
-            present=present,
-        )
+            st["proposals"] = proposals
+            st["grounding"] = round_grounding
+            await _checkpoint()
+        draft = st.get("draft")
+        if draft is None:
+            draft = await narrate(
+                proposals,
+                scene_request,
+                canon_context,
+                prior_tail,
+                user_id,
+                present=present,
+                chapter_summary=chapter_summary,
+            )
+            st["draft"] = draft
+            await _checkpoint()
         # Editor validates the FULL present cast, so a context-only character who
         # vanished is caught as a blocking objection, not reported as converged.
-        review = await editor_review(
-            draft, canon_context, beat_description, present, user_id
-        )
-        candidate = {"prose": draft, "evaluation": review, "rounds": round_no}
+        review = st.get("review")
+        if review is None:
+            review = await editor_review(
+                draft,
+                canon_context,
+                beat_description,
+                present,
+                user_id,
+                chapter_summary=chapter_summary,
+            )
+            st["review"] = review
+            await _checkpoint()
+        candidate = {
+            "prose": draft,
+            "evaluation": review,
+            "rounds": round_no,
+            "grounding": round_grounding,
+        }
         if best is None or _score(review) > _score(best["evaluation"]):
             best = candidate
 
@@ -290,6 +366,12 @@ async def run_ensemble(
         if round_no >= 2 and len(new_objections) >= len(prior_objections):
             break
         prior_objections = new_objections
+        # The round is done: carry only what the next round needs.
+        st = {
+            "round": round_no + 1,
+            "prior_objections": prior_objections,
+            "best": best,
+        }
 
     assert best is not None
     best["rounds"] = round_no  # rounds actually run, not the best draft's round
@@ -313,23 +395,35 @@ async def run_ensemble_scene_workflow(
     book_id: Optional[UUID] = None,
     chapter_summary: str = "",
     prior_scene_tail: str = "",
+    checkpoint: Optional[dict] = None,
+    save_checkpoint=None,
+    on_restart=None,
 ) -> dict:
     """Ensemble-mode workflow for a Scene the API layer already created.
 
     Mirrors run_prose_scene_workflow: plan beats, run the ensemble per beat,
     assemble, persist. Tier-gated at the caller; if ensemble isn't allowed this
-    should never be reached. QuotaExhaustedError propagates so the worker pauses.
+    should never be reached. QuotaExhaustedError propagates so the worker pauses;
+    the checkpoint (planner, then every agent call of every beat) makes the
+    resume continue from the last completed call (SPEC-08).
     """
     from datetime import datetime, timezone
 
     from app.core.database import get_async_session
     from app.core.logging_config import log_error
     from app.core.orm_models import Scene
+    from app.jobs.cancel import JobCancelled
     from app.llm.errors import QuotaExhaustedError
-    from app.orchestration.prose import PREV_TAIL_WORDS, plan_scene_beats
+    from app.orchestration.prose import (
+        CANON_CHANGED_NOTE,
+        PREV_TAIL_WORDS,
+        _canon_hash,
+        plan_scene_beats,
+    )
     from app.planning.canon import build_canon
 
     started = datetime.now(timezone.utc)
+    checkpoint = dict(checkpoint or {})
     try:
         if book_id is not None:
             async with get_async_session() as session:
@@ -337,13 +431,48 @@ async def run_ensemble_scene_workflow(
             canon_context = canon.full_block()
         else:
             canon_context = ""
+        canon_hash = _canon_hash(canon_context, chapter_summary, prior_scene_tail)
+        if checkpoint.get("canon_hash") not in (None, canon_hash):
+            checkpoint = {}
+            if on_restart is not None:
+                await on_restart(CANON_CHANGED_NOTE)
 
-        beats = await plan_scene_beats(scene_request, user_id)
-        prose_parts: list[str] = []
-        evaluations: list[dict] = []
+        async def _save() -> None:
+            if save_checkpoint is not None:
+                await save_checkpoint(checkpoint)
+
+        beats = checkpoint.get("beats")
+        if beats is None:
+            beats = await plan_scene_beats(
+                scene_request,
+                user_id,
+                canon_block=canon_context,
+                chapter_summary=chapter_summary,
+            )
+            checkpoint = {
+                "canon_hash": canon_hash,
+                "beats": beats,
+                "prose": [],
+                "evaluations": [],
+                "progress": {"stage": "beats", "done": 0, "total": len(beats)},
+            }
+            await _save()
+        prose_parts: list[str] = list(checkpoint.get("prose") or [])
+        evaluations: list[dict] = list(checkpoint.get("evaluations") or [])
+        # {beat_index: [{character_id, chunk_id, score}]} — the prose workflow's
+        # shape, so one grounding endpoint reads both modes (R5.3).
+        grounding: dict[str, list] = dict(checkpoint.get("grounding") or {})
         prior_tail = prior_scene_tail
+        if prose_parts:
+            prior_tail = " ".join("\n\n".join(prose_parts).split()[-PREV_TAIL_WORDS:])
 
-        for beat in beats:
+        for idx in range(len(prose_parts), len(beats)):
+            beat = beats[idx]
+
+            async def _save_beat(state: dict) -> None:
+                checkpoint["beat_state"] = state
+                await _save()
+
             result = await run_ensemble(
                 scene_request={**scene_request, "characters": beat["characters"]},
                 beat_description=beat["description"],
@@ -351,11 +480,28 @@ async def run_ensemble_scene_workflow(
                 book_id=book_id,
                 canon_context=canon_context,
                 prior_tail=prior_tail,
+                state=checkpoint.get("beat_state"),
+                save_state=_save_beat,
+                chapter_summary=chapter_summary,
             )
             prose_parts.append(result["prose"])
             evaluations.append(result["evaluation"])
+            grounding[str(idx)] = result.get("grounding") or []
             joined = "\n\n".join(prose_parts)
             prior_tail = " ".join(joined.split()[-PREV_TAIL_WORDS:])
+            checkpoint.update(
+                prose=prose_parts,
+                evaluations=evaluations,
+                grounding=grounding,
+                beat_state=None,
+                beat_index=idx,
+                progress={
+                    "stage": "beats",
+                    "done": len(prose_parts),
+                    "total": len(beats),
+                },
+            )
+            await _save()
 
         scene_text = "\n\n".join(prose_parts)
         word_count = len(scene_text.split())
@@ -382,6 +528,7 @@ async def run_ensemble_scene_workflow(
                 "mode": "ensemble",
                 "converged": converged,
                 "beats": evaluations,
+                "grounding": grounding,
             }
             await session.commit()
 
@@ -391,8 +538,8 @@ async def run_ensemble_scene_workflow(
             "converged": converged,
         }
 
-    except QuotaExhaustedError:
-        raise  # pause, don't fail
+    except (QuotaExhaustedError, JobCancelled):
+        raise  # pause (or stop for the author), don't fail
     except Exception as e:
         log_error(
             logger, e, context={"scene_id": str(scene_id), "event": "ensemble_failed"}

@@ -58,7 +58,8 @@ def _sniff_mime(content: bytes) -> str:
 async def save_upload(filename: str, content: bytes) -> dict:
     """Validate and persist an uploaded source file.
 
-    Returns dict with file_id, file_path, content_hash, text, word_count.
+    Returns dict with file_id, file_path, content_hash, text, word_count, and
+    format (the paragraph-shape covariate recorded on Source.format, SPEC-09).
     """
     file_ext = os.path.splitext(filename)[1].lower()
     if file_ext not in settings.ALLOWED_EXTENSIONS:
@@ -96,6 +97,7 @@ async def save_upload(filename: str, content: bytes) -> dict:
         "content_hash": hashlib.sha256(content).hexdigest(),
         "text": text,
         "word_count": doc_parser.get_word_count(text),
+        "format": doc_parser.format_of(filename),
     }
 
 
@@ -120,22 +122,37 @@ async def index_characters_voice(
         source_text = source.content_text if source is not None else ""
         if not source_text:
             return
-        targets = [
-            (c.id, c.name)
-            for c in (
+        book_cast = (
+            (
                 await session.execute(
                     select(Character).where(
-                        Character.id.in_(ids), Character.book_id == book_id
+                        Character.book_id == book_id, Character.deleted_at.is_(None)
                     )
                 )
             )
             .scalars()
             .all()
+        )
+        # The whole cast (not just the targets) disambiguates a narrator heading
+        # like "Dr. Ward's Diary" when two Wards exist.
+        cast = [{"name": c.name, "aliases": c.aliases or []} for c in book_cast]
+        targets = [
+            (c.id, c.name, c.aliases or [], "narrator" in (c.role or "").lower())
+            for c in book_cast
+            if c.id in ids
         ]
 
     store = get_chunk_store()
-    for character_id, name in targets:
+    for character_id, name, aliases, is_narrator in targets:
         chunks = char_extractor.extract_character_content(source_text, name)
+        # Alias mentions + first-person narration the name gate misses (SPEC-09).
+        seen = {c["text"] for c in chunks}
+        for extra in char_extractor.extract_narration(
+            source_text, name, aliases=aliases, cast=cast, is_narrator=is_narrator
+        ):
+            if extra["text"] not in seen:
+                seen.add(extra["text"])
+                chunks.append(extra)
         stats = char_extractor.get_character_statistics(chunks)
         # Per-source idempotency: clear ONLY this source's chunks (never
         # delete_character, which would erase manual/other-source voice).

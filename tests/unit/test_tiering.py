@@ -202,11 +202,11 @@ class TestBudgetPreflight:
         used = await budget.tokens_used_24h(async_session, test_user.id)
         assert used == 1000
 
-        # remaining respects the configured cap
-        from app.core.config import settings as s
+        # remaining respects the tier's cap
+        from app.llm.tier import get_tier
 
         remaining = await budget.remaining_budget_24h(async_session, test_user.id)
-        assert remaining == max(0, s.USER_DAILY_TOKEN_LIMIT - 1000)
+        assert remaining == max(0, get_tier().daily_token_limit - 1000)
 
     def test_estimate_tokens(self):
         assert budget.estimate_tokens(4000) == 1000

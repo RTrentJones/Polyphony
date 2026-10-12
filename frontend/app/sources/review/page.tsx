@@ -14,14 +14,19 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { ArrowLeft, Check } from 'lucide-react'
 import Button from '@/components/Button'
 import Card from '@/components/Card'
+import KeyValueEditor from '@/components/KeyValueEditor'
 import Loading from '@/components/Loading'
 import ProtectedRoute from '@/components/ProtectedRoute'
+import { booksApi } from '@/lib/books-store'
+import { canonApi } from '@/lib/canon-store'
+import { rateLimitedPollDelay } from '@/lib/rate-limit'
 import { useExtractionStore } from '@/lib/store'
 import type {
   CanonCategory,
   CanonEntryProposal,
   CharacterProposal,
   ExtractionCommit,
+  ExtractionRun,
   ExtractionSkipped,
 } from '@/lib/types'
 
@@ -34,7 +39,12 @@ const CATEGORIES: CanonCategory[] = [
   'org',
 ]
 
-type CharRow = CharacterProposal & { approved: boolean }
+type CharRow = CharacterProposal & { approved: boolean; open: boolean }
+
+/** Best-attested first (SPEC-09): windows seen in, then mentions. */
+function rank(a: CharacterProposal, b: CharacterProposal): number {
+  return (b.windows ?? 0) - (a.windows ?? 0) || (b.mentions ?? 0) - (a.mentions ?? 0)
+}
 type EntryRow = CanonEntryProposal & { approved: boolean }
 
 function ReviewContent() {
@@ -59,6 +69,10 @@ function ReviewContent() {
     comps: '',
   })
   const [synopsis, setSynopsis] = useState({ approved: false, value: '' })
+  const [existing, setExisting] = useState({ synopsis: false, style: false })
+  const [progress, setProgress] = useState<ExtractionRun['progress']>(undefined)
+  const [windowsTotal, setWindowsTotal] = useState(0)
+  const [warnings, setWarnings] = useState<string[]>([])
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -68,17 +82,39 @@ function ReviewContent() {
       setStatus(run.status)
       if (run.status === 'ready' && run.proposals && 'characters' in run.proposals) {
         const p = run.proposals
-        setChars(p.characters.map((c) => ({ ...c, approved: true })))
+        // Ranked, with one-window names pre-deselected (the server's
+        // `selected` default, eval-plan E5) — still listed, never hidden.
+        setChars(
+          [...p.characters]
+            .sort(rank)
+            .map((c) => ({ ...c, approved: c.selected ?? true, open: false }))
+        )
+        setWindowsTotal(p.stats?.windows ?? 0)
+        setWarnings(p.warnings ?? [])
         setEntries(p.canon_entries.map((e) => ({ ...e, approved: true })))
+        // Never pre-approve a proposal that would overwrite what the author
+        // already wrote: the extracted synopsis/style is a suggestion, and the
+        // book's own synopsis is usually far richer than 2-4 sentences.
+        const [book, canon] = await Promise.all([
+          booksApi.getBook(bookId).catch(() => null),
+          canonApi.getCanon(bookId).catch(() => null),
+        ])
+        const hasSynopsis = Boolean(book?.synopsis?.trim())
+        const hasStyle = Boolean(
+          canon?.style && (canon.style.pov || canon.style.tense || canon.style.tone)
+        )
+        setExisting({ synopsis: hasSynopsis, style: hasStyle })
         setStyle({
-          approved: Boolean(p.style?.pov || p.style?.tense || p.style?.tone),
+          approved:
+            !hasStyle && Boolean(p.style?.pov || p.style?.tense || p.style?.tone),
           pov: p.style?.pov ?? '',
           tense: p.style?.tense ?? '',
           tone: p.style?.tone ?? '',
           comps: p.style?.comps ?? '',
         })
-        setSynopsis({ approved: Boolean(p.synopsis), value: p.synopsis ?? '' })
-      } else if (run.status === 'pending') {
+        setSynopsis({ approved: !hasSynopsis && Boolean(p.synopsis), value: p.synopsis ?? '' })
+      } else if (run.status === 'pending' || run.status === 'paused') {
+        setProgress(run.progress)
         timer.current = setTimeout(load, 2000) // still extracting; poll
       } else if (run.status === 'committed') {
         // Already committed (resumed a done run, or a lost-response retry) — the
@@ -88,6 +124,11 @@ function ReviewContent() {
         setError(run.error || 'Extraction failed.')
       }
     } catch (err: any) {
+      const wait = rateLimitedPollDelay(err) // 429: back off, keep polling
+      if (wait !== null) {
+        timer.current = setTimeout(load, wait)
+        return
+      }
       setError(err.message || 'Could not load the extraction.')
     }
   }, [bookId, runId, fetchExtraction, router])
@@ -110,7 +151,17 @@ function ReviewContent() {
     const payload: ExtractionCommit = {
       characters: chars
         .filter((c) => c.approved)
-        .map(({ name, role, description }) => ({ name, role, description })),
+        .map((c) => ({
+          name: c.name,
+          role: c.role,
+          description: c.description,
+          goals: c.goals,
+          arc: c.arc,
+          relationships: c.relationships ?? {},
+          personality_traits: c.personality_traits ?? {},
+          voice_characteristics: c.voice_characteristics ?? {},
+          aliases: c.aliases ?? [],
+        })),
       canon_entries: entries
         .filter((e) => e.approved)
         .map(({ name, category, content }) => ({ name, category, content })),
@@ -144,11 +195,24 @@ function ReviewContent() {
     }
   }
 
-  if (status === 'pending') {
+  if (status === 'pending' || status === 'paused') {
+    const total = progress?.windows_total ?? 0
+    const done = progress?.windows_done ?? 0
+    const phase = progress?.phase
     return (
       <div className="max-w-3xl mx-auto p-6 text-center">
         <Loading />
         <p className="mt-4 text-gray-600">Reading your source and proposing canon…</p>
+        {total > 0 && (
+          <p className="mt-2 text-sm text-gray-500">
+            {phase === 'reduce'
+              ? `Writing character entries (${progress?.reduce_done ?? 0} of ${progress?.reduce_total ?? 0})`
+              : phase === 'synopsis'
+                ? 'Writing the synopsis'
+                : `Read ${done} of ${total} parts`}
+            {status === 'paused' ? ' — waiting for AI quota, nothing is lost' : ''}
+          </p>
+        )}
       </div>
     )
   }
@@ -157,7 +221,7 @@ function ReviewContent() {
     return (
       <div className="max-w-3xl mx-auto p-6">
         <p className="text-red-600 mb-4">{error}</p>
-        <Button onClick={() => router.push('/sources')}>Back to Sources</Button>
+        <Button onClick={() => router.push(`/books/detail?id=${bookId}&tab=sources`)}>Back to Sources</Button>
       </div>
     )
   }
@@ -170,7 +234,7 @@ function ReviewContent() {
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-6">
       <button
-        onClick={() => router.push('/sources')}
+        onClick={() => router.push(`/books/detail?id=${bookId}&tab=sources`)}
         className="flex items-center text-gray-600 hover:text-gray-900"
       >
         <ArrowLeft className="w-4 h-4 mr-1" /> Sources
@@ -203,8 +267,22 @@ function ReviewContent() {
         </div>
       )}
 
+      {warnings.length > 0 && (
+        <div className="border border-amber-300 bg-amber-50 rounded p-3 text-sm text-amber-800">
+          {warnings.map((w, i) => (
+            <p key={i}>{w}</p>
+          ))}
+        </div>
+      )}
+
       <Card>
-        <h2 className="font-semibold mb-3">Characters ({chars.length})</h2>
+        <h2 className="font-semibold mb-1">Characters ({chars.length})</h2>
+        {windowsTotal > 1 && (
+          <p className="text-xs text-gray-500 mb-3">
+            Sorted by how much of the source each appears in. Names seen in only one
+            of {windowsTotal} parts start unchecked.
+          </p>
+        )}
         <div className="space-y-3">
           {chars.map((c, i) => (
             <div key={i} className="flex gap-3 items-start border-b pb-3">
@@ -233,6 +311,72 @@ function ReviewContent() {
                   onChange={(e) => setChar(i, { description: e.target.value })}
                   placeholder="Description"
                 />
+                <div className="sm:col-span-3 flex items-center gap-3 text-xs text-gray-500">
+                  {c.windows !== undefined && windowsTotal > 0 && (
+                    <span>
+                      in {c.windows} of {windowsTotal} parts · {c.mentions ?? 0} mentions
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className="underline"
+                    onClick={() => setChar(i, { open: !c.open })}
+                  >
+                    {c.open ? 'Hide details' : 'Goals, arc, voice, aliases…'}
+                  </button>
+                </div>
+                {c.open && (
+                  <div className="sm:col-span-3 space-y-2">
+                    <input
+                      className="border rounded px-2 py-1 w-full"
+                      value={(c.aliases ?? []).join(', ')}
+                      onChange={(e) =>
+                        setChar(i, {
+                          aliases: e.target.value
+                            .split(',')
+                            .map((a) => a.trim())
+                            .filter(Boolean),
+                        })
+                      }
+                      placeholder="Aliases (comma-separated)"
+                    />
+                    <textarea
+                      className="border rounded px-2 py-1 w-full"
+                      rows={2}
+                      value={c.goals ?? ''}
+                      onChange={(e) => setChar(i, { goals: e.target.value })}
+                      placeholder="Goals"
+                    />
+                    <textarea
+                      className="border rounded px-2 py-1 w-full"
+                      rows={2}
+                      value={c.arc ?? ''}
+                      onChange={(e) => setChar(i, { arc: e.target.value })}
+                      placeholder="Arc"
+                    />
+                    <KeyValueEditor
+                      label="Personality"
+                      value={c.personality_traits ?? undefined}
+                      onChange={(v) => setChar(i, { personality_traits: v })}
+                      keyPlaceholder="Trait"
+                      valuePlaceholder="How it shows"
+                    />
+                    <KeyValueEditor
+                      label="Voice"
+                      value={c.voice_characteristics ?? undefined}
+                      onChange={(v) => setChar(i, { voice_characteristics: v })}
+                      keyPlaceholder="Aspect"
+                      valuePlaceholder="Description"
+                    />
+                    <KeyValueEditor
+                      label="Relationships"
+                      value={c.relationships ?? undefined}
+                      onChange={(v) => setChar(i, { relationships: v })}
+                      keyPlaceholder="Character"
+                      valuePlaceholder="Relationship"
+                    />
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -318,6 +462,12 @@ function ReviewContent() {
           />
           Synopsis
         </label>
+        {existing.synopsis && (
+          <p className="text-sm text-amber-700 mb-2" data-testid="synopsis-replaces">
+            Your book already has a synopsis. Approving this replaces it (the
+            current one stays in its version history).
+          </p>
+        )}
         <textarea
           className="border rounded px-2 py-1 w-full"
           rows={4}
@@ -327,7 +477,7 @@ function ReviewContent() {
       </Card>
 
       <div className="flex justify-end gap-3">
-        <Button variant="secondary" onClick={() => router.push('/sources')}>
+        <Button variant="secondary" onClick={() => router.push(`/books/detail?id=${bookId}&tab=sources`)}>
           Cancel
         </Button>
         <Button onClick={commit} disabled={committing}>

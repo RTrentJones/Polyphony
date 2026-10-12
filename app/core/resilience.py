@@ -44,6 +44,7 @@ class CircuitBreaker:
         recovery_timeout: int = 60,
         expected_exception: type = Exception,
         name: str = "circuit_breaker",
+        ignore_exceptions: tuple = (),
     ):
         """
         Args:
@@ -56,6 +57,10 @@ class CircuitBreaker:
         self.recovery_timeout = recovery_timeout
         self.expected_exception = expected_exception
         self.name = name
+        # Exceptions that are NOT evidence the service is unhealthy (e.g. a
+        # quota 429, or a request the service rejected on its merits): they
+        # propagate without counting toward the threshold.
+        self.ignore_exceptions = tuple(ignore_exceptions)
 
         self.failure_count = 0
         self.last_failure_time: Optional[datetime] = None
@@ -89,9 +94,22 @@ class CircuitBreaker:
             result = await func(*args, **kwargs)
             self._on_success()
             return result
+        except self.ignore_exceptions:
+            if self.state == CircuitBreakerState.HALF_OPEN:
+                # The service answered; it is reachable. Don't stay half-open.
+                self.state = CircuitBreakerState.CLOSED
+                self.failure_count = 0
+            raise
         except self.expected_exception:
             self._on_failure()
             raise
+
+    def seconds_until_retry(self) -> float:
+        """How long until an OPEN breaker will allow a trial call."""
+        if self.state != CircuitBreakerState.OPEN or self.last_failure_time is None:
+            return 0.0
+        elapsed = (datetime.utcnow() - self.last_failure_time).total_seconds()
+        return max(0.0, self.recovery_timeout - elapsed)
 
     def _should_attempt_reset(self) -> bool:
         """Check if enough time has passed to attempt recovery"""

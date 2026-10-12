@@ -7,7 +7,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { BookMarked, BookOpen, LogOut, Menu, X, User } from 'lucide-react'
+import { BookMarked, BookOpen, LogOut, Menu, X, User, Gauge } from 'lucide-react'
 import Button from './Button'
 import { useAuthStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
@@ -25,6 +25,7 @@ export default function Navbar() {
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: BookOpen },
     { name: 'Books', href: '/books', icon: BookMarked },
+    { name: 'Usage', href: '/usage', icon: Gauge },
   ]
 
   const handleLogout = () => {

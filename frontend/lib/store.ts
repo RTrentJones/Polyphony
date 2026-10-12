@@ -14,6 +14,7 @@ import type {
   Character,
   ExtractionCommit,
   ExtractionCommitResponse,
+  ExtractionPreflight,
   ExtractionRun,
   LoginCredentials,
   RegisterData,
@@ -255,6 +256,12 @@ interface ExtractionState {
     runId: string,
     payload: ExtractionCommit
   ) => Promise<ExtractionCommitResponse>
+  /** Start (or restart) extraction, optionally of the first N chapters only. */
+  startExtraction: (
+    bookId: string,
+    sourceId: string,
+    maxChapters?: number
+  ) => Promise<{ run_id: string; status: string; preflight?: ExtractionPreflight }>
 }
 
 export const useExtractionStore = create<ExtractionState>(() => ({
@@ -262,6 +269,18 @@ export const useExtractionStore = create<ExtractionState>(() => ({
     try {
       const { data } = await apiClient.get<ExtractionRun>(
         `/books/${bookId}/extractions/${runId}`
+      )
+      return data
+    } catch (err) {
+      throw toApiError(err)
+    }
+  },
+
+  startExtraction: async (bookId, sourceId, maxChapters) => {
+    try {
+      const { data } = await apiClient.post(
+        `/books/${bookId}/sources/${sourceId}/extract`,
+        maxChapters ? { max_chapters: maxChapters } : {}
       )
       return data
     } catch (err) {

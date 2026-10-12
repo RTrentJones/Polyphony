@@ -69,6 +69,7 @@ export type SourceKind = 'upload' | 'paste'
 export interface SourceLatestExtraction {
   id: string
   status: 'pending' | 'ready' | 'failed' | 'committed' | string
+  job?: JobSummary | null
 }
 
 /** Raw source item as returned by the API (list + detail). Book-scoped. */
@@ -129,8 +130,10 @@ export interface SourceUploadResponse {
   author?: string | null
   word_count: number
   status: SourceStatus
-  /** Handle to the extraction whose proposals must be reviewed + committed. */
-  extraction_run_id: string
+  /** Handle to the extraction whose proposals must be reviewed + committed;
+   *  null when the preflight refused (see `preflight`). */
+  extraction_run_id: string | null
+  preflight?: ExtractionPreflight | null
   message: string
 }
 
@@ -229,6 +232,7 @@ export interface BookSceneSummary {
   characters?: string[]
   preview?: string | null
   created_at: string | null
+  job?: JobSummary | null
 }
 
 // ---------------------------------------------------------------------------
@@ -277,6 +281,11 @@ export interface BookChapter {
   title: string
   summary?: string | null
   status?: string | null
+  /** Promoted from an outline node (SPEC-10): the node's stable id and its
+   *  structural cast, which a new scene in this chapter defaults to. */
+  plan_node_id?: string | null
+  pov_character_id?: string | null
+  character_ids?: string[]
 }
 
 /** GET /books/{id} */
@@ -307,6 +316,7 @@ export interface ChapterUpdateData {
 /** Scene summary inside GET /books/chapters/{id}. */
 export interface ChapterScene {
   id: string
+  job?: JobSummary | null
   position: number
   status: SceneStatus
   word_count?: number | null
@@ -322,7 +332,10 @@ export interface ChapterDetail extends BookChapter {
 /** POST /books/chapters/{id}/scenes/generate body. */
 export interface ChapterSceneRequest {
   source_id?: string
-  characters: string[]
+  /** The cast, as character ids of this book (SPEC-01). */
+  character_ids: string[]
+  /** Generation mode: prose (default) or the ensemble loop (tier-gated). */
+  mode?: 'prose' | 'ensemble'
   scene_description: string
   setting: string
   emotional_tone: string
@@ -335,9 +348,14 @@ export interface ChapterSceneRequest {
 /** POST /books/chapters/{id}/scenes/generate response — poll GET /scenes/{scene_id}. */
 export interface ChapterSceneGenerateResponse {
   scene_id: string
+  job_id?: string
   chapter_id: string
   position: number
   status: SceneStatus
+  mode_requested?: 'prose' | 'ensemble'
+  mode_used?: 'prose' | 'ensemble'
+  /** Why the mode that ran differs from the one asked for (SPEC-12). */
+  mode_reason?: string | null
 }
 
 /** PUT /books/scenes/{id}/content response. */
@@ -410,6 +428,32 @@ export interface CharacterProposal {
   name: string
   role?: string | null
   description?: string | null
+  // The full bible entry extraction proposes (SPEC-09).
+  goals?: string | null
+  arc?: string | null
+  relationships?: Record<string, string> | null
+  personality_traits?: Record<string, string> | null
+  voice_characteristics?: Record<string, string> | null
+  aliases?: string[] | null
+  /** Ranking: name occurrences in the source, and windows it was seen in. */
+  mentions?: number
+  windows?: number
+  /** The review's default (seen in 2+ windows, or a narrator). */
+  selected?: boolean
+}
+
+/** What an extraction will cost, returned by every enqueueing endpoint. */
+export interface ExtractionPreflight {
+  windows: number
+  map_calls: number
+  reduce_calls: number
+  requests: number
+  estimated_tokens: number
+  capacity_tokens: number
+  fits: boolean
+  /** When refused: the largest opening (in chapters) that fits, if any. */
+  max_chapters: number | null
+  message?: string
 }
 
 export interface CanonEntryProposal {
@@ -423,6 +467,8 @@ export interface ExtractionProposals {
   canon_entries: CanonEntryProposal[]
   style: Partial<StyleGuide>
   synopsis: string
+  stats?: { windows: number; calls?: number; tokens?: number; max_chapters?: number }
+  warnings?: string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -432,14 +478,17 @@ export interface ExtractionProposals {
 /** A character's indexed voice chunk (GET /characters/{id}/chunks). */
 export interface VoiceChunk {
   id: string
+  source_id?: string | null
   chunk_type: string
   text: string
   source: string
   word_count: number
+  created_at?: string | null
 }
 
 /** A scored retrieval hit (POST /characters/{id}/retrieve). */
 export interface RetrievalHit {
+  id?: string | null
   text: string
   score: number | null
   chunk_type: string
@@ -454,6 +503,14 @@ export interface ExtractionRun {
   status: 'pending' | 'ready' | 'failed' | 'committed' | string
   proposals: ExtractionProposals | Record<string, never>
   error?: string | null
+  /** Map-reduce progress while pending (SPEC-09). */
+  progress?: {
+    phase?: string | null
+    windows_total?: number | null
+    windows_done?: number | null
+    reduce_total?: number | null
+    reduce_done?: number | null
+  }
 }
 
 /** POST /books/{id}/extractions/{run_id}/commit body — the reviewed selection. */
@@ -499,6 +556,39 @@ export type VersionedEntityType =
   | 'character'
   | 'canon_entry'
   | 'style_guide'
+  | 'source'
+  | 'chapter'
+
+/** POST .../restore/{n}. A source whose text changed offers re-extraction
+ *  (SPEC-13) — it is never run automatically. */
+export interface RestoreVersionResult {
+  entity_type: string
+  entity_id: string
+  restored_from: number
+  reextract?: { offered: boolean; endpoint: string; message: string }
+}
+
+// ---------------------------------------------------------------------------
+// Trash (app/api/trash.py, SPEC-13)
+// ---------------------------------------------------------------------------
+
+export type TrashEntityType = 'character' | 'canon_entry' | 'source' | 'chapter' | 'scene'
+
+/** One soft-deleted entity of a book, with what restoring it brings back. */
+export interface TrashItem {
+  type: TrashEntityType
+  id: string
+  name: string
+  deleted_at: string
+  restores: { voice_samples?: number; scenes?: number; words?: number }
+  summary: string
+}
+
+/** 409 body of a restore that would collide: the live entity in the way. */
+export interface TrashConflictDetail {
+  message: string
+  conflict: { type: string; id: string; name: string } | null
+}
 
 /** One entry in an entity's version history (newest first; max == live). */
 export interface EntityVersionSummary {
@@ -566,6 +656,22 @@ export interface PlanNode {
   title: string
   summary?: string
   children?: PlanNode[]
+  /** Stable across edits; promote is idempotent on it (SPEC-10). */
+  node_id?: string
+  pov?: string | null
+  character_ids?: string[]
+  act_index?: number | null
+  threads?: string[]
+}
+
+/** The skeleton the model understood, shown for confirmation before the
+ *  chapters stage builds on it (SPEC-10). */
+export interface PlanPremise {
+  premise_restated?: string
+  central_conflict?: string
+  acts?: unknown[]
+  confirmed?: boolean
+  edited?: boolean
 }
 
 /** Plan as returned by GET/PUT /books/{id}/plans. */
@@ -584,7 +690,9 @@ export interface BookPlan {
   warnings?: string[]
   /** Failure reason when status === 'failed'. */
   error?: string | null
+  premise?: PlanPremise | null
   updated_at: string | null
+  job?: JobSummary | null
 }
 
 /** POST /books/{id}/plans/generate — async (staged) returns status:'generating'
@@ -606,6 +714,14 @@ export interface PromoteNodeResponse {
   chapter_id: string
   title: string
   position: number
+  plan_node_id?: string | null
+  /** False when the node already had a chapter (promote is idempotent). */
+  created?: boolean
+}
+
+export interface PromoteAllResponse {
+  chapters: PromoteNodeResponse[]
+  created: number
 }
 
 export type ThreadStatus = 'open' | 'resolved' | 'abandoned'
@@ -676,11 +792,14 @@ export interface ContinuityReport {
   id: string
   scope: 'book' | 'chapter' | string
   chapter_id: string | null
-  status: 'processing' | 'completed' | 'failed' | string
+  status: 'processing' | 'paused' | 'completed' | 'incomplete' | 'failed' | string
   findings: ContinuityFinding[] | null
+  /** Which sections were actually checked (SPEC-02). */
+  coverage?: { chunks_checked: number; chunks_total: number; unchecked: string[] } | null
   model?: string | null
   tokens_used?: number | null
   created_at: string | null
+  job?: JobSummary | null
 }
 
 /** GET /books/{id}/continuity */
@@ -692,4 +811,52 @@ export interface ContinuityReportListResponse {
 export interface ContinuityStartResponse {
   report_id: string
   status: string
+}
+
+// ---------------------------------------------------------------------------
+// Jobs (app/api/jobs.py, SPEC-07/08)
+// ---------------------------------------------------------------------------
+
+/** One lifecycle for every LLM job. 'paused' = waiting for AI quota. */
+export type JobStatus =
+  | 'queued'
+  | 'running'
+  | 'paused'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+
+/** Stage progress from the job's checkpoint ("beat 3 of 5"). */
+export interface JobProgress {
+  stage?: string
+  done: number
+  total: number
+}
+
+/** GET /jobs/{id} */
+export interface Job {
+  id: string
+  kind: string
+  status: JobStatus
+  available_at: string | null
+  /** When a paused job is due to resume. */
+  resume_at: string | null
+  attempts: number
+  max_attempts: number
+  pause_count: number
+  cancel_requested: boolean
+  cancellable: boolean
+  error: string | null
+  progress: JobProgress | null
+  domain: { type: string; id: string } | null
+  created_at: string | null
+  finished_at: string | null
+}
+
+/** A domain row's newest job, embedded in list payloads. */
+export interface JobSummary {
+  job_id: string
+  status: JobStatus
+  resume_at: string | null
+  progress: JobProgress | null
 }

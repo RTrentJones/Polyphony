@@ -4,7 +4,7 @@
 
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useId } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -26,6 +26,7 @@ export default function Modal({
   size = 'md',
   showCloseButton = true,
 }: ModalProps) {
+  const titleId = useId()
   const sizes = {
     sm: 'max-w-md',
     md: 'max-w-lg',
@@ -84,18 +85,22 @@ export default function Modal({
                   sizes[size]
                 )}
                 onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={title ? titleId : undefined}
               >
                 {/* Header */}
                 {(title || showCloseButton) && (
                   <div className="flex items-center justify-between p-6 border-b border-gray-200">
                     {title && (
-                      <h2 className="text-xl font-semibold text-gray-900">
+                      <h2 id={titleId} className="text-xl font-semibold text-gray-900">
                         {title}
                       </h2>
                     )}
                     {showCloseButton && (
                       <button
                         onClick={onClose}
+                        aria-label="Close"
                         className="text-gray-400 hover:text-gray-600 transition-colors"
                       >
                         <X className="h-5 w-5" />

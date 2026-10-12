@@ -222,10 +222,10 @@ silently cuts a string mid-sentence.
 
 ### 5.1 Fidelity (G1)
 
-- **R1.1** The complete synopsis, character canon, canon entries, and style guide reach the model on every generation. No truncation. No escaping. No pattern filtering.
+- **R1.1** The complete synopsis, character canon, canon entries, and style guide reach the model on every generation — outline (staged and single-call), scene beat planning and prose (both modes), continuity, and the ensemble's narrator and editor. No truncation. No escaping. No pattern filtering. A scene's cast is a set of characters of the book, validated at the API; an unknown name is rejected, never generated voice-blind.
 - **R1.2** Outline generation is staged — skeleton → chapters → beats — with the whole canon in context at each stage.
-- **R1.3** The skeleton stage must **restate the premise in its own words** before structuring. This surfaces a misreading (e.g. "the CEL is Corporeal Energy Logistics") at stage one, for the price of one call, instead of after twelve chapters are built on top of it.
-- **R1.4** **Hard gate — principal-cast recall.** Every character whose role is protagonist / antagonist / main must appear in the outline. Exact match on names and aliases: deterministic, free, no false positives. Below 1.0 → regenerate once → then warn. *"Elara" was a recall failure — the real protagonist was absent — and recall is the reliable signal.*
+- **R1.3** The skeleton stage must **restate the premise in its own words** before structuring. This surfaces a misreading (e.g. "the CEL is Corporeal Energy Logistics") at stage one, for the price of one call, instead of after twelve chapters are built on top of it, and is shown to the author for confirmation before the chapters stage (on the free tier by default; an edited premise is authoritative for the stages after it).
+- **R1.4** **Hard gate — principal-cast recall.** Every character whose role is protagonist / antagonist / main must appear in the outline. Exact match on names and aliases (a character's recorded `aliases` count — "the CEL" is Edric Thane): deterministic, free, no false positives. Below 1.0 → regenerate once → then warn. *"Elara" was a recall failure — the real protagonist was absent — and recall is the reliable signal.*
 - **R1.5** **Soft warning — unknown proper nouns.** A good outline legitimately invents an innkeeper, so unknown names **warn, never block**. Structural cast fields are strict; names in prose summaries are advisory.
 - **R1.6** Never hard-fail an expensive job on a heuristic. Always save the artifact with warnings attached.
 
@@ -254,7 +254,10 @@ be re-examined, not inherited.**
 
 ### 5.3 Book as root (G2)
 
-- **R3.1** `characters.book_id` is `NOT NULL`, `ON DELETE CASCADE`.
+- **R3.1** `characters.book_id` is `NOT NULL`, `ON DELETE CASCADE`. So is `scenes.book_id`:
+  a scene goes with its book (and its beats and revisions with it), and deleting a chapter
+  never silently orphans prose — the author moves its scenes to another chapter or deletes
+  them, and a bare delete of a chapter with scenes is refused (409). *(SPEC-04)*
 - **R3.2** Character names are unique within a book. *(Today manual characters have no uniqueness at all: the index is keyed on a NULL `manuscript_id`, and NULLs are distinct in Postgres. Cast fidelity depends on fixing this.)*
 - **R3.3** Voice chunks carry `book_id` and retrieval can filter by it.
 - **R3.4** Characters and sources are reached through the book in the UI, not as top-level routes.
@@ -264,8 +267,8 @@ be re-examined, not inherited.**
 - **R4.1** Every mutation of canon or a generated plan appends a version first.
 - **R4.2** Regeneration appends; it never overwrites. The prior generation stays browsable.
 - **R4.3** Restore is **forward-only**: restoring v2 appends v4 carrying v2's content. History is never rewritten or deleted.
-- **R4.4** Extraction proposes; the author approves per item before anything is written.
-- **R4.5** An approved item is **never silently dropped, and is written exactly as reviewed**. An approved character, canon entry, style, or synopsis whose name already exists is **merged** and versioned. A field is applied **whenever supplied — including `""`/null, which clears it** — and left untouched only when **omitted**, so an author can delete a role, description, style field, or synopsis. Blank-named items are **surfaced** (reported in the response's `skipped`), never silently filtered by the client. The commit response reports `created` / `updated` / `skipped` per type, and the review UI must not signal success for an item the commit discarded. *(Earlier passes merged only characters, applied only truthy fields — so a cleared value silently reverted — and let the client drop blank names before the server ever saw them.)*
+- **R4.4** Extraction proposes; the author approves per item before anything is written. **Extraction works at manuscript scale** (SPEC-09): the source is read as a map-reduce — ~12k-token windows on paragraph boundaries (one fast-model JSON call each, checkpointed per window so a quota pause resumes rather than re-spends), a deterministic alias- and honorific-aware merge across windows, then batched calls (~10 characters each, bounded) that write the **full** proposal — role (closed vocabulary or `other: …`), description, goals, arc, relationships, personality, voice, aliases — and the synopsis last, from the merged canon. A window whose answer is truncated is retried once as smaller windows and, if still unreadable, skipped with a warning on the proposals — **it never fails the run**. Proposals carry `mentions` and `windows`; the review sorts by them and pre-deselects names seen in only one window unless flagged as a narrator (still listed, never hidden). **Cost is shown before the run**: every enqueueing endpoint returns the estimate (windows, requests, tokens), and a source that cannot finish within what the author can spend while the job waits out quota (`JOB_MAX_PAUSE_HOURS`) is refused with an "extract the first N chapters" alternative — an upload or paste is still saved. Canon-entry categories are validated against the set (an unknown category is stored as `concept`).
+- **R4.5** An approved item is **never silently dropped, and is written exactly as reviewed**. An approved character, canon entry, style, or synopsis whose name already exists is **merged** and versioned. A field is applied **whenever supplied — including `""`/null, which clears it** — and left untouched only when **omitted**, so an author can delete a role, description, style field, or synopsis. A proposal also merges into an existing character it **names by alias** (its name is one of the character's aliases, or it lists the character's name as an alias — unambiguously; a shared alias alone never merges two people). `aliases` is the one field that **unions** rather than replaces (a later import never drops an alias the author recorded; a supplied `null` clears). Blank-named items are **surfaced** (reported in the response's `skipped`), never silently filtered by the client. The commit response reports `created` / `updated` / `skipped` per type, and the review UI must not signal success for an item the commit discarded. *(Earlier passes merged only characters, applied only truthy fields — so a cleared value silently reverted — and let the client drop blank names before the server ever saw them.)*
 - **R4.6** A character a source contributed to stays **reachable from that source** even when it was merged into an existing (differently-sourced or manually-created) character. Source→character provenance is a **many-to-many association written at reviewed commit**, not the single-valued `Character.source_id` (which records only the first source and goes NULL when that file is deleted). The source-scoped cast query and the generation picker both resolve through the association. *(Deleting a source still never deletes the cast — R3-consistent — the association row simply cascades away.)*
 - **R4.7** An extraction whose proposals were not yet committed is **resumable from its source**: the source exposes its latest extraction run and status, and navigating away from the review never strands the run or forces a duplicate extraction.
 - **R4.8** **Commit is exactly-once.** The extraction run is locked for the transaction and only a `ready` run is accepted; a double-submit or a retry after a lost response is rejected (conflict) rather than appending duplicate versions or re-spending embedding budget. The review UI treats an already-committed run as done — it resumes to the book, not a dead form.
@@ -280,7 +283,7 @@ be re-examined, not inherited.**
 ### 5.6 Characters act (G5)
 
 - **R6.1** A character's contribution to a scene is `{intent, actions, lines, interiority}` with **`actions` required and non-empty**. A character may say nothing and still be present.
-- **R6.2** Action grounding is retrieved **separately** from dialogue grounding, so dialogue cannot crowd it out.
+- **R6.2** Action grounding is retrieved **separately** from dialogue grounding, so dialogue cannot crowd it out. *(Each agent gets a `<voice>` block of dialogue samples and a `<physicality>` block of action/description samples; a type with fewer than two hits falls back to untyped retrieval, never repeating the voice samples — `app/characters/context.py::build_agent_context`.)*
 - **R6.3** The story editor verifies every present character acted.
 
 *Today `_generate_action` derives action **from** dialogue after the fact — exactly the wrong
@@ -289,11 +292,12 @@ dependency. Action must be first-class in the request, not a garnish on the repl
 ### 5.7 Tiering (G6, G7)
 
 - **R7.1** Free tier is the default and must be genuinely usable.
-- **R7.2** **Quota exhaustion pauses; it never fails.** A 429 / `RESOURCE_EXHAUSTED` inside a job re-queues it for when quota returns, honouring the server's suggested retry interval. The author loses nothing and re-clicks nothing. *Scope of "no duplicate spend":* single-call jobs (a scene, an extraction) resume without repeating any paid call. Multi-call jobs (staged outline, ensemble) resume by restarting the sequence, so completed stages may be re-spent — a bounded, known limitation, acceptable because a mid-job pause is a quota edge case. Stage-level checkpointing to make resume fully incremental is a tracked follow-up.
+- **R7.2** **Quota exhaustion pauses; it never fails.** A 429 / `RESOURCE_EXHAUSTED` inside a job re-queues it for when quota returns, honouring the server's suggested retry interval. The author loses nothing and re-clicks nothing. **Every job resumes from its last completed model call; a canon change during a pause restarts the job** (and says so on the job), because mixing work generated against two versions of the book is worse than paying twice (SPEC-08). **A pause is visible on the domain object with an expected resume time, is bounded, and is cancellable** (SPEC-07): scenes, plans, extraction runs and continuity reports show `paused` with "resumes ~HH:MM"; a job that makes no progress for `JOB_MAX_PAUSE_HOURS` (default 48) fails with "quota did not return within 48h"; the author can cancel a queued, paused or running job (a running one stops at its next model-call seam). A duplicate enqueue returns the in-flight job instead of spending again.
 - **R7.3** Multi-call jobs preflight against the remaining budget and refuse to start rather than half-write.
 - **R7.4** Degradation is graceful and explicit: staged outline → single-call outline; ensemble → prose mode.
 - **R7.5** Cost is shown before an expensive action is taken.
-- **R7.6** **Graduation to paid is a config flip, not a code change**: one tier setting raises rate limits, lifts caps, and enables the expensive paths.
+- **R7.6** **Graduation to paid is a config flip, not a code change**: one tier setting (`LLM_TIER`) raises rate limits, lifts caps, stops local requests-per-day tracking, and enables the expensive paths. Explicit overrides (`LLM_MAX_RPM`, `LLM_MAX_RPD`, `USER_DAILY_TOKEN_LIMIT`) apply only when set. `MONTHLY_COST_CEILING_USD`, when set, is enforced deployment-wide over a trailing 30 days.
+- **R7.7** **The provider's requests-per-day ceiling is enforced before the call** (`app/llm/ledger.py`), so a job pauses until the vendor's day rolls over instead of retrying into a wall. A quota 429 never trips the circuit breaker; an open breaker (a provider outage) pauses jobs on every tier.
 
 ---
 
@@ -320,7 +324,9 @@ and their own retrieved chunks (~800 tokens) — reserving the full canon for th
 editor — cuts this to ~20%. **This is also more correct in fiction: a character does not know the
 plot.** The constraint and the craft agree.
 
-⚠️ **The binding limit is probably requests-per-day, not tokens.** The 200k token limit is our own
+**Decision (2026-10, SPEC-14):** ensemble stays paid-tier-only. The free tier's requests-per-day ceiling is now tracked (R7.7), every scene request is preflighted against it, and an ensemble request that cannot finish within the provider's remaining requests is refused with its estimate rather than paused mid-loop. The `ensemble` eval step compares the same scene in both modes (action coverage + judge); run it with `LLM_TIER=paid` and a live key to revisit the gating with evidence.
+
+⚠️ **The binding limit is probably requests-per-day, not tokens.** *(Now tracked: the Gemini row carries 250/day for 2.5 Flash and 1,000/day for 2.5 Flash-Lite, reset at midnight Pacific — the published AI Studio free-tier figures as last known; re-verify on the rate-limits page before relying on them, 2026-10.)* The 200k token limit is our own
 number and is cheap to raise; RPD is the provider's and is shared across all users. At ~12 calls
 per ensemble scene this is a low double-digit ceiling site-wide. **Verify the current free-tier
 RPD before building the ensemble.** If it is too low, the answer is the paid flip (R7.6), not a
@@ -343,7 +349,7 @@ Supporting gates:
 | Invented protagonists are caught | `cast_fidelity ≥ 0.9` on the `cel` corpus fails CI; a hand-written "Elara outline" fixture scores ≈ 0 |
 | The eval can see the bug at all | A corpus whose synopsis exceeds the historical cap and whose cast first appears past char 4,000 |
 | Regeneration is non-destructive | Generate twice; v1 is listed and restorable |
-| Quota never loses work | Force a 429 mid-job; the job re-queues and completes on resume with no lost work (single-call jobs also without duplicate spend; multi-call jobs may repeat completed stages — see R7.2) |
+| Quota never loses work | Force a 429 mid-job; the job re-queues and completes on resume with no lost work and no repeated model call (see R7.2) |
 | Paid graduation | Flip the tier; caps lift with no code change |
 
 ---

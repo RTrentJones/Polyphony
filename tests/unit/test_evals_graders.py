@@ -36,6 +36,7 @@ class TestStepRegistry:
             "outline",
             "continuity",
             "prose",
+            "ensemble",
         ]
         # embedding-only steps must not require the API (so they run keyless)
         assert get_step("retrieval").needs_api is False
