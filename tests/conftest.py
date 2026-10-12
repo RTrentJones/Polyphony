@@ -23,6 +23,18 @@ from app.core.orm_models import (
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    """Every test starts with empty rate-limit buckets. The suite logs in and
+    polls from one client address far faster than any person; resetting the
+    in-memory store keeps tests independent without weakening the limits."""
+    from app.core.rate_limit import limiter
+
+    limiter.reset()
+    yield
+    limiter.reset()
+
+
 @pytest.fixture(scope="function")
 async def async_engine():
     """Create async test database engine"""

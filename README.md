@@ -80,6 +80,21 @@ Multi-user JWT auth, hardened:
 - First boot: `ADMIN_EMAIL`/`ADMIN_PASSWORD` create the admin user when the
   users table is empty.
 
+**Rate limits** (`app/core/rate_limit.py`) key on the real client, never the
+Cloudflare tunnel. The client IP is `CF-Connecting-IP` only when the TCP peer is
+in `TRUSTED_PROXY_CIDRS` (default loopback + Docker's private bridge ranges;
+from any other peer the header is ignored, and uvicorn runs with
+`--no-proxy-headers` so the app alone makes that call). Login is 5/minute per IP
+plus `LOGIN_EMAIL_RATE_LIMIT` (20/hour) failed attempts per email across all
+IPs; register is 3/hour per IP. Everything else is limited per user (the bearer
+token's subject, decoded without a DB hit) or per IP when anonymous: the
+`RATE_LIMIT_PER_MINUTE`/`_PER_HOUR` defaults per route, a separate
+`RATE_LIMIT_POLL` (120/minute) bucket for the GETs the UI polls, and
+`RATE_LIMIT_LLM` (10/minute) shared by every LLM-enqueueing POST (the token
+budget is the real control). 429s carry `Retry-After`; the UI's polling waits
+it out. Each request log line records `peer` and `cf_connecting_ip` so the
+tunnel topology can be checked against the trusted CIDRs.
+
 ## Develop
 
 ```bash

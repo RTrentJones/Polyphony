@@ -284,9 +284,14 @@ async def delete_character(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a character and its indexed voice."""
+    """Delete a character and its indexed voice.
+
+    voice_chunks.character_id is ON DELETE CASCADE, so the vectors go in the same
+    transaction as the row. Deleting them first through the chunk store's own
+    session would commit separately, and a failed row delete would then leave a
+    character with no voice.
+    """
     character = await _owned_character(character_id, current_user, db)
-    await get_chunk_store().delete_character(str(character.id))
     await db.delete(character)
     await db.commit()
     return None
