@@ -513,6 +513,15 @@ app.include_router(
     responses={401: {"description": "Unauthorized"}},
 )
 
+from app.api import estimates as estimates_router  # noqa: E402
+
+app.include_router(
+    estimates_router.router,
+    prefix="/api/v1",
+    tags=["Usage"],
+    responses={401: {"description": "Unauthorized"}},
+)
+
 # Statically-exported frontend (present in the container image; absent in dev,
 # where `next dev` serves it instead).
 if os.path.isdir(settings.STATIC_DIR):
