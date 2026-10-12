@@ -278,7 +278,9 @@ class Chapter(Base):
 
     __table_args__ = (
         Index("idx_chapters_book_id", "book_id"),
-        Index("idx_chapters_plan_node", "book_id", "plan_node_id"),
+        # One live chapter per outline node: promote is idempotent even when
+        # two requests race (SPEC-10). NULL plan_node_ids never collide.
+        _live_unique("uq_chapters_book_plan_node", "book_id", "plan_node_id"),
         # Reorder/insert logic renumbers via a two-phase pass (park on negative
         # temp positions, then finalize) so this holds under immediate checking.
         _live_unique("uq_chapters_book_position", "book_id", "position"),

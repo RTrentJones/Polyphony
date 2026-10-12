@@ -445,3 +445,65 @@ def test_audit_counts_character_ids_as_presence_and_flags_strangers():
     audit = audit_outline(nodes, principals, {"Milo Voss", "Edric Thane"}, cast=cast)
     assert audit.passed  # structural cast counts toward the hard gate
     assert any("Ch2: Elara" in w for w in audit.warnings)
+
+
+async def test_a_lost_promote_race_returns_the_winners_chapter(
+    client, auth_headers, async_session, test_book, monkeypatch
+):
+    """Two requests that both miss the existing-chapter lookup: the unique index
+    turns the second insert into the first's chapter, never a duplicate."""
+    import app.api.plans as plans_mod
+
+    book_id = test_book.id  # the app's rollback below expires shared rows
+    ids = await _cast(async_session, test_book)
+    nodes = await _structured_plan(client, auth_headers, test_book, ids)
+    url = f"/api/v1/books/{test_book.id}/plans/promote"
+    first = await client.post(
+        url, json={"node_id": nodes[0]["node_id"]}, headers=auth_headers
+    )
+
+    real = plans_mod._chapter_for_node
+    misses = {"left": 1}
+
+    async def racing_lookup(db, book_id, node_id):
+        if misses["left"]:  # the racing request's pre-insert check
+            misses["left"] -= 1
+            return None
+        return await real(db, book_id, node_id)
+
+    monkeypatch.setattr(plans_mod, "_chapter_for_node", racing_lookup)
+    again = await client.post(
+        url, json={"node_id": nodes[0]["node_id"]}, headers=auth_headers
+    )
+    assert again.status_code == 200, again.text
+    assert again.json()["created"] is False
+    assert again.json()["chapter_id"] == first.json()["chapter_id"]
+    count = (
+        (await async_session.execute(select(Chapter).where(Chapter.book_id == book_id)))
+        .scalars()
+        .all()
+    )
+    assert len(count) == 1
+
+
+async def test_restoring_a_chapter_whose_node_was_promoted_again_is_409(
+    client, auth_headers, async_session, test_book
+):
+    ids = await _cast(async_session, test_book)
+    nodes = await _structured_plan(client, auth_headers, test_book, ids)
+    url = f"/api/v1/books/{test_book.id}/plans/promote"
+    body = {"node_id": nodes[0]["node_id"]}
+    first = (await client.post(url, json=body, headers=auth_headers)).json()
+    r = await client.delete(
+        f"/api/v1/books/chapters/{first['chapter_id']}", headers=auth_headers
+    )
+    assert r.status_code in (200, 204), r.text
+    second = (await client.post(url, json=body, headers=auth_headers)).json()
+    assert second["created"] is True
+
+    r = await client.post(
+        f"/api/v1/books/{test_book.id}/trash/chapter/{first['chapter_id']}/restore",
+        headers=auth_headers,
+    )
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["conflict"]["id"] == second["chapter_id"]

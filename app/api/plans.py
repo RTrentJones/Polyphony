@@ -521,6 +521,12 @@ async def _promote_node(
             break
         except IntegrityError:
             await db.rollback()
+            # A concurrent promote of the same node won the unique index:
+            # that chapter is this request's answer too.
+            if node_id is not None:
+                existing = await _chapter_for_node(db, book_pk, node_id)
+                if existing is not None:
+                    return existing, False
             if attempt == 2:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,

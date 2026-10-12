@@ -639,3 +639,49 @@ def test_test_dialogue_bound_is_below_the_proxy_timeout():
     import app.api.characters as chars
 
     assert 0 < chars.TEST_DIALOGUE_BUDGET_SECONDS < 100  # Cloudflare origin timeout
+
+
+async def test_scene_provenance_must_come_from_the_same_book(
+    client, auth_headers, async_session, test_book
+):
+    """A scene in book A cannot cite a source from the author's book B (the
+    book is the root); a source in book A is accepted."""
+    other = (
+        await client.post("/api/v1/books/", json={"title": "B"}, headers=auth_headers)
+    ).json()
+
+    async def paste(book_id):
+        r = await client.post(
+            "/api/v1/sources/paste",
+            json={"title": "T", "content_text": "Mina.", "book_id": book_id},
+            headers=auth_headers,
+        )
+        assert r.status_code in (200, 201), r.text
+        return r.json()["id"]
+
+    foreign, own = await paste(other["id"]), await paste(str(test_book.id))
+    ch = (
+        await client.post(
+            f"/api/v1/books/{test_book.id}/chapters",
+            json={"title": "One"},
+            headers=auth_headers,
+        )
+    ).json()
+    await client.post(
+        "/api/v1/characters/",
+        json={"name": "Mina", "book_id": str(test_book.id)},
+        headers=auth_headers,
+    )
+    url = f"/api/v1/books/chapters/{ch['id']}/scenes/generate"
+    body = {
+        "characters": ["Mina"],
+        "scene_description": "A storm breaks over the moor.",
+        "setting": "moor",
+        "emotional_tone": "ominous",
+    }
+    r = await client.post(
+        url, json={**body, "source_id": foreign}, headers=auth_headers
+    )
+    assert r.status_code == 404, r.text
+    r = await client.post(url, json={**body, "source_id": own}, headers=auth_headers)
+    assert r.status_code == 200, r.text

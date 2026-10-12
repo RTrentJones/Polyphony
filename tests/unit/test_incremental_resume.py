@@ -9,6 +9,7 @@ says why; a cancelled job leaves no checkpoint and no half-written scene.
 import json
 import types
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
 import pytest
 from sqlalchemy import func, select
@@ -475,3 +476,37 @@ async def test_handler_recomputes_derived_inputs_from_the_db(
     summary, tail = await _scene_inputs(scene.id, {"chapter_summary": "stale"})
     assert summary == "Edited during the pause"
     assert tail.endswith("ends here")
+
+
+async def test_editing_the_previous_scene_during_pause_restarts(
+    async_session, test_user, test_book, monkeypatch
+):
+    """The checkpoint fingerprint covers the prior scene's prose: beats written
+    after the old tail must not continue from an edited one."""
+    t = await _prose_job(async_session, test_user, test_book, ("beat_prose", 3))
+    _bind(monkeypatch, async_session, t.fake)
+    await _worker().run_once()
+    await async_session.refresh(t.job)
+    assert len(t.job.checkpoint["prose"]) == 2
+
+    # The author finishes (or edits) the scene before this one while it waits.
+    scene = await async_session.get(Scene, UUID(t.job.payload["scene_id"]))
+    async_session.add(
+        Scene(
+            user_id=test_user.id,
+            book_id=test_book.id,
+            chapter_id=scene.chapter_id,
+            position=-1,
+            status="completed",
+            content="Earlier, Milo had already read every appendix twice.",
+        )
+    )
+    await async_session.commit()
+
+    t.fake.reset()
+    await _due(async_session, t.job)
+    assert await _worker().run_once() is True
+    assert t.fake.calls.count("plan_beats") == 1  # restarted from scratch
+    await async_session.refresh(t.job)
+    assert t.job.status == "succeeded"
+    assert "scene before it was edited" in (t.job.error or "")

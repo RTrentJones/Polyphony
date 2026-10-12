@@ -47,9 +47,11 @@ def upgrade() -> None:
         "REFERENCES characters(id) ON DELETE SET NULL"
     )
     op.execute("ALTER TABLE chapters ADD COLUMN IF NOT EXISTS character_ids JSON")
+    # One live chapter per outline node, so concurrent promotes cannot both
+    # insert; NULL plan_node_ids (hand-made chapters) never collide.
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_chapters_plan_node "
-        "ON chapters (book_id, plan_node_id)"
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_chapters_book_plan_node "
+        "ON chapters (book_id, plan_node_id) WHERE deleted_at IS NULL"
     )
     rows = bind.execute(sa.text("SELECT id, content FROM book_plans")).fetchall()
     for plan_id, content in rows:
@@ -69,7 +71,7 @@ def downgrade() -> None:
     # The node_ids added to book_plans.content stay: older code ignores them.
     if op.get_bind().dialect.name != "postgresql":
         return
-    op.execute("DROP INDEX IF EXISTS idx_chapters_plan_node")
+    op.execute("DROP INDEX IF EXISTS uq_chapters_book_plan_node")
     for col in ("character_ids", "pov_character_id", "plan_node_id"):
         op.execute(f"ALTER TABLE chapters DROP COLUMN IF EXISTS {col}")
     op.execute(

@@ -431,7 +431,7 @@ async def run_ensemble_scene_workflow(
             canon_context = canon.full_block()
         else:
             canon_context = ""
-        canon_hash = _canon_hash(canon_context, chapter_summary)
+        canon_hash = _canon_hash(canon_context, chapter_summary, prior_scene_tail)
         if checkpoint.get("canon_hash") not in (None, canon_hash):
             checkpoint = {}
             if on_restart is not None:

@@ -277,6 +277,24 @@ async def _check_conflicts(db: AsyncSession, entity_type: str, row) -> None:
                 f"The source '{taken.title}' already has this content.",
                 {"type": "source", "id": str(taken.id), "name": taken.title},
             )
+    elif entity_type == "chapter" and row.plan_node_id is not None:
+        # One live chapter per outline node (SPEC-10): the node may have been
+        # promoted again while this chapter was in the Trash.
+        taken = (
+            await db.execute(
+                live(select(Chapter), Chapter).where(
+                    Chapter.book_id == row.book_id,
+                    Chapter.plan_node_id == row.plan_node_id,
+                    Chapter.id != row.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if taken is not None:
+            raise TrashConflict(
+                f"The outline node behind this chapter was promoted again as "
+                f"'{taken.title}'. Delete that chapter, then restore.",
+                {"type": "chapter", "id": str(taken.id), "name": taken.title},
+            )
     elif entity_type == "scene" and row.chapter_id is not None:
         chapter = await db.get(Chapter, row.chapter_id)
         if chapter is not None and chapter.deleted_at is not None:

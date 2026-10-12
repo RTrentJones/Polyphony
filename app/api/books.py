@@ -659,6 +659,8 @@ async def generate_scene_into_chapter(
                 live(select(SourceORM), SourceORM).where(
                     SourceORM.id == payload.source_id,
                     SourceORM.user_id == current_user.id,
+                    # Provenance stays inside the book (book is the root).
+                    SourceORM.book_id == chapter.book_id,
                 )
             )
         ).scalar_one_or_none()

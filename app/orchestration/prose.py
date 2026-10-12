@@ -32,8 +32,9 @@ PREV_TAIL_WORDS = 500
 
 # Recorded on the job when a resume discards its checkpoint (SPEC-08 §4).
 CANON_CHANGED_NOTE = (
-    "The canon changed while this job was paused, so it restarted from scratch "
-    "rather than mix work generated against two versions of the book."
+    "The canon changed while this job was paused (or the scene before it was "
+    "edited), so it restarted from scratch rather than mix work generated "
+    "against two versions of the book."
 )
 
 
@@ -170,7 +171,7 @@ async def run_prose_scene_workflow(
         names = [c.name for c in cast]
         request = {**scene_request, "characters": names}
         pov = resolve_pov(scene_request, canon)
-        canon_hash = _canon_hash(canon_block, chapter_summary)
+        canon_hash = _canon_hash(canon_block, chapter_summary, prior_scene_tail)
 
         if checkpoint.get("canon_hash") not in (None, canon_hash):
             # The canon changed while the job was paused: stages generated
@@ -317,12 +318,17 @@ async def run_prose_scene_workflow(
         return {"scene_id": str(scene_id), "status": "failed", "error": str(e)}
 
 
-def _canon_hash(canon_block: str, chapter_summary: str) -> str:
+def _canon_hash(
+    canon_block: str, chapter_summary: str, prior_scene_tail: str = ""
+) -> str:
+    """Fingerprint of everything a checkpointed beat was written against: the
+    canon, the chapter, and the prose of the scene before this one. Editing any
+    of them while the job is paused restarts it rather than continuing from
+    beats that no longer follow."""
     import hashlib
 
-    return hashlib.sha256(
-        (canon_block + "\x00" + (chapter_summary or "")).encode("utf-8")
-    ).hexdigest()[:16]
+    parts = (canon_block, chapter_summary or "", prior_scene_tail or "")
+    return hashlib.sha256("\x00".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
 async def _save(save_checkpoint, data: dict) -> None:
