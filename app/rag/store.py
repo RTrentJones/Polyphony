@@ -159,7 +159,14 @@ class ChunkStore:
                        1 - (embedding <=> CAST(:q AS vector)) AS score
                 FROM voice_chunks
                 WHERE character_id = :character_id
+                  AND NOT EXISTS (
+                      SELECT 1 FROM characters c
+                      WHERE c.id = voice_chunks.character_id
+                        AND c.deleted_at IS NOT NULL
+                  )
             """
+            # A trashed character's chunks stay (restore brings the voice back,
+            # SPEC-13) but never ground anything while it is in the Trash.
             params: dict = {
                 "q": query_vector,
                 "character_id": character_id,

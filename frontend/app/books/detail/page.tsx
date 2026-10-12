@@ -22,6 +22,7 @@ import {
   Pencil,
   Plus,
   ShieldCheck,
+  Trash2,
 } from 'lucide-react'
 import AddSourceModal from '@/components/AddSourceModal'
 import Button from '@/components/Button'
@@ -32,6 +33,7 @@ import OutlinePanel from '@/components/book/OutlinePanel'
 import ScenesPanel from '@/components/book/ScenesPanel'
 import SourcesPanel from '@/components/book/SourcesPanel'
 import ThreadsPanel from '@/components/book/ThreadsPanel'
+import TrashPanel from '@/components/book/TrashPanel'
 import Card from '@/components/Card'
 import Input from '@/components/Input'
 import Loading from '@/components/Loading'
@@ -54,6 +56,7 @@ type TabKey =
   | 'outline'
   | 'threads'
   | 'continuity'
+  | 'trash'
 
 const TABS: Array<{ key: TabKey; label: string; icon: typeof BookMarked }> = [
   { key: 'chapters', label: 'Chapters', icon: BookMarked },
@@ -63,6 +66,7 @@ const TABS: Array<{ key: TabKey; label: string; icon: typeof BookMarked }> = [
   { key: 'outline', label: 'Outline', icon: ListTree },
   { key: 'threads', label: 'Threads', icon: GitBranch },
   { key: 'continuity', label: 'Continuity', icon: ShieldCheck },
+  { key: 'trash', label: 'Trash', icon: Trash2 },
 ]
 
 
@@ -391,6 +395,14 @@ function BookDetailContent() {
           bookId={bookId}
           chapters={currentBook.chapters}
           addToast={addToast}
+        />
+      )}
+
+      {activeTab === 'trash' && (
+        <TrashPanel
+          bookId={bookId}
+          addToast={addToast}
+          onChanged={() => fetchBook(bookId)}
         />
       )}
 

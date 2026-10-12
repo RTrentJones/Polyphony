@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { FileText, Pencil, Plus, Trash2 } from 'lucide-react'
+import { FileText, History, Pencil, Plus, Trash2 } from 'lucide-react'
 import AddSourceModal from '@/components/AddSourceModal'
 import Button from '@/components/Button'
 import Card from '@/components/Card'
@@ -14,6 +14,7 @@ import Input from '@/components/Input'
 import JobStatusBadge from '@/components/JobStatusBadge'
 import Loading from '@/components/Loading'
 import Modal from '@/components/Modal'
+import VersionHistory from '@/components/VersionHistory'
 import type { ToastType } from '@/components/Toast'
 import apiClient from '@/lib/api-client'
 import { isActiveJob } from '@/lib/jobs'
@@ -36,6 +37,7 @@ export default function SourcesPanel({
   const [loadingContent, setLoadingContent] = useState(false)
   const [saving, setSaving] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
+  const [historyFor, setHistoryFor] = useState<Source | null>(null)
 
   useEffect(() => {
     fetchSources(bookId).catch((err: any) =>
@@ -84,10 +86,10 @@ export default function SourcesPanel({
   }
 
   const handleDelete = async (source: Source) => {
-    if (!confirm(`Delete "${source.title}"? Extracted canon is kept.`)) return
+    if (!confirm(`Move "${source.title}" to the Trash? Extracted canon is kept.`)) return
     try {
       await deleteSource(source.id)
-      addToast('Source deleted', 'success')
+      addToast('Source moved to the Trash', 'success')
     } catch (err: any) {
       addToast(err.message || 'Failed to delete source', 'error')
     }
@@ -181,6 +183,14 @@ export default function SourcesPanel({
                   <Button
                     variant="ghost"
                     size="sm"
+                    onClick={() => setHistoryFor(source)}
+                    aria-label={`History of ${source.title}`}
+                  >
+                    <History className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => handleDelete(source)}
                   >
                     <Trash2 className="h-4 w-4 text-red-500" />
@@ -190,6 +200,17 @@ export default function SourcesPanel({
             )
           })}
         </div>
+      )}
+
+      {historyFor && (
+        <VersionHistory
+          bookId={bookId}
+          entityType="source"
+          entityId={historyFor.id}
+          label={historyFor.title}
+          onClose={() => setHistoryFor(null)}
+          onRestored={() => fetchSources(bookId).catch(() => undefined)}
+        />
       )}
 
       {editing && (

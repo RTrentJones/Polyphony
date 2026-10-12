@@ -125,8 +125,8 @@ class TestDeleteCharacterOneTransaction:
     async def test_does_not_delete_voice_in_a_separate_session(
         self, client, auth_headers, async_session, test_character, monkeypatch
     ):
-        """voice_chunks cascade with the row; the chunk store's own session (which
-        commits independently) must not be used to delete them first."""
+        """Delete is soft (SPEC-13): the voice stays with the trashed row, and the
+        chunk store's own session (which commits independently) is never used."""
         import app.api.characters as characters_api
 
         class _Store:
@@ -143,7 +143,7 @@ class TestDeleteCharacterOneTransaction:
         assert resp.status_code == 204
         assert store.calls == []
         async_session.expire_all()
-        assert (await async_session.get(Character, cid)) is None
+        assert (await async_session.get(Character, cid)).deleted_at is not None
 
 
 @pytest.mark.unit

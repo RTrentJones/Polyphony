@@ -72,6 +72,7 @@ async def _scene_inputs(scene_id: UUID, payload: dict) -> tuple[str, str]:
                     Scene.chapter_id == scene.chapter_id,
                     Scene.status == "completed",
                     Scene.position < scene.position,
+                    Scene.deleted_at.is_(None),  # trashed prose is not context
                 )
                 .order_by(Scene.position.desc())
                 .limit(1)

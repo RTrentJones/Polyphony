@@ -74,10 +74,10 @@ export default function ScenesPanel({
   }, [load])
 
   const del = async (id: string, title: string | null) => {
-    if (!confirm(`Delete scene "${title || 'Untitled'}"?`)) return
+    if (!confirm(`Move scene "${title || 'Untitled'}" to the Trash?`)) return
     try {
       await booksApi.deleteScene(id)
-      addToast('Scene deleted', 'success')
+      addToast('Scene moved to the Trash', 'success')
       load()
     } catch (err: any) {
       addToast(err.message || 'Delete failed', 'error')

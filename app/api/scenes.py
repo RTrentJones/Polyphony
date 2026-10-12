@@ -19,7 +19,7 @@ from app.core.orm_models import (
     User as UserORM,
 )
 from app.core.security import get_current_active_user
-from app.versioning.scenes import snapshot_before_delete
+from app.versioning import trash
 
 router = APIRouter()
 
@@ -46,7 +46,11 @@ async def list_scenes(
 ):
     """List the scenes of the current user's books (never a book-less orphan)."""
     on_book = SceneORM.book_id == BookORM.id
-    owner = (BookORM.user_id == current_user.id, SceneORM.user_id == current_user.id)
+    owner = (
+        BookORM.user_id == current_user.id,
+        SceneORM.user_id == current_user.id,
+        SceneORM.deleted_at.is_(None),
+    )
     query = select(SceneORM).join(BookORM, on_book).where(*owner)
     count_query = (
         select(func.count()).select_from(SceneORM).join(BookORM, on_book).where(*owner)
@@ -114,9 +118,9 @@ async def delete_scene(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a scene, keeping its prose in entity_versions first."""
+    """Move a scene to its book's Trash (SPEC-13), its prose and revision
+    history kept in entity_versions first (SPEC-04)."""
     scene = await owned_scene(scene_id, current_user, db)
-    await snapshot_before_delete(db, scene, created_by=current_user.id)
-    await db.delete(scene)
+    await trash.soft_delete(db, "scene", scene, created_by=current_user.id)
     await db.commit()
     return None

@@ -185,7 +185,7 @@ class TestChapterDeleteAsks:
         assert r.status_code == 422
         assert len(await _chapter_scenes(client, auth_headers, tree["a"])) == 3
 
-    async def test_delete_removes_scenes_but_keeps_their_prose_as_versions(
+    async def test_delete_trashes_scenes_and_keeps_their_prose_as_versions(
         self, client, auth_headers, async_session, tree
     ):
         r = await client.delete(
@@ -193,8 +193,8 @@ class TestChapterDeleteAsks:
         )
         assert r.status_code == 204, r.text
         async_session.expunge_all()
-        for sid in tree["a_s"]:
-            assert await _count(async_session, Scene, id=UUID(sid)) == 0
+        for sid in tree["a_s"]:  # trashed with the chapter (SPEC-13)
+            assert (await async_session.get(Scene, UUID(sid))).deleted_at is not None
         kept = (
             (
                 await async_session.execute(

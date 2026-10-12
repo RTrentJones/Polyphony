@@ -125,7 +125,9 @@ async def index_characters_voice(
         book_cast = (
             (
                 await session.execute(
-                    select(Character).where(Character.book_id == book_id)
+                    select(Character).where(
+                        Character.book_id == book_id, Character.deleted_at.is_(None)
+                    )
                 )
             )
             .scalars()

@@ -39,6 +39,7 @@ from app.core.llm_text import (
 from app.core.logging_config import setup_logging
 from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_array, extract_json_object
+from app.versioning.trash import live as _live  # the one soft-delete filter
 
 logger = setup_logging("planning.continuity")
 
@@ -166,13 +167,6 @@ async def build_fact_sheet(session: AsyncSession, book_id: UUID) -> str:
         )
     plot_state = as_quoted_block("\n".join(parts), "plot_state")
     return "\n\n".join(b for b in (canon.full_block(), plot_state) if b)
-
-
-def _live(query, model):
-    """Exclude soft-deleted rows when the model supports soft delete."""
-    if hasattr(model, "deleted_at"):
-        return query.where(model.deleted_at.is_(None))
-    return query
 
 
 def _prompt(

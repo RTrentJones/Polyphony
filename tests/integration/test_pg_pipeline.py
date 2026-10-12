@@ -131,14 +131,16 @@ async def test_tenant_ownership_enforced_in_schema(pg):
 
 
 async def test_position_unique_constraints_in_schema(pg):
-    """Migration 0006: UNIQUE (book_id, position) / (chapter_id, position)."""
+    """UNIQUE (book_id, position) / (chapter_id, position) — over live rows
+    since SPEC-13 (partial unique indexes, migration 0015)."""
     async with pg() as s:
         names = (
             (
                 await s.execute(
                     text(
-                        "SELECT conname FROM pg_constraint WHERE conname IN "
+                        "SELECT indexname FROM pg_indexes WHERE indexname IN "
                         "('uq_chapters_book_position', 'uq_scenes_chapter_position')"
+                        " AND indexdef LIKE 'CREATE UNIQUE INDEX%'"
                     )
                 )
             )

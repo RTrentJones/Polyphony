@@ -42,6 +42,7 @@ async def load_characters_for_book(
         query = select(Character).where(
             Character.book_id == book_id,
             Character.user_id == user_id,
+            Character.deleted_at.is_(None),  # trashed: not castable (SPEC-13)
         )
         rows = (await session.execute(query)).scalars().all()
     by_name = {c.name: c for c in rows}
