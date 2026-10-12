@@ -234,7 +234,7 @@ async def test_prose_records_grounding_for_every_beat_and_cast_member(
     monkeypatch.setattr(wf_mod, "get_llm_client", lambda: llm)
     monkeypatch.setattr(ctx_mod, "get_chunk_store", lambda: PerCharacterStore())
 
-    scene = Scene(user_id=duo.book.user_id, status="processing")
+    scene = Scene(user_id=duo.book.user_id, book_id=duo.book.id, status="processing")
     async_session.add(scene)
     await async_session.commit()
     result = await run_prose_scene_workflow(
@@ -280,7 +280,7 @@ async def test_ensemble_records_grounding_the_same_way(async_session, duo, monke
 
     monkeypatch.setattr(ens, "load_characters_for_book", _cast)
 
-    scene = Scene(user_id=duo.book.user_id, status="processing")
+    scene = Scene(user_id=duo.book.user_id, book_id=duo.book.id, status="processing")
     async_session.add(scene)
     await async_session.commit()
     result = await ens.run_ensemble_scene_workflow(
@@ -303,6 +303,7 @@ async def test_grounding_endpoint_resolves_live_and_marks_deleted(
     milo, zara = str(duo.milo.id), str(duo.zara.id)
     scene = Scene(
         user_id=duo.book.user_id,
+        book_id=duo.book.id,
         status="completed",
         evaluation_scores={
             "mode": "prose",
@@ -366,14 +367,17 @@ async def test_grounding_endpoint_resolves_live_and_marks_deleted(
 async def test_grounding_endpoint_scene_without_record_and_ownership(
     client, auth_headers, async_session, test_book
 ):
-    from app.core.orm_models import User
+    from app.core.orm_models import Book, User
 
-    scene = Scene(user_id=test_book.user_id, status="completed")
+    scene = Scene(user_id=test_book.user_id, book_id=test_book.id, status="completed")
     async_session.add(scene)
     other = User(email="other@example.com", hashed_password="x")
     async_session.add(other)
     await async_session.commit()
-    foreign = Scene(user_id=other.id, status="completed")
+    other_book = Book(user_id=other.id, title="Theirs")
+    async_session.add(other_book)
+    await async_session.commit()
+    foreign = Scene(user_id=other.id, book_id=other_book.id, status="completed")
     async_session.add(foreign)
     await async_session.commit()
 
@@ -401,7 +405,7 @@ def test_nothing_references_character_chunks():
     pattern = re.compile(r"CharacterChunk|character_chunks")
     allowed = {
         "alembic/versions/0001_book_as_root_baseline.py",
-        "alembic/versions/0012_spec11_drop_character_chunks.py",
+        "alembic/versions/0014_spec11_drop_character_chunks.py",
     }
     offenders = []
     for base in ("app", "alembic", "evals", "scripts", "frontend/lib"):

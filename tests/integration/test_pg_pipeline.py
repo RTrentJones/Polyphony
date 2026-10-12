@@ -655,7 +655,7 @@ async def test_spec11_character_chunks_is_dropped_and_downgrade_restores(pg):
     assert await regclass() is None
     cfg = Config("alembic.ini")
     cfg.set_main_option("script_location", "alembic")
-    await asyncio.to_thread(command.downgrade, cfg, "0011")
+    await asyncio.to_thread(command.downgrade, cfg, "spec09_extraction_scale")
     try:
         assert await regclass() is not None
     finally:

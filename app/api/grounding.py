@@ -10,14 +10,14 @@ dropped (docs/BRD.md R5.3).
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.books import owned_scene
 from app.core.database import get_db
 from app.core.orm_models import (
     Character as CharacterORM,
-    Scene as SceneORM,
     SceneBeat as SceneBeatORM,
     User as UserORM,
 )
@@ -41,17 +41,8 @@ async def get_scene_grounding(
     db: AsyncSession = Depends(get_db),
 ):
     """Per beat, per character: the samples that grounded this scene, scored."""
-    scene = (
-        await db.execute(
-            select(SceneORM).where(
-                SceneORM.id == scene_id, SceneORM.user_id == current_user.id
-            )
-        )
-    ).scalar_one_or_none()
-    if not scene:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Scene not found"
-        )
+    # Authorised through its book (SPEC-04); 404 for anyone else's scene.
+    scene = await owned_scene(scene_id, current_user, db)
 
     meta = scene.evaluation_scores or {}
     stored = meta.get("grounding") or {}

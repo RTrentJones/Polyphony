@@ -9,7 +9,7 @@ The downgrade recreates the empty table in its 0001 baseline shape; the rows it
 held were a stale copy, so nothing is lost by not restoring them.
 
 Revision ID: spec11_drop_character_chunks
-Revises: 0011
+Revises: spec09_extraction_scale
 Create Date: 2026-10-12
 
 """
@@ -19,7 +19,7 @@ from typing import Sequence, Union
 from alembic import op
 
 revision: str = "spec11_drop_character_chunks"
-down_revision: Union[str, None] = "0011"
+down_revision: Union[str, None] = "spec09_extraction_scale"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
