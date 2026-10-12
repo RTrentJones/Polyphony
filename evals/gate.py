@@ -59,7 +59,9 @@ def main(argv: list[str]) -> int:
         report = json.load(f)
     failures = check(report, argv[1:])
     for rule in argv[1:]:
-        print(("FAIL " if any(x.startswith(rule) for x in failures) else "ok   ") + rule)
+        print(
+            ("FAIL " if any(x.startswith(rule) for x in failures) else "ok   ") + rule
+        )
     for f in failures:
         print(f"::error::eval gate: {f}")
     return 1 if failures else 0

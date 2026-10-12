@@ -96,6 +96,7 @@ async def step_extraction(ctx: StepContext) -> dict:
         "commit_faithful": committed == sorted(set(predicted)),
     }
 
+
 # --- Step 1b: ingestion voice quality (closes the manuscript→voice gap) -----
 # attribution/prose seed voice via the voice-samples API, bypassing the
 # manuscript chunking — so nothing measured whether an UPLOAD actually produces
@@ -140,6 +141,7 @@ async def step_ingestion(ctx: StepContext) -> dict:
         "avg_chunks": round(total_chunks / len(chars), 2),
         "detail": detail,
     }
+
 
 # --- Step 2: retrieval / voice separability (in-harness embeddings) --------
 @step("retrieval", needs_api=False)
@@ -285,6 +287,7 @@ async def step_outline(ctx: StepContext) -> dict:
         result["score"] = j.score if structural else 0.0
     return result
 
+
 # --- Step 5: continuity detection (constructed ground truth) ---------------
 # The prose fed to the checker is truncated to this window, so injections MUST be
 # applied over the SAME window (not the full text) or a mutation past the cut is
@@ -383,4 +386,3 @@ async def step_prose(ctx: StepContext) -> dict:
         "words": len(prose.split()),
         "cast_named": len(named) / max(1, len(cast)),
     }
-

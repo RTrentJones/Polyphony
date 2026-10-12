@@ -42,8 +42,14 @@ class FakeLLM:
 
 class FakeStore:
     async def retrieve_similar(self, **kw):
-        return [{"id": "chunk-1", "text": "I'll not be hurried.", "score": 0.4,
-                 "chunk_type": "dialogue"}]
+        return [
+            {
+                "id": "chunk-1",
+                "text": "I'll not be hurried.",
+                "score": 0.4,
+                "chunk_type": "dialogue",
+            }
+        ]
 
 
 _TAIL = "THE-GLOSS: the CEL is the Chief Executive Lich."
@@ -52,24 +58,47 @@ _TAIL = "THE-GLOSS: the CEL is the Chief Executive Lich."
 @pytest.fixture
 async def cel_book(async_session, test_book):
     test_book.synopsis = ("Spiritual attrition. " * 600) + _TAIL
-    milo = Character(book_id=test_book.id, user_id=test_book.user_id,
-                     name="Milo Voss", role="protagonist", arc="numb to awake")
-    zara = Character(book_id=test_book.id, user_id=test_book.user_id,
-                     name="Zara Okafor", role="deuteragonist")
-    edric = Character(book_id=test_book.id, user_id=test_book.user_id,
-                      name="Edric Thane", role="antagonist")
-    async_session.add_all([
-        milo, zara, edric,
-        CanonEntry(book_id=test_book.id, name="Aeon Holdings", category="org",
-                   content="The firm."),
-        StyleGuide(book_id=test_book.id, pov="first person, Milo", tense="present"),
-    ])
-    chapter = Chapter(book_id=test_book.id, title="One", position=0,
-                      summary="Milo's first day.")
+    milo = Character(
+        book_id=test_book.id,
+        user_id=test_book.user_id,
+        name="Milo Voss",
+        role="protagonist",
+        arc="numb to awake",
+    )
+    zara = Character(
+        book_id=test_book.id,
+        user_id=test_book.user_id,
+        name="Zara Okafor",
+        role="deuteragonist",
+    )
+    edric = Character(
+        book_id=test_book.id,
+        user_id=test_book.user_id,
+        name="Edric Thane",
+        role="antagonist",
+    )
+    async_session.add_all(
+        [
+            milo,
+            zara,
+            edric,
+            CanonEntry(
+                book_id=test_book.id,
+                name="Aeon Holdings",
+                category="org",
+                content="The firm.",
+            ),
+            StyleGuide(book_id=test_book.id, pov="first person, Milo", tense="present"),
+        ]
+    )
+    chapter = Chapter(
+        book_id=test_book.id, title="One", position=0, summary="Milo's first day."
+    )
     async_session.add(chapter)
     await async_session.commit()
-    return types.SimpleNamespace(book=test_book, milo=milo, zara=zara,
-                                 edric=edric, chapter=chapter)
+    return types.SimpleNamespace(
+        book=test_book, milo=milo, zara=zara, edric=edric, chapter=chapter
+    )
 
 
 def _bind(monkeypatch, async_session, fake):
@@ -87,24 +116,40 @@ async def _run(async_session, cel, fake, monkeypatch, ids):
     from app.orchestration.prose import run_prose_scene_workflow
 
     _bind(monkeypatch, async_session, fake)
-    scene = Scene(user_id=cel.book.user_id, chapter_id=cel.chapter.id, position=0,
-                  status="processing")
+    scene = Scene(
+        user_id=cel.book.user_id,
+        chapter_id=cel.chapter.id,
+        position=0,
+        status="processing",
+    )
     async_session.add(scene)
     await async_session.commit()
-    request = {"character_ids": ids, "characters": [],
-               "scene_description": "Milo meets Zara at the desk.",
-               "setting": "Reconciliations", "emotional_tone": "wry",
-               "target_word_count": 300}
+    request = {
+        "character_ids": ids,
+        "characters": [],
+        "scene_description": "Milo meets Zara at the desk.",
+        "setting": "Reconciliations",
+        "emotional_tone": "wry",
+        "target_word_count": 300,
+    }
     result = await run_prose_scene_workflow(
-        scene.id, request, cel.book.user_id, chapter_summary="Milo's first day.",
-        book_id=cel.book.id)
+        scene.id,
+        request,
+        cel.book.user_id,
+        chapter_summary="Milo's first day.",
+        book_id=cel.book.id,
+    )
     return result, scene
 
 
-async def test_beat_prompt_carries_whole_canon_fenced(async_session, cel_book,
-                                                      monkeypatch):
-    fake = FakeLLM(json.dumps([{"description": "They meet.",
-                                "characters": ["Milo Voss", "Zara Okafor"]}]))
+async def test_beat_prompt_carries_whole_canon_fenced(
+    async_session, cel_book, monkeypatch
+):
+    fake = FakeLLM(
+        json.dumps(
+            [{"description": "They meet.", "characters": ["Milo Voss", "Zara Okafor"]}]
+        )
+    )
     ids = [str(cel_book.milo.id), str(cel_book.zara.id)]
     result, _ = await _run(async_session, cel_book, fake, monkeypatch, ids)
     assert result["status"] == "completed", result
@@ -123,15 +168,25 @@ async def test_beat_prompt_carries_whole_canon_fenced(async_session, cel_book,
 
 
 async def test_per_beat_cast_is_preserved(async_session, cel_book, monkeypatch):
-    fake = FakeLLM(json.dumps([
-        {"description": "Milo alone.", "characters": ["Milo Voss"]},
-        {"description": "Zara arrives.", "characters": ["Zara Okafor", "Elara"]},
-    ]))
+    fake = FakeLLM(
+        json.dumps(
+            [
+                {"description": "Milo alone.", "characters": ["Milo Voss"]},
+                {
+                    "description": "Zara arrives.",
+                    "characters": ["Zara Okafor", "Elara"],
+                },
+            ]
+        )
+    )
     ids = [str(cel_book.milo.id), str(cel_book.zara.id)]
     result, scene = await _run(async_session, cel_book, fake, monkeypatch, ids)
     assert result["status"] == "completed"
     first, second = fake.prompts["beat_prose"]
-    cast_part = lambda p: p.split("CHARACTERS IN THIS BEAT")[1].split("BEAT TO WRITE")[0]  # noqa: E731
+
+    def cast_part(p):
+        return p.split("CHARACTERS IN THIS BEAT")[1].split("BEAT TO WRITE")[0]
+
     assert "### Milo Voss" in cast_part(first)
     assert "### Zara Okafor" not in cast_part(first)
     assert "### Zara Okafor" in cast_part(second)
@@ -142,18 +197,34 @@ async def test_per_beat_cast_is_preserved(async_session, cel_book, monkeypatch):
 
 class TestCastValidation:
     async def _setup(self, client, auth_headers):
-        book = (await client.post("/api/v1/books/", json={"title": "B"},
-                                  headers=auth_headers)).json()
-        chapter = (await client.post(f"/api/v1/books/{book['id']}/chapters",
-                                     json={"title": "C"}, headers=auth_headers)).json()
-        milo = (await client.post("/api/v1/characters/",
-                                  json={"name": "Milo Voss", "book_id": book["id"]},
-                                  headers=auth_headers)).json()
+        book = (
+            await client.post(
+                "/api/v1/books/", json={"title": "B"}, headers=auth_headers
+            )
+        ).json()
+        chapter = (
+            await client.post(
+                f"/api/v1/books/{book['id']}/chapters",
+                json={"title": "C"},
+                headers=auth_headers,
+            )
+        ).json()
+        milo = (
+            await client.post(
+                "/api/v1/characters/",
+                json={"name": "Milo Voss", "book_id": book["id"]},
+                headers=auth_headers,
+            )
+        ).json()
         return book, chapter, milo
 
     def _body(self, **cast):
-        return {"scene_description": "A quiet moment at the desk.",
-                "setting": "office", "emotional_tone": "wry", **cast}
+        return {
+            "scene_description": "A quiet moment at the desk.",
+            "setting": "office",
+            "emotional_tone": "wry",
+            **cast,
+        }
 
     async def test_unknown_name_is_rejected_and_nothing_enqueued(
         self, client, auth_headers, async_session
@@ -194,7 +265,9 @@ class TestCastValidation:
             headers=auth_headers,
         )
         assert r.status_code == 200, r.text
-        scene = await async_session.get(Scene, __import__("uuid").UUID(r.json()["scene_id"]))
+        scene = await async_session.get(
+            Scene, __import__("uuid").UUID(r.json()["scene_id"])
+        )
         assert scene.character_ids == [milo["id"]]
         assert scene.characters == ["Milo Voss"]
 
@@ -204,8 +277,11 @@ def test_no_string_slices_of_author_content_in_scene_paths():
     import pathlib
     import re
 
-    for path in ("app/orchestration/prose.py", "app/orchestration/workflow.py",
-                 "app/characters/context.py"):
+    for path in (
+        "app/orchestration/prose.py",
+        "app/orchestration/workflow.py",
+        "app/characters/context.py",
+    ):
         for line in pathlib.Path(path).read_text().splitlines():
             if "hexdigest()" in line:  # a hash prefix, not author content
                 continue

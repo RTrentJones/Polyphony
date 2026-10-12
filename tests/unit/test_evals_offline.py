@@ -54,9 +54,7 @@ async def test_offline_extraction_grades_prediction(monkeypatch):
     monkeypatch.setattr(
         "app.parsing.canon_extractor.extract_canon",
         AsyncMock(
-            return_value={
-                "characters": [{"name": "Nora Vance"}, {"name": "Verhoeven"}]
-            }
+            return_value={"characters": [{"name": "Nora Vance"}, {"name": "Verhoeven"}]}
         ),
     )
     res = await offline.offline_extraction("corpus text", gt)

@@ -102,7 +102,9 @@ def _cast(prompt: str) -> list[str]:
         # is still a character: credit a full name with its first-token mentions.
         firsts = Counter(w for w in re.findall(r"\b[A-Z][a-z]+\b", text))
         scored = {n: c + firsts.get(n.split()[0], 0) for n, c in counts.items()}
-        names = [n for n, c in sorted(scored.items(), key=lambda kv: -kv[1]) if c >= 3][:8]
+        names = [n for n, c in sorted(scored.items(), key=lambda kv: -kv[1]) if c >= 3][
+            :8
+        ]
     seen: list[str] = []
     for n in names:
         if n not in seen:
@@ -121,8 +123,12 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
                 "premise_restated": f"A story about {', '.join(cast) or lead}.",
                 "central_conflict": f"{lead} against {cast[-1] if cast else 'fate'}.",
                 "acts": [
-                    {"title": f"Act {i + 1}", "goal": "advance", "turn": "turn",
-                     "chapters_planned": 2}
+                    {
+                        "title": f"Act {i + 1}",
+                        "goal": "advance",
+                        "turn": "turn",
+                        "chapters_planned": 2,
+                    }
                     for i in range(3)
                 ],
             }
@@ -154,8 +160,16 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
                     "title": t,
                     "summary": f"{who} acts.",
                     "children": [
-                        {"title": f"{who} decides", "summary": "a choice", "children": []},
-                        {"title": f"{second} answers", "summary": "a cost", "children": []},
+                        {
+                            "title": f"{who} decides",
+                            "summary": "a choice",
+                            "children": [],
+                        },
+                        {
+                            "title": f"{second} answers",
+                            "summary": "a cost",
+                            "children": [],
+                        },
                     ],
                 }
             )
@@ -171,9 +185,13 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
         return json.dumps(
             {
                 "characters": [
-                    {"name": n, "role": "protagonist" if i == 0 else "supporting",
-                     "description": f"{n}, from the text.", "aliases": [n.split()[0]],
-                     "evidence": f"{n} appears."}
+                    {
+                        "name": n,
+                        "role": "protagonist" if i == 0 else "supporting",
+                        "description": f"{n}, from the text.",
+                        "aliases": [n.split()[0]],
+                        "evidence": f"{n} appears.",
+                    }
                     for i, n in enumerate(cast)
                 ],
                 "canon_entries": [],
@@ -186,10 +204,17 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
         return json.dumps(
             {
                 "characters": [
-                    {"name": n, "role": "protagonist" if i == 0 else "supporting",
-                     "description": f"{n}.", "goals": "", "arc": "",
-                     "relationships": {}, "personality_traits": [],
-                     "voice_characteristics": [], "aliases": [n.split()[0]]}
+                    {
+                        "name": n,
+                        "role": "protagonist" if i == 0 else "supporting",
+                        "description": f"{n}.",
+                        "goals": "",
+                        "arc": "",
+                        "relationships": {},
+                        "personality_traits": [],
+                        "voice_characteristics": [],
+                        "aliases": [n.split()[0]],
+                    }
                     for i, n in enumerate(cast)
                 ]
             }
@@ -200,8 +225,14 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
         if "character_ids" in prompt or '"characters"' in prompt:
             return json.dumps(
                 [
-                    {"description": f"{lead} confronts {second}.", "characters": cast[:2]},
-                    {"description": f"{second} gives ground.", "characters": cast[1:2] or cast},
+                    {
+                        "description": f"{lead} confronts {second}.",
+                        "characters": cast[:2],
+                    },
+                    {
+                        "description": f"{second} gives ground.",
+                        "characters": cast[1:2] or cast,
+                    },
                     {"description": "The silence after.", "characters": cast},
                 ]
             )
@@ -210,15 +241,24 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
         m = re.search(r"You ARE (.+?)\.", prompt)
         who = m.group(1) if m else lead
         return json.dumps(
-            {"intent": "to be heard", "actions": [f"{who} leans in."],
-             "lines": [f"\"Listen,\" {who} said."], "interiority": "doubt"}
+            {
+                "intent": "to be heard",
+                "actions": [f"{who} leans in."],
+                "lines": [f'"Listen," {who} said.'],
+                "interiority": "doubt",
+            }
         )
     if "Review this draft" in prompt:
         present = re.search(r"Characters present:\s*(.+)", prompt)
         names = [n.strip() for n in present.group(1).split(",")] if present else cast
         return json.dumps(
-            {"satisfied": True, "arc_fit": 0.9, "beat_coverage": 0.9,
-             "characters_acting": names, "objections": []}
+            {
+                "satisfied": True,
+                "arc_fit": 0.9,
+                "beat_coverage": 0.9,
+                "characters_acting": names,
+                "objections": [],
+            }
         )
     if '"score"' in prompt or "Score" in prompt and "JSON" in prompt:
         return json.dumps({"score": 0.75, "explanation": "stub judge"})
@@ -227,7 +267,7 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
     return (
         f"{people} stood in the doorway while the rain kept on. "
         f"{lead} turned first, and said nothing for a while. "
-        f"\"We go on,\" {second} said at last, and {lead} nodded, "
+        f'"We go on," {second} said at last, and {lead} nodded, '
         "because there was nothing else to do."
     )
 
@@ -258,8 +298,11 @@ async def chat(request: Request):
         "created": int(time.time()),
         "model": body.get("model", "stub"),
         "choices": [
-            {"index": 0, "finish_reason": "stop",
-             "message": {"role": "assistant", "content": text}}
+            {
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {"role": "assistant", "content": text},
+            }
         ],
         "usage": {
             "prompt_tokens": words,
