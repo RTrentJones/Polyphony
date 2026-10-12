@@ -89,6 +89,9 @@ class Settings(BaseSettings):
     # Scene generation + extraction can legitimately run for minutes; a
     # 'running' job locked longer than this is presumed orphaned and reaped.
     JOB_STALE_AFTER_SECONDS: int = 1800
+    # A quota pause is bounded (SPEC-07): a job that makes no progress for this
+    # long goes dead with a clear error instead of re-pausing forever.
+    JOB_MAX_PAUSE_HOURS: float = 48.0
 
     @field_validator("SECRET_KEY")
     @classmethod

@@ -135,7 +135,7 @@ async def upload_source(
     # Extraction PROPOSES; the author approves before any canon is written
     # (docs/BRD.md R4.4, PR review #1). Upload starts an extraction run, never a
     # direct write — canon is created only via the reviewed commit.
-    run = await enqueue_extraction(
+    run, job = await enqueue_extraction(
         db, book_id=book.id, source_id=source.id, user_id=current_user.id
     )
     await db.commit()
@@ -149,6 +149,7 @@ async def upload_source(
         "word_count": source.word_count,
         "status": source.status,
         "extraction_run_id": str(run.id),
+        "job_id": str(job.id),
         "message": "Source uploaded. Extracting canon for your review.",
     }
 
@@ -165,7 +166,12 @@ class SourceEditRequest(BaseModel):
     content_text: Optional[str] = Field(None, min_length=1)
 
 
-def _source_response(source: SourceORM, run_id: Optional[str], verb: str) -> dict:
+def _source_response(
+    source: SourceORM,
+    run_id: Optional[str],
+    verb: str,
+    job_id: Optional[str] = None,
+) -> dict:
     msg = (
         f"Source {verb}. Extracting canon for your review."
         if run_id
@@ -179,6 +185,7 @@ def _source_response(source: SourceORM, run_id: Optional[str], verb: str) -> dic
         "word_count": source.word_count,
         "status": source.status,
         "extraction_run_id": run_id,
+        "job_id": job_id,
         "message": msg,
     }
 
@@ -228,12 +235,12 @@ async def paste_source(
     )
     db.add(source)
     await db.flush()
-    run = await enqueue_extraction(
+    run, job = await enqueue_extraction(
         db, book_id=book.id, source_id=source.id, user_id=current_user.id
     )
     await db.commit()
     await db.refresh(source)
-    return _source_response(source, str(run.id), "added")
+    return _source_response(source, str(run.id), "added", str(job.id))
 
 
 @router.patch("/{source_id}", response_model=dict)
@@ -248,6 +255,7 @@ async def edit_source(
     the author re-approves. Lets an author fix or expand pasted material."""
     source = await _owned_source(source_id, current_user, db)
     run_id: Optional[str] = None
+    job_id: Optional[str] = None
     if payload.title is not None:
         source.title = payload.title
     if payload.content_text is not None and payload.content_text != (
@@ -259,10 +267,11 @@ async def edit_source(
             payload.content_text.encode("utf-8")
         ).hexdigest()
         source.word_count = len(payload.content_text.split())
-        run = await enqueue_extraction(
+        run, job = await enqueue_extraction(
             db, book_id=source.book_id, source_id=source.id, user_id=current_user.id
         )
         run_id = str(run.id)
+        job_id = str(job.id)
     try:
         await db.commit()
     except IntegrityError:
@@ -272,7 +281,7 @@ async def edit_source(
             detail="Another source in this book already has this content",
         )
     await db.refresh(source)
-    return _source_response(source, run_id, "updated")
+    return _source_response(source, run_id, "updated", job_id)
 
 
 @router.get("/", response_model=dict)
@@ -482,12 +491,13 @@ async def reprocess_source(
             detail="Source has no stored content to process",
         )
     await check_user_budget(db, current_user.id)
-    run = await enqueue_extraction(
+    run, job = await enqueue_extraction(
         db, book_id=source.book_id, source_id=source.id, user_id=current_user.id
     )
     await db.commit()
     return {
         "id": str(source.id),
         "extraction_run_id": str(run.id),
+        "job_id": str(job.id),
         "status": run.status,
     }

@@ -7,18 +7,25 @@ the request session), and what lets the worker wrap claim/finish in its own
 short transactions.
 """
 
+import json
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import event, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
+from app.core.database import get_async_session
 from app.core.orm_models import Job
 from app.jobs import notify_enqueued
 
 # Retry n (1-based) becomes available after BASE * 2**(n-1), capped.
 BACKOFF_BASE_SECONDS = 60
 BACKOFF_CAP_SECONDS = 15 * 60
+
+# Statuses that hold a dedupe key (a paused job is 'queued' with paused_since).
+ACTIVE_STATUSES = ("queued", "running")
 
 
 def _utcnow() -> datetime:
@@ -33,8 +40,21 @@ async def enqueue(
     user_id: UUID,
     max_attempts: int = 1,
     available_at: datetime | None = None,
+    dedupe_key: str | None = None,
+    domain: tuple[str, UUID] | None = None,
 ) -> Job:
-    """Add a queued job to the session (flushed, NOT committed)."""
+    """Add a queued job to the session (flushed, NOT committed).
+
+    With a `dedupe_key`, an in-flight job holding that key is returned instead
+    of a new one (SPEC-07): the caller compares `job.domain_id` with its own row
+    to tell. The partial unique index is the backstop for two requests racing
+    past the lookup; on Postgres the loser's insert is rolled back to a
+    savepoint and it gets the winner's job.
+    """
+    if dedupe_key is not None:
+        existing = await find_active(session, dedupe_key)
+        if existing is not None:
+            return existing
     job = Job(
         kind=kind,
         payload=payload,
@@ -42,11 +62,36 @@ async def enqueue(
         status="queued",
         max_attempts=max_attempts,
         available_at=available_at or _utcnow(),
+        dedupe_key=dedupe_key,
+        domain_type=domain[0] if domain else None,
+        domain_id=domain[1] if domain else None,
     )
-    session.add(job)
-    await session.flush()
+    if dedupe_key is not None and session.bind.dialect.name == "postgresql":
+        try:
+            async with session.begin_nested():
+                session.add(job)
+                await session.flush()
+        except IntegrityError:
+            existing = await find_active(session, dedupe_key)
+            if existing is None:
+                raise
+            return existing
+    else:
+        session.add(job)
+        await session.flush()
     _notify_on_commit(session)
     return job
+
+
+async def find_active(session: AsyncSession, dedupe_key: str) -> Job | None:
+    """The in-flight (queued, paused or running) job holding `dedupe_key`."""
+    return (
+        await session.execute(
+            select(Job)
+            .where(Job.dedupe_key == dedupe_key, Job.status.in_(ACTIVE_STATUSES))
+            .limit(1)
+        )
+    ).scalar_one_or_none()
 
 
 def _notify_on_commit(session: AsyncSession) -> None:
@@ -112,6 +157,20 @@ async def mark_succeeded(session: AsyncSession, job: Job) -> None:
     job.finished_at = _utcnow()
     job.locked_at = None
     job.locked_by = None
+    job.paused_since = None
+    job.checkpoint = None  # job-scoped resume state; done with it
+    await session.flush()
+
+
+async def mark_cancelled(session: AsyncSession, job: Job) -> None:
+    """Terminal 'cancelled' (SPEC-07). The checkpoint goes with it (SPEC-08), so
+    a cancelled job leaves no half-written state anywhere."""
+    job.status = "cancelled"
+    job.finished_at = _utcnow()
+    job.locked_at = None
+    job.locked_by = None
+    job.paused_since = None
+    job.checkpoint = None
     await session.flush()
 
 
@@ -124,11 +183,13 @@ async def mark_failed(session: AsyncSession, job: Job, error: str) -> bool:
     """
     now = _utcnow()
     job.error = error
+    job.paused_since = None  # a real failure ends any pause streak
     if job.attempts >= job.max_attempts:
         job.status = "dead"
         job.finished_at = now
         job.locked_at = None
         job.locked_by = None
+        job.checkpoint = None
         await session.flush()
         return True
     delay = min(BACKOFF_CAP_SECONDS, BACKOFF_BASE_SECONDS * 2 ** (job.attempts - 1))
@@ -161,7 +222,53 @@ async def pause(
     job.error = reason
     job.locked_at = None
     job.locked_by = None
+    if job.paused_since is None:
+        job.paused_since = _utcnow()
+    job.pause_count = (job.pause_count or 0) + 1
     await session.flush()
+
+
+def pause_expired(job: Job, *, max_hours: float, now: datetime | None = None) -> bool:
+    """Has this job been paused (without progress) longer than the bound?"""
+    if job.paused_since is None or max_hours <= 0:
+        return False
+    since = job.paused_since
+    if since.tzinfo is None:  # sqlite hands back naive datetimes
+        since = since.replace(tzinfo=timezone.utc)
+    return (now or _utcnow()) - since >= timedelta(hours=max_hours)
+
+
+async def save_checkpoint(job_id: UUID, data: dict) -> bool:
+    """Persist a job's checkpoint in its own short transaction (SPEC-08).
+
+    Unlike the rest of this module it commits: a checkpoint that waited for the
+    job's outcome would be lost by exactly the pause it exists for. Saving a
+    checkpoint is progress, so it also ends the pause streak that bounds a pause.
+    Returns whether the author asked to cancel, so the caller can stop at the
+    same seam (SPEC-07).
+    """
+    async with get_async_session() as session:
+        job = await session.get(Job, job_id)
+        if job is None:
+            return False
+        # Round-trip through JSON so a caller's later in-place mutation of `data`
+        # cannot alias the stored value, and flag it: the column is not a
+        # mutation-tracking type.
+        job.checkpoint = json.loads(json.dumps(data, default=str))
+        flag_modified(job, "checkpoint")
+        job.paused_since = None
+        cancel = bool(job.cancel_requested)
+        await session.commit()
+        return cancel
+
+
+async def set_note(job_id: UUID, note: str) -> None:
+    """Record an informational note on the job's error field (own transaction)."""
+    async with get_async_session() as session:
+        job = await session.get(Job, job_id)
+        if job is not None:
+            job.error = note
+            await session.commit()
 
 
 async def reap_stale(

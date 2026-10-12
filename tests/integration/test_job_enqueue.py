@@ -66,7 +66,12 @@ class TestChapterSceneGenerateEnqueues:
         job = jobs[0]
         assert job.payload["scene_id"] == body["scene_id"]
         assert job.payload["book_id"] == book["id"]
-        assert job.payload["chapter_summary"] == "The beginning."
+        # Derived inputs are recomputed by the handler at start, not frozen in the
+        # payload where a pause would let them go stale (SPEC-08).
+        assert "chapter_summary" not in job.payload
+        assert "prior_tail" not in job.payload
+        assert body["job_id"] == str(job.id)
+        assert job.domain_type == "scene"
         # The cast is resolved to the book's character ids (SPEC-01).
         assert job.payload["request"]["character_ids"] == [mina["id"]]
 

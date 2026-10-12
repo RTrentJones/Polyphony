@@ -9,14 +9,28 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.orm_models import ExtractionRun
+from app.core.orm_models import ExtractionRun, Job, Source
 from app.jobs import repository as jobs_repo
 
 
 async def enqueue_extraction(
     db: AsyncSession, *, book_id: UUID, source_id: UUID, user_id: UUID
-) -> ExtractionRun:
-    """Create a pending ExtractionRun and enqueue the extract_canon job. No commit."""
+) -> tuple[ExtractionRun, Job]:
+    """Create a pending ExtractionRun and enqueue the extract_canon job. No commit.
+
+    One in-flight extraction per source CONTENT (SPEC-07): while one is queued,
+    paused or running, a repeated reprocess returns that run and job instead of
+    starting a second. Keyed on the content hash, because an edit that changes
+    the text must extract the new text even if the old run is mid-call.
+    """
+    source = await db.get(Source, source_id)
+    content_hash = getattr(source, "content_hash", None) or ""
+    dedupe_key = f"extract:{source_id}:{content_hash[:16]}"
+    existing = await jobs_repo.find_active(db, dedupe_key)
+    if existing is not None and existing.domain_id is not None:
+        run = await db.get(ExtractionRun, existing.domain_id)
+        if run is not None:
+            return run, existing
     run = ExtractionRun(
         book_id=book_id,
         source_id=source_id,
@@ -25,7 +39,7 @@ async def enqueue_extraction(
     )
     db.add(run)
     await db.flush()
-    await jobs_repo.enqueue(
+    job = await jobs_repo.enqueue(
         db,
         kind="extract_canon",
         payload={
@@ -35,5 +49,11 @@ async def enqueue_extraction(
         },
         user_id=user_id,
         max_attempts=2,
+        dedupe_key=dedupe_key,
+        domain=("extraction_run", run.id),
     )
-    return run
+    if job.domain_id != run.id:  # an identical request won the race
+        await db.delete(run)
+        await db.flush()
+        run = await db.get(ExtractionRun, job.domain_id)
+    return run, job

@@ -39,7 +39,7 @@ from app.exports.builder import scene_text
 from app.jobs import repository as jobs_repo
 from app.llm.tier import get_tier
 from app.planning.canon import render_bible
-from app.planning.outline import generate_outline, validate_outline_nodes
+from app.planning.outline import validate_outline_nodes
 from app.versioning import repository as versions_repo
 
 logger = setup_logging("api.plans")
@@ -136,7 +136,10 @@ async def list_plans(
         .scalars()
         .all()
     )
-    return {"plans": [_plan_dict(p) for p in plans]}
+    from app.api.jobs import latest_jobs
+
+    jobs = await latest_jobs(db, "book_plan", [p.id for p in plans])
+    return {"plans": [{**_plan_dict(p), "job": jobs.get(str(p.id))} for p in plans]}
 
 
 @router.put("/books/{book_id}/plans", response_model=dict)
@@ -180,13 +183,13 @@ async def generate_plan(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Draft an outline/beat sheet from the canon.
+    """Draft an outline/beat sheet from the canon, as a background job.
 
     kind='outline' on a staged-capable tier with budget to spare runs the STAGED,
-    canon-grounded, fidelity-gated generator as a background job (~6 calls) and
-    returns {plan_id, job_id, status:'generating'} — poll GET /books/{id}/plans.
-    Otherwise (beat_sheet, staged disabled, or budget too low to finish) it
-    degrades to a single synchronous call (docs/BRD.md R5, R7.3).
+    canon-grounded, fidelity-gated generator (~6 calls). Otherwise (beat_sheet,
+    staged disabled, or budget too low to finish) it degrades to a single call
+    (docs/BRD.md R5, R7.3) — also a job. Returns {plan_id, job_id, status}; poll
+    GET /jobs/{job_id} or GET /books/{id}/plans.
     """
     book = await _owned_book(book_id, current_user, db)
     if not book.synopsis:
@@ -227,52 +230,11 @@ async def generate_plan(
     canon_chars = len(book.synopsis or "") + len(bible)
     staged_estimate = 6 * estimate_tokens(canon_chars)
     remaining = await remaining_budget_24h(db, current_user.id)
-    if (
+    staged = (
         payload.kind == "outline"
         and tier.allow_staged_outline
         and remaining >= staged_estimate
-    ):
-        plan = (
-            await db.execute(
-                select(BookPlanORM).where(
-                    BookPlanORM.book_id == book.id, BookPlanORM.kind == payload.kind
-                )
-            )
-        ).scalar_one_or_none()
-        if plan is None:
-            plan = BookPlanORM(book_id=book.id, kind=payload.kind, content=[])
-            db.add(plan)
-        plan.status = "generating"
-        plan.stage = "skeleton"
-        plan.error = None
-        await db.flush()
-        job = await jobs_repo.enqueue(
-            db,
-            kind="generate_outline",
-            payload={
-                "plan_id": str(plan.id),
-                "book_id": str(book.id),
-                "user_id": str(current_user.id),
-                "chapters_target": payload.chapters_target,
-            },
-            user_id=current_user.id,
-            max_attempts=1,  # a retry re-spends ~6 calls; the user can re-trigger
-        )
-        await db.commit()
-        return {"plan_id": str(plan.id), "job_id": str(job.id), "status": "generating"}
-
-    try:
-        nodes = await generate_outline(
-            title=book.title,
-            synopsis=book.synopsis,
-            genre=book.genre or "",
-            character_bible=bible,
-            kind=payload.kind,
-            chapters_target=payload.chapters_target,
-            user_id=current_user.id,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+    )
 
     plan = (
         await db.execute(
@@ -281,15 +243,49 @@ async def generate_plan(
             )
         )
     ).scalar_one_or_none()
+    # One in-flight generation per plan (SPEC-07): a second click returns the
+    # job already running instead of re-spending the quota.
+    dedupe_key = f"outline:{book.id}:{payload.kind}"
+    existing = await jobs_repo.find_active(db, dedupe_key)
+    if existing is not None:
+        return {
+            "plan_id": str(existing.domain_id),
+            "job_id": str(existing.id),
+            "status": plan.status if plan is not None else "generating",
+        }
     if plan is None:
-        plan = BookPlanORM(book_id=book.id, kind=payload.kind, content=nodes)
+        plan = BookPlanORM(book_id=book.id, kind=payload.kind, content=[])
         db.add(plan)
-    else:
-        plan.content = nodes
-    await _snapshot_plan(db, book, plan, nodes, "generated", current_user.id)
+    # Cancel restores this when the previous content is intact (SPEC-07).
+    prior_status = plan.status if plan.content else None
+    plan.status = "generating"
+    plan.stage = "skeleton" if staged else "single"
+    plan.error = None
+    await db.flush()
+    # Both paths are jobs: the single call used to run inside this request,
+    # where 429 backoff could outlive the proxy timeout (F13).
+    job = await jobs_repo.enqueue(
+        db,
+        kind="generate_outline",
+        payload={
+            "plan_id": str(plan.id),
+            "book_id": str(book.id),
+            "user_id": str(current_user.id),
+            "chapters_target": payload.chapters_target,
+            "kind": payload.kind,
+            "mode": "staged" if staged else "single",
+            "prior_status": prior_status,
+        },
+        user_id=current_user.id,
+        max_attempts=1,  # a retry re-spends ~6 calls; the user can re-trigger
+        dedupe_key=dedupe_key,
+        domain=("book_plan", plan.id),
+    )
+    if job.domain_id != plan.id:  # lost a race to an identical request
+        await db.rollback()
+        return {"plan_id": str(job.domain_id), "job_id": str(job.id)}
     await db.commit()
-    await db.refresh(plan)
-    return _plan_dict(plan)
+    return {"plan_id": str(plan.id), "job_id": str(job.id), "status": "generating"}
 
 
 @router.post("/books/{book_id}/plans/promote", response_model=dict)
@@ -580,6 +576,15 @@ async def start_continuity_check(
 
     from app.llm.providers import active_provider, resolve_model
 
+    dedupe_key = f"continuity:{book.id}:{payload.chapter_id or 'book'}"
+    existing = await jobs_repo.find_active(db, dedupe_key)
+    if existing is not None:
+        return {
+            "report_id": str(existing.domain_id),
+            "job_id": str(existing.id),
+            "status": "processing",
+        }
+
     report = ContinuityReportORM(
         book_id=book.id,
         chapter_id=payload.chapter_id,
@@ -591,7 +596,7 @@ async def start_continuity_check(
     await db.flush()
     # Job + report row commit atomically; the handler recomputes prose and
     # fact sheet from the DB (derived data) at run time.
-    await jobs_repo.enqueue(
+    job = await jobs_repo.enqueue(
         db,
         kind="continuity_check",
         payload={
@@ -600,11 +605,16 @@ async def start_continuity_check(
         },
         user_id=current_user.id,
         max_attempts=2,
+        dedupe_key=dedupe_key,
+        domain=("continuity_report", report.id),
     )
+    if job.domain_id != report.id:  # lost a race to an identical request
+        await db.rollback()
+        return {"report_id": str(job.domain_id), "job_id": str(job.id)}
     await db.commit()
     await db.refresh(report)
 
-    return {"report_id": str(report.id), "status": report.status}
+    return {"report_id": str(report.id), "job_id": str(job.id), "status": report.status}
 
 
 @router.get("/books/{book_id}/continuity", response_model=dict)
@@ -626,9 +636,13 @@ async def list_continuity_reports(
         .scalars()
         .all()
     )
+    from app.api.jobs import latest_jobs
+
+    jobs = await latest_jobs(db, "continuity_report", [r.id for r in reports])
     return {
         "reports": [
             {
+                "job": jobs.get(str(r.id)),
                 "id": str(r.id),
                 "scope": r.scope,
                 "chapter_id": str(r.chapter_id) if r.chapter_id else None,

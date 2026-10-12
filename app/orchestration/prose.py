@@ -30,6 +30,12 @@ logger = setup_logging("orchestration.prose")
 # Tail of the previous scene fed into the next one for continuity
 PREV_TAIL_WORDS = 500
 
+# Recorded on the job when a resume discards its checkpoint (SPEC-08 §4).
+CANON_CHANGED_NOTE = (
+    "The canon changed while this job was paused, so it restarted from scratch "
+    "rather than mix work generated against two versions of the book."
+)
+
 
 def scene_cast(canon, scene_request: dict) -> list:
     """The scene's cast as Character rows from the book's Canon.
@@ -142,11 +148,13 @@ async def run_prose_scene_workflow(
     *,
     checkpoint: Optional[dict] = None,
     save_checkpoint=None,
+    on_restart=None,
 ) -> dict:
     """Prose-mode workflow for a Scene row the API layer already created.
 
     `checkpoint`/`save_checkpoint` make a resumed job continue from its last
-    completed model call instead of re-spending every beat (SPEC-08).
+    completed model call instead of re-spending every beat (SPEC-08);
+    `on_restart(note)` records why a checkpoint was discarded.
     """
     from app.planning.canon import build_canon
 
@@ -172,6 +180,8 @@ async def run_prose_scene_workflow(
                 extra_fields={"event": "scene_checkpoint_discarded"},
             )
             checkpoint = {}
+            if on_restart is not None:
+                await on_restart(CANON_CHANGED_NOTE)
 
         beats = checkpoint.get("beats")
         if beats is None:
@@ -181,7 +191,12 @@ async def run_prose_scene_workflow(
                 canon_block=canon_block,
                 chapter_summary=chapter_summary,
             )
-            checkpoint = {"canon_hash": canon_hash, "beats": beats, "prose": []}
+            checkpoint = {
+                "canon_hash": canon_hash,
+                "beats": beats,
+                "prose": [],
+                "progress": {"stage": "beats", "done": 0, "total": len(beats)},
+            }
             await _save(save_checkpoint, checkpoint)
 
         target_total = int(scene_request.get("target_word_count") or 500)
@@ -216,7 +231,16 @@ async def run_prose_scene_workflow(
             grounding[str(idx)] = beat_grounding
             joined = "\n\n".join(prose_parts)
             prior_tail = " ".join(joined.split()[-PREV_TAIL_WORDS:])
-            checkpoint.update(prose=prose_parts, grounding=grounding)
+            checkpoint.update(
+                prose=prose_parts,
+                grounding=grounding,
+                beat_index=idx,
+                progress={
+                    "stage": "beats",
+                    "done": len(prose_parts),
+                    "total": len(beats),
+                },
+            )
             await _save(save_checkpoint, checkpoint)
 
         scene_text = "\n\n".join(prose_parts)

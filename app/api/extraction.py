@@ -121,11 +121,11 @@ async def start_extraction(
         )
     await check_user_budget(db, current_user.id)
 
-    run = await enqueue_extraction(
+    run, job = await enqueue_extraction(
         db, book_id=book.id, source_id=source.id, user_id=current_user.id
     )
     await db.commit()
-    return {"run_id": str(run.id), "status": run.status}
+    return {"run_id": str(run.id), "job_id": str(job.id), "status": run.status}
 
 
 async def _owned_run(
@@ -155,8 +155,12 @@ async def get_extraction(
 ):
     """The extraction run + its proposals, for the review screen."""
     run = await _owned_run(book_id, run_id, current_user, db)
+    from app.api.jobs import latest_jobs
+
+    jobs = await latest_jobs(db, "extraction_run", [run.id])
     return {
         "id": str(run.id),
+        "job": jobs.get(str(run.id)),
         "source_id": str(run.source_id) if run.source_id else None,
         "status": run.status,
         "proposals": run.proposals or {},
@@ -406,8 +410,9 @@ async def commit_extraction(
     # (created + merged), so a merged existing character is indexed too, and a
     # transient vector failure is retried per-source, not skipped (PR review #2/#3).
     target_ids = result["characters"]["created"] + result["characters"]["updated"]
+    index_job = None
     if run.source_id and target_ids:
-        await jobs_repo.enqueue(
+        index_job = await jobs_repo.enqueue(
             db,
             kind="index_characters_voice",
             payload={
@@ -429,4 +434,9 @@ async def commit_extraction(
             status_code=status.HTTP_409_CONFLICT,
             detail="Commit conflicted with existing canon; review and retry",
         )
-    return {"run_id": str(run.id), "status": run.status, "result": result}
+    return {
+        "run_id": str(run.id),
+        "status": run.status,
+        "result": result,
+        "job_id": str(index_job.id) if index_job is not None else None,
+    }

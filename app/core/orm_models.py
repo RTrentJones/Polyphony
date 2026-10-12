@@ -14,6 +14,7 @@ from sqlalchemy import (
     DECIMAL,
     Index,
     UniqueConstraint,
+    text,
 )
 
 # Generic Uuid type (native uuid on Postgres, CHAR on sqlite test databases)
@@ -616,6 +617,25 @@ class Job(Base):
     started_at = Column(DateTime(timezone=True))
     finished_at = Column(DateTime(timezone=True))
     error = Column(Text)
+    # Lifecycle (SPEC-07). A paused job stays status='queued' (claimable when
+    # available_at comes) with paused_since set; the jobs API reports it as
+    # 'paused'. paused_since bounds the pause (JOB_MAX_PAUSE_HOURS) and is
+    # cleared whenever the job makes progress, so the bound is "no progress for
+    # 48h", not "48h in total".
+    paused_since = Column(DateTime(timezone=True))
+    pause_count = Column(Integer, nullable=False, default=0, server_default="0")
+    cancel_requested = Column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # Last completed model call of a multi-call job (SPEC-08). Job-scoped, so a
+    # cancelled or failed job leaves no half-written domain state.
+    checkpoint = Column(JSON().with_variant(JSONB(), "postgresql"))
+    # One in-flight job per key: a duplicate enqueue returns the existing job.
+    dedupe_key = Column(String(255))
+    # The domain row this job writes (scene | book_plan | extraction_run |
+    # continuity_report), so the API can find a row's job and vice versa.
+    domain_type = Column(String(30))
+    domain_id = Column(UUID(as_uuid=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -625,6 +645,14 @@ class Job(Base):
         Index("idx_jobs_status_available", "status", "available_at"),
         Index("idx_jobs_user_id", "user_id"),
         Index("idx_jobs_kind", "kind"),
+        Index("idx_jobs_domain", "domain_type", "domain_id"),
+        Index(
+            "uq_jobs_dedupe_active",
+            "dedupe_key",
+            unique=True,
+            postgresql_where=text("status IN ('queued','running')"),
+            sqlite_where=text("status IN ('queued','running')"),
+        ),
     )
 
 
