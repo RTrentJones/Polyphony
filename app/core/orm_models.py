@@ -530,7 +530,7 @@ class BookPlan(Base):
     # frontend poll GET /books/{id}/plans for progress; warnings carry the
     # fidelity audit's soft findings (never a hard fail).
     status = Column(
-        String(20), nullable=False, default="ready"
+        String(32), nullable=False, default="ready"
     )  # ready|generating|paused|awaiting_confirmation|failed|cancelled
     stage = Column(String(30))  # skeleton | chapters | beats | audit
     warnings = Column(JSON)

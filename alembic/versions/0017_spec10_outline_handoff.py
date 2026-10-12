@@ -39,6 +39,8 @@ def upgrade() -> None:
     if bind.dialect.name != "postgresql":
         return
     op.execute("ALTER TABLE book_plans ADD COLUMN IF NOT EXISTS premise JSON")
+    # 'awaiting_confirmation' is 21 characters; status was VARCHAR(20).
+    op.execute("ALTER TABLE book_plans ALTER COLUMN status TYPE VARCHAR(32)")
     op.execute("ALTER TABLE chapters ADD COLUMN IF NOT EXISTS plan_node_id UUID")
     op.execute(
         "ALTER TABLE chapters ADD COLUMN IF NOT EXISTS pov_character_id UUID "
@@ -70,4 +72,9 @@ def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS idx_chapters_plan_node")
     for col in ("character_ids", "pov_character_id", "plan_node_id"):
         op.execute(f"ALTER TABLE chapters DROP COLUMN IF EXISTS {col}")
+    op.execute(
+        "UPDATE book_plans SET status = 'ready' "
+        "WHERE status = 'awaiting_confirmation'"
+    )
+    op.execute("ALTER TABLE book_plans ALTER COLUMN status TYPE VARCHAR(20)")
     op.execute("ALTER TABLE book_plans DROP COLUMN IF EXISTS premise")
