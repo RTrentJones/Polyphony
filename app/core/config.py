@@ -68,8 +68,11 @@ class Settings(BaseSettings):
     LLM_TIER: str = "free"  # free | paid
     # Optional monthly spend ceiling (USD) surfaced to the per-user spend view.
     MONTHLY_COST_CEILING_USD: Optional[float] = None
-    # Default pause window (seconds) when a 429 carries no retry-after hint.
+    # Longest pause (seconds) after a 429 that carries no retry-after hint.
     QUOTA_PAUSE_SECONDS: int = 900
+    # First pause after a 429 that named no retry time; doubles per consecutive
+    # pause up to QUOTA_PAUSE_SECONDS (app/jobs/worker.py).
+    QUOTA_PAUSE_MIN_SECONDS: int = 60
 
     # Durable background jobs (app/jobs). Disable the worker to pause
     # execution without losing queued work.
