@@ -151,11 +151,17 @@ async def _run_generate_outline(payload: dict) -> None:
     mode="single" is the degraded one-call outline (or a beat sheet). It used to
     run inside the HTTP request, where 429 backoff could outlive the proxy's
     timeout (F13); as a job it pauses and resumes like everything else.
+
+    Premise checkpoint (SPEC-10): with `confirm_premise` the job runs S1 only,
+    stores the skeleton on the plan, leaves it `awaiting_confirmation` and
+    SUCCEEDS — nothing is held open while the author reads. Confirming
+    enqueues a continuation job (`premise_confirmed`) that reads the confirmed
+    skeleton back from the plan and runs S2-S4 with it as authoritative.
     """
     from app.core.orm_models import BookPlan
     from app.planning.canon import build_canon
     from app.planning.outline import generate_outline
-    from app.planning.staged_outline import generate_staged_outline
+    from app.planning.staged_outline import generate_premise, generate_staged_outline
     from app.versioning import repository as versions_repo
 
     plan_id = UUID(payload["plan_id"])
@@ -174,7 +180,45 @@ async def _run_generate_outline(payload: dict) -> None:
                 plan.stage = stage
                 await session.commit()
 
+    async def store_premise(skeleton: dict, status: str | None = None) -> None:
+        async with get_async_session() as session:
+            plan = await session.get(BookPlan, plan_id)
+            if plan is None:
+                return
+            plan.premise = {
+                "premise_restated": str(skeleton.get("premise_restated") or ""),
+                "central_conflict": str(skeleton.get("central_conflict") or ""),
+                "acts": skeleton.get("acts") or [],
+                "confirmed": bool(skeleton.get("confirmed")),
+                "chapters_target": chapters_target,
+            }
+            if status is not None:
+                plan.status = status
+                plan.stage = None
+                plan.error = None
+            await session.commit()
+
+    confirmed_skeleton = None
+    if payload.get("premise_confirmed"):
+        async with get_async_session() as session:
+            plan = await session.get(BookPlan, plan_id)
+            confirmed_skeleton = dict((plan.premise if plan else None) or {})
+        confirmed_skeleton["confirmed"] = True
+
     ctx = current_job()
+    if payload.get("mode") != "single" and (
+        payload.get("confirm_premise") and confirmed_skeleton is None
+    ):
+        skeleton = await generate_premise(
+            canon,
+            chapters_target=chapters_target,
+            user_id=user_id,
+            on_stage=on_stage,
+            checkpoint=ctx.checkpoint,
+            save_checkpoint=ctx.save,
+        )
+        await store_premise(skeleton, status="awaiting_confirmation")
+        return
     if payload.get("mode") == "single":
         await on_stage("single")
         nodes = await generate_outline(
@@ -196,6 +240,8 @@ async def _run_generate_outline(payload: dict) -> None:
             checkpoint=ctx.checkpoint,
             save_checkpoint=ctx.save,
             on_restart=ctx.note,
+            skeleton=confirmed_skeleton,
+            on_premise=None if confirmed_skeleton else store_premise,
         )
 
     async with get_async_session() as session:
@@ -212,7 +258,7 @@ async def _run_generate_outline(payload: dict) -> None:
             book_id=book_id,
             entity_type="book_plan",
             entity_id=plan.id,
-            content={"kind": plan.kind, "content": nodes},
+            content={"kind": plan.kind, "content": nodes, "premise": plan.premise},
             reason="generated",
             created_by=user_id,
         )
@@ -527,7 +573,8 @@ async def _resume_plan(payload: dict) -> None:
 async def _cancel_plan(payload: dict) -> None:
     """Back to the plan's prior state when its previous content is intact (a
     generation never touches content until it succeeds); 'cancelled' for a plan
-    that had nothing yet."""
+    that had nothing yet. A cancelled continuation goes back to waiting for the
+    premise, which is still stored (SPEC-10)."""
     from app.core.orm_models import BookPlan
 
     async with get_async_session() as session:
@@ -535,7 +582,8 @@ async def _cancel_plan(payload: dict) -> None:
         if plan is None or plan.status not in ("generating", "paused"):
             return
         prior = payload.get("prior_status")
-        plan.status = prior if (prior and plan.content) else "cancelled"
+        keep = plan.content or (prior == "awaiting_confirmation" and plan.premise)
+        plan.status = prior if (prior and keep) else "cancelled"
         plan.stage = None
         plan.error = None
         await session.commit()

@@ -243,6 +243,13 @@ class Chapter(Base):
     title = Column(String(500), nullable=False)
     summary = Column(Text)
     status = Column(String(50), nullable=False, default="drafting")
+    # Promoted from an outline node (SPEC-10): the node's stable id (promote is
+    # idempotent on it) and its structural cast, which a new scene defaults to.
+    plan_node_id = Column(UUID(as_uuid=True))
+    pov_character_id = Column(
+        UUID(as_uuid=True), ForeignKey("characters.id", ondelete="SET NULL")
+    )
+    character_ids = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -253,6 +260,7 @@ class Chapter(Base):
 
     __table_args__ = (
         Index("idx_chapters_book_id", "book_id"),
+        Index("idx_chapters_plan_node", "book_id", "plan_node_id"),
         # Reorder/insert logic renumbers via a two-phase pass (park on negative
         # temp positions, then finalize) so this holds under immediate checking.
         UniqueConstraint("book_id", "position", name="uq_chapters_book_position"),
@@ -503,10 +511,14 @@ class BookPlan(Base):
     # fidelity audit's soft findings (never a hard fail).
     status = Column(
         String(20), nullable=False, default="ready"
-    )  # ready|generating|failed
+    )  # ready|generating|paused|awaiting_confirmation|failed|cancelled
     stage = Column(String(30))  # skeleton | chapters | beats | audit
     warnings = Column(JSON)
     error = Column(Text)
+    # The staged outline's S1 skeleton (SPEC-10, R1.3): premise_restated,
+    # central_conflict, acts — shown to the author, who confirms or edits it
+    # before the chapters stage when the run was asked to wait.
+    premise = Column(JSON)
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

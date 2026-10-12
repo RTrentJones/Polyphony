@@ -194,6 +194,10 @@ def _chapter_dict(c: ChapterORM) -> dict:
         "title": c.title,
         "summary": c.summary,
         "status": c.status,
+        # From the outline node it was promoted from (SPEC-10): scene defaults.
+        "plan_node_id": str(c.plan_node_id) if c.plan_node_id else None,
+        "pov_character_id": str(c.pov_character_id) if c.pov_character_id else None,
+        "character_ids": c.character_ids or [],
     }
 
 

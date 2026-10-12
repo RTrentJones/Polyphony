@@ -40,7 +40,7 @@ from app.exports.builder import scene_text
 from app.jobs import repository as jobs_repo
 from app.llm.tier import get_tier
 from app.planning.canon import render_bible
-from app.planning.outline import validate_outline_nodes
+from app.planning.outline import CastIndex, validate_outline_nodes
 from app.versioning import repository as versions_repo
 
 logger = setup_logging("api.plans")
@@ -61,7 +61,7 @@ async def _snapshot_plan(db, book, plan, content, reason, user_id) -> None:
         book_id=book.id,
         entity_type="book_plan",
         entity_id=plan.id,
-        content={"kind": plan.kind, "content": content},
+        content={"kind": plan.kind, "content": content, "premise": plan.premise},
         reason=reason,
         created_by=user_id,
     )
@@ -78,10 +78,25 @@ class PlanUpsert(BaseModel):
 class PlanGenerate(BaseModel):
     kind: str = Field(default="outline", pattern="^(outline|beat_sheet)$")
     chapters_target: int = Field(default=12, ge=3, le=40)
+    # Stop after the skeleton for the author to confirm the premise (SPEC-10).
+    # None = the tier's default: on for free, where a misread premise wastes
+    # the most of a scarce quota.
+    confirm_premise: Optional[bool] = None
+
+
+class PremiseConfirm(BaseModel):
+    """The author's confirmation; an edited field replaces the model's and is
+    authoritative for the chapters stage."""
+
+    premise_restated: Optional[str] = Field(None, max_length=20_000)
+    central_conflict: Optional[str] = Field(None, max_length=5_000)
 
 
 class PromoteNode(BaseModel):
-    node_index: int = Field(..., ge=0)
+    """By `node_id` (stable) or `node_index` (legacy); one is required."""
+
+    node_id: Optional[UUID] = None
+    node_index: Optional[int] = Field(None, ge=0)
 
 
 class ThreadCreate(BaseModel):
@@ -111,6 +126,13 @@ class ContinuityRequest(BaseModel):
 # --- Plans (outline / beat sheet) --------------------------------------------------
 
 
+async def _book_cast(db: AsyncSession, book_id: UUID) -> CastIndex:
+    query = select(CharacterORM).where(CharacterORM.book_id == book_id)
+    if hasattr(CharacterORM, "deleted_at"):
+        query = query.where(CharacterORM.deleted_at.is_(None))
+    return CastIndex((await db.execute(query)).scalars().all())
+
+
 def _plan_dict(p: BookPlanORM) -> dict:
     return {
         "id": str(p.id),
@@ -121,6 +143,7 @@ def _plan_dict(p: BookPlanORM) -> dict:
         "stage": getattr(p, "stage", None),
         "warnings": getattr(p, "warnings", None) or [],
         "error": getattr(p, "error", None),
+        "premise": getattr(p, "premise", None),
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
     }
 
@@ -153,7 +176,9 @@ async def upsert_plan(
     """Create or replace the book's plan of the given kind."""
     book = await _owned_book(book_id, current_user, db)
     try:
-        content = validate_outline_nodes(payload.content)
+        content = validate_outline_nodes(
+            payload.content, cast=await _book_cast(db, book.id), strict=True
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -259,9 +284,17 @@ async def generate_plan(
         db.add(plan)
     # Cancel restores this when the previous content is intact (SPEC-07).
     prior_status = plan.status if plan.content else None
+    if prior_status == "awaiting_confirmation":
+        prior_status = "ready"
+    confirm_premise = (
+        payload.confirm_premise
+        if payload.confirm_premise is not None
+        else tier.name == "free"
+    )
     plan.status = "generating"
     plan.stage = "skeleton" if staged else "single"
     plan.error = None
+    plan.premise = None  # a new run restates the premise afresh
     await db.flush()
     # Both paths are jobs: the single call used to run inside this request,
     # where 429 backoff could outlive the proxy timeout (F13).
@@ -276,6 +309,7 @@ async def generate_plan(
             "kind": payload.kind,
             "mode": "staged" if staged else "single",
             "prior_status": prior_status,
+            "confirm_premise": bool(staged and confirm_premise),
         },
         user_id=current_user.id,
         max_attempts=1,  # a retry re-spends ~6 calls; the user can re-trigger
@@ -289,34 +323,139 @@ async def generate_plan(
     return {"plan_id": str(plan.id), "job_id": str(job.id), "status": "generating"}
 
 
-@router.post("/books/{book_id}/plans/promote", response_model=dict)
-async def promote_plan_node(
+@router.post(
+    "/books/{book_id}/plans/{plan_id}/confirm-premise", response_model=dict
+)
+async def confirm_premise(
     book_id: UUID,
-    payload: PromoteNode,
+    plan_id: UUID,
+    payload: PremiseConfirm,
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Promote a top-level outline node into a real Chapter."""
+    """Confirm (optionally edit) the restated premise and build the outline on it.
+
+    The skeleton job ended with the plan `awaiting_confirmation` (SPEC-10). This
+    enqueues the continuation: S2-S4 with the stored skeleton as authoritative,
+    so S1 is never paid for twice. Returns {plan_id, job_id, status}."""
     book = await _owned_book(book_id, current_user, db)
     plan = (
         await db.execute(
             select(BookPlanORM).where(
-                BookPlanORM.book_id == book.id, BookPlanORM.kind == "outline"
+                BookPlanORM.id == plan_id, BookPlanORM.book_id == book.id
             )
         )
     ).scalar_one_or_none()
-    if plan is None or not plan.content:
+    if plan is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="No outline to promote from"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found"
         )
-    nodes = plan.content
-    if payload.node_index >= len(nodes):
+    dedupe_key = f"outline:{book.id}:{plan.kind}"
+    existing = await jobs_repo.find_active(db, dedupe_key)
+    if existing is not None:  # a double click: the continuation is running
+        return {
+            "plan_id": str(existing.domain_id),
+            "job_id": str(existing.id),
+            "status": plan.status,
+        }
+    if plan.status != "awaiting_confirmation" or not plan.premise:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="node_index out of range"
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This plan is not waiting for a premise confirmation",
         )
-    node = nodes[payload.node_index]
-    # Read everything off the ORM objects now: a rollback below expires them.
-    book_pk = book.id
+    await check_user_budget(db, current_user.id)
+
+    premise = dict(plan.premise)
+    edited = False
+    for field_name in ("premise_restated", "central_conflict"):
+        value = getattr(payload, field_name)
+        if value is not None and value.strip() and value.strip() != premise.get(
+            field_name
+        ):
+            premise[field_name] = value.strip()
+            edited = True
+    premise["confirmed"] = True
+    premise["edited"] = edited
+    plan.premise = premise  # a new dict, so the JSON column sees the change
+    plan.status = "generating"
+    plan.stage = "chapters"
+    plan.error = None
+    await db.flush()
+    job = await jobs_repo.enqueue(
+        db,
+        kind="generate_outline",
+        payload={
+            "plan_id": str(plan.id),
+            "book_id": str(book.id),
+            "user_id": str(current_user.id),
+            "chapters_target": int(premise.get("chapters_target") or 12),
+            "kind": plan.kind,
+            "mode": "staged",
+            "premise_confirmed": True,
+            # Cancelling the continuation goes back to waiting (the premise is
+            # intact), not to "cancelled".
+            "prior_status": "awaiting_confirmation",
+        },
+        user_id=current_user.id,
+        max_attempts=1,
+        dedupe_key=dedupe_key,
+        domain=("book_plan", plan.id),
+    )
+    if job.domain_id != plan.id:  # lost a race to an identical request
+        await db.rollback()
+        return {"plan_id": str(job.domain_id), "job_id": str(job.id)}
+    await db.commit()
+    return {"plan_id": str(plan.id), "job_id": str(job.id), "status": "generating"}
+
+
+def _promoted_dict(chapter: ChapterORM, created: bool) -> dict:
+    return {
+        "chapter_id": str(chapter.id),
+        "title": chapter.title,
+        "position": chapter.position,
+        "plan_node_id": str(chapter.plan_node_id) if chapter.plan_node_id else None,
+        "created": created,
+    }
+
+
+async def _chapter_for_node(
+    db: AsyncSession, book_id: UUID, node_id: UUID
+) -> Optional[ChapterORM]:
+    query = select(ChapterORM).where(
+        ChapterORM.book_id == book_id, ChapterORM.plan_node_id == node_id
+    )
+    if hasattr(ChapterORM, "deleted_at"):
+        query = query.where(ChapterORM.deleted_at.is_(None))
+    return (await db.execute(query.limit(1))).scalar_one_or_none()
+
+
+async def _promote_node(
+    db: AsyncSession, book_pk: UUID, node: dict, cast: CastIndex
+) -> tuple[ChapterORM, bool]:
+    """One outline node -> one Chapter, idempotent on the node's id (SPEC-10).
+
+    Returns (chapter, created). The chapter carries the node's structural cast
+    (resolved against the book's CURRENT cast: a character removed since the
+    outline was drafted is dropped, not dangled) so a new scene defaults to it.
+    """
+    node_id = None
+    try:
+        node_id = UUID(str(node.get("node_id"))) if node.get("node_id") else None
+    except ValueError:
+        node_id = None
+    if node_id is not None:
+        existing = await _chapter_for_node(db, book_pk, node_id)
+        if existing is not None:
+            return existing, False
+
+    character_ids: list[str] = []
+    for ref in node.get("character_ids") or []:
+        cid = cast.resolve(ref)
+        if cid is not None and cid not in character_ids:
+            character_ids.append(cid)
+    pov_id = cast.resolve(node.get("pov")) if node.get("pov") else None
+    if pov_id is not None and pov_id not in character_ids:
+        character_ids.insert(0, pov_id)
 
     child_summaries = "\n".join(
         f"- {child.get('title', '')}: {child.get('summary', '')}"
@@ -342,6 +481,9 @@ async def promote_plan_node(
             title=node.get("title", f"Chapter {next_pos + 1}"),
             summary=summary,
             position=next_pos,
+            plan_node_id=node_id,
+            pov_character_id=UUID(pov_id) if pov_id else None,
+            character_ids=character_ids,
         )
         db.add(chapter)
         try:
@@ -355,10 +497,81 @@ async def promote_plan_node(
                     detail="Chapter position conflict; please retry",
                 )
     await db.refresh(chapter)
+    return chapter, True
+
+
+async def _outline_nodes(db: AsyncSession, book: BookORM) -> list:
+    plan = (
+        await db.execute(
+            select(BookPlanORM).where(
+                BookPlanORM.book_id == book.id, BookPlanORM.kind == "outline"
+            )
+        )
+    ).scalar_one_or_none()
+    if plan is None or not plan.content:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No outline to promote from"
+        )
+    return list(plan.content)
+
+
+@router.post("/books/{book_id}/plans/promote", response_model=dict)
+async def promote_plan_node(
+    book_id: UUID,
+    payload: PromoteNode,
+    current_user: UserORM = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Promote a top-level outline node into a real Chapter.
+
+    By `node_id` (stable across edits) or `node_index` (legacy). Promoting a
+    node that already has a chapter returns that chapter (`created: false`)
+    instead of duplicating it."""
+    book = await _owned_book(book_id, current_user, db)
+    nodes = await _outline_nodes(db, book)
+    if payload.node_id is not None:
+        node = next(
+            (n for n in nodes if str(n.get("node_id")) == str(payload.node_id)), None
+        )
+        if node is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No outline node with that id",
+            )
+    else:
+        if payload.node_index >= len(nodes):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="node_index out of range",
+            )
+        node = nodes[payload.node_index]
+    # Read everything off the ORM objects now: a rollback expires them.
+    book_pk = book.id
+    cast = await _book_cast(db, book_pk)
+    chapter, created = await _promote_node(db, book_pk, node, cast)
+    return _promoted_dict(chapter, created)
+
+
+@router.post("/books/{book_id}/plans/promote-all", response_model=dict)
+async def promote_all_plan_nodes(
+    book_id: UUID,
+    current_user: UserORM = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Promote every top-level outline node, in order; nodes that already have
+    a chapter are returned as they are. Safe to click twice."""
+    book = await _owned_book(book_id, current_user, db)
+    nodes = await _outline_nodes(db, book)
+    book_pk = book.id
+    cast = await _book_cast(db, book_pk)
+    results = []
+    for node in nodes:
+        if isinstance(node, dict):
+            chapter, created = await _promote_node(db, book_pk, node, cast)
+            results.append(_promoted_dict(chapter, created))
     return {
-        "chapter_id": str(chapter.id),
-        "title": chapter.title,
-        "position": chapter.position,
+        "chapters": results,
+        "created": sum(1 for r in results if r["created"]),
     }
 
 
