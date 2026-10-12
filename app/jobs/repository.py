@@ -26,6 +26,8 @@ BACKOFF_CAP_SECONDS = 15 * 60
 
 # Statuses that hold a dedupe key (a paused job is 'queued' with paused_since).
 ACTIVE_STATUSES = ("queued", "running")
+# The error text a quota pause leaves on the job while it waits.
+PAUSE_REASON = "quota exhausted"
 
 
 def _utcnow() -> datetime:
@@ -159,6 +161,8 @@ async def mark_succeeded(session: AsyncSession, job: Job) -> None:
     job.locked_by = None
     job.paused_since = None
     job.checkpoint = None  # job-scoped resume state; done with it
+    if job.error == PAUSE_REASON:
+        job.error = None  # the pause is over; an informational note stays
     await session.flush()
 
 

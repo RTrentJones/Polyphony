@@ -276,7 +276,10 @@ class JobWorker:
             if pause_after is not None:
                 resume_at = datetime.now(timezone.utc) + timedelta(seconds=pause_after)
                 await jobs_repo.pause(
-                    session, db_job, available_at=resume_at, reason="quota exhausted"
+                    session,
+                    db_job,
+                    available_at=resume_at,
+                    reason=jobs_repo.PAUSE_REASON,
                 )
                 await session.commit()
                 log_business_event(

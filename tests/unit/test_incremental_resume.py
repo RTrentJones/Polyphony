@@ -181,6 +181,7 @@ async def test_ac1_prose_resume_spends_only_the_remaining_beats(
     await async_session.refresh(t.job)
     assert t.job.status == "succeeded"
     assert t.job.checkpoint is None
+    assert t.job.error is None  # the pause note does not outlive the pause
     await async_session.refresh(t.scene)
     assert t.scene.status == "completed"
     assert await _beat_rows(async_session, t.scene) == BEATS_TOTAL

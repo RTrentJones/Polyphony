@@ -1,19 +1,42 @@
-"""Source text -> proposed Canon (Phase 6, docs/BRD.md R6).
+"""Source text -> proposed Canon, at manuscript scale (docs/BRD.md R4.4, SPEC-09).
 
 Reads a Source and PROPOSES typed canon candidates — characters, canon entries,
 a style guess, and a synopsis — for the author to review before anything is
-committed. This is what should have happened to the Bored to Undeath storyboard:
-its ## CHARACTERS and ## WORLDBUILDING sections become real entities instead of
-dying in a truncated synopsis field.
+committed. Nothing here writes to the DB.
 
-The source is untrusted (it may be an uploaded .pdf/.html), so it is fenced with
-as_quoted_block, never filtered (docs/ADR-002-book-as-root.md §4). Nothing here
-writes to the DB — the caller reviews, then commits.
+This used to be one call over the whole source with a 4,096-token answer. A real
+novel (~120k input tokens) cost over half a day's budget and its cast did not fit
+in the answer, so the JSON truncated, parsing failed, the job retried and paid
+again. It is now a map-reduce:
+
+1. **Map** — the source is split into ~12k-token windows on paragraph
+   boundaries; each window gets one fast-model JSON call listing who and what it
+   contains, with evidence. A window whose answer is truncated is retried ONCE as
+   two smaller windows, and a piece that still fails is skipped with a warning —
+   it never fails the run.
+2. **Merge** — deterministic, alias-aware, honorific-aware (`app/parsing/names`):
+   "Mina", "Mrs. Harker" and "Madam Mina" become one candidate when the windows'
+   evidence links them, without fusing two people who share a surname.
+3. **Reduce** — one default-model call per ~10 merged characters writes the full
+   proposal (role, description, goals, arc, relationships, traits, voice,
+   aliases) from the gathered evidence.
+4. **Synopsis** — generated last, from the merged canon.
+
+The source is untrusted (it may be an uploaded .pdf/.html), so each window is
+fenced with as_quoted_block, never filtered (docs/ADR-002-book-as-root.md §4).
+Windows are whole paragraphs and together cover the whole source — nothing is
+cut. Every model call is checkpointed through `save_checkpoint` so a quota pause
+resumes at the next window instead of re-spending finished ones (SPEC-08 shape).
 """
 
 from __future__ import annotations
 
-from typing import Optional
+import hashlib
+import json
+import math
+import re
+from collections import Counter, defaultdict
+from typing import Awaitable, Callable, Optional
 from uuid import UUID
 
 from app.core.llm_text import (
@@ -25,85 +48,985 @@ from app.core.llm_text import (
 from app.core.logging_config import setup_logging
 from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_object
+from app.parsing.names import norm, significant, tokens
 
 logger = setup_logging("parsing.canon_extractor")
 
-_CATEGORIES = "world | location | faction | item | concept | org"
+# A real set — `cat in "world | location | …"` was a substring test, so "on" and
+# "loc" passed validation and were stored (REVIEW-2026-10 F8).
+CATEGORIES = frozenset({"world", "location", "faction", "item", "concept", "org"})
+_CATEGORY_HINT = " | ".join(sorted(CATEGORIES))
+
+# Closed role vocabulary; anything else is kept as "other: …" so nothing the
+# model saw is lost, but the principal-role match (Canon.principals) stays exact.
+ROLES = (
+    "protagonist",
+    "antagonist",
+    "deuteragonist",
+    "narrator",
+    "mentor",
+    "love interest",
+    "foil",
+    "supporting",
+    "minor",
+)
+_ROLE_HINT = " | ".join(ROLES) + " | other: <short>"
+
+CHARS_PER_TOKEN = 4
+WINDOW_TOKENS = 12_000
+REDUCE_BATCH = 10
+# Reduce writes full entries for the best-attested characters; the long tail of
+# once-mentioned names keeps its map-level proposal (still reviewable, and
+# pre-deselected in the UI) so the number of reduce calls stays bounded.
+MAX_REDUCED_CHARACTERS = 60
+MAP_MAX_TOKENS_CAP = 8192
+_MAX_EVIDENCE = 8
+
+SaveCheckpoint = Optional[Callable[[dict], Awaitable[None]]]
+
+
+class _Unreadable(ValueError):
+    """The model's answer was not the JSON object we asked for (usually truncated)."""
+
+
+def estimate_tokens(text_or_chars) -> int:
+    n = text_or_chars if isinstance(text_or_chars, int) else len(text_or_chars)
+    return max(1, n // CHARS_PER_TOKEN)
+
+
+# --- windows ---------------------------------------------------------------
+
+
+def _paragraphs(text: str) -> list[str]:
+    return [p.strip() for p in re.split(r"\n\s*\n", text or "") if p.strip()]
+
+
+def _split_long(paragraph: str, budget_chars: int) -> list[str]:
+    """An over-long paragraph splits on sentences (then words) — never mid-word."""
+    pieces: list[str] = []
+    for sentence in re.split(r"(?<=[.!?…])\s+", paragraph):
+        if len(sentence) <= budget_chars:
+            pieces.append(sentence)
+            continue
+        words, cur = sentence.split(" "), ""
+        for w in words:
+            if cur and len(cur) + 1 + len(w) > budget_chars:
+                pieces.append(cur)
+                cur = w
+            else:
+                cur = f"{cur} {w}" if cur else w
+        if cur:
+            pieces.append(cur)
+    out, cur = [], ""
+    for s in pieces:
+        if cur and len(cur) + 1 + len(s) > budget_chars:
+            out.append(cur)
+            cur = s
+        else:
+            cur = f"{cur} {s}" if cur else s
+    if cur:
+        out.append(cur)
+    return out
+
+
+def split_windows(text: str, window_tokens: int = WINDOW_TOKENS) -> list[str]:
+    """~window_tokens windows on paragraph boundaries covering the whole text."""
+    budget = max(1, window_tokens * CHARS_PER_TOKEN)
+    units: list[str] = []
+    for p in _paragraphs(text):
+        units.extend([p] if len(p) <= budget else _split_long(p, budget))
+    windows: list[str] = []
+    cur: list[str] = []
+    size = 0
+    for u in units:
+        if cur and size + len(u) + 2 > budget:
+            windows.append("\n\n".join(cur))
+            cur, size = [], 0
+        cur.append(u)
+        size += len(u) + 2
+    if cur:
+        windows.append("\n\n".join(cur))
+    return windows
+
+
+def _map_max_tokens(window: str) -> int:
+    """Answer budget sized to the window: a denser window names more people."""
+    return min(MAP_MAX_TOKENS_CAP, max(1024, estimate_tokens(window) // 6))
+
+
+# --- normalisation ---------------------------------------------------------
+
+
+def _s(value) -> str:
+    return str(value or "").strip()
+
+
+def _category(value) -> str:
+    cat = _s(value).lower() or "concept"
+    return cat if cat in CATEGORIES else "concept"
+
+
+def _role(value) -> str:
+    """Closed vocabulary, else "other: …"."""
+    r = _s(value).lower()
+    if not r:
+        return ""
+    if r.startswith("other"):
+        rest = r[5:].lstrip(" :-").strip()
+        return f"other: {rest}"[:100] if rest else "other"
+    for known in ROLES:
+        if r == known or r.startswith(known):
+            return known
+    for known in ROLES:  # "main protagonist", "secondary antagonist"
+        if known in r:
+            return known
+    if r in ("main", "lead", "hero", "heroine"):
+        return "protagonist"
+    if r in ("villain",):
+        return "antagonist"
+    return f"other: {r}"[:100]
+
+
+def _as_map(value) -> dict:
+    """A JSON bible field as {key: text} — the shape the key-value editor edits
+    (R5.4). A list of traits becomes {trait: ""}."""
+    if isinstance(value, dict):
+        return {
+            _s(k): _s(v) if not isinstance(v, (dict, list)) else json.dumps(v)
+            for k, v in value.items()
+            if _s(k)
+        }
+    if isinstance(value, (list, tuple)):
+        return {_s(v): "" for v in value if _s(v) and not isinstance(v, (dict, list))}
+    if isinstance(value, str) and value.strip():
+        return {value.strip(): ""}
+    return {}
+
+
+def _clean_aliases(name: str, aliases) -> list[str]:
+    """Distinct aliases that name somebody (a bare "Count" or "Dr." names no one)."""
+    out: list[str] = []
+    seen = {norm(name)}
+    for a in aliases if isinstance(aliases, (list, tuple)) else []:
+        a = " ".join(_s(a).split())
+        if a and significant(a) and norm(a) not in seen:
+            seen.add(norm(a))
+            out.append(a[:255])
+    return out
+
+
+def _normalize_character(c: dict) -> dict:
+    name = " ".join(_s(c.get("name")).split())[:255]
+    return {
+        "name": name,
+        "role": _role(c.get("role")),
+        "description": _s(c.get("description")),
+        "goals": _s(c.get("goals")),
+        "arc": _s(c.get("arc")),
+        "relationships": _as_map(c.get("relationships")),
+        "personality_traits": _as_map(c.get("personality_traits")),
+        "voice_characteristics": _as_map(c.get("voice_characteristics")),
+        "aliases": _clean_aliases(name, c.get("aliases")),
+    }
 
 
 def _normalize_proposals(raw: dict) -> dict:
-    """Coerce the model's object into the reviewed-proposal shape, defensively."""
-    characters = []
-    for c in raw.get("characters") or []:
-        if isinstance(c, dict) and str(c.get("name", "")).strip():
-            characters.append(
-                {
-                    "name": str(c.get("name", "")).strip()[:255],
-                    "role": str(c.get("role", "") or "").strip()[:100],
-                    "description": str(c.get("description", "") or "").strip(),
-                }
-            )
-    entries = []
-    for e in raw.get("canon_entries") or []:
-        if isinstance(e, dict) and str(e.get("name", "")).strip():
-            cat = str(e.get("category", "concept") or "concept").strip().lower()
-            entries.append(
-                {
-                    "name": str(e.get("name", "")).strip()[:255],
-                    "category": cat if cat in _CATEGORIES else "concept",
-                    "content": str(e.get("content", "") or "").strip(),
-                }
-            )
+    """Coerce a model object into the reviewed-proposal shape, defensively."""
+    characters = [
+        _normalize_character(c)
+        for c in raw.get("characters") or []
+        if isinstance(c, dict) and _s(c.get("name"))
+    ]
+    entries = [
+        {
+            "name": _s(e.get("name"))[:255],
+            "category": _category(e.get("category")),
+            "content": _s(e.get("content")),
+        }
+        for e in raw.get("canon_entries") or []
+        if isinstance(e, dict) and _s(e.get("name"))
+    ]
     style = raw.get("style") if isinstance(raw.get("style"), dict) else {}
-    style = {
-        k: str(style.get(k, "") or "").strip()
-        for k in ("pov", "tense", "tone", "comps")
-    }
-    synopsis = str(raw.get("synopsis", "") or "").strip()
+    style = {k: _s(style.get(k)) for k in ("pov", "tense", "tone", "comps")}
     return {
         "characters": characters,
         "canon_entries": entries,
         "style": style,
-        "synopsis": synopsis,
+        "synopsis": _s(raw.get("synopsis")),
     }
 
 
-async def extract_canon(text: str, *, user_id: Optional[UUID] = None) -> dict:
-    """Propose typed canon candidates from source text. Never writes."""
-    source_block = as_quoted_block(
-        clean_for_llm(text, max_chars=MAX_SOURCE_CHARS, label="source"), "source"
-    )
-    prompt = f"""{STORY_MATERIAL_NOTICE}
+def _normalize_window(raw: dict) -> dict:
+    """One map answer -> {characters, canon_entries, style_signals, summary}."""
+    if not isinstance(raw, dict) or not (
+        isinstance(raw.get("characters"), list)
+        or isinstance(raw.get("canon_entries"), list)
+    ):
+        # A truncated answer can still contain a complete INNER object; treating
+        # it as the window's answer would silently drop the window.
+        raise _Unreadable("not a window answer")
+    chars = []
+    for c in raw.get("characters") or []:
+        if not isinstance(c, dict):
+            continue
+        name = " ".join(_s(c.get("name")).split())[:255]
+        if not name or not significant(name):
+            continue
+        chars.append(
+            {
+                "name": name,
+                "aliases": _clean_aliases(name, c.get("aliases")),
+                "role_hint": _s(c.get("role_hint") or c.get("role"))[:100],
+                "evidence": _s(c.get("evidence") or c.get("description"))[:600],
+            }
+        )
+    entries = [
+        {
+            "name": _s(e.get("name"))[:255],
+            "category": _category(e.get("category")),
+            "content": _s(e.get("content")),
+        }
+        for e in raw.get("canon_entries") or []
+        if isinstance(e, dict) and _s(e.get("name"))
+    ]
+    signals = raw.get("style_signals")
+    if not isinstance(signals, dict) or not any(signals.values()):
+        signals = raw.get("style") if isinstance(raw.get("style"), dict) else {}
+    narrators = signals.get("narrators") if isinstance(signals, dict) else None
+    signals = {
+        "pov": _s(signals.get("pov")),
+        "tense": _s(signals.get("tense")),
+        "tone": _s(signals.get("tone")),
+        "comps": _s(signals.get("comps")),
+        "narration": _s(signals.get("narration")),
+        "narrators": [
+            " ".join(_s(n).split())
+            for n in (narrators if isinstance(narrators, list) else [])
+            if _s(n) and significant(_s(n))
+        ],
+    }
+    return {
+        "characters": chars,
+        "canon_entries": entries,
+        "style_signals": signals,
+        "summary": _s(raw.get("summary") or raw.get("synopsis")),
+    }
 
-{source_block}
 
-Extract the book's canon from the source above. Do NOT invent — only propose what
-the text supports. These are PROPOSALS the author will review.
+# --- model calls -------------------------------------------------------------
+
+
+def _map_prompt(window: str, label: str, total: int) -> str:
+    return f"""{STORY_MATERIAL_NOTICE}
+
+This is part {label} of {total} of the source.
+
+{as_quoted_block(window, "source")}
+
+List who and what appears in THIS part of the source. Do NOT invent — only what
+this part's text supports.
+- characters: every named person (or named being) who acts, speaks, narrates or
+  is discussed. "aliases" are the other names and titles this text uses for the
+  SAME person (e.g. a married name, "Mrs. X", a nickname). "evidence" is a short
+  quote or paraphrase from this part that identifies them.
+- canon_entries: named places, organisations, factions, objects and ideas.
+- style_signals.narrators: when this part is first-person narration (a diary,
+  journal or letter, or an "I" narrator), the narrator's name if the text says it
+  (a heading like "X's Journal", a letter's signature).
 
 Return ONLY a JSON object:
 {{
-  "characters": [{{"name": "...", "role": "protagonist|antagonist|supporting|...",
-     "description": "who they are, from the text"}}],
-  "canon_entries": [{{"name": "...", "category": "{_CATEGORIES}",
-     "content": "the worldbuilding fact, from the text"}}],
-  "style": {{"pov": "", "tense": "", "tone": "", "comps": ""}},
-  "synopsis": "2-4 sentence synopsis grounded in the source"
+  "characters": [{{"name": "...", "aliases": ["..."], "role_hint": "{_ROLE_HINT}",
+     "evidence": "..."}}],
+  "canon_entries": [{{"name": "...", "category": "{_CATEGORY_HINT}",
+     "content": "the fact, from the text"}}],
+  "style_signals": {{"pov": "", "tense": "", "tone": "",
+     "narration": "first-person | third-person | epistolary | mixed",
+     "narrators": []}},
+  "summary": "one or two sentences: what happens in this part"
 }}
 
 JSON:"""
+
+
+async def _json_call(
+    prompt: str,
+    *,
+    fast: bool,
+    max_tokens: int,
+    user_id: Optional[UUID],
+    purpose: str,
+    stats: dict,
+) -> dict:
     result = await get_llm_client().generate(
         [{"role": "user", "content": prompt}],
-        temperature=0.3,
-        max_tokens=4096,
+        fast=fast,
+        temperature=0.2,
+        max_tokens=max_tokens,
         user_id=user_id,
-        purpose="extraction",
+        purpose=purpose,
+        response_format={"type": "json_object"},
+    )
+    stats["calls"] = stats.get("calls", 0) + 1
+    stats["tokens"] = (
+        stats.get("tokens", 0)
+        + (getattr(result, "tokens_in", 0) or 0)
+        + (getattr(result, "tokens_out", 0) or 0)
     )
     try:
-        raw = extract_json_object(result.text)
+        return extract_json_object(result.text)
     except ValueError as e:
-        logger.warning(
-            f"Extraction JSON parse failed: {e}",
-            extra_fields={"event": "extraction_parse_failed"},
+        raise _Unreadable(str(e)) from e
+
+
+async def _map_one(
+    window: str, label: str, total: int, user_id, stats: dict
+) -> tuple[list[dict], list[str]]:
+    """One window -> its answers. Truncated output is retried ONCE as smaller
+    windows; a piece that still fails is skipped with a warning, never raised."""
+
+    async def call(text: str, lab: str) -> dict:
+        raw = await _json_call(
+            _map_prompt(text, lab, total),
+            fast=True,
+            max_tokens=_map_max_tokens(text),
+            user_id=user_id,
+            purpose="extraction_map",
+            stats=stats,
         )
-        raise ValueError("The model returned unparseable extraction output")
-    return _normalize_proposals(raw)
+        return _normalize_window(raw)
+
+    try:
+        return [await call(window, label)], []
+    except _Unreadable:
+        logger.warning(
+            f"Extraction window {label} unreadable; retrying smaller",
+            extra_fields={"event": "extraction_window_retry", "window": label},
+        )
+    pieces = split_windows(window, max(1, estimate_tokens(window) // 2 + 1))
+    if len(pieces) < 2:
+        pieces = _split_long(window, max(1, len(window) // 2 + 1))
+    results, warnings = [], []
+    for j, piece in enumerate(pieces):
+        lab = f"{label}.{j + 1}"
+        try:
+            results.append(await call(piece, lab))
+        except _Unreadable:
+            warnings.append(
+                f"Part {lab} of the source could not be read by the model and "
+                "was skipped; re-run extraction or add anything missing by hand."
+            )
+    return results, warnings
+
+
+# --- deterministic merge -------------------------------------------------------
+
+
+class _UF:
+    def __init__(self, n: int):
+        self.p = list(range(n))
+
+    def find(self, i: int) -> int:
+        while self.p[i] != i:
+            self.p[i] = self.p[self.p[i]]
+            i = self.p[i]
+        return i
+
+    def union(self, a: int, b: int) -> None:
+        ra, rb = self.find(a), self.find(b)
+        if ra != rb:
+            self.p[max(ra, rb)] = min(ra, rb)
+
+
+def _compatible(a: str, b: str) -> bool:
+    """Two primary names can be one person: one's significant tokens contain the
+    other's ("Mina" ~ "Mina Harker"), never mere overlap ("Jonathan Harker" !~
+    "Mina Harker")."""
+    sa, sb = significant(a), significant(b)
+    return bool(sa and sb) and (sa <= sb or sb <= sa)
+
+
+def _all_compatible(names: set[str]) -> bool:
+    names = list(names)
+    return all(
+        _compatible(names[i], names[j])
+        for i in range(len(names))
+        for j in range(i + 1, len(names))
+    )
+
+
+def _count_mentions(text: str, forms: list[str]) -> int:
+    """Occurrences of any of a character's names in the source (case-sensitive
+    on the surface form, so "Will" is not "will"; longest form first)."""
+    if not text or not forms:
+        return 0
+    alts = sorted({f for f in forms if f}, key=len, reverse=True)
+    pattern = "|".join(r"\s+".join(map(re.escape, f.split())) for f in alts)
+    return len(re.findall(rf"(?<!\w)(?:{pattern})(?!\w)", text))
+
+
+def merge_characters(window_answers: list[tuple[int, dict]], text: str = "") -> list:
+    """Merge every window's character candidates into one entry per person.
+
+    Linking rules, in order (union-find, so links compose):
+    1. the same name (normalised: case, punctuation, whitespace);
+    2. a candidate whose name is another candidate's alias — unless two
+       incompatible people claim that alias ("Harker" for Jonathan and Mina);
+    3. a shared alias, when it is multi-token or its owners are compatible;
+    4. names differing only by honorifics, when at least two significant
+       tokens remain ("Miss Nora Vance" ~ "Nora Vance");
+    5. a group whose every name is contained in a fuller name of exactly ONE
+       other group joins it ("Mina", "Madam Mina" -> "Mina Harker"; "Dr. Ward"
+       -> "Elias Ward") — and stays separate when that is ambiguous ("Harker"
+       with both Jonathan and Mina present).
+    """
+    cands: list[dict] = []
+    for w, ans in window_answers:
+        for c in ans.get("characters", []):
+            cands.append({**c, "window": w})
+        for n in (ans.get("style_signals") or {}).get("narrators", []):
+            cands.append(
+                {
+                    "name": n,
+                    "aliases": [],
+                    "role_hint": "narrator",
+                    "evidence": f"narrates part {w + 1}",
+                    "window": w,
+                }
+            )
+    if not cands:
+        return []
+    uf = _UF(len(cands))
+
+    by_primary: dict[str, list[int]] = defaultdict(list)
+    for i, c in enumerate(cands):
+        by_primary[norm(c["name"])].append(i)
+    for idxs in by_primary.values():
+        for i in idxs[1:]:
+            uf.union(idxs[0], i)
+
+    alias_owners: dict[str, set[str]] = defaultdict(set)
+    alias_cands: dict[str, list[int]] = defaultdict(list)
+    for i, c in enumerate(cands):
+        for a in c["aliases"]:
+            alias_owners[norm(a)].add(c["name"])
+            alias_cands[norm(a)].append(i)
+    for key, owners in alias_owners.items():
+        owners_ok = _all_compatible(owners)
+        if key in by_primary and owners_ok:  # rule 2
+            for i in alias_cands[key]:
+                uf.union(by_primary[key][0], i)
+        if len(alias_cands[key]) > 1 and (  # rule 3
+            len(significant(key)) >= 2 or owners_ok
+        ):
+            first = alias_cands[key][0]
+            for i in alias_cands[key][1:]:
+                uf.union(first, i)
+
+    # Rule 4: same significant tokens (>= 2), honorifics aside.
+    by_sig: dict[frozenset, list[int]] = defaultdict(list)
+    for i, c in enumerate(cands):
+        sig = significant(c["name"])
+        if len(sig) >= 2:
+            by_sig[frozenset(sig)].append(i)
+    for idxs in by_sig.values():
+        for i in idxs[1:]:
+            uf.union(idxs[0], i)
+
+    def groups() -> dict[int, list[int]]:
+        g: dict[int, list[int]] = defaultdict(list)
+        for i in range(len(cands)):
+            g[uf.find(i)].append(i)
+        return g
+
+    # Rule 5: a group contained in exactly one fuller group joins it.
+    sigs = {
+        root: [
+            significant(f)
+            for i in members
+            for f in (cands[i]["name"], *cands[i]["aliases"])
+            if significant(f)
+        ]
+        for root, members in groups().items()
+    }
+    width = {root: max((len(x) for x in sl), default=0) for root, sl in sigs.items()}
+    joins: list[tuple[int, int]] = []
+    for root, sig_list in sigs.items():
+        if not sig_list:
+            continue
+        hosts = [
+            other
+            for other, other_sigs in sigs.items()
+            if other != root
+            and width[other] > width[root]
+            and all(any(s <= o for o in other_sigs) for s in sig_list)
+        ]
+        if len(hosts) == 1:
+            joins.append((hosts[0], root))
+    for host, root in joins:
+        uf.union(host, root)
+
+    merged = []
+    for members in groups().values():
+        merged.append(_fold_group([cands[i] for i in members], text))
+    merged.sort(key=lambda g: (-len(g["windows"]), -g["mentions"], g["name"]))
+    return merged
+
+
+def _fold_group(members: list[dict], text: str) -> dict:
+    """One merged candidate: best name, the rest as aliases, windows, mentions."""
+    primary_counts = Counter(norm(m["name"]) for m in members)
+    surfaces: dict[str, Counter] = defaultdict(Counter)
+    for m in members:
+        name = " ".join(m["name"].split())
+        surfaces[norm(name)][name] += 2  # a primary use outranks an alias
+        for a in m["aliases"]:
+            surfaces[norm(a)][a] += 1
+
+    def rank(key: str):
+        # Most significant tokens, then most often used as the name. A one-token
+        # name keeps its title ("Count Vasska" over "Vasska"); a full name drops
+        # it ("Nora Vance" over "Miss Nora Vance").
+        sig = len(significant(key))
+        n_tok = len(tokens(key))
+        return (sig, primary_counts.get(key, 0), n_tok if sig == 1 else -n_tok)
+
+    best_key = max(sorted(surfaces), key=rank)
+    name = surfaces[best_key].most_common(1)[0][0]
+    aliases = [
+        surfaces[k].most_common(1)[0][0]
+        for k in sorted(surfaces, key=lambda k: (-sum(surfaces[k].values()), k))
+        if k != best_key
+    ]
+    hints = Counter(_role(m["role_hint"]) for m in members if m["role_hint"])
+    evidence = []
+    for m in sorted(members, key=lambda m: m["window"]):
+        line = (m["window"], m["evidence"])
+        if m["evidence"] and line not in evidence:
+            evidence.append(line)
+    windows = sorted({m["window"] for m in members})
+    # A model may normalise a name the text never spells out; the candidate's
+    # own appearances are the floor.
+    mentions = max(_count_mentions(text, [name, *aliases]), len(members))
+    return {
+        "name": name,
+        "aliases": aliases,
+        "role_hints": [h for h, _ in hints.most_common()],
+        "evidence": evidence,
+        "windows": windows,
+        "mentions": mentions,
+    }
+
+
+def merge_canon_entries(window_answers: list[tuple[int, dict]]) -> list[dict]:
+    """Canon entries merge by normalised name; category by vote; distinct
+    contents kept (in source order) rather than one picked."""
+    order: list[str] = []
+    by_key: dict[str, dict] = {}
+    for w, ans in window_answers:
+        for e in ans.get("canon_entries", []):
+            key = norm(e["name"])
+            if not key:
+                continue
+            if key not in by_key:
+                order.append(key)
+                by_key[key] = {
+                    "names": Counter(),
+                    "cats": Counter(),
+                    "contents": [],
+                    "windows": set(),
+                }
+            g = by_key[key]
+            g["names"][e["name"]] += 1
+            g["cats"][e["category"]] += 1
+            g["windows"].add(w)
+            if e["content"] and e["content"] not in g["contents"]:
+                g["contents"].append(e["content"])
+    out = []
+    for key in order:
+        g = by_key[key]
+        out.append(
+            {
+                "name": g["names"].most_common(1)[0][0],
+                "category": g["cats"].most_common(1)[0][0],
+                "content": "\n\n".join(g["contents"]),
+                "windows": len(g["windows"]),
+            }
+        )
+    out.sort(key=lambda e: -e["windows"])
+    return out
+
+
+def merge_style(window_answers: list[tuple[int, dict]]) -> dict:
+    votes: dict[str, Counter] = defaultdict(Counter)
+    for _w, ans in window_answers:
+        sig = ans.get("style_signals") or {}
+        for k in ("pov", "tense", "tone", "comps", "narration"):
+            if sig.get(k):
+                votes[k][sig[k]] += 1
+
+    def top(k: str) -> str:
+        return votes[k].most_common(1)[0][0] if votes[k] else ""
+
+    pov = top("pov")
+    narration = top("narration")
+    if narration and narration.lower() not in (pov or "").lower():
+        pov = f"{pov} ({narration})" if pov else narration
+    return {
+        "pov": pov,
+        "tense": top("tense"),
+        "tone": top("tone"),
+        "comps": top("comps"),
+    }
+
+
+# --- reduce --------------------------------------------------------------------
+
+
+def _render_candidate(g: dict, total_windows: int) -> str:
+    lines = [f"### {g['name']}"]
+    if g["aliases"]:
+        lines.append("Also called: " + ", ".join(g["aliases"]))
+    lines.append(
+        f"Mentions: {g['mentions']} across {len(g['windows'])} of "
+        f"{total_windows} parts"
+    )
+    if g["role_hints"]:
+        lines.append("Role hints: " + ", ".join(g["role_hints"]))
+    if g["evidence"]:
+        lines.append("Evidence:")
+        lines.extend(f"- (part {w + 1}) {e}" for w, e in g["evidence"][:_MAX_EVIDENCE])
+    return "\n".join(lines)
+
+
+def _reduce_prompt(batch: list[dict], total_windows: int) -> str:
+    cast = "\n\n".join(_render_candidate(g, total_windows) for g in batch)
+    return f"""{STORY_MATERIAL_NOTICE}
+
+{as_quoted_block(cast, "characters")}
+
+Write the full character entries for each character headed above, using only
+the evidence gathered from the source. Do NOT invent: leave a field empty ("",
+{{}}) when the evidence says nothing about it. Keep each name exactly as headed.
+
+Return ONLY a JSON object:
+{{"characters": [{{"name": "exactly as headed",
+   "role": "{_ROLE_HINT}",
+   "description": "who they are",
+   "goals": "what they want",
+   "arc": "how they change",
+   "relationships": {{"Other Name": "how they relate"}},
+   "personality_traits": {{"trait": "how it shows"}},
+   "voice_characteristics": {{"diction": "", "rhythm": "", "tics": ""}},
+   "aliases": ["other names the text uses for them"]}}]}}
+
+JSON:"""
+
+
+def _fallback_entry(g: dict) -> dict:
+    """The map-level proposal for a character reduce did not (or could not) write."""
+    return {
+        "name": g["name"],
+        "role": g["role_hints"][0] if g["role_hints"] else "",
+        "description": " ".join(e for _w, e in g["evidence"][:2]),
+        "goals": "",
+        "arc": "",
+        "relationships": {},
+        "personality_traits": {},
+        "voice_characteristics": {},
+        "aliases": list(g["aliases"]),
+    }
+
+
+def _attach(batch: list[dict], raw: dict) -> dict[str, dict]:
+    """Map the reduce answer back onto the batch by name (keeps OUR names)."""
+    out: dict[str, dict] = {}
+    entries = [
+        _normalize_character(c)
+        for c in (raw.get("characters") if isinstance(raw, dict) else None) or []
+        if isinstance(c, dict) and _s(c.get("name"))
+    ]
+    for g in batch:
+        keys = {norm(g["name"]), *(norm(a) for a in g["aliases"])}
+        hit = next((e for e in entries if norm(e["name"]) in keys), None)
+        if hit is None:
+            continue
+        entry = {**hit, "name": g["name"]}
+        entry["aliases"] = _clean_aliases(g["name"], [*g["aliases"], *hit["aliases"]])
+        if not entry["role"] and g["role_hints"]:
+            entry["role"] = g["role_hints"][0]
+        out[g["name"]] = entry
+    return out
+
+
+async def _reduce_batch(
+    batch: list[dict], total_windows: int, user_id, stats: dict
+) -> tuple[dict[str, dict], list[str]]:
+    async def call(part: list[dict]) -> dict[str, dict]:
+        raw = await _json_call(
+            _reduce_prompt(part, total_windows),
+            fast=False,
+            max_tokens=min(8192, 400 * len(part) + 512),
+            user_id=user_id,
+            purpose="extraction_reduce",
+            stats=stats,
+        )
+        return _attach(part, raw)
+
+    try:
+        return await call(batch), []
+    except _Unreadable:
+        pass
+    written: dict[str, dict] = {}
+    warnings: list[str] = []
+    mid = max(1, len(batch) // 2)
+    for part in (batch[:mid], batch[mid:]):
+        if not part:
+            continue
+        try:
+            written.update(await call(part))
+        except _Unreadable:
+            warnings.append(
+                "Full entries could not be written for: "
+                + ", ".join(g["name"] for g in part)
+                + " — their proposals carry only what the source scan found."
+            )
+    return written, warnings
+
+
+async def _synopsis(
+    characters: list[dict],
+    entries: list[dict],
+    summaries: list[str],
+    user_id,
+    stats: dict,
+) -> str:
+    cast = "\n\n".join(
+        "\n".join(
+            x
+            for x in (
+                f"### {c['name']}",
+                f"Role: {c['role']}" if c["role"] else "",
+                c["description"],
+            )
+            if x
+        )
+        for c in characters
+    )
+    world = "\n".join(
+        f"- {e['name']} ({e['category']}): {e['content']}".rstrip(": ") for e in entries
+    )
+    story = "\n".join(f"- {s}" for s in summaries if s)
+    prompt = f"""{STORY_MATERIAL_NOTICE}
+
+{as_quoted_block(cast, "characters")}
+
+{as_quoted_block(world, "world")}
+
+{as_quoted_block(story, "summaries")}
+
+Write the book's synopsis: 2-4 sentences grounded in the material above (the
+cast, the world, and the part-by-part summaries, in order). Do NOT invent.
+
+Return ONLY a JSON object: {{"synopsis": "..."}}
+
+JSON:"""
+    try:
+        raw = await _json_call(
+            prompt,
+            fast=False,
+            max_tokens=1024,
+            user_id=user_id,
+            purpose="extraction_synopsis",
+            stats=stats,
+        )
+    except _Unreadable:
+        return ""
+    return _s(raw.get("synopsis")) if isinstance(raw, dict) else ""
+
+
+# --- entrypoint ----------------------------------------------------------------
+
+
+def _text_hash(windows: list[str]) -> str:
+    h = hashlib.sha256()
+    for w in windows:
+        h.update(w.encode("utf-8"))
+        h.update(b"\x00")
+    return h.hexdigest()[:16]
+
+
+async def _save(save_checkpoint: SaveCheckpoint, data: dict) -> None:
+    if save_checkpoint is not None:
+        await save_checkpoint(data)
+
+
+async def run_map(
+    windows: list[str],
+    *,
+    user_id: Optional[UUID] = None,
+    checkpoint: Optional[dict] = None,
+    save_checkpoint: SaveCheckpoint = None,
+) -> dict:
+    """The map loop: one call per window, checkpointed after each window.
+
+    `checkpoint`/`save_checkpoint` have the shape `run_prose_scene_workflow`
+    uses (SPEC-08): a resumed job skips every window already answered. A
+    checkpoint taken over different text is discarded.
+    """
+    checkpoint = dict(checkpoint or {})
+    text_hash = _text_hash(windows)
+    if checkpoint.get("text_hash") != text_hash:
+        checkpoint = {"text_hash": text_hash}
+    checkpoint.setdefault("map", {})
+    checkpoint.setdefault("warnings", [])
+    checkpoint.setdefault("stats", {"calls": 0, "tokens": 0})
+    checkpoint["phase"] = "map"
+    checkpoint["windows_total"] = len(windows)
+    done: dict = dict(checkpoint["map"])
+    for i, window in enumerate(windows):
+        if str(i) in done:
+            continue
+        stats = dict(checkpoint["stats"])
+        answers, warnings = await _map_one(
+            window, str(i + 1), len(windows), user_id, stats
+        )
+        done[str(i)] = answers
+        checkpoint.update(
+            map=dict(done),
+            stats=stats,
+            warnings=[*checkpoint["warnings"], *warnings],
+            windows_done=len(done),
+        )
+        await _save(save_checkpoint, checkpoint)
+    checkpoint["windows_done"] = len(done)
+    return checkpoint
+
+
+async def extract_canon(
+    text: str,
+    *,
+    user_id: Optional[UUID] = None,
+    checkpoint: Optional[dict] = None,
+    save_checkpoint: SaveCheckpoint = None,
+    window_tokens: int = WINDOW_TOKENS,
+) -> dict:
+    """Propose typed canon candidates from source text, map-reduce. Never writes.
+
+    Returns the reviewed-proposal shape plus `stats` and `warnings`; every
+    character proposal carries `mentions` and `windows` so the review UI can
+    rank them and pre-deselect one-window names.
+    """
+    text = clean_for_llm(text, max_chars=MAX_SOURCE_CHARS, label="source")
+    windows = split_windows(text, window_tokens)
+    if not windows:
+        return {**_normalize_proposals({}), "stats": {"windows": 0}, "warnings": []}
+
+    checkpoint = await run_map(
+        windows,
+        user_id=user_id,
+        checkpoint=checkpoint,
+        save_checkpoint=save_checkpoint,
+    )
+    answers: list[tuple[int, dict]] = [
+        (int(i), a)
+        for i, lst in sorted(checkpoint["map"].items(), key=lambda kv: int(kv[0]))
+        for a in lst
+    ]
+    groups = merge_characters(answers, text)
+    entries = merge_canon_entries(answers)
+    style = merge_style(answers)
+    total = len(windows)
+
+    # Reduce: full entries for the best-attested characters, ~10 per call.
+    reduced = groups[:MAX_REDUCED_CHARACTERS]
+    batches = [
+        reduced[i : i + REDUCE_BATCH] for i in range(0, len(reduced), REDUCE_BATCH)
+    ]
+    done_reduce: dict = dict(checkpoint.get("reduce") or {})
+    checkpoint.update(phase="reduce", reduce_total=len(batches))
+    for b, batch in enumerate(batches):
+        if str(b) in done_reduce:
+            continue
+        stats = dict(checkpoint["stats"])
+        written, warnings = await _reduce_batch(batch, total, user_id, stats)
+        done_reduce[str(b)] = written
+        checkpoint.update(
+            reduce=dict(done_reduce),
+            reduce_done=len(done_reduce),
+            stats=stats,
+            warnings=[*checkpoint["warnings"], *warnings],
+        )
+        await _save(save_checkpoint, checkpoint)
+    written_all: dict[str, dict] = {}
+    for part in done_reduce.values():
+        written_all.update(part)
+
+    characters = []
+    for g in groups:
+        entry = written_all.get(g["name"]) or _fallback_entry(g)
+        characters.append(
+            {
+                **entry,
+                "mentions": g["mentions"],
+                "windows": len(g["windows"]),
+                # The review's default (eval-plan E5): seen in 2+ windows, or a
+                # narrator. One-window names are proposed but pre-deselected.
+                "selected": total == 1
+                or len(g["windows"]) >= 2
+                or entry.get("role") == "narrator"
+                or "narrator" in g["role_hints"],
+            }
+        )
+
+    # Synopsis last, from the merged canon.
+    if "synopsis" not in checkpoint:
+        checkpoint["phase"] = "synopsis"
+        stats = dict(checkpoint["stats"])
+        summaries = [a.get("summary", "") for _w, a in answers]
+        checkpoint["synopsis"] = await _synopsis(
+            characters[:MAX_REDUCED_CHARACTERS], entries, summaries, user_id, stats
+        )
+        checkpoint["stats"] = stats
+        await _save(save_checkpoint, checkpoint)
+
+    stats = checkpoint["stats"]
+    return {
+        "characters": characters,
+        "canon_entries": [
+            {k: e[k] for k in ("name", "category", "content")} for e in entries
+        ],
+        "style": style,
+        "synopsis": checkpoint["synopsis"],
+        "stats": {
+            "windows": total,
+            "calls": stats.get("calls", 0),
+            "tokens": stats.get("tokens", 0),
+            "reduce_calls": len(batches),
+        },
+        "warnings": list(checkpoint["warnings"]),
+    }
+
+
+def plan_estimate(text: str, window_tokens: int = WINDOW_TOKENS) -> dict:
+    """What an extraction of `text` will cost, before it is enqueued (R7.3/R7.5).
+
+    Upper-bound-ish: every window's full input plus its answer budget, a reduce
+    call per ~10 expected characters, and the synopsis.
+    """
+    windows = split_windows(text, window_tokens)
+    n = len(windows)
+    map_tokens = sum(
+        estimate_tokens(w) + 600 + _map_max_tokens(w) // 2 for w in windows
+    )
+    expected_chars = min(MAX_REDUCED_CHARACTERS, 8 + 6 * n)
+    reduce_calls = math.ceil(expected_chars / REDUCE_BATCH) if n else 0
+    reduce_tokens = reduce_calls * (2_500 + 2_500)
+    synopsis_tokens = 3_000 if n else 0
+    return {
+        "windows": n,
+        "map_calls": n,
+        "reduce_calls": reduce_calls,
+        "requests": n + reduce_calls + (1 if n else 0),
+        "estimated_tokens": map_tokens + reduce_tokens + synopsis_tokens,
+    }

@@ -64,13 +64,19 @@ async def test_run_once_success_path(async_session, test_user, monkeypatch):
 
 
 async def test_run_once_failure_requeues_then_dead_runs_on_dead(
-    async_session, test_user, monkeypatch
+    async_session, test_user, test_book, monkeypatch
 ):
     """A failing handler retries with backoff, then goes dead and the
     on_dead hook flips the related scene out of 'processing'."""
     _bind_sessions(monkeypatch, async_session)
 
-    scene = Scene(user_id=test_user.id, title="S", status="processing", position=0)
+    scene = Scene(
+        user_id=test_user.id,
+        book_id=test_book.id,
+        title="S",
+        status="processing",
+        position=0,
+    )
     async_session.add(scene)
     await async_session.commit()
 
@@ -116,7 +122,7 @@ async def test_run_once_failure_requeues_then_dead_runs_on_dead(
 
 
 async def test_quota_pause_marks_scene_paused_then_resume_completes(
-    async_session, test_user, monkeypatch
+    async_session, test_user, test_book, monkeypatch
 ):
     """A QuotaExhaustedError pauses the job AND flips the scene to 'paused' (not a
     stuck 'processing'); a successful resume flips it back to 'completed'."""
@@ -126,7 +132,13 @@ async def test_quota_pause_marks_scene_paused_then_resume_completes(
     from app.jobs.handlers import _pause_scene
     from app.llm.errors import QuotaExhaustedError
 
-    scene = Scene(user_id=test_user.id, title="S", status="processing", position=0)
+    scene = Scene(
+        user_id=test_user.id,
+        book_id=test_book.id,
+        title="S",
+        status="processing",
+        position=0,
+    )
     async_session.add(scene)
     await async_session.commit()
 

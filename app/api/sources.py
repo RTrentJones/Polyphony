@@ -36,7 +36,11 @@ from app.core.orm_models import (
     source_characters,
 )
 from app.core.security import get_current_active_user
-from app.parsing.extraction_service import enqueue_extraction
+from app.parsing.extraction_service import (
+    ExtractionTooLarge,
+    enqueue_extraction,
+    too_large_http,
+)
 from app.parsing.pipeline import (
     UploadValidationError,
     save_upload,
@@ -128,6 +132,7 @@ async def upload_source(
         content_hash=saved["content_hash"],
         content_text=saved["text"],
         word_count=saved["word_count"],
+        format=saved.get("format"),
         status=SourceStatus.COMPLETED.value,  # the file is stored + parsed
     )
     db.add(source)
@@ -135,9 +140,7 @@ async def upload_source(
     # Extraction PROPOSES; the author approves before any canon is written
     # (docs/BRD.md R4.4, PR review #1). Upload starts an extraction run, never a
     # direct write — canon is created only via the reviewed commit.
-    run, job = await enqueue_extraction(
-        db, book_id=book.id, source_id=source.id, user_id=current_user.id
-    )
+    run, preflight = await _start_extraction(db, source)
     await db.commit()
     await db.refresh(source)
 
@@ -148,9 +151,15 @@ async def upload_source(
         "author": source.author,
         "word_count": source.word_count,
         "status": source.status,
-        "extraction_run_id": str(run.id),
-        "job_id": str(job.id),
-        "message": "Source uploaded. Extracting canon for your review.",
+        "format": source.format,
+        "extraction_run_id": str(run.id) if run else None,
+        "job_id": str(run.job_id) if run else None,
+        "preflight": preflight,
+        "message": (
+            "Source uploaded. Extracting canon for your review."
+            if run
+            else f"Source uploaded. {preflight.get('message', '')}".strip()
+        ),
     }
 
 
@@ -166,17 +175,39 @@ class SourceEditRequest(BaseModel):
     content_text: Optional[str] = Field(None, min_length=1)
 
 
+async def _start_extraction(
+    db: AsyncSession, source: SourceORM
+) -> tuple[Optional[ExtractionRunORM], Optional[dict]]:
+    """Preflight + enqueue for a just-stored source (SPEC-09). A refused
+    preflight keeps the source (the upload is not lost) and returns no run; the
+    response carries the estimate and the "first N chapters" alternative, which
+    the author starts with POST /books/{id}/sources/{id}/extract."""
+    try:
+        run = await enqueue_extraction(
+            db,
+            book_id=source.book_id,
+            source_id=source.id,
+            user_id=source.user_id,
+            text=source.content_text,
+        )
+    except ExtractionTooLarge as e:
+        return None, e.preflight
+    return run, run.preflight
+
+
 def _source_response(
     source: SourceORM,
     run_id: Optional[str],
     verb: str,
+    preflight: Optional[dict] = None,
     job_id: Optional[str] = None,
 ) -> dict:
-    msg = (
-        f"Source {verb}. Extracting canon for your review."
-        if run_id
-        else f"Source {verb}."
-    )
+    if run_id:
+        msg = f"Source {verb}. Extracting canon for your review."
+    elif preflight and not preflight.get("fits", True):
+        msg = f"Source {verb}. {preflight.get('message', '')}".strip()
+    else:
+        msg = f"Source {verb}."
     return {
         "id": str(source.id),
         "book_id": str(source.book_id),
@@ -184,8 +215,10 @@ def _source_response(
         "author": source.author,
         "word_count": source.word_count,
         "status": source.status,
+        "format": source.format,
         "extraction_run_id": run_id,
         "job_id": job_id,
+        "preflight": preflight,
         "message": msg,
     }
 
@@ -231,16 +264,21 @@ async def paste_source(
         content_hash=content_hash,
         content_text=text,
         word_count=word_count,
+        format="paste",
         status=SourceStatus.COMPLETED.value,
     )
     db.add(source)
     await db.flush()
-    run, job = await enqueue_extraction(
-        db, book_id=book.id, source_id=source.id, user_id=current_user.id
-    )
+    run, preflight = await _start_extraction(db, source)
     await db.commit()
     await db.refresh(source)
-    return _source_response(source, str(run.id), "added", str(job.id))
+    return _source_response(
+        source,
+        str(run.id) if run else None,
+        "added",
+        preflight,
+        str(run.job_id) if run else None,
+    )
 
 
 @router.patch("/{source_id}", response_model=dict)
@@ -256,6 +294,7 @@ async def edit_source(
     source = await _owned_source(source_id, current_user, db)
     run_id: Optional[str] = None
     job_id: Optional[str] = None
+    preflight: Optional[dict] = None
     if payload.title is not None:
         source.title = payload.title
     if payload.content_text is not None and payload.content_text != (
@@ -267,11 +306,9 @@ async def edit_source(
             payload.content_text.encode("utf-8")
         ).hexdigest()
         source.word_count = len(payload.content_text.split())
-        run, job = await enqueue_extraction(
-            db, book_id=source.book_id, source_id=source.id, user_id=current_user.id
-        )
-        run_id = str(run.id)
-        job_id = str(job.id)
+        run, preflight = await _start_extraction(db, source)
+        run_id = str(run.id) if run else None
+        job_id = str(run.job_id) if run else None
     try:
         await db.commit()
     except IntegrityError:
@@ -281,7 +318,7 @@ async def edit_source(
             detail="Another source in this book already has this content",
         )
     await db.refresh(source)
-    return _source_response(source, run_id, "updated", job_id)
+    return _source_response(source, run_id, "updated", preflight, job_id)
 
 
 @router.get("/", response_model=dict)
@@ -343,6 +380,7 @@ async def list_sources(
                 "title": s.title,
                 "author": s.author,
                 "word_count": s.word_count,
+                "format": s.format,
                 "status": s.status,
                 "uploaded_at": s.uploaded_at.isoformat() if s.uploaded_at else None,
                 "processed_at": s.processed_at.isoformat() if s.processed_at else None,
@@ -412,6 +450,7 @@ async def get_source(
         "title": source.title,
         "author": source.author,
         "word_count": source.word_count,
+        "format": source.format,
         "status": source.status,
         # The stored text so a paste source can be viewed/edited in place.
         "content_text": source.content_text,
@@ -506,13 +545,21 @@ async def reprocess_source(
             detail="Source has no stored content to process",
         )
     await check_user_budget(db, current_user.id)
-    run, job = await enqueue_extraction(
-        db, book_id=source.book_id, source_id=source.id, user_id=current_user.id
-    )
+    try:
+        run = await enqueue_extraction(
+            db,
+            book_id=source.book_id,
+            source_id=source.id,
+            user_id=current_user.id,
+            text=source.content_text,
+        )
+    except ExtractionTooLarge as e:
+        raise too_large_http(e)
     await db.commit()
     return {
         "id": str(source.id),
         "extraction_run_id": str(run.id),
-        "job_id": str(job.id),
+        "job_id": str(run.job_id),
         "status": run.status,
+        "preflight": run.preflight,
     }

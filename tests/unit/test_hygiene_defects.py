@@ -87,7 +87,7 @@ class TestThreadEventScope:
         foreign = [
             Scene(user_id=test_user.id, chapter_id=other_ch.id, title="c"),
             Scene(user_id=test_user.id, source_id=other_src.id, title="d"),
-            Scene(user_id=test_user.id, title="orphan"),  # no chapter, no source
+            # (A scene with no book at all can no longer exist — SPEC-04.)
         ]
         for scene in foreign:
             await _add(async_session, scene)

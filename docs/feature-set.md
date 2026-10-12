@@ -14,6 +14,7 @@ product's whole history.
 |---|---|---|---|
 | Book: title, author, genre, synopsis, status | — | ✅ | `synopsis` is unbounded `Text`; needs an editor sized for real prose (R5.1) |
 | Characters scoped to exactly one book | R3.1 | ⬜ | `book_id` → `NOT NULL CASCADE`. Today the column exists and **no code writes it** |
+| Scenes scoped to exactly one book | R3.1 | ✅ | `scenes.book_id NOT NULL CASCADE` (SPEC-04); chapter delete moves or deletes its scenes, never orphans them |
 | Character names unique within a book | R3.2 | ⬜ | Today manual characters have **no uniqueness at all** (index keyed on NULL `manuscript_id`) |
 | Character bible fields (role, goals, arc, relationships, traits, voice, notes) | — | ✅ | Exist on the model; `goals`/`arc`/`relationships`/`notes` are **dropped** by the outline's bible renderer |
 | Canon entries (categorised worldbuilding) | — | ⬜ | `category`: world / location / faction / item / concept / org |
@@ -32,6 +33,12 @@ product's whole history.
 | Deleting a source never deletes the cast | — | ⬜ | `characters.source_id` → `SET NULL` **and** drop the ORM cascade — both halves or neither |
 | Per-user content-hash dedupe | — | ✅ | Deliberately per-user: a global unique leaks a cross-tenant existence oracle (migration `0003`) |
 | Extraction → **proposed** canon, reviewed per item | R4.4 | ⬜ | Proposes; never commits silently |
+| Extraction at manuscript scale (map-reduce) | R4.4 | ✅ | SPEC-09: ~12k-token windows, alias-aware merge, batched full entries, synopsis last; truncated window retried smaller, never fails the run; per-window checkpoint |
+| Extraction cost preflight | R4.4, R7.3, R7.5 | ✅ | Estimate returned on enqueue; refused with "first N chapters" when it cannot finish within `JOB_MAX_PAUSE_HOURS` |
+| Proposals ranked by mentions / windows | R4.4 | ✅ | One-window names pre-deselected unless a narrator (eval-plan E5) |
+| Character aliases (`characters.aliases`) | R1.4, R4.5 | ✅ | Proposed by extraction, editable; honoured by fidelity (`Canon.principals`, `canon_terms`), commit merging and scene casting |
+| Paragraph normalisation for every format | — | ✅ | HTML block elements, DOCX paragraphs, PDF line-joining → blank-line paragraphs; `Source.format` recorded as an eval covariate |
+| Narrator voice attribution | — | ✅ | First-person sections headed "X's Journal" / "Letter, X to Y" (or a lone narrator) are indexed as X's voice |
 
 ## 3. Generation
 
@@ -116,7 +123,8 @@ product's whole history.
 | Per-user daily token budget | — | ✅ | `USER_DAILY_TOKEN_LIMIT=200_000` (our own number) |
 | Token/cost metrics + `api_usage` accounting | — | ✅ | Already per-user and per-purpose — the paid-tier foundation |
 | `Tier` capability object | R7.6 | ⬜ | One object read by budget/client/planning/ensemble |
-| Quota exhaustion **pauses**, never fails | R7.2 | ⬜ | Re-queue via the existing `jobs.available_at`; honour server retry interval |
+| Quota exhaustion **pauses**, never fails | R7.2 | ✅ | Re-queue via `jobs.available_at`; mirrored on every domain row with a resume time; bounded by `JOB_MAX_PAUSE_HOURS`; cancellable (SPEC-07) |
+| Incremental resume (no repeated model call) | R7.2 | ✅ | Job-scoped checkpoints: prose beats, ensemble agent calls, staged-outline stages/acts, extraction windows; canon drift restarts (SPEC-08) |
 | Preflight multi-call jobs against budget | R7.3 | ⬜ | Refuse to start rather than half-write |
 | Graceful degradation | R7.4 | ⬜ | Staged → single-call; ensemble → prose |
 | Show cost before an expensive action | R7.5 | ⬜ | |
@@ -145,8 +153,9 @@ product's whole history.
 | Rate limits per real client IP (trusted `CF-Connecting-IP`) and per user | ✅ | SPEC-05 / F7. Was keyed on the tunnel, so every limit was global |
 | Per-email failed-login limit; polling and LLM route classes; `Retry-After` | ✅ | SPEC-05. UI polls back off on 429 |
 | Background jobs (lock, retry, dead-letter) | ✅ | `available_at` already exists — the pause/resume mechanism |
+| Jobs API: `GET /jobs/{id}`, `POST /jobs/{id}/cancel` | ✅ | SPEC-07. Status, resume time, progress `{done,total}`; every enqueueing endpoint returns `job_id`; dedupe keys + `Idempotency-Key` on scene generation; one `JobStatusBadge` across scenes, outline, extraction, continuity |
 | One container, one Postgres (+pgvector) | ✅ | ADR-001 |
 | Explicit-DDL migration baseline | ⬜ | `0001`'s `create_all` **drifts with the ORM**; the trap already bit `0006` |
-| Book-scoped UI (characters + sources under the book) | ⬜ | Today both are top-level routes with zero book awareness |
+| Book-scoped UI (characters + sources + scenes under the book) | 🚧 | Scenes are book-rooted and listed per book (SPEC-04); deleting a chapter asks where its scenes go. `/scenes/` stays only as an authenticated list of scenes reachable through the user's books |
 | `BookProvider` in the frontend | ⬜ | Minimal — `?id=` is prop-drilled today; resist a grand refactor |
 | Prometheus metrics, health, `/__version` SHA gate | ✅ | |

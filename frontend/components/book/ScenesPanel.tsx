@@ -17,6 +17,7 @@ import type { BookChapter, BookSceneSummary } from '@/lib/types'
 import { SCENE_STATUS_STYLES } from '@/components/book/styles'
 import JobStatusBadge from '@/components/JobStatusBadge'
 import { isActiveJob } from '@/lib/jobs'
+import { rateLimitedPollDelay } from '@/lib/rate-limit'
 
 export default function ScenesPanel({
   bookId,
@@ -51,6 +52,13 @@ export default function ScenesPanel({
         pollRef.current = setTimeout(load, 5000)
       }
     } catch (err: any) {
+      // Rate-limited (SPEC-05): wait the long way round instead of toasting.
+      const backoff = rateLimitedPollDelay(err)
+      if (backoff !== null) {
+        if (pollRef.current) clearTimeout(pollRef.current)
+        pollRef.current = setTimeout(load, backoff)
+        return
+      }
       addToast(err.message || 'Failed to load scenes', 'error')
     } finally {
       setLoading(false)

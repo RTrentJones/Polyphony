@@ -18,6 +18,7 @@ import {
   Wand2,
 } from 'lucide-react'
 import Button from '@/components/Button'
+import DeleteChapterModal from '@/components/book/DeleteChapterModal'
 import GenerateSceneModal from '@/components/book/GenerateSceneModal'
 import Card from '@/components/Card'
 import Input from '@/components/Input'
@@ -46,7 +47,6 @@ export default function ChaptersSection({
     createChapter,
     fetchChapter,
     moveChapter,
-    deleteChapter,
     moveScene,
   } = useBookStore()
 
@@ -56,6 +56,7 @@ export default function ChaptersSection({
   const [addError, setAddError] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [generateFor, setGenerateFor] = useState<BookChapter | null>(null)
+  const [deleteFor, setDeleteFor] = useState<BookChapter | null>(null)
   const [busy, setBusy] = useState(false)
 
   const chapters = currentBook?.chapters ?? []
@@ -107,15 +108,8 @@ export default function ChaptersSection({
     }
   }
 
-  const handleDeleteChapter = async (chapter: BookChapter) => {
-    if (!confirm(`Delete chapter "${chapter.title}" and its scenes?`)) return
-    try {
-      await deleteChapter(bookId, chapter.id)
-      addToast('Chapter deleted', 'success')
-    } catch (err: any) {
-      addToast(err.message || 'Failed to delete chapter', 'error')
-    }
-  }
+  // A chapter with scenes asks where they go (SPEC-04) — see DeleteChapterModal.
+  const handleDeleteChapter = (chapter: BookChapter) => setDeleteFor(chapter)
 
   const handleMoveScene = async (
     chapterId: string,
@@ -404,6 +398,18 @@ export default function ChaptersSection({
           chapter={generateFor}
           onClose={() => setGenerateFor(null)}
           onGenerated={onSceneGenerated}
+        />
+      )}
+      {deleteFor && (
+        <DeleteChapterModal
+          bookId={bookId}
+          chapter={deleteFor}
+          chapters={chapters}
+          onClose={() => setDeleteFor(null)}
+          onDeleted={(message) => {
+            setDeleteFor(null)
+            addToast(message, 'success')
+          }}
         />
       )}
     </Card>

@@ -48,6 +48,9 @@ class CharacterCreate(BaseModel):
     goals: Optional[str] = None
     arc: Optional[str] = None
     notes: Optional[str] = None
+    # Other names for this character ("the CEL"); honoured by fidelity and
+    # scene casting (SPEC-09).
+    aliases: Optional[list[str]] = None
 
 
 class CharacterUpdate(BaseModel):
@@ -60,6 +63,7 @@ class CharacterUpdate(BaseModel):
     goals: Optional[str] = None
     arc: Optional[str] = None
     notes: Optional[str] = None
+    aliases: Optional[list[str]] = None
 
 
 class VoiceSamples(BaseModel):
@@ -180,6 +184,7 @@ async def create_character(
         goals=payload.goals,
         arc=payload.arc,
         notes=payload.notes,
+        aliases=[a.strip() for a in payload.aliases or [] if a.strip()] or None,
     )
     db.add(character)
     try:
@@ -227,6 +232,7 @@ async def get_character(
         "goals": character.goals,
         "arc": character.arc,
         "notes": character.notes,
+        "aliases": character.aliases or [],
         "dialogue_count": character.dialogue_count,
         "indexed_at": (
             character.indexed_at.isoformat() if character.indexed_at else None
@@ -254,6 +260,7 @@ async def update_character(
         "goals",
         "arc",
         "notes",
+        "aliases",
     ):
         value = getattr(payload, field_name)
         if value is not None:

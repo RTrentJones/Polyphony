@@ -744,7 +744,7 @@ async def test_spec07_migration_downgrades_and_reapplies(pg):
 
     cfg = Config("alembic.ini")
     cfg.set_main_option("script_location", "alembic")
-    await asyncio.to_thread(command.downgrade, cfg, "0011")
+    await asyncio.to_thread(command.downgrade, cfg, "spec09_extraction_scale")
     try:
         async with pg() as s:
             cols = set(
