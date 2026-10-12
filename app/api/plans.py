@@ -10,7 +10,7 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,7 +32,6 @@ from app.core.orm_models import (
     PlotThread as PlotThreadORM,
     PlotThreadEvent as PlotThreadEventORM,
     Scene as SceneORM,
-    Source as SourceORM,
     StyleGuide as StyleGuideORM,
     User as UserORM,
 )
@@ -479,17 +478,12 @@ async def _chapter_in_book(chapter_id: UUID, book_id: UUID, db: AsyncSession) ->
 
 
 async def _scene_in_book(scene_id: UUID, book_id: UUID, db: AsyncSession) -> bool:
-    """A scene belongs to a book through its chapter or its source (scenes do not
-    all carry a `book_id` of their own yet)."""
-    in_book = [ChapterORM.book_id == book_id, SourceORM.book_id == book_id]
-    if hasattr(SceneORM, "book_id"):
-        in_book.append(SceneORM.book_id == book_id)
+    """A scene belongs to the book it carries (scenes are book-rooted, SPEC-04)."""
     return (
         await db.execute(
-            select(SceneORM.id)
-            .outerjoin(ChapterORM, SceneORM.chapter_id == ChapterORM.id)
-            .outerjoin(SourceORM, SceneORM.source_id == SourceORM.id)
-            .where(SceneORM.id == scene_id, or_(*in_book))
+            select(SceneORM.id).where(
+                SceneORM.id == scene_id, SceneORM.book_id == book_id
+            )
         )
     ).first() is not None
 
