@@ -1,5 +1,7 @@
 """Character bible endpoints: CRUD, voice seeding, voice testing."""
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -11,6 +13,7 @@ from datetime import datetime, timezone
 
 from app.characters.dialogue import generate_dialogue
 from app.characters.serialize import character_snapshot as _character_content
+from app.core.budget import check_user_budget
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.orm_models import (
@@ -24,6 +27,11 @@ from app.rag.store import get_chunk_store
 from app.versioning import repository as versions_repo
 
 router = APIRouter()
+
+# test-dialogue is the one LLM call allowed inside a request (SPEC-07): a fast
+# model and a short answer, held well under the proxy's 100 s origin timeout so
+# 429 backoff can never surface as a 524 while the call carries on server-side.
+TEST_DIALOGUE_BUDGET_SECONDS = 45.0
 
 
 class CharacterCreate(BaseModel):
@@ -339,17 +347,41 @@ async def test_dialogue(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Test a character's voice before using them in scenes."""
+    """Test a character's voice before using them in scenes.
+
+    Synchronous by design (one quick call), so it is bounded instead: the
+    author's daily budget is checked first, and the whole call — including any
+    429 backoff — gets TEST_DIALOGUE_BUDGET_SECONDS.
+    """
+    from app.llm.errors import QuotaExhaustedError
+
     character = await _owned_character(character_id, current_user, db)
-    response = await generate_dialogue(
-        character_id=str(character.id),
-        character_name=character.name,
-        beat_description=payload.prompt,
-        scene_context={"description": payload.context or payload.prompt},
-        emotional_state="neutral",
-        other_characters=[],
-        user_id=current_user.id,
-    )
+    await check_user_budget(db, current_user.id)
+    try:
+        response = await asyncio.wait_for(
+            generate_dialogue(
+                character_id=str(character.id),
+                character_name=character.name,
+                beat_description=payload.prompt,
+                scene_context={"description": payload.context or payload.prompt},
+                emotional_state="neutral",
+                other_characters=[],
+                user_id=current_user.id,
+            ),
+            timeout=TEST_DIALOGUE_BUDGET_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="The model is busy right now; try the voice test again shortly.",
+        )
+    except QuotaExhaustedError as e:
+        headers = {"Retry-After": str(int(e.reset_after))} if e.reset_after else None
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="The AI quota is used up for now; try the voice test later.",
+            headers=headers,
+        )
     return response
 
 

@@ -153,6 +153,7 @@ async def upload_source(
         "status": source.status,
         "format": source.format,
         "extraction_run_id": str(run.id) if run else None,
+        "job_id": str(run.job_id) if run else None,
         "preflight": preflight,
         "message": (
             "Source uploaded. Extracting canon for your review."
@@ -199,6 +200,7 @@ def _source_response(
     run_id: Optional[str],
     verb: str,
     preflight: Optional[dict] = None,
+    job_id: Optional[str] = None,
 ) -> dict:
     if run_id:
         msg = f"Source {verb}. Extracting canon for your review."
@@ -215,6 +217,7 @@ def _source_response(
         "status": source.status,
         "format": source.format,
         "extraction_run_id": run_id,
+        "job_id": job_id,
         "preflight": preflight,
         "message": msg,
     }
@@ -269,7 +272,13 @@ async def paste_source(
     run, preflight = await _start_extraction(db, source)
     await db.commit()
     await db.refresh(source)
-    return _source_response(source, str(run.id) if run else None, "added", preflight)
+    return _source_response(
+        source,
+        str(run.id) if run else None,
+        "added",
+        preflight,
+        str(run.job_id) if run else None,
+    )
 
 
 @router.patch("/{source_id}", response_model=dict)
@@ -284,6 +293,7 @@ async def edit_source(
     the author re-approves. Lets an author fix or expand pasted material."""
     source = await _owned_source(source_id, current_user, db)
     run_id: Optional[str] = None
+    job_id: Optional[str] = None
     preflight: Optional[dict] = None
     if payload.title is not None:
         source.title = payload.title
@@ -298,6 +308,7 @@ async def edit_source(
         source.word_count = len(payload.content_text.split())
         run, preflight = await _start_extraction(db, source)
         run_id = str(run.id) if run else None
+        job_id = str(run.job_id) if run else None
     try:
         await db.commit()
     except IntegrityError:
@@ -307,7 +318,7 @@ async def edit_source(
             detail="Another source in this book already has this content",
         )
     await db.refresh(source)
-    return _source_response(source, run_id, "updated", preflight)
+    return _source_response(source, run_id, "updated", preflight, job_id)
 
 
 @router.get("/", response_model=dict)
@@ -354,6 +365,11 @@ async def list_sources(
         )
         for r in runs:
             latest_by_source.setdefault(r.source_id, r)  # first seen = newest
+    from app.api.jobs import latest_jobs
+
+    run_jobs = await latest_jobs(
+        db, "extraction_run", [r.id for r in latest_by_source.values()]
+    )
 
     return {
         "sources": [
@@ -372,6 +388,7 @@ async def list_sources(
                     {
                         "id": str(latest_by_source[s.id].id),
                         "status": latest_by_source[s.id].status,
+                        "job": run_jobs.get(str(latest_by_source[s.id].id)),
                     }
                     if s.id in latest_by_source
                     else None
@@ -421,6 +438,11 @@ async def get_source(
             .limit(1)
         )
     ).scalar_one_or_none()
+    from app.api.jobs import latest_jobs
+
+    run_jobs = await latest_jobs(
+        db, "extraction_run", [latest_run.id] if latest_run else []
+    )
     return {
         "id": str(source.id),
         "book_id": str(source.book_id),
@@ -437,7 +459,11 @@ async def get_source(
             source.processed_at.isoformat() if source.processed_at else None
         ),
         "latest_extraction": (
-            {"id": str(latest_run.id), "status": latest_run.status}
+            {
+                "id": str(latest_run.id),
+                "status": latest_run.status,
+                "job": run_jobs.get(str(latest_run.id)),
+            }
             if latest_run
             else None
         ),
@@ -533,6 +559,7 @@ async def reprocess_source(
     return {
         "id": str(source.id),
         "extraction_run_id": str(run.id),
+        "job_id": str(run.job_id),
         "status": run.status,
         "preflight": run.preflight,
     }

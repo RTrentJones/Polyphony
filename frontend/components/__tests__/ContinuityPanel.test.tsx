@@ -12,6 +12,13 @@ const planning = vi.hoisted(() => ({
 
 vi.mock('@/lib/books-store', () => ({ usePlanningStore: () => planning }))
 
+// A report with a live job renders the shared JobStatusBadge (SPEC-07); keep its
+// poll pending so the badge shows the list's summary.
+vi.mock('@/lib/jobs', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/jobs')>()
+  return { ...real, getJob: () => new Promise(() => {}), cancelJob: vi.fn() }
+})
+
 function report(overrides: Partial<ContinuityReport>): ContinuityReport {
   return {
     id: 'r-1',
@@ -92,5 +99,24 @@ describe('ContinuityPanel report status', () => {
     ])
     const container = screen.getByText('completed').closest('.space-y-4') as HTMLElement
     expect(within(container).getByText('failed')).toBeInTheDocument()
+  })
+
+  it('a report with a live paused job shows the resume time and Cancel', () => {
+    const at = new Date(2026, 9, 12, 14, 5).toISOString()
+    renderWith([
+      report({
+        status: 'paused',
+        findings: null,
+        job: { job_id: 'j-1', status: 'paused', resume_at: at, progress: null },
+      }),
+    ])
+    expect(screen.getByText('paused (resumes ~14:05)')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
+    expect(screen.getByText(/Waiting for AI quota/)).toBeInTheDocument()
+  })
+
+  it('cancelled says so', () => {
+    renderWith([report({ status: 'cancelled', findings: null })])
+    expect(screen.getByText('This check was cancelled.')).toBeInTheDocument()
   })
 })

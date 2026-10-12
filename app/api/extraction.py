@@ -203,7 +203,12 @@ async def start_extraction(
     except ExtractionTooLarge as e:
         raise too_large_http(e)
     await db.commit()
-    return {"run_id": str(run.id), "status": run.status, "preflight": run.preflight}
+    return {
+        "run_id": str(run.id),
+        "job_id": str(run.job_id),
+        "status": run.status,
+        "preflight": run.preflight,
+    }
 
 
 async def _owned_run(
@@ -233,8 +238,12 @@ async def get_extraction(
 ):
     """The extraction run + its proposals, for the review screen."""
     run = await _owned_run(book_id, run_id, current_user, db)
+    from app.api.jobs import latest_jobs
+
+    jobs = await latest_jobs(db, "extraction_run", [run.id])
     return {
         "id": str(run.id),
+        "job": jobs.get(str(run.id)),
         "source_id": str(run.source_id) if run.source_id else None,
         "status": run.status,
         "proposals": run.proposals or {},
@@ -504,8 +513,9 @@ async def commit_extraction(
     target_ids = list(
         dict.fromkeys(result["characters"]["created"] + result["characters"]["updated"])
     )
+    index_job = None
     if run.source_id and target_ids:
-        await jobs_repo.enqueue(
+        index_job = await jobs_repo.enqueue(
             db,
             kind="index_characters_voice",
             payload={
@@ -527,4 +537,9 @@ async def commit_extraction(
             status_code=status.HTTP_409_CONFLICT,
             detail="Commit conflicted with existing canon; review and retry",
         )
-    return {"run_id": str(run.id), "status": run.status, "result": result}
+    return {
+        "run_id": str(run.id),
+        "status": run.status,
+        "result": result,
+        "job_id": str(index_job.id) if index_job is not None else None,
+    }

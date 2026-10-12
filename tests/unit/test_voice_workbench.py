@@ -406,6 +406,8 @@ def test_nothing_references_character_chunks():
     allowed = {
         "alembic/versions/0001_book_as_root_baseline.py",
         "alembic/versions/0014_spec11_drop_character_chunks.py",
+        # Chained after it: names the revision id, not the table.
+        "alembic/versions/0015_spec07_job_lifecycle.py",
     }
     offenders = []
     for base in ("app", "alembic", "evals", "scripts", "frontend/lib"):

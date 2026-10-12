@@ -124,7 +124,8 @@ product's whole history.
 | Per-user daily token budget | — | ✅ | `USER_DAILY_TOKEN_LIMIT=200_000` (our own number) |
 | Token/cost metrics + `api_usage` accounting | — | ✅ | Already per-user and per-purpose — the paid-tier foundation |
 | `Tier` capability object | R7.6 | ⬜ | One object read by budget/client/planning/ensemble |
-| Quota exhaustion **pauses**, never fails | R7.2 | ⬜ | Re-queue via the existing `jobs.available_at`; honour server retry interval |
+| Quota exhaustion **pauses**, never fails | R7.2 | ✅ | Re-queue via `jobs.available_at`; mirrored on every domain row with a resume time; bounded by `JOB_MAX_PAUSE_HOURS`; cancellable (SPEC-07) |
+| Incremental resume (no repeated model call) | R7.2 | ✅ | Job-scoped checkpoints: prose beats, ensemble agent calls, staged-outline stages/acts, extraction windows; canon drift restarts (SPEC-08) |
 | Preflight multi-call jobs against budget | R7.3 | ⬜ | Refuse to start rather than half-write |
 | Graceful degradation | R7.4 | ⬜ | Staged → single-call; ensemble → prose |
 | Show cost before an expensive action | R7.5 | ⬜ | |
@@ -153,6 +154,7 @@ product's whole history.
 | Rate limits per real client IP (trusted `CF-Connecting-IP`) and per user | ✅ | SPEC-05 / F7. Was keyed on the tunnel, so every limit was global |
 | Per-email failed-login limit; polling and LLM route classes; `Retry-After` | ✅ | SPEC-05. UI polls back off on 429 |
 | Background jobs (lock, retry, dead-letter) | ✅ | `available_at` already exists — the pause/resume mechanism |
+| Jobs API: `GET /jobs/{id}`, `POST /jobs/{id}/cancel` | ✅ | SPEC-07. Status, resume time, progress `{done,total}`; every enqueueing endpoint returns `job_id`; dedupe keys + `Idempotency-Key` on scene generation; one `JobStatusBadge` across scenes, outline, extraction, continuity |
 | One container, one Postgres (+pgvector) | ✅ | ADR-001 |
 | Explicit-DDL migration baseline | ⬜ | `0001`'s `create_all` **drifts with the ORM**; the trap already bit `0006` |
 | Book-scoped UI (characters + sources + scenes under the book) | 🚧 | Scenes are book-rooted and listed per book (SPEC-04); deleting a chapter asks where its scenes go. `/scenes/` stays only as an authenticated list of scenes reachable through the user's books |

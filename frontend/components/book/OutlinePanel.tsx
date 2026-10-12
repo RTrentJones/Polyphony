@@ -8,10 +8,11 @@ import { useEffect, useRef, useState } from 'react'
 import { ListTree, Plus, Wand2 } from 'lucide-react'
 import Button from '@/components/Button'
 import Card from '@/components/Card'
+import JobStatusBadge from '@/components/JobStatusBadge'
 import type { ToastType } from '@/components/Toast'
 import { useBookStore, usePlanningStore } from '@/lib/books-store'
-import type { PlanKind, PlanNode } from '@/lib/types'
-import { rateLimitedPollDelay } from '@/lib/rate-limit'
+import { isActiveJob } from '@/lib/jobs'
+import type { Job, PlanKind, PlanNode } from '@/lib/types'
 
 function OutlineNodeView({ node }: { node: PlanNode }) {
   return (
@@ -68,52 +69,35 @@ export default function OutlinePanel({
 
   const plan = plans.find((p) => p.kind === kind)
 
+  // The job driving the plan (SPEC-07): from the generate response, or from
+  // the plan list after a reload. JobStatusBadge polls it; when it settles we
+  // refetch the plan and say how it ended.
+  const [jobId, setJobId] = useState<string | null>(null)
+  const activeJobId =
+    jobId || (isActiveJob(plan?.job?.status) ? plan?.job?.job_id ?? null : null)
+  const label = kind === 'outline' ? 'Outline' : 'Beat sheet'
+
   const handleGenerate = async () => {
     setGenerating(true)
-    const label = kind === 'outline' ? 'Outline' : 'Beat sheet'
     try {
       const res = await generatePlan(bookId, kind, chaptersTarget)
-      // The staged outline runs as a BACKGROUND JOB (~a few minutes on the free
-      // tier). Poll GET /plans until the plan is ready/failed instead of falsely
-      // reporting success immediately (the sync path is already 'ready').
-      if (res?.status === 'generating') {
-        const deadline = Date.now() + 6 * 60 * 1000
-        for (;;) {
-          if (cancelledRef.current) return
-          await new Promise((r) => setTimeout(r, 3000))
-          if (cancelledRef.current) return
-          let latest: Awaited<ReturnType<typeof fetchPlans>>
-          try {
-            latest = await fetchPlans(bookId)
-          } catch (err) {
-            // Rate-limited (SPEC-05): wait, then keep polling the job.
-            const backoff = rateLimitedPollDelay(err)
-            if (backoff === null) throw err
-            await new Promise((r) => setTimeout(r, backoff))
-            continue
-          }
-          const p = latest.find((pl) => pl.kind === kind)
-          if (p?.status === 'ready') {
-            addToast(`${label} generated`, 'success')
-            break
-          }
-          if (p?.status === 'failed') {
-            addToast(p.error || `${label} generation failed`, 'error')
-            break
-          }
-          if (Date.now() > deadline) {
-            addToast(`${label} is still generating — check back shortly`, 'info')
-            break
-          }
-        }
-      } else {
-        addToast(`${label} generated`, 'success')
-      }
+      if (res?.job_id) setJobId(res.job_id)
+      await fetchPlans(bookId)
     } catch (err: any) {
       addToast(err.message || 'Failed to generate plan', 'error')
     } finally {
       if (!cancelledRef.current) setGenerating(false)
     }
+  }
+
+  const handleSettled = async (job: Job) => {
+    if (cancelledRef.current) return
+    setJobId(null)
+    const latest = await fetchPlans(bookId).catch(() => [])
+    const p = latest.find((pl) => pl.kind === kind)
+    if (job.status === 'succeeded') addToast(`${label} generated`, 'success')
+    else if (job.status === 'cancelled') addToast(`${label} generation cancelled`, 'info')
+    else addToast(p?.error || job.error || `${label} generation failed`, 'error')
   }
 
   const handlePromote = async (index: number, title: string) => {
@@ -181,12 +165,22 @@ export default function OutlinePanel({
         </div>
       )}
 
-      {generating || plan?.status === 'generating' ? (
+      {generating ||
+      plan?.status === 'generating' ||
+      plan?.status === 'paused' ||
+      activeJobId ? (
         <div className="text-center py-8">
           <Wand2 className="h-10 w-10 text-primary-500 mx-auto mb-3 animate-pulse" />
           <p className="text-gray-800 font-medium">
             Generating {kind === 'outline' ? 'outline' : 'beat sheet'}…
           </p>
+          <div className="mt-2 flex justify-center">
+            <JobStatusBadge
+              jobId={activeJobId}
+              initial={plan?.job}
+              onSettled={handleSettled}
+            />
+          </div>
           <p className="text-sm text-gray-500 mt-1">
             {plan?.stage ? `Stage: ${plan.stage}. ` : ''}This runs in the
             background and can take a few minutes.

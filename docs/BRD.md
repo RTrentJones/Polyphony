@@ -292,7 +292,7 @@ dependency. Action must be first-class in the request, not a garnish on the repl
 ### 5.7 Tiering (G6, G7)
 
 - **R7.1** Free tier is the default and must be genuinely usable.
-- **R7.2** **Quota exhaustion pauses; it never fails.** A 429 / `RESOURCE_EXHAUSTED` inside a job re-queues it for when quota returns, honouring the server's suggested retry interval. The author loses nothing and re-clicks nothing. *Scope of "no duplicate spend":* single-call jobs (a scene, an extraction) resume without repeating any paid call. Multi-call jobs (staged outline, ensemble) resume by restarting the sequence, so completed stages may be re-spent — a bounded, known limitation, acceptable because a mid-job pause is a quota edge case. Stage-level checkpointing to make resume fully incremental is a tracked follow-up.
+- **R7.2** **Quota exhaustion pauses; it never fails.** A 429 / `RESOURCE_EXHAUSTED` inside a job re-queues it for when quota returns, honouring the server's suggested retry interval. The author loses nothing and re-clicks nothing. **Every job resumes from its last completed model call; a canon change during a pause restarts the job** (and says so on the job), because mixing work generated against two versions of the book is worse than paying twice (SPEC-08). **A pause is visible on the domain object with an expected resume time, is bounded, and is cancellable** (SPEC-07): scenes, plans, extraction runs and continuity reports show `paused` with "resumes ~HH:MM"; a job that makes no progress for `JOB_MAX_PAUSE_HOURS` (default 48) fails with "quota did not return within 48h"; the author can cancel a queued, paused or running job (a running one stops at its next model-call seam). A duplicate enqueue returns the in-flight job instead of spending again.
 - **R7.3** Multi-call jobs preflight against the remaining budget and refuse to start rather than half-write.
 - **R7.4** Degradation is graceful and explicit: staged outline → single-call outline; ensemble → prose mode.
 - **R7.5** Cost is shown before an expensive action is taken.
@@ -347,7 +347,7 @@ Supporting gates:
 | Invented protagonists are caught | `cast_fidelity ≥ 0.9` on the `cel` corpus fails CI; a hand-written "Elara outline" fixture scores ≈ 0 |
 | The eval can see the bug at all | A corpus whose synopsis exceeds the historical cap and whose cast first appears past char 4,000 |
 | Regeneration is non-destructive | Generate twice; v1 is listed and restorable |
-| Quota never loses work | Force a 429 mid-job; the job re-queues and completes on resume with no lost work (single-call jobs also without duplicate spend; multi-call jobs may repeat completed stages — see R7.2) |
+| Quota never loses work | Force a 429 mid-job; the job re-queues and completes on resume with no lost work and no repeated model call (see R7.2) |
 | Paid graduation | Flip the tier; caps lift with no code change |
 
 ---
