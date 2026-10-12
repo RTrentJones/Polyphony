@@ -16,6 +16,7 @@ import Button from '@/components/Button'
 import Card from '@/components/Card'
 import Loading from '@/components/Loading'
 import ProtectedRoute from '@/components/ProtectedRoute'
+import { rateLimitedPollDelay } from '@/lib/rate-limit'
 import { useExtractionStore } from '@/lib/store'
 import type {
   CanonCategory,
@@ -88,6 +89,11 @@ function ReviewContent() {
         setError(run.error || 'Extraction failed.')
       }
     } catch (err: any) {
+      const wait = rateLimitedPollDelay(err) // 429: back off, keep polling
+      if (wait !== null) {
+        timer.current = setTimeout(load, wait)
+        return
+      }
       setError(err.message || 'Could not load the extraction.')
     }
   }, [bookId, runId, fetchExtraction, router])

@@ -17,10 +17,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
@@ -30,6 +28,13 @@ from app.core.logging_config import (
     log_request_end,
     log_request_start,
     setup_logging,
+)
+from app.core.rate_limit import (
+    CF_HEADER,
+    RouteClassRateLimitMiddleware,
+    limiter,
+    peer_address,
+    rate_limit_exceeded_handler,
 )
 from app.core.metrics import (
     http_request_duration_seconds,
@@ -123,21 +128,17 @@ app = FastAPI(
     openapi_url=None if _is_prod else "/openapi.json",
 )
 
-# Rate limiting — in-process storage (one container; ADR-001 §4)
-limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=[
-        f"{settings.RATE_LIMIT_PER_MINUTE}/minute",
-        f"{settings.RATE_LIMIT_PER_HOUR}/hour",
-    ],
-    storage_uri="memory://",
-)
+# Rate limiting — in-process storage (one container; ADR-001 §4), keyed on the
+# user / real client IP, never the tunnel (app/core/rate_limit.py, SPEC-05).
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 # WITHOUT this middleware slowapi's default_limits never fire — only routes with
 # an explicit @limiter.limit decorator are throttled. This makes the per-minute/
 # per-hour defaults actually apply to every endpoint (the shared-quota backstop).
 app.add_middleware(SlowAPIMiddleware)
+# Outside SlowAPIMiddleware: polling / LLM route classes, which then skip the
+# defaults so a polling tab never competes with the author's writes.
+app.add_middleware(RouteClassRateLimitMiddleware)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -206,7 +207,15 @@ async def log_requests(request: Request, call_next):
     start_time = time.time()
     correlation_id = request.headers.get("X-Correlation-ID", str(uuid.uuid4()))
     logger.set_correlation_id(correlation_id)
-    log_request_start(logger, request.method, request.url.path)
+    # The peer + whether Cloudflare's client-IP header arrived: what production
+    # logs confirm about the tunnel topology that TRUSTED_PROXY_CIDRS assumes.
+    log_request_start(
+        logger,
+        request.method,
+        request.url.path,
+        peer=peer_address(request),
+        cf_connecting_ip=CF_HEADER in request.headers,
+    )
 
     request_size = int(request.headers.get("content-length", 0))
 

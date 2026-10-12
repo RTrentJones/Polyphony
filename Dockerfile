@@ -54,4 +54,8 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s \
 # (disposable data) is reset once rather than crash-looping; a valid schema is
 # never wiped, even on rollback (app/migrate.py, migration 0007).
 # POLYPHONY_FORCE_SCHEMA_RESET: unset=auto (legacy only), 1=force wipe, 0=never.
-CMD ["sh", "-c", "python -m app.migrate && python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+# --no-proxy-headers: request.client stays the real TCP peer (the tunnel), so the
+# app alone decides when to believe CF-Connecting-IP (TRUSTED_PROXY_CIDRS,
+# app/core/rate_limit.py). uvicorn's default would rewrite it from
+# X-Forwarded-For for loopback peers, behind the limiter's back.
+CMD ["sh", "-c", "python -m app.migrate && python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --no-proxy-headers"]

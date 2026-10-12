@@ -75,11 +75,25 @@ class PolyphonyClient:
         return email
 
     # -- low-level ----------------------------------------------------------
+    async def _send(self, call, path: str, **kw) -> httpx.Response:
+        # Honour the app's own rate limits (SPEC-05): on a 429 wait Retry-After
+        # and try again, like the UI does, instead of failing the run.
+        for _ in range(3):
+            r = await call(path, headers=self._auth(), **kw)
+            if r.status_code != 429:
+                return r
+            try:
+                wait = float(r.headers.get("Retry-After", "5"))
+            except ValueError:
+                wait = 5.0
+            await asyncio.sleep(min(max(wait, 1.0), 60.0))
+        return r
+
     async def _post(self, path: str, **kw) -> httpx.Response:
-        return await self._http.post(path, headers=self._auth(), **kw)
+        return await self._send(self._http.post, path, **kw)
 
     async def _get(self, path: str, **kw) -> httpx.Response:
-        return await self._http.get(path, headers=self._auth(), **kw)
+        return await self._send(self._http.get, path, **kw)
 
     async def _put(self, path: str, **kw) -> httpx.Response:
         return await self._http.put(path, headers=self._auth(), **kw)
