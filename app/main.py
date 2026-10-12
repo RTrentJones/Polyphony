@@ -17,10 +17,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
@@ -30,6 +28,13 @@ from app.core.logging_config import (
     log_request_end,
     log_request_start,
     setup_logging,
+)
+from app.core.rate_limit import (
+    CF_HEADER,
+    RouteClassRateLimitMiddleware,
+    limiter,
+    peer_address,
+    rate_limit_exceeded_handler,
 )
 from app.core.metrics import (
     http_request_duration_seconds,
@@ -67,7 +72,9 @@ async def lifespan(app: FastAPI):
             extra_fields={"event": "llm_not_configured"},
         )
 
-    update_uptime = initialize_service_metrics(SERVICE_NAME, "1.0.0", time.time())
+    update_uptime = initialize_service_metrics(
+        SERVICE_NAME, settings.APP_VERSION, time.time()
+    )
     app.state.update_uptime = update_uptime
 
     if await check_db_connection():
@@ -115,7 +122,7 @@ async def lifespan(app: FastAPI):
 _is_prod = settings.ENVIRONMENT == "production"
 app = FastAPI(
     title="Polyphony",
-    version="1.0.0",
+    version=settings.APP_VERSION,
     description="Multi-character AI book-writing platform",
     lifespan=lifespan,
     docs_url=None if _is_prod else "/docs",
@@ -123,21 +130,17 @@ app = FastAPI(
     openapi_url=None if _is_prod else "/openapi.json",
 )
 
-# Rate limiting — in-process storage (one container; ADR-001 §4)
-limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=[
-        f"{settings.RATE_LIMIT_PER_MINUTE}/minute",
-        f"{settings.RATE_LIMIT_PER_HOUR}/hour",
-    ],
-    storage_uri="memory://",
-)
+# Rate limiting — in-process storage (one container; ADR-001 §4), keyed on the
+# user / real client IP, never the tunnel (app/core/rate_limit.py, SPEC-05).
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 # WITHOUT this middleware slowapi's default_limits never fire — only routes with
 # an explicit @limiter.limit decorator are throttled. This makes the per-minute/
 # per-hour defaults actually apply to every endpoint (the shared-quota backstop).
 app.add_middleware(SlowAPIMiddleware)
+# Outside SlowAPIMiddleware: polling / LLM route classes, which then skip the
+# defaults so a polling tab never competes with the author's writes.
+app.add_middleware(RouteClassRateLimitMiddleware)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -206,7 +209,15 @@ async def log_requests(request: Request, call_next):
     start_time = time.time()
     correlation_id = request.headers.get("X-Correlation-ID", str(uuid.uuid4()))
     logger.set_correlation_id(correlation_id)
-    log_request_start(logger, request.method, request.url.path)
+    # The peer + whether Cloudflare's client-IP header arrived: what production
+    # logs confirm about the tunnel topology that TRUSTED_PROXY_CIDRS assumes.
+    log_request_start(
+        logger,
+        request.method,
+        request.url.path,
+        peer=peer_address(request),
+        cf_connecting_ip=CF_HEADER in request.headers,
+    )
 
     request_size = int(request.headers.get("content-length", 0))
 
@@ -350,12 +361,15 @@ async def health_check():
         payload = {
             "status": "healthy" if db_healthy else "degraded",
             "service": SERVICE_NAME,
-            "version": "1.0.0",
+            "version": settings.APP_VERSION,
             "checks": {
                 "database": "healthy" if db_healthy else "unhealthy",
                 "vector_search": "healthy" if vector_healthy else "unhealthy",
             },
         }
+        # Which build is answering, so a health probe can tell beta from prod.
+        if sha := _short_sha():
+            payload["sha"] = sha
         # Cache SUCCESS ONLY. Caching a failure would hold a transient one for
         # the full TTL and answer every retry from it — which would defeat the
         # very retries this endpoint exists to serve: verify probes a booting
@@ -377,7 +391,16 @@ async def liveness():
     probe. A 200 proves the tunnel, the container and the ASGI app are up, which
     is all either of them acts on — neither remediates a database.
     """
-    return {"status": "healthy", "service": SERVICE_NAME, "version": "1.0.0"}
+    return {
+        "status": "healthy",
+        "service": SERVICE_NAME,
+        "version": settings.APP_VERSION,
+    }
+
+
+def _short_sha() -> str:
+    """The image's GREENLIGHT_SHA in short (7-character) form; '' when unset."""
+    return os.getenv("GREENLIGHT_SHA", "").strip()[:7]
 
 
 @app.get("/__version")
@@ -502,7 +525,7 @@ else:
     async def root():
         return {
             "service": "Polyphony",
-            "version": "1.0.0",
+            "version": settings.APP_VERSION,
             "status": "running",
             "docs": "/docs",
             "health": "/health",

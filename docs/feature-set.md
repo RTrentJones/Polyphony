@@ -143,6 +143,8 @@ product's whole history.
 | Feature | Status | Notes |
 |---|---|---|
 | Invite-gated multi-user auth, rotating refresh tokens | ✅ | |
+| Rate limits per real client IP (trusted `CF-Connecting-IP`) and per user | ✅ | SPEC-05 / F7. Was keyed on the tunnel, so every limit was global |
+| Per-email failed-login limit; polling and LLM route classes; `Retry-After` | ✅ | SPEC-05. UI polls back off on 429 |
 | Background jobs (lock, retry, dead-letter) | ✅ | `available_at` already exists — the pause/resume mechanism |
 | One container, one Postgres (+pgvector) | ✅ | ADR-001 |
 | Explicit-DDL migration baseline | ⬜ | `0001`'s `create_all` **drifts with the ORM**; the trap already bit `0006` |
