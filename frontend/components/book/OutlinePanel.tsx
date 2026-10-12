@@ -11,6 +11,7 @@ import Card from '@/components/Card'
 import type { ToastType } from '@/components/Toast'
 import { useBookStore, usePlanningStore } from '@/lib/books-store'
 import type { PlanKind, PlanNode } from '@/lib/types'
+import { rateLimitedPollDelay } from '@/lib/rate-limit'
 
 function OutlineNodeView({ node }: { node: PlanNode }) {
   return (
@@ -81,7 +82,16 @@ export default function OutlinePanel({
           if (cancelledRef.current) return
           await new Promise((r) => setTimeout(r, 3000))
           if (cancelledRef.current) return
-          const latest = await fetchPlans(bookId)
+          let latest: Awaited<ReturnType<typeof fetchPlans>>
+          try {
+            latest = await fetchPlans(bookId)
+          } catch (err) {
+            // Rate-limited (SPEC-05): wait, then keep polling the job.
+            const backoff = rateLimitedPollDelay(err)
+            if (backoff === null) throw err
+            await new Promise((r) => setTimeout(r, backoff))
+            continue
+          }
           const p = latest.find((pl) => pl.kind === kind)
           if (p?.status === 'ready') {
             addToast(`${label} generated`, 'success')

@@ -14,6 +14,7 @@ import { usePlanningStore } from '@/lib/books-store'
 import type { BookChapter, ContinuityFinding } from '@/lib/types'
 import { formatRelativeTime } from '@/lib/utils'
 import { SEVERITY_STYLES, SEVERITY_ORDER } from '@/components/book/styles'
+import { rateLimitedPollDelay } from '@/lib/rate-limit'
 
 function FindingRow({ finding }: { finding: ContinuityFinding }) {
   return (
@@ -49,19 +50,23 @@ export default function ContinuityPanel({
   const [running, setRunning] = useState(false)
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const schedulePoll = useCallback(() => {
-    if (pollTimer.current) clearTimeout(pollTimer.current)
-    pollTimer.current = setTimeout(async () => {
-      try {
-        const latest = await fetchContinuityReports(bookId)
-        if (latest.some((r) => r.status === 'processing' || r.status === 'paused')) {
-          schedulePoll()
+  const schedulePoll = useCallback(
+    (delay: number = 5000) => {
+      if (pollTimer.current) clearTimeout(pollTimer.current)
+      pollTimer.current = setTimeout(async () => {
+        try {
+          const latest = await fetchContinuityReports(bookId)
+          if (latest.some((r) => r.status === 'processing' || r.status === 'paused')) {
+            schedulePoll()
+          }
+        } catch (err) {
+          // Rate-limited (SPEC-05): back off before the next poll.
+          schedulePoll(rateLimitedPollDelay(err) ?? 5000)
         }
-      } catch {
-        schedulePoll()
-      }
-    }, 5000)
-  }, [bookId, fetchContinuityReports])
+      }, delay)
+    },
+    [bookId, fetchContinuityReports]
+  )
 
   useEffect(() => {
     fetchContinuityReports(bookId)

@@ -40,6 +40,7 @@ import { ToastContainer, type ToastType } from '@/components/Toast'
 import { booksApi, useBookStore } from '@/lib/books-store'
 import type { BookExportFormat } from '@/lib/types'
 import { BOOK_STATUS_STYLES } from '@/components/book/styles'
+import { rateLimitedPollDelay } from '@/lib/rate-limit'
 
 // ---------------------------------------------------------------------------
 // Shared bits
@@ -133,7 +134,9 @@ function BookDetailContent() {
       const tick = async () => {
         try {
           const scene = await booksApi.getScene(sceneId)
-          if (scene.status === 'processing') {
+          // A paused scene is waiting for AI quota and resumes on its own —
+          // keep polling (it used to be reported as a failure).
+          if (scene.status === 'processing' || scene.status === 'paused') {
             scenePollTimers.current[sceneId] = setTimeout(tick, 5000)
             return
           }
@@ -144,9 +147,12 @@ function BookDetailContent() {
           } else {
             addToast('Scene generation failed', 'error')
           }
-        } catch {
-          // transient error — keep polling
-          scenePollTimers.current[sceneId] = setTimeout(tick, 5000)
+        } catch (err) {
+          // transient error — keep polling (slower when rate-limited)
+          scenePollTimers.current[sceneId] = setTimeout(
+            tick,
+            rateLimitedPollDelay(err) ?? 5000
+          )
         }
       }
       scenePollTimers.current[sceneId] = setTimeout(tick, 5000)
