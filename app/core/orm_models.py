@@ -3,6 +3,7 @@
 from sqlalchemy import (
     Boolean,
     Column,
+    Date,
     String,
     Integer,
     DateTime,
@@ -792,3 +793,18 @@ class ExtractionRun(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (Index("idx_extraction_runs_book_id", "book_id"),)
+
+
+class LLMRequestCount(Base):
+    """Requests sent to a provider model per vendor-local day (SPEC-03).
+
+    The free tier's binding limit is the vendor's requests-per-day ceiling,
+    shared by the whole deployment; app/llm/ledger.py enforces it before the
+    call so jobs pause until the vendor's day rolls over."""
+
+    __tablename__ = "llm_request_counts"
+
+    provider = Column(String(50), primary_key=True)
+    model = Column(String(100), primary_key=True)
+    day = Column(Date, primary_key=True)
+    count = Column(Integer, nullable=False, default=0)

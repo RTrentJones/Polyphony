@@ -24,3 +24,20 @@ class QuotaExhaustedError(RuntimeError):
     ):
         super().__init__(message)
         self.reset_after = reset_after
+
+
+class ProviderUnavailableError(QuotaExhaustedError):
+    """The provider is failing persistently (the circuit breaker is open).
+
+    A subclass of QuotaExhaustedError on purpose: to a job it means the same
+    thing — the work is fine, the capacity is temporarily gone — so the job
+    PAUSES until the breaker's recovery window instead of failing (SPEC-03).
+    Unlike a quota 429 it pauses on every tier: an outage is never the
+    author's error, and failing the job would lose their work.
+    """
+
+
+class DailyRequestLimitError(QuotaExhaustedError):
+    """The provider's requests-per-day ceiling is reached (tracked locally in
+    the request ledger, app/llm/ledger.py). Raised BEFORE calling the
+    provider; `reset_after` is the time until the provider's day rolls over."""

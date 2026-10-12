@@ -27,6 +27,14 @@ class Provider:
     rate_out: float = 0.0
     # Free-tier requests-per-minute pacing default (overridable via LLM_MAX_RPM)
     max_rpm: int = 10
+    # Free-tier requests-per-DAY ceilings for the default and fast models, as
+    # published by the vendor (None = not tracked). The binding free-tier limit
+    # is usually this, not tokens (docs/BRD.md §6.1). Enforced on the free tier
+    # by app/llm/ledger.py; overridable via LLM_MAX_RPD.
+    max_rpd: Optional[int] = None
+    fast_max_rpd: Optional[int] = None
+    # The IANA zone the vendor's daily quota resets in.
+    rpd_reset_tz: str = "UTC"
     # Extra JSON body fields for chat.completions (provider-specific knobs).
     extra_body: Optional[dict] = None
 
@@ -41,6 +49,12 @@ PROVIDERS: dict[str, Provider] = {
         default_model="gemini-2.5-flash",
         fast_model="gemini-2.5-flash-lite",
         max_rpm=8,  # AI Studio free tier is ~10 RPM; leave headroom
+        # AI Studio free tier (verify against the rate-limits page before
+        # relying on it; record the date in docs/BRD.md §6): 2.5 Flash 250/day,
+        # 2.5 Flash-Lite 1,000/day, reset at midnight Pacific.
+        max_rpd=250,
+        fast_max_rpd=1000,
+        rpd_reset_tz="America/Los_Angeles",
         # 2.5 models are thinking models on the OpenAI-compat endpoint, and
         # thinking tokens count against max_tokens — small caps starve the
         # actual output. This app's calls are structured/functional, so turn

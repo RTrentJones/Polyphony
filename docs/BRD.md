@@ -293,7 +293,8 @@ dependency. Action must be first-class in the request, not a garnish on the repl
 - **R7.3** Multi-call jobs preflight against the remaining budget and refuse to start rather than half-write.
 - **R7.4** Degradation is graceful and explicit: staged outline → single-call outline; ensemble → prose mode.
 - **R7.5** Cost is shown before an expensive action is taken.
-- **R7.6** **Graduation to paid is a config flip, not a code change**: one tier setting raises rate limits, lifts caps, and enables the expensive paths.
+- **R7.6** **Graduation to paid is a config flip, not a code change**: one tier setting (`LLM_TIER`) raises rate limits, lifts caps, stops local requests-per-day tracking, and enables the expensive paths. Explicit overrides (`LLM_MAX_RPM`, `LLM_MAX_RPD`, `USER_DAILY_TOKEN_LIMIT`) apply only when set. `MONTHLY_COST_CEILING_USD`, when set, is enforced deployment-wide over a trailing 30 days.
+- **R7.7** **The provider's requests-per-day ceiling is enforced before the call** (`app/llm/ledger.py`), so a job pauses until the vendor's day rolls over instead of retrying into a wall. A quota 429 never trips the circuit breaker; an open breaker (a provider outage) pauses jobs on every tier.
 
 ---
 
@@ -320,7 +321,7 @@ and their own retrieved chunks (~800 tokens) — reserving the full canon for th
 editor — cuts this to ~20%. **This is also more correct in fiction: a character does not know the
 plot.** The constraint and the craft agree.
 
-⚠️ **The binding limit is probably requests-per-day, not tokens.** The 200k token limit is our own
+⚠️ **The binding limit is probably requests-per-day, not tokens.** *(Now tracked: the Gemini row carries 250/day for 2.5 Flash and 1,000/day for 2.5 Flash-Lite, reset at midnight Pacific — the published AI Studio free-tier figures as last known; re-verify on the rate-limits page before relying on them, 2026-10.)* The 200k token limit is our own
 number and is cheap to raise; RPD is the provider's and is shared across all users. At ~12 calls
 per ensemble scene this is a low double-digit ceiling site-wide. **Verify the current free-tier
 RPD before building the ensemble.** If it is too low, the answer is the paid flip (R7.6), not a

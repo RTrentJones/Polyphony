@@ -16,6 +16,7 @@ from app.core.config import settings
 @dataclass(frozen=True)
 class Tier:
     name: str
+    # Requests per minute; 0 = the provider row's own (free-tier) pacing.
     max_rpm: int
     daily_token_limit: int
     on_quota: str  # 'pause' (free: re-queue and resume) | 'fail' (paid: real error)
@@ -24,6 +25,9 @@ class Tier:
     max_agents: int
     max_rounds: int
     monthly_cost_ceiling_usd: float | None
+    # Enforce the provider's published requests-per-day ceiling locally
+    # (app/llm/ledger.py). Free: yes — RPD is the binding limit. Paid: no.
+    enforce_rpd: bool = True
 
 
 # Free tier: pause and resume on quota; ensemble off (its RPD/token cost is not
@@ -32,7 +36,7 @@ class Tier:
 # call under budget pressure.
 FREE = Tier(
     name="free",
-    max_rpm=8,
+    max_rpm=0,
     daily_token_limit=200_000,
     on_quota="pause",
     allow_staged_outline=True,
@@ -54,19 +58,38 @@ PAID = Tier(
     max_agents=5,
     max_rounds=2,
     monthly_cost_ceiling_usd=None,
+    enforce_rpd=False,
 )
 
 
 def get_tier() -> Tier:
-    """Resolve the active tier from config, with per-setting overrides.
+    """Resolve the active tier from config.
 
-    The daily token limit stays sourced from USER_DAILY_TOKEN_LIMIT so budget.py
-    and the tier never disagree; the cost ceiling comes from
-    MONTHLY_COST_CEILING_USD when set.
+    `LLM_TIER` alone decides pacing, the token cap, request-per-day tracking
+    and the feature gates (BRD R7.6). Explicit per-setting overrides apply only
+    when the override is actually set: `USER_DAILY_TOKEN_LIMIT` (tokens per user
+    per rolling 24h; 0 disables the cap), `LLM_MAX_RPM`, `LLM_MAX_RPD`.
     """
     base = PAID if (settings.LLM_TIER or "free").lower() == "paid" else FREE
-    return replace(
-        base,
-        daily_token_limit=settings.USER_DAILY_TOKEN_LIMIT,
-        monthly_cost_ceiling_usd=settings.MONTHLY_COST_CEILING_USD,
-    )
+    overrides: dict = {"monthly_cost_ceiling_usd": settings.MONTHLY_COST_CEILING_USD}
+    if settings.USER_DAILY_TOKEN_LIMIT is not None:
+        overrides["daily_token_limit"] = settings.USER_DAILY_TOKEN_LIMIT
+    if settings.LLM_MAX_RPM:
+        overrides["max_rpm"] = settings.LLM_MAX_RPM
+    return replace(base, **overrides)
+
+
+def effective_rpm(provider_max_rpm: int) -> int:
+    """Pacing for a provider under the active tier: an explicit LLM_MAX_RPM
+    wins, then the tier's rate (paid), then the provider's free-tier default."""
+    tier = get_tier()
+    return tier.max_rpm or provider_max_rpm
+
+
+def effective_rpd(provider, fast: bool) -> int | None:
+    """The requests-per-day ceiling to enforce for one model, or None."""
+    if settings.LLM_MAX_RPD:
+        return settings.LLM_MAX_RPD
+    if not get_tier().enforce_rpd:
+        return None
+    return provider.fast_max_rpd if fast else provider.max_rpd

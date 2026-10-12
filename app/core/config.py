@@ -51,8 +51,17 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: Optional[str] = None
     ADMIN_PASSWORD: Optional[str] = None
 
-    # Per-user LLM budget (tokens per rolling 24h; 0 disables the check)
-    USER_DAILY_TOKEN_LIMIT: int = 200_000
+    # Per-user LLM budget override (tokens per rolling 24h; 0 disables the
+    # check). Unset = the tier's own limit (app/llm/tier.py) — so LLM_TIER alone
+    # moves the cap when graduating to paid.
+    USER_DAILY_TOKEN_LIMIT: Optional[int] = None
+    # Provider requests-per-day override (unset = the provider row's published
+    # free-tier ceiling on the free tier, untracked on paid).
+    LLM_MAX_RPD: Optional[int] = None
+    # Ceiling on the total time one generate() may spend backing off 429s
+    # before giving up as QuotaExhausted (which pauses a job). Keeps request-
+    # path calls under the proxy's origin timeout.
+    LLM_MAX_RETRY_WAIT_SECONDS: float = 90.0
 
     # Tiering (app/llm/tier.py). free = pause-and-resume on quota, ensemble off;
     # paid = fail-fast on quota, ensemble on. Graduation is one config flip.
