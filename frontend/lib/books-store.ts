@@ -33,6 +33,7 @@ import type {
   PlanNode,
   PlotThread,
   PlotThreadListResponse,
+  PromoteAllResponse,
   PromoteNodeResponse,
   Scene,
   SceneContentSaveResponse,
@@ -399,7 +400,16 @@ interface PlanningState {
     kind: PlanKind,
     chaptersTarget: number
   ) => Promise<PlanGenerateResponse>
-  promoteNode: (bookId: string, nodeIndex: number) => Promise<PromoteNodeResponse>
+  promoteNode: (
+    bookId: string,
+    node: { nodeId?: string; nodeIndex: number }
+  ) => Promise<PromoteNodeResponse>
+  promoteAll: (bookId: string) => Promise<PromoteAllResponse>
+  confirmPremise: (
+    bookId: string,
+    planId: string,
+    edits?: { premise_restated?: string; central_conflict?: string }
+  ) => Promise<PlanGenerateResponse>
 
   fetchThreads: (bookId: string) => Promise<void>
   createThread: (bookId: string, data: ThreadCreateData) => Promise<void>
@@ -452,12 +462,36 @@ export const usePlanningStore = create<PlanningState>((set, get) => ({
     }
   },
 
-  promoteNode: async (bookId, nodeIndex) => {
+  promoteNode: async (bookId, { nodeId, nodeIndex }) => {
     try {
       const { data } = await apiClient.post<PromoteNodeResponse>(
         `/books/${bookId}/plans/promote`,
-        { node_index: nodeIndex }
+        nodeId ? { node_id: nodeId } : { node_index: nodeIndex }
       )
+      return data
+    } catch (err) {
+      throw toApiError(err)
+    }
+  },
+
+  promoteAll: async (bookId) => {
+    try {
+      const { data } = await apiClient.post<PromoteAllResponse>(
+        `/books/${bookId}/plans/promote-all`
+      )
+      return data
+    } catch (err) {
+      throw toApiError(err)
+    }
+  },
+
+  confirmPremise: async (bookId, planId, edits = {}) => {
+    try {
+      const { data } = await apiClient.post<PlanGenerateResponse>(
+        `/books/${bookId}/plans/${planId}/confirm-premise`,
+        edits
+      )
+      await get().fetchPlans(bookId)
       return data
     } catch (err) {
       throw toApiError(err)

@@ -5,7 +5,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { ListTree, Plus, Wand2 } from 'lucide-react'
+import { CheckCircle2, ListTree, Plus, Wand2 } from 'lucide-react'
 import Button from '@/components/Button'
 import EstimateHint from '@/components/EstimateHint'
 import type { Estimate } from '@/lib/usage-api'
@@ -14,12 +14,19 @@ import JobStatusBadge from '@/components/JobStatusBadge'
 import type { ToastType } from '@/components/Toast'
 import { useBookStore, usePlanningStore } from '@/lib/books-store'
 import { isActiveJob } from '@/lib/jobs'
-import type { Job, PlanKind, PlanNode } from '@/lib/types'
+import type { BookPlan, Job, PlanKind, PlanNode } from '@/lib/types'
 
 function OutlineNodeView({ node }: { node: PlanNode }) {
   return (
     <div>
       <p className="font-medium text-gray-900">{node.title}</p>
+      {(node.pov || node.act_index != null) && (
+        <p className="text-xs text-gray-500">
+          {node.act_index != null ? `Act ${node.act_index + 1}` : ''}
+          {node.act_index != null && node.pov ? ' · ' : ''}
+          {node.pov ? `POV: ${node.pov}` : ''}
+        </p>
+      )}
       {node.summary && <p className="text-sm text-gray-600 mt-0.5">{node.summary}</p>}
       {node.children && node.children.length > 0 && (
         <ul className="mt-2 ml-4 space-y-1 border-l-2 border-gray-100 pl-3">
@@ -37,6 +44,115 @@ function OutlineNodeView({ node }: { node: PlanNode }) {
   )
 }
 
+/** The premise the model understood, for the author to confirm or correct
+ *  before chapters are built on it (SPEC-10). An edit is authoritative for
+ *  the chapters stage. */
+export function PremiseCheckpoint({
+  plan,
+  onConfirm,
+}: {
+  plan: BookPlan
+  onConfirm: (edits: {
+    premise_restated?: string
+    central_conflict?: string
+  }) => Promise<void>
+}) {
+  const premise = plan.premise ?? {}
+  const [editing, setEditing] = useState(false)
+  const [restated, setRestated] = useState(premise.premise_restated ?? '')
+  const [conflict, setConflict] = useState(premise.central_conflict ?? '')
+  const [busy, setBusy] = useState(false)
+
+  const submit = async (withEdits: boolean) => {
+    setBusy(true)
+    try {
+      await onConfirm(
+        withEdits
+          ? { premise_restated: restated, central_conflict: conflict }
+          : {}
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div
+      className="border border-primary-200 bg-primary-50 rounded-lg p-4 space-y-3"
+      data-testid="premise-checkpoint"
+    >
+      <div>
+        <p className="font-medium text-gray-900">Is this the book?</p>
+        <p className="text-sm text-gray-600">
+          This is the premise the outline will be built on. Confirm it, or
+          correct it first; the chapters are not drafted until you do.
+        </p>
+      </div>
+      {editing ? (
+        <>
+          <label className="block text-sm font-medium text-gray-700">
+            Premise
+            <textarea
+              value={restated}
+              onChange={(e) => setRestated(e.target.value)}
+              rows={4}
+              className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            />
+          </label>
+          <label className="block text-sm font-medium text-gray-700">
+            Central conflict
+            <textarea
+              value={conflict}
+              onChange={(e) => setConflict(e.target.value)}
+              rows={2}
+              className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            />
+          </label>
+        </>
+      ) : (
+        <>
+          <div>
+            <p className="text-xs font-medium uppercase text-gray-500">Premise</p>
+            <p className="text-sm text-gray-800 whitespace-pre-wrap">
+              {premise.premise_restated || '(none restated)'}
+            </p>
+          </div>
+          {premise.central_conflict && (
+            <div>
+              <p className="text-xs font-medium uppercase text-gray-500">
+                Central conflict
+              </p>
+              <p className="text-sm text-gray-800">{premise.central_conflict}</p>
+            </div>
+          )}
+        </>
+      )}
+      <div className="flex gap-2">
+        {editing ? (
+          <>
+            <Button size="sm" onClick={() => submit(true)} isLoading={busy}>
+              Continue with my edits
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setEditing(false)}>
+              Discard edits
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button size="sm" onClick={() => submit(false)} isLoading={busy}>
+              <CheckCircle2 className="h-4 w-4 mr-1" />
+              Looks right
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+              Edit and continue
+            </Button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function OutlinePanel({
   bookId,
   hasSynopsis,
@@ -46,7 +162,8 @@ export default function OutlinePanel({
   hasSynopsis: boolean
   addToast: (message: string, type: ToastType) => void
 }) {
-  const { plans, fetchPlans, generatePlan, promoteNode } = usePlanningStore()
+  const { plans, fetchPlans, generatePlan, promoteNode, promoteAll, confirmPremise } =
+    usePlanningStore()
   const { fetchBook } = useBookStore()
 
   const [kind, setKind] = useState<PlanKind>('outline')
@@ -54,6 +171,7 @@ export default function OutlinePanel({
   const [est, setEst] = useState<Estimate | null>(null)
   const [generating, setGenerating] = useState(false)
   const [promotingIndex, setPromotingIndex] = useState<number | null>(null)
+  const [promotingAll, setPromotingAll] = useState(false)
   const cancelledRef = useRef(false)
 
   useEffect(() => {
@@ -98,17 +216,58 @@ export default function OutlinePanel({
     setJobId(null)
     const latest = await fetchPlans(bookId).catch(() => [])
     const p = latest.find((pl) => pl.kind === kind)
-    if (job.status === 'succeeded') addToast(`${label} generated`, 'success')
+    if (job.status === 'succeeded' && p?.status === 'awaiting_confirmation')
+      addToast('Check the premise before the chapters are drafted', 'info')
+    else if (job.status === 'succeeded') addToast(`${label} generated`, 'success')
     else if (job.status === 'cancelled') addToast(`${label} generation cancelled`, 'info')
     else addToast(p?.error || job.error || `${label} generation failed`, 'error')
   }
 
-  const handlePromote = async (index: number, title: string) => {
+  const handleConfirm = async (edits: {
+    premise_restated?: string
+    central_conflict?: string
+  }) => {
+    if (!plan) return
+    try {
+      const res = await confirmPremise(bookId, plan.id, edits)
+      if (res?.job_id) setJobId(res.job_id)
+    } catch (err: any) {
+      addToast(err.message || 'Failed to continue the outline', 'error')
+    }
+  }
+
+  const handlePromoteAll = async () => {
+    setPromotingAll(true)
+    try {
+      const res = await promoteAll(bookId)
+      await fetchBook(bookId)
+      addToast(
+        res.created
+          ? `${res.created} chapter${res.created === 1 ? '' : 's'} created from the outline`
+          : 'Every outline node already has a chapter',
+        'success'
+      )
+    } catch (err: any) {
+      addToast(err.message || 'Failed to promote the outline', 'error')
+    } finally {
+      setPromotingAll(false)
+    }
+  }
+
+  const handlePromote = async (index: number, node: PlanNode) => {
     setPromotingIndex(index)
     try {
-      await promoteNode(bookId, index)
+      const res = await promoteNode(bookId, {
+        nodeId: node.node_id,
+        nodeIndex: index,
+      })
       await fetchBook(bookId)
-      addToast(`"${title}" promoted to chapter`, 'success')
+      addToast(
+        res.created === false
+          ? `"${node.title}" already has a chapter`
+          : `"${node.title}" promoted to chapter`,
+        'success'
+      )
     } catch (err: any) {
       addToast(err.message || 'Failed to promote node', 'error')
     } finally {
@@ -217,6 +376,8 @@ export default function OutlinePanel({
             Try again, or adjust the synopsis and canon first.
           </p>
         </div>
+      ) : plan?.status === 'awaiting_confirmation' && plan.premise ? (
+        <PremiseCheckpoint key={plan.id} plan={plan} onConfirm={handleConfirm} />
       ) : !plan || plan.content.length === 0 ? (
         <div className="text-center py-8">
           <ListTree className="h-12 w-12 text-gray-400 mx-auto mb-3" />
@@ -226,6 +387,20 @@ export default function OutlinePanel({
         </div>
       ) : (
         <div className="space-y-3">
+          {kind === 'outline' && (
+            <div className="flex justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePromoteAll}
+                isLoading={promotingAll}
+                disabled={promotingIndex !== null}
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                Promote all to chapters
+              </Button>
+            </div>
+          )}
           {plan.warnings && plan.warnings.length > 0 && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
               <p className="text-sm text-amber-800 font-medium">
@@ -240,7 +415,7 @@ export default function OutlinePanel({
           )}
           {plan.content.map((node, index) => (
             <div
-              key={index}
+              key={node.node_id ?? index}
               className="flex items-start gap-3 p-3 rounded-lg border border-gray-200"
             >
               <span className="text-xs text-gray-400 mt-1 w-6 text-right">
@@ -253,9 +428,9 @@ export default function OutlinePanel({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => handlePromote(index, node.title)}
+                  onClick={() => handlePromote(index, node)}
                   isLoading={promotingIndex === index}
-                  disabled={promotingIndex !== null}
+                  disabled={promotingIndex !== null || promotingAll}
                 >
                   <Plus className="h-3.5 w-3.5 mr-1" />
                   Promote to chapter

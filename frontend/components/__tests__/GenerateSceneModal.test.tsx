@@ -86,3 +86,53 @@ describe('GenerateSceneModal cast picker', () => {
     await waitFor(() => expect(props.onGenerated).toHaveBeenCalledWith('scene-9', 'ch-1'))
   })
 })
+
+describe('GenerateSceneModal defaults from a promoted chapter (SPEC-10)', () => {
+  beforeEach(() => {
+    listCharacters.mockReset()
+    generateScene.mockReset()
+  })
+
+  const promoted: BookChapter = {
+    ...chapter,
+    plan_node_id: 'node-1',
+    character_ids: ['c-ada', 'c-bram', 'c-gone'],
+    pov_character_id: 'c-bram',
+    summary:
+      'Ada meets Bram.\n\nPlanned beats:\n- Arrival: Ada reaches the gate\n- Refusal: Bram will not open it',
+  }
+
+  it("pre-selects the chapter's cast and POV, dropping characters no longer in the book", async () => {
+    listCharacters.mockResolvedValue(cast)
+    renderModal({ chapter: promoted })
+
+    const picker = await screen.findByTestId('cast-picker')
+    await waitFor(() =>
+      expect(
+        picker.querySelector('button[aria-pressed="true"]')
+      ).not.toBeNull()
+    )
+    const pressed = Array.from(
+      picker.querySelectorAll('button[aria-pressed="true"]')
+    ).map((b) => b.textContent)
+    expect(pressed).toHaveLength(2)
+    expect(pressed.join(' ')).toContain('Ada')
+    expect(pressed.join(' ')).toContain('Bram')
+    expect(screen.getByDisplayValue('Bram')).toBeInTheDocument()
+  })
+
+  it('offers each planned beat as a one-click description', async () => {
+    listCharacters.mockResolvedValue(cast)
+    renderModal({ chapter: promoted })
+
+    const beats = await screen.findByTestId('planned-beats')
+    fireEvent.click(
+      Array.from(beats.querySelectorAll('button')).find((b) =>
+        b.textContent?.startsWith('Refusal')
+      )!
+    )
+    expect(
+      screen.getByPlaceholderText('What happens in this scene...')
+    ).toHaveValue('Refusal: Bram will not open it')
+  })
+})

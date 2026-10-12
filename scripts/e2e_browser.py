@@ -6,7 +6,7 @@ deterministic stub LLM (evals/stub_llm.py), the way an author would:
   sign in -> create a book with a synopsis -> paste a source -> review and
   commit the extracted canon -> see the cast in the Canon tab -> add a chapter
   -> generate a scene from the cast picker -> read the scene -> generate an
-  outline (staged job) -> run a continuity check -> export the book.
+  outline (staged job), confirm its premise, promote it to chapters -> run a continuity check -> export the book.
 
 Each step asserts what the author should see, and saves a screenshot to
 $E2E_SHOTS (default ./e2e-shots) so a failure is diagnosable from CI artifacts.
@@ -159,12 +159,28 @@ async def journey(page: Page) -> None:
     async def generate_outline():
         await page.get_by_role("button", name="Outline").click()
         await page.get_by_role("button", name=re.compile("Generate")).first.click()
-        await expect(
-            page.get_by_text(re.compile("Promote to chapter")).first
-        ).to_be_visible(timeout=TIMEOUT)
+        # On the free tier the staged outline stops after the skeleton so the
+        # author can confirm the premise before chapters are built (SPEC-10).
+        checkpoint = page.get_by_test_id("premise-checkpoint")
+        promote = page.get_by_text(re.compile("Promote to chapter")).first
+        await expect(checkpoint.or_(promote)).to_be_visible(timeout=TIMEOUT)
+        if await checkpoint.is_visible():
+            await shot(page, "premise")
+            await checkpoint.get_by_role("button", name="Looks right").click()
+        await expect(promote).to_be_visible(timeout=TIMEOUT)
         body = await page.inner_text("body")
         assert "Milo" in body, "outline does not name the protagonist"
         await shot(page, "outline")
+        # Promote all is idempotent: a second click creates nothing new.
+        promote_all = page.get_by_role("button", name="Promote all to chapters")
+        await promote_all.click()
+        await expect(
+            page.get_by_text(re.compile(r"\d+ chapters? created from the outline"))
+        ).to_be_visible()
+        await promote_all.click()
+        await expect(
+            page.get_by_text("Every outline node already has a chapter")
+        ).to_be_visible()
 
     async def continuity():
         await page.get_by_role("button", name="Continuity").click()

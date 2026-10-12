@@ -22,6 +22,21 @@ import { useBookStore } from '@/lib/books-store'
 import type { BookChapter, Character, ChapterSceneRequest } from '@/lib/types'
 import type { Estimate } from '@/lib/usage-api'
 
+/** The planned beats a promoted chapter carries in its summary (SPEC-10):
+ *  each "- title: summary" line after "Planned beats:". */
+export function plannedBeats(summary?: string | null): string[] {
+  if (!summary) return []
+  const at = summary.indexOf('Planned beats:')
+  if (at < 0) return []
+  return summary
+    .slice(at + 'Planned beats:'.length)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('- '))
+    .map((line) => line.slice(2).trim())
+    .filter((line) => line.replace(/:$/, '').length > 0)
+}
+
 const TONES = [
   'neutral',
   'tense',
@@ -96,6 +111,26 @@ export default function GenerateSceneModal({
   }, [bookId])
 
   const byId = useMemo(() => new Map(cast.map((c) => [c.id, c])), [cast])
+
+  const activeChapter =
+    chapter ?? chapters?.find((c) => c.id === chapterId) ?? undefined
+  const beats = useMemo(
+    () => plannedBeats(activeChapter?.summary),
+    [activeChapter?.summary]
+  )
+
+  // A chapter promoted from the outline carries its cast and POV (SPEC-10):
+  // pre-select them when the cast loads or the target chapter changes. Only
+  // characters still in the book's cast are selected.
+  useEffect(() => {
+    if (loadingCast || !activeChapter) return
+    const ids = (activeChapter.character_ids ?? []).filter((id) => byId.has(id))
+    if (ids.length === 0) return
+    setSelected(ids)
+    const pov = activeChapter.pov_character_id
+    setPovId(pov && ids.includes(pov) ? pov : '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingCast, activeChapter?.id])
 
   const toggle = (id: string) =>
     setSelected((prev) =>
@@ -215,6 +250,23 @@ export default function GenerateSceneModal({
           <label className="block text-sm font-medium text-gray-700 mb-1">
             Scene description
           </label>
+          {beats.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2" data-testid="planned-beats">
+              <span className="text-xs text-gray-500 self-center">
+                Planned beats:
+              </span>
+              {beats.map((beat, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setDescription(beat)}
+                  className="px-2 py-0.5 text-xs rounded border border-gray-300 text-gray-700 hover:border-primary-300 text-left"
+                >
+                  {beat.length > 60 ? `${beat.slice(0, 57)}…` : beat}
+                </button>
+              ))}
+            </div>
+          )}
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}

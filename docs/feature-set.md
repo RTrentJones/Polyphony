@@ -48,7 +48,7 @@ product's whole history.
 |---|---|---|---|
 | Whole canon reaches the model, untruncated | R1.1 | ✅ | Every generator assembles `Canon.full_block()`; pinned by unit tests and the stub e2e (SPEC-01, -02, -06) |
 | Staged outline (skeleton → chapters → beats) | R1.2 | ✅ | `app/planning/staged_outline.py`, checkpointed per stage (SPEC-08) |
-| Premise restatement before structuring | R1.3 | 🚧 | Restated at S1; showing it to the author for confirmation is SPEC-10 |
+| Premise restatement before structuring | R1.3 | ✅ | Restated at S1 and shown for confirmation (`awaiting_confirmation`); an edit is authoritative for S2-S4 (SPEC-10) |
 | Beats batched by act, not per chapter | — | ✅ | One call per act |
 | Hard gate: principal-cast recall | R1.4 | ✅ | `app/planning/fidelity.py`; aliases honoured (SPEC-09) |
 | Soft warning: unknown proper nouns | R1.5 | ✅ | Plan `warnings`, shown in the Outline tab |
@@ -56,7 +56,9 @@ product's whole history.
 | Outline runs as a job with progress | — | ✅ | Staged and single-call are both jobs; progress by stage (SPEC-07/08) |
 | Single-call outline | — | ✅ | Retained for beat sheets, the offline eval, and degraded mode |
 | Beat sheet (Save the Cat) | — | ✅ | |
-| Promote outline node → chapter | — | ✅ | |
+| Promote outline node → chapter | — | ✅ | Idempotent on a stable `node_id`; "Promote all"; the chapter carries the node's cast and POV (SPEC-10) |
+| Structured outline nodes (POV, cast IDs, act, threads) | R1.5 | ✅ | Validated against the book's cast; the fidelity audit reads them strictly (SPEC-10) |
+| Scene defaults from a promoted chapter | — | ✅ | The generate-scene modal pre-selects the chapter's cast and POV and offers its planned beats (SPEC-10) |
 | Scene prose generation | — | ✅ | Currently canon-blind: `characters` is a list of name *strings* |
 | Continuity checking | — | ✅ | Ships an **empty cast** today — same dead `book_id` query as the outline |
 | Plot threads + events | — | ✅ | |

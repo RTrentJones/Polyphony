@@ -281,6 +281,11 @@ export interface BookChapter {
   title: string
   summary?: string | null
   status?: string | null
+  /** Promoted from an outline node (SPEC-10): the node's stable id and its
+   *  structural cast, which a new scene in this chapter defaults to. */
+  plan_node_id?: string | null
+  pov_character_id?: string | null
+  character_ids?: string[]
 }
 
 /** GET /books/{id} */
@@ -647,6 +652,22 @@ export interface PlanNode {
   title: string
   summary?: string
   children?: PlanNode[]
+  /** Stable across edits; promote is idempotent on it (SPEC-10). */
+  node_id?: string
+  pov?: string | null
+  character_ids?: string[]
+  act_index?: number | null
+  threads?: string[]
+}
+
+/** The skeleton the model understood, shown for confirmation before the
+ *  chapters stage builds on it (SPEC-10). */
+export interface PlanPremise {
+  premise_restated?: string
+  central_conflict?: string
+  acts?: unknown[]
+  confirmed?: boolean
+  edited?: boolean
 }
 
 /** Plan as returned by GET/PUT /books/{id}/plans. */
@@ -665,6 +686,7 @@ export interface BookPlan {
   warnings?: string[]
   /** Failure reason when status === 'failed'. */
   error?: string | null
+  premise?: PlanPremise | null
   updated_at: string | null
   job?: JobSummary | null
 }
@@ -688,6 +710,14 @@ export interface PromoteNodeResponse {
   chapter_id: string
   title: string
   position: number
+  plan_node_id?: string | null
+  /** False when the node already had a chapter (promote is idempotent). */
+  created?: boolean
+}
+
+export interface PromoteAllResponse {
+  chapters: PromoteNodeResponse[]
+  created: number
 }
 
 export type ThreadStatus = 'open' | 'resolved' | 'abandoned'

@@ -17,8 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.books import _owned_book, _owned_chapter
 from app.core.budget import (
     check_user_budget,
-    estimate_tokens,
-    remaining_budget_24h,
 )
 from app.core.database import get_db
 from app.core.logging_config import setup_logging
@@ -264,18 +262,32 @@ async def generate_plan(
     # that dropped goals/arc/relationships and the entire world (docs/BRD.md §1).
     bible = render_bible(characters, canon_entries, style)
 
-    # Preflight: the staged path is ~6 calls over the whole canon. Only take it if
-    # the tier allows it AND the remaining budget can plausibly finish it;
-    # otherwise degrade to the single call rather than half-write a doomed job.
+    # Preflight (SPEC-12): the staged path is ~6 calls over the whole canon.
+    # Take it only if the tier allows it AND the budget can plausibly finish
+    # it; otherwise degrade to the single call rather than half-write a doomed
+    # job, and refuse outright when even that does not fit. The estimator is
+    # the one EstimateHint shows, so the refusal matches the number displayed.
+    from app.core import estimates
+
     tier = get_tier()
     canon_chars = len(book.synopsis or "") + len(bible)
-    staged_estimate = 6 * estimate_tokens(canon_chars)
-    remaining = await remaining_budget_24h(db, current_user.id)
-    staged = (
-        payload.kind == "outline"
-        and tier.allow_staged_outline
-        and remaining >= staged_estimate
-    )
+    staged = False
+    if payload.kind == "outline" and tier.allow_staged_outline:
+        assessed = await estimates.assess(
+            db, current_user.id, estimates.outline(canon_chars=canon_chars)
+        )
+        staged = assessed["allowed"]
+    if not staged:
+        assessed = await estimates.assess(
+            db,
+            current_user.id,
+            estimates.outline(canon_chars=canon_chars, staged=False),
+        )
+        if not assessed["allowed"]:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail={"message": assessed["reason"], "estimate": assessed},
+            )
 
     plan = (
         await db.execute(
