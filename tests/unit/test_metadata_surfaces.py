@@ -46,10 +46,12 @@ class TestStoreChunkEditing:
         assert out == [
             {
                 "id": "c1",
+                "source_id": None,
                 "chunk_type": "dialogue",
                 "text": "hi",
                 "source": "manual",
                 "word_count": 1,
+                "created_at": None,
             }
         ]
 
