@@ -28,6 +28,22 @@ def _vector_literal(vector: list[float]) -> str:
     return "[" + ",".join(f"{v:.8f}" for v in vector) + "]"
 
 
+def _chunk_row(row) -> dict:
+    """The browser/editor shape of one voice_chunks row."""
+    created = row.get("created_at")
+    return {
+        "id": str(row["id"]),
+        "source_id": str(row["source_id"]) if row.get("source_id") else None,
+        "chunk_type": row["chunk_type"],
+        "text": row["text"],
+        "source": row["source_location"] or "",
+        "word_count": row["word_count"] or 0,
+        "created_at": (
+            created.isoformat() if hasattr(created, "isoformat") else created
+        ),
+    }
+
+
 class ChunkStore:
     """Vector store for character content chunks (pgvector)."""
 
@@ -219,34 +235,100 @@ class ChunkStore:
             "total_words": sum(int(row["words"]) for row in rows),
         }
 
-    async def list_chunks(self, character_id: str) -> list[dict]:
-        """All of a character's voice chunks for the browser/editor (Phase 7)."""
+    @staticmethod
+    def _chunk_filters(
+        character_id: str, source_id: Optional[str], chunk_type: Optional[str]
+    ) -> tuple[str, dict]:
+        where = "WHERE character_id = :character_id"
+        params: dict = {"character_id": character_id}
+        if source_id:
+            where += " AND source_id = :source_id"
+            params["source_id"] = source_id
+        if chunk_type:
+            where += " AND chunk_type = :chunk_type"
+            params["chunk_type"] = chunk_type
+        return where, params
+
+    async def list_chunks(
+        self,
+        character_id: str,
+        *,
+        skip: int = 0,
+        limit: Optional[int] = None,
+        source_id: Optional[str] = None,
+        chunk_type: Optional[str] = None,
+    ) -> list[dict]:
+        """A character's voice chunks for the browser/editor, oldest first.
+
+        `skip`/`limit` page through a character with thousands of chunks (a
+        manuscript-scale extraction) instead of shipping them all to the UI.
+        """
+        where, params = self._chunk_filters(character_id, source_id, chunk_type)
+        sql = (
+            "SELECT id, source_id, chunk_type, text, source_location, word_count, "
+            f"created_at FROM voice_chunks {where} ORDER BY created_at, id"
+        )
+        if limit is not None:
+            sql += " LIMIT :limit"
+            params["limit"] = limit
+        if skip:
+            sql += " OFFSET :skip"
+            params["skip"] = skip
+        async with self._session() as session:
+            rows = (await session.execute(text(sql), params)).mappings().all()
+        return [_chunk_row(row) for row in rows]
+
+    async def count_chunks(
+        self,
+        character_id: str,
+        *,
+        source_id: Optional[str] = None,
+        chunk_type: Optional[str] = None,
+    ) -> int:
+        """How many chunks `list_chunks` would page through (same filters)."""
+        where, params = self._chunk_filters(character_id, source_id, chunk_type)
+        async with self._session() as session:
+            row = (
+                await session.execute(
+                    text(f"SELECT COUNT(*) AS n FROM voice_chunks {where}"), params
+                )
+            ).first()
+        return int(row[0]) if row else 0
+
+    async def get_chunks(self, chunk_ids: list[str]) -> dict[str, dict]:
+        """Current state of the given chunks, keyed by id; missing ids are absent.
+
+        Resolves a scene's stored grounding (chunk ids + scores) to the text the
+        chunks hold NOW, so an edited sample shows its edit and a deleted one
+        shows as gone (R5.3).
+        """
+        ids = [i for i in dict.fromkeys(chunk_ids) if i]
+        if not ids:
+            return {}
+        params = {f"id{n}": i for n, i in enumerate(ids)}
+        placeholders = ", ".join(f"CAST(:{k} AS uuid)" for k in params)
         async with self._session() as session:
             rows = (
                 (
                     await session.execute(
-                        text("""
-                            SELECT id, chunk_type, text, source_location, word_count
-                            FROM voice_chunks
-                            WHERE character_id = :character_id
-                            ORDER BY created_at
-                            """),
-                        {"character_id": character_id},
+                        text(
+                            "SELECT id, character_id, source_id, chunk_type, text, "
+                            "source_location, word_count, created_at "
+                            f"FROM voice_chunks WHERE id IN ({placeholders})"
+                        ),
+                        params,
                     )
                 )
                 .mappings()
                 .all()
             )
-        return [
-            {
-                "id": str(row["id"]),
-                "chunk_type": row["chunk_type"],
-                "text": row["text"],
-                "source": row["source_location"] or "",
-                "word_count": row["word_count"] or 0,
+        return {
+            str(row["id"]): {
+                **_chunk_row(row),
+                "character_id": str(row["character_id"]),
             }
             for row in rows
-        ]
+        }
 
     async def update_chunk(
         self, chunk_id: str, character_id: str, text_value: str

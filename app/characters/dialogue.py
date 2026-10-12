@@ -109,6 +109,17 @@ Important:
         "action": action,
         "confidence_score": confidence,
         "retrieved_examples": [ex["text"][:100] for ex in similar[:3]],
+        # The samples that actually reached the prompt, whole and scored, so the
+        # voice workbench can show what grounded this line (R5.3).
+        "grounding": [
+            {
+                "chunk_id": ex.get("id"),
+                "score": ex.get("score"),
+                "chunk_type": ex.get("chunk_type"),
+                "text": ex["text"],
+            }
+            for ex in similar[:3]
+        ],
     }
     if settings.CACHE_DIALOGUE:
         _dialogue_cache[cache_key] = response

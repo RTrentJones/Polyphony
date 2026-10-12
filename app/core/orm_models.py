@@ -292,9 +292,6 @@ class Character(Base):
     # Relationships
     book = relationship("Book", back_populates="characters")
     source = relationship("Source", back_populates="characters")
-    chunks = relationship(
-        "CharacterChunk", back_populates="character", cascade="all, delete-orphan"
-    )
 
     # Indexes and constraints
     __table_args__ = (
@@ -335,28 +332,6 @@ source_characters = Table(
     ),
     Index("idx_source_characters_character_id", "character_id"),
 )
-
-
-class CharacterChunk(Base):
-    __tablename__ = "character_chunks"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    character_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("characters.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    chunk_type = Column(String(50))  # dialogue, action, thought, description
-    content = Column(Text, nullable=False)
-    source_location = Column(String(500))
-    embedding_id = Column(String(255))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    # Relationships
-    character = relationship("Character", back_populates="chunks")
-
-    # Indexes
-    __table_args__ = (Index("idx_character_chunks_character_id", "character_id"),)
 
 
 class Scene(Base):

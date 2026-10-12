@@ -572,6 +572,97 @@ async def test_chunk_browser_edit_delete_roundtrip(pg):
     assert await store.delete_chunk(target, cid) is False
 
 
+async def _mina(pg):
+    import uuid as _uuid
+
+    from app.core.orm_models import Book, Character, User
+
+    async with pg() as s:
+        u = User(email=f"pg-{_uuid.uuid4()}@ex.com", hashed_password="x")
+        s.add(u)
+        await s.commit()
+        book = Book(user_id=u.id, title="B")
+        s.add(book)
+        await s.commit()
+        ch = Character(user_id=u.id, book_id=book.id, name="Mina")
+        s.add(ch)
+        await s.commit()
+        return str(u.id), str(book.id), str(ch.id)
+
+
+async def test_spec11_edit_changes_retrieval_score_for_a_fixed_query(pg):
+    """SPEC-11 acceptance 1: an edit changes the chunk's text AND its score."""
+    from app.rag.store import get_chunk_store
+
+    uid, bid, cid = await _mina(pg)
+    store = get_chunk_store()
+    await store.index_chunks(
+        character_id=cid,
+        character_name="Mina",
+        user_id=uid,
+        book_id=bid,
+        chunks=[{"text": "The weather is mild today.", "chunk_type": "dialogue"}],
+    )
+    query = "Children of the night, what music they make."
+    (chunk,) = await store.list_chunks(cid)
+    (before,) = await store.retrieve_similar(cid, query, k=1, score_threshold=-1.0)
+    assert before["id"] == chunk["id"]
+
+    assert await store.update_chunk(
+        chunk["id"], cid, "Listen to them, the children of the night."
+    )
+    (after,) = await store.retrieve_similar(cid, query, k=1, score_threshold=-1.0)
+    assert after["text"] == "Listen to them, the children of the night."
+    assert after["score"] > before["score"]  # re-embedded, not the stale vector
+
+
+async def test_spec11_chunk_paging_filters_and_lookup(pg):
+    from app.rag.store import get_chunk_store
+
+    uid, bid, cid = await _mina(pg)
+    store = get_chunk_store()
+    common = dict(character_id=cid, character_name="Mina", user_id=uid, book_id=bid)
+    await store.index_chunks(
+        chunks=[
+            {"text": f"Line {n}.", "chunk_type": "dialogue" if n % 2 else "action"}
+            for n in range(5)
+        ],
+        **common,
+    )
+    page = await store.list_chunks(cid, skip=1, limit=2)
+    assert len(page) == 2 and all(c["created_at"] for c in page)
+    assert await store.count_chunks(cid) == 5
+    assert await store.count_chunks(cid, chunk_type="dialogue") == 2
+    dialogue = await store.list_chunks(cid, chunk_type="dialogue")
+    assert {c["chunk_type"] for c in dialogue} == {"dialogue"}
+    assert await store.list_chunks(cid, source_id=str(uuid.uuid4())) == []
+
+    found = await store.get_chunks([page[0]["id"], str(uuid.uuid4())])
+    assert list(found) == [page[0]["id"]]
+    assert found[page[0]["id"]]["character_id"] == cid
+
+
+async def test_spec11_character_chunks_is_dropped_and_downgrade_restores(pg):
+    from alembic import command
+    from alembic.config import Config
+
+    async def regclass():
+        async with pg() as s:
+            return (
+                await s.execute(text("SELECT to_regclass('public.character_chunks')"))
+            ).scalar()
+
+    assert await regclass() is None
+    cfg = Config("alembic.ini")
+    cfg.set_main_option("script_location", "alembic")
+    await asyncio.to_thread(command.downgrade, cfg, "0011")
+    try:
+        assert await regclass() is not None
+    finally:
+        await asyncio.to_thread(command.upgrade, cfg, "head")
+    assert await regclass() is None
+
+
 # --- idle_state: the query the worker's sleep depends on ---------------------
 # sqlite can't answer this honestly — it has no timestamptz and no real
 # aggregate typing — and a wrong answer here is expensive in both directions:
