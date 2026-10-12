@@ -17,6 +17,9 @@ tunnel; Neon Postgres with pgvector; Gemini free tier by default).
 > first, then the code. The catalogue is [docs/feature-set.md](docs/feature-set.md);
 > the decisions are in [docs/ADR-002-book-as-root.md](docs/ADR-002-book-as-root.md).
 >
+> The current state against the BRD is reviewed in [docs/REVIEW-2026-10.md](docs/REVIEW-2026-10.md),
+> and the work it implies is broken into sequenced deliverables in [docs/specs/](docs/specs/README.md).
+>
 > The original microservices design spec lives at
 > [docs/archive/DESIGN-SPEC-v1.md](docs/archive/DESIGN-SPEC-v1.md); the
 > consolidation decisions are recorded in
