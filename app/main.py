@@ -67,7 +67,9 @@ async def lifespan(app: FastAPI):
             extra_fields={"event": "llm_not_configured"},
         )
 
-    update_uptime = initialize_service_metrics(SERVICE_NAME, "1.0.0", time.time())
+    update_uptime = initialize_service_metrics(
+        SERVICE_NAME, settings.APP_VERSION, time.time()
+    )
     app.state.update_uptime = update_uptime
 
     if await check_db_connection():
@@ -115,7 +117,7 @@ async def lifespan(app: FastAPI):
 _is_prod = settings.ENVIRONMENT == "production"
 app = FastAPI(
     title="Polyphony",
-    version="1.0.0",
+    version=settings.APP_VERSION,
     description="Multi-character AI book-writing platform",
     lifespan=lifespan,
     docs_url=None if _is_prod else "/docs",
@@ -350,12 +352,15 @@ async def health_check():
         payload = {
             "status": "healthy" if db_healthy else "degraded",
             "service": SERVICE_NAME,
-            "version": "1.0.0",
+            "version": settings.APP_VERSION,
             "checks": {
                 "database": "healthy" if db_healthy else "unhealthy",
                 "vector_search": "healthy" if vector_healthy else "unhealthy",
             },
         }
+        # Which build is answering, so a health probe can tell beta from prod.
+        if sha := _short_sha():
+            payload["sha"] = sha
         # Cache SUCCESS ONLY. Caching a failure would hold a transient one for
         # the full TTL and answer every retry from it — which would defeat the
         # very retries this endpoint exists to serve: verify probes a booting
@@ -377,7 +382,16 @@ async def liveness():
     probe. A 200 proves the tunnel, the container and the ASGI app are up, which
     is all either of them acts on — neither remediates a database.
     """
-    return {"status": "healthy", "service": SERVICE_NAME, "version": "1.0.0"}
+    return {
+        "status": "healthy",
+        "service": SERVICE_NAME,
+        "version": settings.APP_VERSION,
+    }
+
+
+def _short_sha() -> str:
+    """The image's GREENLIGHT_SHA in short (7-character) form; '' when unset."""
+    return os.getenv("GREENLIGHT_SHA", "").strip()[:7]
 
 
 @app.get("/__version")
@@ -502,7 +516,7 @@ else:
     async def root():
         return {
             "service": "Polyphony",
-            "version": "1.0.0",
+            "version": settings.APP_VERSION,
             "status": "running",
             "docs": "/docs",
             "health": "/health",
