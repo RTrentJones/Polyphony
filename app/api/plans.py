@@ -391,6 +391,22 @@ async def confirm_premise(
             detail="This plan is not waiting for a premise confirmation",
         )
     await check_user_budget(db, current_user.id)
+    # Preflight the stages still to run, as generate does: the author may have
+    # spent their budget since the skeleton finished.
+    from app.core import estimates
+    from app.planning.canon import build_canon
+
+    canon = await build_canon(db, book.id)
+    assessed = await estimates.assess(
+        db,
+        current_user.id,
+        estimates.outline(canon_chars=len(canon.full_block())),
+    )
+    if not assessed["allowed"]:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"message": assessed["reason"], "estimate": assessed},
+        )
 
     premise = dict(plan.premise)
     edited = False

@@ -29,7 +29,11 @@ from app.core.metrics import (
 )
 from app.core.resilience import CircuitBreaker, CircuitBreakerError
 
-from .errors import ProviderUnavailableError, QuotaExhaustedError
+from .errors import (
+    ProviderUnavailableError,
+    QuotaExhaustedError,
+    UserBudgetExhaustedError,
+)
 from .pacing import backoff_after_429, get_pacer
 from .providers import (
     GenResult,
@@ -100,6 +104,8 @@ class LLMClient:
         if settings.LLM_TEMPERATURE_OVERRIDE is not None:
             temperature = settings.LLM_TEMPERATURE_OVERRIDE
         start = time.monotonic()
+        if user_id is not None:
+            await _check_user_budget(user_id, max_tokens)
 
         # The circuit breaker wraps the WHOLE retry sequence, not each attempt:
         # one logical generate() = one breaker success/failure. Wrapping each
@@ -324,3 +330,29 @@ def reset_llm_client() -> None:
     """Test hook."""
     global _client
     _client = None
+
+
+async def _check_user_budget(user_id: UUID, max_tokens: int) -> None:
+    """Pause the caller's job when the author's rolling-24h token budget cannot
+    cover this call's answer (raises UserBudgetExhaustedError).
+
+    The enqueue preflights estimate a whole job, but a multi-call job (an
+    extraction planned to span days, an outline confirmed hours after its
+    skeleton) must not spend past the budget between pauses: checking before
+    each call bounds any overshoot to one call. Fail-soft like the request
+    ledger: an unreadable budget never blocks generation.
+    """
+    from app.core.budget import remaining_budget_24h
+    from app.core.database import get_async_session
+
+    try:
+        async with get_async_session() as session:
+            remaining = await remaining_budget_24h(session, user_id)
+    except Exception:
+        return
+    if remaining < max_tokens:
+        raise UserBudgetExhaustedError(
+            f"Today's token budget is spent ({remaining:,} left); this job "
+            "resumes as the 24-hour window rolls forward.",
+            reset_after=float(settings.QUOTA_PAUSE_SECONDS),
+        )

@@ -311,3 +311,13 @@ async def test_request_log_records_peer_and_cf_header(make_client):
     first, second = log.call_args_list
     assert first.kwargs == {"peer": TUNNEL, "cf_connecting_ip": True}
     assert second.kwargs == {"peer": TUNNEL, "cf_connecting_ip": False}
+
+
+def test_every_route_that_enqueues_llm_work_is_in_the_llm_class():
+    """Confirming a premise and editing a source's text both enqueue multi-call
+    jobs, so they share the tight LLM bucket (Codex review on #34)."""
+    for key in (
+        ("POST", "/api/v1/books/{book_id}/plans/{plan_id}/confirm-premise"),
+        ("PATCH", "/api/v1/sources/{source_id}"),
+    ):
+        assert ROUTE_CLASSES.get(key) == "llm", key

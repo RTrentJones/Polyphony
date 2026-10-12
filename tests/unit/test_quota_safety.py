@@ -242,3 +242,52 @@ def test_thinking_guard_for_non_flash_gemini():
     assert not (extra or {}).get("reasoning_effort") and mt > 1000
     extra, mt = _thinking_guard(PROVIDERS["gemini"], "gemini-2.5-flash", 1000)
     assert extra["reasoning_effort"] == "none" and mt == 1000
+
+
+async def test_a_spent_author_budget_pauses_before_the_call(
+    llm, async_session, test_user, monkeypatch
+):
+    """The token budget is enforced per call, not only at enqueue: a job that
+    would spend past it pauses instead (Codex review on #34)."""
+    from app.core.orm_models import APIUsage
+    from app.llm.errors import UserBudgetExhaustedError
+
+    monkeypatch.setattr(
+        "app.core.database.get_async_session", lambda: _Ctx(async_session)
+    )
+    monkeypatch.setattr(settings, "USER_DAILY_TOKEN_LIMIT", 1_000)
+    create = AsyncMock(side_effect=AssertionError("called the provider"))
+    monkeypatch.setattr(llm._client.chat.completions, "create", create)
+    async_session.add(APIUsage(user_id=test_user.id, tokens_used=900, cost_usd=0))
+    await async_session.commit()
+
+    with pytest.raises(UserBudgetExhaustedError) as ei:
+        await llm.generate(
+            [{"role": "user", "content": "hi"}], user_id=test_user.id, max_tokens=500
+        )
+    assert ei.value.reset_after and ei.value.reset_after > 0
+    create.assert_not_called()
+
+
+async def test_a_spent_author_budget_pauses_even_on_paid(
+    async_session, test_user, monkeypatch
+):
+    import app.jobs.handlers as handlers_mod
+    import app.jobs.worker as worker_mod
+    from app.llm.errors import UserBudgetExhaustedError
+
+    monkeypatch.setattr(worker_mod, "get_async_session", lambda: _Ctx(async_session))
+    monkeypatch.setattr(handlers_mod, "get_async_session", lambda: _Ctx(async_session))
+    monkeypatch.setattr(settings, "LLM_TIER", "paid")
+
+    async def run(payload):
+        raise UserBudgetExhaustedError("spent", reset_after=60)
+
+    monkeypatch.setattr(worker_mod, "HANDLERS", {"k": Handler(run=run)})
+    job = await jobs_repo.enqueue(
+        async_session, kind="k", payload={}, user_id=test_user.id, max_attempts=1
+    )
+    await async_session.commit()
+    await JobWorker(poll_interval=0.01, stale_after=timedelta(minutes=30)).run_once()
+    await async_session.refresh(job)
+    assert job.status == "queued"

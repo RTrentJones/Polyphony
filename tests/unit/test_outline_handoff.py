@@ -507,3 +507,27 @@ async def test_restoring_a_chapter_whose_node_was_promoted_again_is_409(
     )
     assert r.status_code == 409, r.text
     assert r.json()["detail"]["conflict"]["id"] == second["chapter_id"]
+
+
+async def test_confirming_a_premise_preflights_the_remaining_stages(
+    client, auth_headers, async_session, test_book, monkeypatch
+):
+    """The author may have spent their budget since the skeleton: confirming
+    refuses with the estimate rather than enqueue stages that cannot finish."""
+    plan = BookPlan(
+        book_id=test_book.id,
+        kind="outline",
+        content=[],
+        status="awaiting_confirmation",
+        premise={"premise_restated": "A lich audits.", "central_conflict": "x"},
+    )
+    async_session.add(plan)
+    await async_session.commit()
+    monkeypatch.setattr(settings, "USER_DAILY_TOKEN_LIMIT", 50)
+    r = await client.post(
+        f"/api/v1/books/{test_book.id}/plans/{plan.id}/confirm-premise",
+        json={},
+        headers=auth_headers,
+    )
+    assert r.status_code == 429, r.text
+    assert r.json()["detail"]["estimate"]["allowed"] is False

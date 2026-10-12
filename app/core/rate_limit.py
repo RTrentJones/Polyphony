@@ -201,11 +201,16 @@ ROUTE_CLASSES: dict[tuple[str, str], str] = {
     ("GET", "/api/v1/jobs/{job_id}"): "poll",  # useJob polls it (SPEC-07)
     ("POST", "/api/v1/books/chapters/{chapter_id}/scenes/generate"): "llm",
     ("POST", "/api/v1/books/{book_id}/plans/generate"): "llm",
+    # Confirming a premise enqueues the rest of the outline (SPEC-10).
+    ("POST", "/api/v1/books/{book_id}/plans/{plan_id}/confirm-premise"): "llm",
     ("POST", "/api/v1/books/{book_id}/continuity"): "llm",
     ("POST", "/api/v1/books/{book_id}/sources/{source_id}/extract"): "llm",
     ("POST", "/api/v1/sources/upload"): "llm",
     ("POST", "/api/v1/sources/paste"): "llm",
     ("POST", "/api/v1/sources/{source_id}/process"): "llm",
+    # Editing a source's text re-runs extraction (a title-only edit is rare
+    # enough that sharing the tight bucket costs nothing).
+    ("PATCH", "/api/v1/sources/{source_id}"): "llm",
     ("POST", "/api/v1/characters/{character_id}/test-dialogue"): "llm",
 }
 

@@ -37,6 +37,13 @@ class ProviderUnavailableError(QuotaExhaustedError):
     """
 
 
+class UserBudgetExhaustedError(QuotaExhaustedError):
+    """The author's rolling-24h token budget is spent (checked before every
+    call, app/llm/client.py). Like an outage it pauses on every tier: the
+    budget refills as the window rolls, and the job resumes where it stopped
+    instead of overspending or losing its work."""
+
+
 class DailyRequestLimitError(QuotaExhaustedError):
     """The provider's requests-per-day ceiling is reached (tracked locally in
     the request ledger, app/llm/ledger.py). Raised BEFORE calling the

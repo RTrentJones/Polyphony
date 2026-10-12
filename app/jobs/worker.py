@@ -43,7 +43,11 @@ from app.jobs import repository as jobs_repo
 from app.jobs.cancel import JobCancelled
 from app.jobs.context import JobContext, job_context
 from app.jobs.handlers import HANDLERS
-from app.llm.errors import ProviderUnavailableError, QuotaExhaustedError
+from app.llm.errors import (
+    ProviderUnavailableError,
+    QuotaExhaustedError,
+    UserBudgetExhaustedError,
+)
 from app.llm.tier import get_tier
 
 logger = setup_logging("jobs.worker")
@@ -243,8 +247,10 @@ class JobWorker:
                 # Free tier: pause and resume; paid: a 429 is a real error. A
                 # provider outage (open breaker) pauses on every tier — it is
                 # never the author's error (SPEC-03).
+                # So does the author's own spent budget: it refills as the
+                # 24h window rolls, so pausing loses nothing on any tier.
                 if (
-                    isinstance(e, ProviderUnavailableError)
+                    isinstance(e, (ProviderUnavailableError, UserBudgetExhaustedError))
                     or get_tier().on_quota == "pause"
                 ):
                     pause_after = e.reset_after or settings.QUOTA_PAUSE_SECONDS
