@@ -13,6 +13,7 @@ export const SCENE_STATUS_STYLES: Record<string, string> = {
   processing: 'bg-yellow-100 text-yellow-700',
   paused: 'bg-indigo-100 text-indigo-700',
   failed: 'bg-red-100 text-red-700',
+  cancelled: 'bg-gray-100 text-gray-600',
 }
 
 export const THREAD_STATUS_STYLES: Record<string, string> = {

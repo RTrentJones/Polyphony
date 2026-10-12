@@ -178,6 +178,7 @@ ROUTE_CLASSES: dict[tuple[str, str], str] = {
     ("GET", "/api/v1/scenes/{scene_id}"): "poll",
     ("GET", "/api/v1/sources/{source_id}"): "poll",
     ("GET", "/api/v1/sources/{source_id}/characters"): "poll",
+    ("GET", "/api/v1/jobs/{job_id}"): "poll",  # useJob polls it (SPEC-07)
     ("POST", "/api/v1/books/chapters/{chapter_id}/scenes/generate"): "llm",
     ("POST", "/api/v1/books/{book_id}/plans/generate"): "llm",
     ("POST", "/api/v1/books/{book_id}/continuity"): "llm",

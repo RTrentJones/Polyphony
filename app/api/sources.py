@@ -328,6 +328,11 @@ async def list_sources(
         )
         for r in runs:
             latest_by_source.setdefault(r.source_id, r)  # first seen = newest
+    from app.api.jobs import latest_jobs
+
+    run_jobs = await latest_jobs(
+        db, "extraction_run", [r.id for r in latest_by_source.values()]
+    )
 
     return {
         "sources": [
@@ -345,6 +350,7 @@ async def list_sources(
                     {
                         "id": str(latest_by_source[s.id].id),
                         "status": latest_by_source[s.id].status,
+                        "job": run_jobs.get(str(latest_by_source[s.id].id)),
                     }
                     if s.id in latest_by_source
                     else None
@@ -394,6 +400,11 @@ async def get_source(
             .limit(1)
         )
     ).scalar_one_or_none()
+    from app.api.jobs import latest_jobs
+
+    run_jobs = await latest_jobs(
+        db, "extraction_run", [latest_run.id] if latest_run else []
+    )
     return {
         "id": str(source.id),
         "book_id": str(source.book_id),
@@ -409,7 +420,11 @@ async def get_source(
             source.processed_at.isoformat() if source.processed_at else None
         ),
         "latest_extraction": (
-            {"id": str(latest_run.id), "status": latest_run.status}
+            {
+                "id": str(latest_run.id),
+                "status": latest_run.status,
+                "job": run_jobs.get(str(latest_run.id)),
+            }
             if latest_run
             else None
         ),

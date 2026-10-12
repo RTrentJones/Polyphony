@@ -69,6 +69,7 @@ export type SourceKind = 'upload' | 'paste'
 export interface SourceLatestExtraction {
   id: string
   status: 'pending' | 'ready' | 'failed' | 'committed' | string
+  job?: JobSummary | null
 }
 
 /** Raw source item as returned by the API (list + detail). Book-scoped. */
@@ -229,6 +230,7 @@ export interface BookSceneSummary {
   characters?: string[]
   preview?: string | null
   created_at: string | null
+  job?: JobSummary | null
 }
 
 // ---------------------------------------------------------------------------
@@ -307,6 +309,7 @@ export interface ChapterUpdateData {
 /** Scene summary inside GET /books/chapters/{id}. */
 export interface ChapterScene {
   id: string
+  job?: JobSummary | null
   position: number
   status: SceneStatus
   word_count?: number | null
@@ -338,6 +341,7 @@ export interface ChapterSceneRequest {
 /** POST /books/chapters/{id}/scenes/generate response — poll GET /scenes/{scene_id}. */
 export interface ChapterSceneGenerateResponse {
   scene_id: string
+  job_id?: string
   chapter_id: string
   position: number
   status: SceneStatus
@@ -588,6 +592,7 @@ export interface BookPlan {
   /** Failure reason when status === 'failed'. */
   error?: string | null
   updated_at: string | null
+  job?: JobSummary | null
 }
 
 /** POST /books/{id}/plans/generate — async (staged) returns status:'generating'
@@ -686,6 +691,7 @@ export interface ContinuityReport {
   model?: string | null
   tokens_used?: number | null
   created_at: string | null
+  job?: JobSummary | null
 }
 
 /** GET /books/{id}/continuity */
@@ -697,4 +703,52 @@ export interface ContinuityReportListResponse {
 export interface ContinuityStartResponse {
   report_id: string
   status: string
+}
+
+// ---------------------------------------------------------------------------
+// Jobs (app/api/jobs.py, SPEC-07/08)
+// ---------------------------------------------------------------------------
+
+/** One lifecycle for every LLM job. 'paused' = waiting for AI quota. */
+export type JobStatus =
+  | 'queued'
+  | 'running'
+  | 'paused'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+
+/** Stage progress from the job's checkpoint ("beat 3 of 5"). */
+export interface JobProgress {
+  stage?: string
+  done: number
+  total: number
+}
+
+/** GET /jobs/{id} */
+export interface Job {
+  id: string
+  kind: string
+  status: JobStatus
+  available_at: string | null
+  /** When a paused job is due to resume. */
+  resume_at: string | null
+  attempts: number
+  max_attempts: number
+  pause_count: number
+  cancel_requested: boolean
+  cancellable: boolean
+  error: string | null
+  progress: JobProgress | null
+  domain: { type: string; id: string } | null
+  created_at: string | null
+  finished_at: string | null
+}
+
+/** A domain row's newest job, embedded in list payloads. */
+export interface JobSummary {
+  job_id: string
+  status: JobStatus
+  resume_at: string | null
+  progress: JobProgress | null
 }
