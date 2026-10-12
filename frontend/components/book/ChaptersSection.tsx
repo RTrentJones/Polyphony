@@ -30,6 +30,8 @@ import type { ToastType } from '@/components/Toast'
 import { useBookStore } from '@/lib/books-store'
 import type { BookChapter } from '@/lib/types'
 import { SCENE_STATUS_STYLES } from '@/components/book/styles'
+import JobStatusBadge from '@/components/JobStatusBadge'
+import { isActiveJob } from '@/lib/jobs'
 
 export default function ChaptersSection({
   bookId,
@@ -246,14 +248,24 @@ export default function ChaptersSection({
                             <span className="text-xs text-gray-400 w-6 text-right">
                               {scene.position + 1}
                             </span>
-                            <span
-                              className={`px-2 py-0.5 text-xs font-medium rounded-full ${
-                                SCENE_STATUS_STYLES[scene.status] ||
-                                'bg-gray-100 text-gray-700'
-                              }`}
-                            >
-                              {scene.status}
-                            </span>
+                            {isActiveJob(scene.job?.status) ? (
+                              <JobStatusBadge
+                                jobId={scene.job?.job_id}
+                                initial={scene.job}
+                                onSettled={() => {
+                                  fetchChapter(chapter.id).catch(() => {})
+                                }}
+                              />
+                            ) : (
+                              <span
+                                className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                                  SCENE_STATUS_STYLES[scene.status] ||
+                                  'bg-gray-100 text-gray-700'
+                                }`}
+                              >
+                                {scene.status}
+                              </span>
+                            )}
                             <p className="flex-1 min-w-0 text-sm text-gray-600 truncate">
                               {scene.preview || (
                                 <span className="italic text-gray-400">

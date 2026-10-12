@@ -558,3 +558,44 @@ class TestTrashedRowsStayOutOfReads:
         ).status_code == 404
         src = await async_session.get(Source, UUID(sid))
         assert src is not None and src.deleted_at is not None
+
+
+class TestTrashCancelsInFlightJobs:
+    async def test_trashing_a_chapter_cancels_its_scenes_jobs(
+        self, client, auth_headers, async_session, test_user
+    ):
+        """A soft-deleted scene (or a chapter's) stops its generation: a queued
+        job is cancelled now, a running one is flagged to stop at its next seam."""
+        from app.core.orm_models import Job
+
+        bid = await _book(client, auth_headers)
+        ch = await _chapter(client, auth_headers, bid, "One")
+        a = await _scene(client, auth_headers, ch, "a")
+        b = await _scene(client, auth_headers, ch, "b")
+        queued = Job(
+            kind="generate_prose_scene",
+            payload={},
+            user_id=test_user.id,
+            status="queued",
+            domain_type="scene",
+            domain_id=UUID(a),
+        )
+        running = Job(
+            kind="generate_prose_scene",
+            payload={},
+            user_id=test_user.id,
+            status="running",
+            domain_type="scene",
+            domain_id=UUID(b),
+        )
+        async_session.add_all([queued, running])
+        await async_session.commit()
+
+        r = await client.delete(
+            f"{API}/books/chapters/{ch}?scenes=delete", headers=auth_headers
+        )
+        assert r.status_code == 204, r.text
+        await async_session.refresh(queued)
+        await async_session.refresh(running)
+        assert queued.status == "cancelled"
+        assert running.status == "running" and running.cancel_requested

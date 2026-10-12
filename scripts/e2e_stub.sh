@@ -26,6 +26,15 @@ export STATIC_DIR=${STATIC_DIR:-frontend/out}
 export EVAL_CACHE_DIR=$(mktemp -d)
 PY=${PYTHON:-python}
 
+# Refuse to run against someone else's server: a stale app already bound to
+# the port would answer every request and the run would grade the wrong app.
+for port in "$APP_PORT" "$STUB_PORT"; do
+  if curl -s -o /dev/null "http://127.0.0.1:$port/"; then
+    echo "::error::port $port is already in use — stop that server or pick other ports" >&2
+    exit 2
+  fi
+done
+
 $PY -m evals.stub_llm --port "$STUB_PORT" > e2e-stub.log 2>&1 &
 STUB=$!
 $PY -m app.migrate

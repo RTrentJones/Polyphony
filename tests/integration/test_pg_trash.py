@@ -208,7 +208,7 @@ async def test_downgrade_restores_full_constraints_then_upgrade_again(pg):
             )
 
     assert await has_column()
-    await asyncio.to_thread(command.downgrade, cfg, "spec11_drop_character_chunks")
+    await asyncio.to_thread(command.downgrade, cfg, "spec07_job_lifecycle")
     try:
         assert not await has_column()
         async with pg() as s:

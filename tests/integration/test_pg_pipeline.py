@@ -657,6 +657,7 @@ async def test_spec11_character_chunks_is_dropped_and_downgrade_restores(pg):
     assert await regclass() is None
     cfg = Config("alembic.ini")
     cfg.set_main_option("script_location", "alembic")
+    # Below spec11 (not to it): later revisions are chained on top of it.
     await asyncio.to_thread(command.downgrade, cfg, "spec09_extraction_scale")
     try:
         assert await regclass() is not None
@@ -779,3 +780,89 @@ async def test_worker_next_deadline_sleeps_until_a_paused_job_is_due(pg, monkeyp
     delay = await worker._next_deadline()
     assert delay is not None
     assert 500 < delay <= 600
+
+
+# --- SPEC-07: dedupe index + lifecycle migration on real Postgres ----------------
+
+
+def _first_blind_then(real):
+    """find_active that misses once: a request that looked before the winner
+    committed, then enqueue's own fallback lookup after the conflict."""
+    calls = {"n": 0}
+
+    async def find(session, key):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None
+        return await real(session, key)
+
+    return find
+
+
+async def test_dedupe_race_returns_the_winning_job(pg, monkeypatch):
+    """Two requests that both pass the lookup: the partial unique index rejects
+    the loser's insert, its savepoint rolls back, and it gets the winner's job
+    with its transaction still usable."""
+    from app.jobs import repository as jobs_repo
+
+    async with pg() as s:
+        await s.execute(text("DELETE FROM jobs"))
+        await s.commit()
+        user = await _a_user(s)
+        winner = await jobs_repo.enqueue(
+            s, kind="k", payload={}, user_id=user.id, dedupe_key="outline:race"
+        )
+        await s.commit()
+
+    monkeypatch.setattr(
+        jobs_repo, "find_active", _first_blind_then(jobs_repo.find_active)
+    )
+    async with pg() as s:
+        got = await jobs_repo.enqueue(
+            s, kind="k", payload={}, user_id=user.id, dedupe_key="outline:race"
+        )
+        assert got.id == winner.id
+        await s.execute(text("SELECT 1"))  # the transaction survived the savepoint
+        await s.commit()
+        n = (
+            await s.execute(
+                text("SELECT count(*) FROM jobs WHERE dedupe_key = 'outline:race'")
+            )
+        ).scalar()
+        assert n == 1
+
+
+async def test_spec07_migration_downgrades_and_reapplies(pg):
+    from alembic import command
+    from alembic.config import Config
+
+    cfg = Config("alembic.ini")
+    cfg.set_main_option("script_location", "alembic")
+    await asyncio.to_thread(command.downgrade, cfg, "spec11_drop_character_chunks")
+    try:
+        async with pg() as s:
+            cols = set(
+                (
+                    await s.execute(
+                        text(
+                            "SELECT column_name FROM information_schema.columns "
+                            "WHERE table_name='jobs'"
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert "checkpoint" not in cols and "dedupe_key" not in cols
+    finally:
+        await asyncio.to_thread(command.upgrade, cfg, "head")
+    async with pg() as s:
+        idx = (
+            await s.execute(
+                text(
+                    "SELECT indexdef FROM pg_indexes WHERE indexname = "
+                    "'uq_jobs_dedupe_active'"
+                )
+            )
+        ).scalar()
+        assert "UNIQUE" in idx and "queued" in idx

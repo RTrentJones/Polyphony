@@ -11,11 +11,13 @@ import AddSourceModal from '@/components/AddSourceModal'
 import Button from '@/components/Button'
 import Card from '@/components/Card'
 import Input from '@/components/Input'
+import JobStatusBadge from '@/components/JobStatusBadge'
 import Loading from '@/components/Loading'
 import Modal from '@/components/Modal'
 import VersionHistory from '@/components/VersionHistory'
 import type { ToastType } from '@/components/Toast'
 import apiClient from '@/lib/api-client'
+import { isActiveJob } from '@/lib/jobs'
 import { useSourceStore } from '@/lib/store'
 import type { Source } from '@/lib/types'
 
@@ -119,7 +121,12 @@ export default function SourcesPanel({
       ) : (
         <div className="space-y-3">
           {bookSources.map((source) => {
+            // An extraction still running (or paused for quota) shows its job
+            // badge; only a finished one is offered for review.
+            const extractionJob = source.latest_extraction?.job
+            const extracting = isActiveJob(extractionJob?.status)
             const pending =
+              !extracting &&
               source.latest_extraction &&
               (source.latest_extraction.status === 'ready' ||
                 source.latest_extraction.status === 'pending')
@@ -136,6 +143,15 @@ export default function SourcesPanel({
                     <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
                       {source.kind || 'upload'}
                     </span>
+                    {extracting && (
+                      <JobStatusBadge
+                        jobId={extractionJob?.job_id}
+                        initial={extractionJob}
+                        onSettled={() => {
+                          fetchSources(bookId).catch(() => {})
+                        }}
+                      />
+                    )}
                   </div>
                   <p className="text-sm text-gray-500 mt-0.5">
                     {source.word_count || 0} words

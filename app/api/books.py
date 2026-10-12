@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import (
     APIRouter,
     Depends,
+    Header,
     HTTPException,
     Query,
     Response,
@@ -412,11 +413,15 @@ async def get_chapter(
         .scalars()
         .all()
     )
+    from app.api.jobs import latest_jobs
+
+    jobs = await latest_jobs(db, "scene", [s.id for s in scenes])
     return {
         **_chapter_dict(chapter),
         "scenes": [
             {
                 "id": str(s.id),
+                "job": jobs.get(str(s.id)),
                 "position": s.position,
                 "status": s.status,
                 "word_count": s.word_count,
@@ -585,10 +590,14 @@ async def list_book_scenes(
         ).all()
         titles = {cid: title for cid, title in rows}
 
+    from app.api.jobs import latest_jobs
+
+    jobs = await latest_jobs(db, "scene", [s.id for s in scenes])
     return {
         "scenes": [
             {
                 "id": str(s.id),
+                "job": jobs.get(str(s.id)),
                 "title": s.title,
                 "status": s.status,
                 "chapter_id": str(s.chapter_id) if s.chapter_id else None,
@@ -611,14 +620,39 @@ async def generate_scene_into_chapter(
     payload: ChapterSceneRequest,
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, max_length=200),
 ):
-    """Prose-mode generation (one LLM call per beat) landing in the chapter."""
+    """Prose-mode generation (one LLM call per beat) landing in the chapter.
+
+    Two scenes in one chapter are legitimate, so duplicates are recognised by a
+    client-supplied `Idempotency-Key` header (SPEC-07): a repeat while the first
+    is in flight returns that scene and job instead of spending again.
+    """
     chapter = await _owned_chapter(chapter_id, current_user, db)
+    dedupe_key = (
+        f"scene:{current_user.id}:{idempotency_key}" if idempotency_key else None
+    )
+
+    async def _existing() -> Optional[dict]:
+        if dedupe_key is None:
+            return None
+        job = await jobs_repo.find_active(db, dedupe_key)
+        if job is None:
+            return None
+        return {
+            "scene_id": str(job.domain_id),
+            "job_id": str(job.id),
+            "chapter_id": str(chapter_id),
+            "status": "processing",
+        }
+
+    if (found := await _existing()) is not None:
+        return found
 
     if payload.source_id:
         owned = (
             await db.execute(
-                select(SourceORM).where(
+                live(select(SourceORM), SourceORM).where(
                     SourceORM.id == payload.source_id,
                     SourceORM.user_id == current_user.id,
                 )
@@ -642,22 +676,10 @@ async def generate_scene_into_chapter(
     cast_ids = [str(c.id) for c in cast]
 
     # Plain values survive the rollback of a failed insert attempt below
-    # (ORM instances get expired on rollback).
-    chapter_summary = chapter.summary or ""
+    # (ORM instances get expired on rollback). The chapter summary and the prior
+    # scene's tail are NOT carried in the job: they go stale across a pause, so
+    # the handler recomputes them from the DB when it starts (SPEC-08).
     book_id = str(chapter.book_id)
-
-    # Previous scene's tail for narrative continuity
-    prev_scene = (
-        await db.execute(
-            live(select(SceneORM), SceneORM)
-            .where(SceneORM.chapter_id == chapter.id, SceneORM.status == "completed")
-            .order_by(SceneORM.position.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    prior_tail = ""
-    if prev_scene is not None:
-        prior_tail = " ".join(scene_text(prev_scene).split()[-500:])
 
     request_dict = payload.model_dump(mode="json")
     request_dict["characters"] = cast_names
@@ -699,25 +721,32 @@ async def generate_scene_into_chapter(
         )
         # Job + scene commit atomically: no 'processing' scene without a
         # durable job.
-        await jobs_repo.enqueue(
+        job = await jobs_repo.enqueue(
             db,
             kind=job_kind,
             payload={
                 "scene_id": str(scene.id),
                 "request": request_dict,
                 "user_id": str(current_user.id),
-                "chapter_summary": chapter_summary,
-                "prior_tail": prior_tail,
                 "book_id": book_id,
             },
             user_id=current_user.id,
             max_attempts=1,  # a retry re-spends LLM budget; user can re-trigger
+            dedupe_key=dedupe_key,
+            domain=("scene", scene.id),
         )
+        if job.domain_id != scene.id:  # an identical request won the race
+            await db.rollback()
+            return await _existing()
+        job_id = str(job.id)
         try:
             await db.commit()
             break
         except IntegrityError:
             await db.rollback()
+            # The unique index on the idempotency key, not a position clash.
+            if (found := await _existing()) is not None:
+                return found
             if attempt == 2:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -727,6 +756,7 @@ async def generate_scene_into_chapter(
 
     return {
         "scene_id": str(scene.id),
+        "job_id": job_id,
         "chapter_id": str(chapter_id),
         "position": scene.position,
         "status": scene.status,

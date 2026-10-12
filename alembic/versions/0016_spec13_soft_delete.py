@@ -16,7 +16,7 @@ again when the column goes (and could collide on those constraints), so trashed
 rows are purged first; their content is still in `entity_versions`.
 
 Revision ID: spec13_soft_delete
-Revises: spec11_drop_character_chunks
+Revises: spec07_job_lifecycle
 Create Date: 2026-10-12
 
 """
@@ -28,7 +28,7 @@ from alembic import op
 from sqlalchemy import text
 
 revision: str = "spec13_soft_delete"
-down_revision: Union[str, None] = "spec11_drop_character_chunks"
+down_revision: Union[str, None] = "spec07_job_lifecycle"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

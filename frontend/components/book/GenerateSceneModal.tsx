@@ -15,10 +15,12 @@ import { Users, Wand2 } from 'lucide-react'
 import Button from '@/components/Button'
 import Input from '@/components/Input'
 import Loading from '@/components/Loading'
+import EstimateHint from '@/components/EstimateHint'
 import Modal from '@/components/Modal'
 import { canonApi } from '@/lib/canon-store'
 import { useBookStore } from '@/lib/books-store'
 import type { BookChapter, Character, ChapterSceneRequest } from '@/lib/types'
+import type { Estimate } from '@/lib/usage-api'
 
 const TONES = [
   'neutral',
@@ -64,6 +66,8 @@ export default function GenerateSceneModal({
   const [povId, setPovId] = useState('')
   const [wordCount, setWordCount] = useState(800)
   const [styleNotes, setStyleNotes] = useState('')
+  const [mode, setMode] = useState<'prose' | 'ensemble'>('prose')
+  const [est, setEst] = useState<Estimate | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -115,6 +119,7 @@ export default function GenerateSceneModal({
       ...(pov ? { pov_character: pov } : {}),
       target_word_count: Math.min(3000, Math.max(100, wordCount || 800)),
       ...(styleNotes.trim() ? { style_notes: styleNotes.trim() } : {}),
+      mode,
     }
     setSubmitting(true)
     try {
@@ -277,6 +282,47 @@ export default function GenerateSceneModal({
           />
         </div>
 
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            How to write it
+          </label>
+          <div className="flex gap-4 text-sm" role="radiogroup">
+            <label className="flex items-center gap-1">
+              <input
+                type="radio"
+                name="mode"
+                checked={mode === 'prose'}
+                onChange={() => setMode('prose')}
+              />
+              Prose — one pass per beat
+            </label>
+            <label className="flex items-center gap-1">
+              <input
+                type="radio"
+                name="mode"
+                checked={mode === 'ensemble'}
+                onChange={() => setMode('ensemble')}
+              />
+              Ensemble — each character proposes, an editor reviews
+            </label>
+          </div>
+        </div>
+
+        <EstimateHint
+          request={
+            selected.length > 0 && bookId
+              ? {
+                  action: 'scene',
+                  book_id: bookId,
+                  character_ids: selected,
+                  target_word_count: Math.min(3000, Math.max(100, wordCount || 800)),
+                  mode,
+                }
+              : null
+          }
+          onEstimate={setEst}
+        />
+
         <div className="flex items-center space-x-3 pt-4">
           <Button variant="outline" fullWidth onClick={onClose}>
             Cancel
@@ -286,6 +332,7 @@ export default function GenerateSceneModal({
             onClick={handleSubmit}
             isLoading={submitting}
             disabled={
+              (est !== null && !est.allowed) ||
               selected.length === 0 ||
               description.trim().length < 10 ||
               !setting.trim()

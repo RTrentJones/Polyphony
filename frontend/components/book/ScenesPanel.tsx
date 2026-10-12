@@ -16,6 +16,8 @@ import type { ToastType } from '@/components/Toast'
 import { booksApi } from '@/lib/books-store'
 import type { BookChapter, BookSceneSummary } from '@/lib/types'
 import { SCENE_STATUS_STYLES } from '@/components/book/styles'
+import JobStatusBadge from '@/components/JobStatusBadge'
+import { isActiveJob } from '@/lib/jobs'
 import { rateLimitedPollDelay } from '@/lib/rate-limit'
 
 export default function ScenesPanel({
@@ -39,8 +41,15 @@ export default function ScenesPanel({
       setScenes(s)
       if (pollRef.current) clearTimeout(pollRef.current)
       // Generating scenes land in the background; paused ones resume when the
-      // AI quota returns — keep polling until everything settles.
-      if (s.some((x) => x.status === 'processing' || x.status === 'paused')) {
+      // AI quota returns. A scene with a live job is watched by its badge
+      // (useJob), which reloads on settle; poll only for any without one.
+      if (
+        s.some(
+          (x) =>
+            (x.status === 'processing' || x.status === 'paused') &&
+            !isActiveJob(x.job?.status)
+        )
+      ) {
         pollRef.current = setTimeout(load, 5000)
       }
     } catch (err: any) {
@@ -122,13 +131,21 @@ export default function ScenesPanel({
                   <h3 className="font-medium text-gray-900 truncate">
                     {s.title || 'Untitled scene'}
                   </h3>
-                  <span
-                    className={`px-2 py-0.5 text-xs rounded ${
-                      SCENE_STATUS_STYLES[s.status] || 'bg-gray-100 text-gray-600'
-                    }`}
-                  >
-                    {s.status}
-                  </span>
+                  {isActiveJob(s.job?.status) ? (
+                    <JobStatusBadge
+                      jobId={s.job?.job_id}
+                      initial={s.job}
+                      onSettled={() => load()}
+                    />
+                  ) : (
+                    <span
+                      className={`px-2 py-0.5 text-xs rounded ${
+                        SCENE_STATUS_STYLES[s.status] || 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {s.status}
+                    </span>
+                  )}
                   <span className="text-xs text-gray-500">
                     {s.chapter_title || 'Unfiled'}
                   </span>

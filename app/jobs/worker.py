@@ -40,6 +40,8 @@ from app.core.database import get_async_session
 from app.core.logging_config import log_business_event, log_error, setup_logging
 from app.core.orm_models import Job
 from app.jobs import repository as jobs_repo
+from app.jobs.cancel import JobCancelled
+from app.jobs.context import JobContext, job_context
 from app.jobs.handlers import HANDLERS
 from app.llm.errors import ProviderUnavailableError, QuotaExhaustedError
 from app.llm.tier import get_tier
@@ -214,6 +216,8 @@ class JobWorker:
                 job.payload,
                 job.attempts,
             )
+            was_paused = job.paused_since is not None
+            ctx = JobContext(job_id=job_id, kind=kind, checkpoint=job.checkpoint)
 
         log_business_event(
             logger, "job_claimed", job_id=str(job_id), kind=kind, attempts=attempts
@@ -222,11 +226,19 @@ class JobWorker:
         handler = HANDLERS.get(kind)
         error: str | None = None
         pause_after: float | None = None  # set => quota pause, not a failure
+        cancelled = False
         if handler is None:
             error = f"unknown job kind: {kind}"
         else:
+            if was_paused:
+                # Quota came back: the domain row leaves 'paused' before the run
+                # (SPEC-07), so the UI shows work in progress again.
+                await _hook(handler, "on_resume", payload, ctx)
             try:
-                await handler.run(payload)
+                with job_context(ctx):
+                    await handler.run(payload)
+            except JobCancelled:
+                cancelled = True
             except QuotaExhaustedError as e:
                 # Free tier: pause and resume; paid: a 429 is a real error. A
                 # provider outage (open breaker) pauses on every tier — it is
@@ -246,10 +258,28 @@ class JobWorker:
             db_job = await session.get(Job, job_id)
             if db_job is None:  # deleted underneath us (user cascade)
                 return True
+            if cancelled:
+                await jobs_repo.mark_cancelled(session, db_job)
+                await session.commit()
+                log_business_event(logger, "job_cancelled", job_id=str(job_id))
+                await _hook(handler, "on_cancel", payload, ctx)
+                return True
+            if pause_after is not None and jobs_repo.pause_expired(
+                db_job, max_hours=settings.JOB_MAX_PAUSE_HOURS
+            ):
+                # Bounded pause (SPEC-07): no progress for the whole window
+                # means the quota is not coming back on its own — stop
+                # re-pausing every 15 minutes forever and say why.
+                pause_after = None
+                error = f"quota did not return within {settings.JOB_MAX_PAUSE_HOURS:g}h"
+                db_job.attempts = db_job.max_attempts
             if pause_after is not None:
                 resume_at = datetime.now(timezone.utc) + timedelta(seconds=pause_after)
                 await jobs_repo.pause(
-                    session, db_job, available_at=resume_at, reason="quota exhausted"
+                    session,
+                    db_job,
+                    available_at=resume_at,
+                    reason=jobs_repo.PAUSE_REASON,
                 )
                 await session.commit()
                 log_business_event(
@@ -261,11 +291,8 @@ class JobWorker:
                 )
                 # Reflect the pause on the domain row (e.g. scene -> 'paused') so
                 # the UI shows "waiting for quota", not a stuck "generating".
-                if handler is not None and handler.on_pause is not None:
-                    try:
-                        await handler.on_pause(payload)
-                    except Exception as e:
-                        log_error(logger, e, context={"event": "job_on_pause_failed"})
+                ctx.resume_at = resume_at
+                await _hook(handler, "on_pause", payload, ctx)
                 return True
             if error is None:
                 await jobs_repo.mark_succeeded(session, db_job)
@@ -289,11 +316,8 @@ class JobWorker:
                 attempts=attempts,
                 error=error,
             )
-            if handler is not None and handler.on_dead is not None:
-                try:
-                    await handler.on_dead(payload)
-                except Exception as e:
-                    log_error(logger, e, context={"event": "job_on_dead_failed"})
+            ctx.error = error
+            await _hook(handler, "on_dead", payload, ctx)
         else:
             log_business_event(
                 logger,
@@ -319,9 +343,22 @@ class JobWorker:
                 reaped=True,
             )
             if went_dead:
-                handler = HANDLERS.get(kind)
-                if handler is not None and handler.on_dead is not None:
-                    try:
-                        await handler.on_dead(payload)
-                    except Exception as e:
-                        log_error(logger, e, context={"event": "job_on_dead_failed"})
+                ctx = JobContext(
+                    job_id=job_id,
+                    kind=kind,
+                    error="stale job: worker presumed dead before completion",
+                )
+                await _hook(HANDLERS.get(kind), "on_dead", payload, ctx)
+
+
+async def _hook(handler, name: str, payload: dict, ctx: JobContext) -> None:
+    """Run one of a handler's lifecycle hooks; a failing hook is logged, never
+    allowed to break the worker loop."""
+    fn = getattr(handler, name, None) if handler is not None else None
+    if fn is None:
+        return
+    try:
+        with job_context(ctx):
+            await fn(payload)
+    except Exception as e:
+        log_error(logger, e, context={"event": f"job_{name}_failed"})

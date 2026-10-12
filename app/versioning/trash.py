@@ -31,7 +31,16 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.characters.serialize import character_snapshot
-from app.core.orm_models import CanonEntry, Chapter, Character, Scene, Source
+from app.core.orm_models import (
+    CanonEntry,
+    Chapter,
+    Character,
+    ExtractionRun,
+    Job,
+    Scene,
+    Source,
+)
+from app.jobs import repository as jobs_repo
 from app.versioning import repository as versions_repo
 from app.versioning.entities import chapter_content, source_content
 from app.versioning.scenes import snapshot_before_delete
@@ -149,20 +158,65 @@ async def _live_scenes(db, chapter_id) -> list:
 # --- delete -----------------------------------------------------------------------
 
 
+async def _cancel_jobs(db: AsyncSession, domain_type: str, ids: list) -> None:
+    """Cancel in-flight jobs whose domain row just went to the Trash (SPEC-07):
+    a queued or paused job is cancelled now, in this transaction; a running one
+    is flagged and stops at its next seam between model calls. Its on_cancel
+    hook is not run — the row it would move is in the Trash, and a restore
+    shows it as it was left."""
+    if not ids:
+        return
+    jobs = (
+        (
+            await db.execute(
+                select(Job).where(
+                    Job.domain_type == domain_type,
+                    Job.domain_id.in_(ids),
+                    Job.status.in_(jobs_repo.ACTIVE_STATUSES),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for job in jobs:
+        if job.status == "running":
+            job.cancel_requested = True
+        else:
+            await jobs_repo.mark_cancelled(db, job)
+
+
+async def _cancel_jobs_of(db: AsyncSession, entity_type: str, row, scenes) -> None:
+    if entity_type == "scene":
+        await _cancel_jobs(db, "scene", [row.id])
+    elif entity_type == "chapter":
+        await _cancel_jobs(db, "scene", [s.id for s in scenes])
+    elif entity_type == "source":
+        runs = (
+            await db.execute(
+                select(ExtractionRun.id).where(ExtractionRun.source_id == row.id)
+            )
+        ).scalars()
+        await _cancel_jobs(db, "extraction_run", list(runs))
+
+
 async def soft_delete(
     db: AsyncSession, entity_type: str, row, *, created_by: UUID | None = None
 ) -> None:
     """Move a live row to the Trash: `deleted` version first, then deleted_at.
 
     A chapter takes its live scenes with it (same timestamp, so restore brings
-    back exactly those); its siblings close the gap, as do a scene's.
+    back exactly those); its siblings close the gap, as do a scene's. Jobs
+    working on what was trashed (a scene's generation, a source's extraction)
+    are cancelled.
     """
     when = _now()
     await _version(db, entity_type, row, "deleted", created_by)
-    if entity_type == "chapter":
-        for scene in await _live_scenes(db, row.id):
-            await _version(db, "scene", scene, "deleted", created_by)
-            scene.deleted_at = when
+    scenes = await _live_scenes(db, row.id) if entity_type == "chapter" else []
+    for scene in scenes:
+        await _version(db, "scene", scene, "deleted", created_by)
+        scene.deleted_at = when
+    await _cancel_jobs_of(db, entity_type, row, scenes)
     row.deleted_at = when
     await db.flush()
     if entity_type == "chapter":
