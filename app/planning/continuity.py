@@ -279,24 +279,49 @@ class ContinuityResult:
         }
 
 
+def _input_hash(prose: str, fact_sheet: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(f"{fact_sheet}\x00{prose}".encode("utf-8")).hexdigest()[:16]
+
+
 async def run_continuity_check(
     prose: str,
     fact_sheet: str,
     user_id: Optional[UUID] = None,
     *,
     between_chunks=None,
+    checkpoint: Optional[dict] = None,
+    save_checkpoint=None,
 ) -> ContinuityResult:
     """Map-reduce over the prose with a rolling carry between chunks.
 
     `between_chunks`, when given, is awaited before every chunk after the first
     — the job's cancellation seam, so a cancelled check stops instead of
-    spending the rest of the book (SPEC-07)."""
+    spending the rest of the book (SPEC-07).
+
+    `checkpoint`/`save_checkpoint` make a paused check resume at its next
+    chunk instead of re-paying for the ones it finished (SPEC-08). A checkpoint
+    taken against different prose or facts is discarded: findings from two
+    versions of the book must not be merged."""
     all_findings: list[dict] = []
     total_tokens = 0
     chunks = chunk_prose(prose)
     checked, unchecked = 0, []
     carry = ""
+    start = 0
+    input_hash = _input_hash(prose, fact_sheet)
+    ck = checkpoint or {}
+    if ck.get("input_hash") == input_hash:
+        start = int(ck.get("next") or 0)
+        all_findings = list(ck.get("findings") or [])
+        checked = int(ck.get("checked") or 0)
+        unchecked = list(ck.get("unchecked") or [])
+        carry = ck.get("carry") or ""
+        total_tokens = int(ck.get("tokens") or 0)
     for i, chunk in enumerate(chunks):
+        if i < start:
+            continue
         if i and between_chunks is not None:
             await between_chunks()
         label = f"part {i + 1}/{len(chunks)}"
@@ -310,6 +335,23 @@ async def run_continuity_check(
         else:
             unchecked.append(label)
         carry = " ".join(chunk.split()[-CARRY_WORDS:])
+        if save_checkpoint is not None and i + 1 < len(chunks):
+            await save_checkpoint(
+                {
+                    "input_hash": input_hash,
+                    "next": i + 1,
+                    "findings": all_findings,
+                    "checked": checked,
+                    "unchecked": unchecked,
+                    "carry": carry,
+                    "tokens": total_tokens,
+                    "progress": {
+                        "stage": "chunks",
+                        "done": i + 1,
+                        "total": len(chunks),
+                    },
+                }
+            )
     return ContinuityResult(
         findings=all_findings,
         tokens=total_tokens,

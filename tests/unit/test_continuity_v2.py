@@ -121,3 +121,53 @@ def test_no_slice_of_the_fact_sheet_or_prose():
         if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Slice):
             target = ast.unparse(node.value)
             assert target not in ("fact_sheet", "chunk", "prose", "prompt"), target
+
+
+async def test_a_paused_check_resumes_at_its_next_chunk(monkeypatch):
+    """A quota pause mid-check keeps the chunks already paid for (SPEC-08):
+    the resumed run calls the model only for the rest (Codex review on #34)."""
+    from app.llm.errors import QuotaExhaustedError
+
+    calls: list[str] = []
+
+    class Fake:
+        fail_at = 2
+
+        async def generate(self, messages, **kw):
+            n = len(calls) + 1
+            if n == self.fail_at:
+                self.fail_at = None
+                raise QuotaExhaustedError("429", reset_after=30)
+            calls.append(messages[0]["content"])
+            return types.SimpleNamespace(
+                text=json.dumps({"findings": [{"type": "other", "detail": f"f{n}"}]}),
+                tokens_in=1,
+                tokens_out=1,
+            )
+
+    fake = Fake()
+    monkeypatch.setattr(cont, "get_llm_client", lambda: fake)
+    prose = " ".join(f"w{i}" for i in range(cont.CHUNK_WORDS * 3))
+    saved: dict = {}
+
+    async def save(data):
+        saved.clear()
+        saved.update(json.loads(json.dumps(data)))
+
+    with pytest.raises(QuotaExhaustedError):
+        await cont.run_continuity_check(prose, "facts", save_checkpoint=save)
+    assert len(calls) == 1 and saved["next"] == 1
+
+    result = await cont.run_continuity_check(
+        prose, "facts", checkpoint=saved, save_checkpoint=save
+    )
+    assert len(calls) == 3  # chunks 2 and 3 only; chunk 1 was not re-paid
+    assert result.chunks_checked == 3 and result.chunks_total == 3
+    assert [f["detail"] for f in result.findings] == ["f1", "f2", "f3"]
+
+    # A checkpoint taken against other prose is discarded, not merged.
+    calls.clear()
+    await cont.run_continuity_check(
+        prose.replace("w0 ", "x0 ", 1), "facts", checkpoint=saved
+    )
+    assert len(calls) == 3

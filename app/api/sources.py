@@ -287,6 +287,25 @@ async def paste_source(
     )
 
 
+async def _cancel_stale_extractions(db: AsyncSession, source_id: UUID) -> None:
+    from app.core.orm_models import ExtractionRun
+    from app.versioning.trash import _cancel_jobs
+
+    stale = (
+        (
+            await db.execute(
+                select(ExtractionRun.id).where(
+                    ExtractionRun.source_id == source_id,
+                    ExtractionRun.status.in_(("pending", "processing", "paused")),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    await _cancel_jobs(db, "extraction_run", list(stale))
+
+
 @router.patch("/{source_id}", response_model=dict)
 async def edit_source(
     source_id: UUID,
@@ -320,6 +339,10 @@ async def edit_source(
             payload.content_text.encode("utf-8")
         ).hexdigest()
         source.word_count = len(payload.content_text.split())
+        # Stop extractions of the old text: queued or paused ones end now, a
+        # running one at its next checkpoint. Otherwise it keeps spending on
+        # text that is gone and files stale proposals as ready.
+        await _cancel_stale_extractions(db, source.id)
         run, preflight = await _start_extraction(db, source)
         run_id = str(run.id) if run else None
         job_id = str(run.job_id) if run else None

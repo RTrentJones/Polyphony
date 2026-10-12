@@ -291,3 +291,28 @@ async def test_a_spent_author_budget_pauses_even_on_paid(
     await JobWorker(poll_interval=0.01, stale_after=timedelta(minutes=30)).run_once()
     await async_session.refresh(job)
     assert job.status == "queued"
+
+
+async def test_the_budget_check_counts_the_prompt_too(
+    llm, async_session, test_user, monkeypatch
+):
+    """Input tokens are charged as well as output, so a call whose prompt
+    would overrun the remaining budget pauses even with a small answer cap."""
+    from app.core.orm_models import APIUsage
+    from app.llm.errors import UserBudgetExhaustedError
+
+    monkeypatch.setattr(
+        "app.core.database.get_async_session", lambda: _Ctx(async_session)
+    )
+    monkeypatch.setattr(settings, "USER_DAILY_TOKEN_LIMIT", 2_000)
+    create = AsyncMock(side_effect=AssertionError("called the provider"))
+    monkeypatch.setattr(llm._client.chat.completions, "create", create)
+    async_session.add(APIUsage(user_id=test_user.id, tokens_used=1_000, cost_usd=0))
+    await async_session.commit()
+
+    window = "x" * 12_000  # ~3k prompt tokens against 1k remaining
+    with pytest.raises(UserBudgetExhaustedError):
+        await llm.generate(
+            [{"role": "user", "content": window}], user_id=test_user.id, max_tokens=200
+        )
+    create.assert_not_called()

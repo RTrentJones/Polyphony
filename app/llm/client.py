@@ -105,7 +105,8 @@ class LLMClient:
             temperature = settings.LLM_TEMPERATURE_OVERRIDE
         start = time.monotonic()
         if user_id is not None:
-            await _check_user_budget(user_id, max_tokens)
+            prompt_chars = sum(len(str(m.get("content") or "")) for m in messages)
+            await _check_user_budget(user_id, prompt_chars // 4 + max_tokens)
 
         # The circuit breaker wraps the WHOLE retry sequence, not each attempt:
         # one logical generate() = one breaker success/failure. Wrapping each
@@ -332,9 +333,10 @@ def reset_llm_client() -> None:
     _client = None
 
 
-async def _check_user_budget(user_id: UUID, max_tokens: int) -> None:
+async def _check_user_budget(user_id: UUID, needed: int) -> None:
     """Pause the caller's job when the author's rolling-24h token budget cannot
-    cover this call's answer (raises UserBudgetExhaustedError).
+    cover this call — its prompt (estimated at ~4 chars/token) plus its answer
+    cap — (raises UserBudgetExhaustedError).
 
     The enqueue preflights estimate a whole job, but a multi-call job (an
     extraction planned to span days, an outline confirmed hours after its
@@ -350,7 +352,7 @@ async def _check_user_budget(user_id: UUID, max_tokens: int) -> None:
             remaining = await remaining_budget_24h(session, user_id)
     except Exception:
         return
-    if remaining < max_tokens:
+    if remaining < needed:
         raise UserBudgetExhaustedError(
             f"Today's token budget is spent ({remaining:,} left); this job "
             "resumes as the 24-hour window rolls forward.",

@@ -719,8 +719,17 @@ async def test_an_extraction_queued_before_an_edit_retires_unspent(
     assert r.status_code == 200, r.text
     assert r.json().get("extraction_run_id") != src["extraction_run_id"]
 
-    await HANDLERS["extract_canon"].run(old_payload)
+    # The edit cancels the queued run at once ...
     old_run = await async_session.get(ExtractionRun, UUID(src["extraction_run_id"]))
+    await async_session.refresh(old_run)
+    await async_session.refresh(old_job)
+    assert old_run.status == "cancelled"
+    assert old_job.status == "cancelled"
+    # ... and a stale job that runs anyway (claimed before the edit landed)
+    # still retires without spending.
+    old_run.status = "pending"
+    await async_session.commit()
+    await HANDLERS["extract_canon"].run(old_payload)
     await async_session.refresh(old_run)
     assert old_run.status == "cancelled"
     assert old_run.error == SUPERSEDED_NOTE

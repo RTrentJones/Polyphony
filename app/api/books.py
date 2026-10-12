@@ -706,6 +706,7 @@ async def generate_scene_into_chapter(
     # scene's tail are NOT carried in the job: they go stale across a pause, so
     # the handler recomputes them from the DB when it starts (SPEC-08).
     book_id = str(chapter.book_id)
+    user_id = current_user.id
 
     request_dict = payload.model_dump(mode="json")
     request_dict["characters"] = cast_names
@@ -723,7 +724,7 @@ async def generate_scene_into_chapter(
             )
         ).scalar_one() + 1
         scene = SceneORM(
-            user_id=current_user.id,
+            user_id=user_id,
             book_id=UUID(book_id),
             source_id=payload.source_id,
             chapter_id=chapter_id,
@@ -753,10 +754,10 @@ async def generate_scene_into_chapter(
             payload={
                 "scene_id": str(scene.id),
                 "request": request_dict,
-                "user_id": str(current_user.id),
+                "user_id": str(user_id),
                 "book_id": book_id,
             },
-            user_id=current_user.id,
+            user_id=user_id,
             max_attempts=1,  # a retry re-spends LLM budget; user can re-trigger
             dedupe_key=dedupe_key,
             domain=("scene", scene.id),
@@ -819,7 +820,8 @@ async def create_manual_scene(
     the chapter's prose (continuity/export read it), so status is 'completed'
     when content is supplied, else 'draft'."""
     chapter = await _owned_chapter(chapter_id, current_user, db)
-    book_id = chapter.book_id  # a plain value survives a rollback below
+    book_id = chapter.book_id  # plain values survive a rollback below
+    user_id = current_user.id
     content = payload.content or ""
     # Append with a one-shot retry on position conflict (see create_chapter).
     for attempt in (1, 2):
@@ -831,7 +833,7 @@ async def create_manual_scene(
             )
         ).scalar_one() + 1
         scene = SceneORM(
-            user_id=current_user.id,
+            user_id=user_id,
             book_id=book_id,
             chapter_id=chapter_id,
             position=next_pos,

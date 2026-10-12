@@ -407,13 +407,19 @@ async def _run_continuity(payload: dict) -> None:
     from app.jobs.cancel import raise_if_cancelled
     from app.jobs.context import current_job
 
-    job_id = current_job().job_id
+    ctx = current_job()
+    job_id = ctx.job_id
 
     async def _seam() -> None:
         await raise_if_cancelled(job_id)
 
     result = await run_continuity_check(
-        prose, fact_sheet, UUID(payload["user_id"]), between_chunks=_seam
+        prose,
+        fact_sheet,
+        UUID(payload["user_id"]),
+        between_chunks=_seam,
+        checkpoint=ctx.checkpoint,
+        save_checkpoint=ctx.save,
     )
 
     async with get_async_session() as session:
