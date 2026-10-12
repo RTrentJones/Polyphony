@@ -102,3 +102,4 @@ eval-report-*.json
 gl-export-*.json
 e2e-*.log
 .eval-cache/
+.claude/worktrees/
