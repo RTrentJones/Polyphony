@@ -8,7 +8,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { History, Pencil, Plus, Trash2 } from 'lucide-react'
+import { AudioLines, History, Pencil, Plus, Trash2 } from 'lucide-react'
 import Button from './Button'
 import Card from './Card'
 import Input from './Input'
@@ -16,6 +16,7 @@ import KeyValueEditor from './KeyValueEditor'
 import Loading from './Loading'
 import Modal from './Modal'
 import VersionHistory from './VersionHistory'
+import VoicePanel from './VoicePanel'
 import { type ToastType } from './Toast'
 import { useBookStore } from '@/lib/books-store'
 import { canonApi } from '@/lib/canon-store'
@@ -73,6 +74,8 @@ export default function CanonPanel({
   const [synopsisDraft, setSynopsisDraft] = useState('')
   const [charEdit, setCharEdit] = useState<CharacterDetail | null>(null)
   const [charAdd, setCharAdd] = useState(false)
+  /** The character whose Voice section is open (one at a time). */
+  const [voiceOpen, setVoiceOpen] = useState<string | null>(null)
   const [entryEdit, setEntryEdit] = useState<Partial<CanonEntry> | null>(null)
 
   const load = useCallback(async () => {
@@ -197,7 +200,7 @@ export default function CanonPanel({
                 key={c.id}
                 className="flex items-start justify-between gap-3 p-3 rounded-lg border border-gray-200"
               >
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="font-medium text-gray-900">
                     {c.name}
                     {c.role ? (
@@ -209,8 +212,24 @@ export default function CanonPanel({
                       {c.description}
                     </p>
                   )}
+                  {voiceOpen === c.id && (
+                    <VoicePanel
+                      characterId={c.id}
+                      characterName={c.name}
+                      addToast={addToast}
+                    />
+                  )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    variant={voiceOpen === c.id ? 'secondary' : 'ghost'}
+                    size="sm"
+                    aria-expanded={voiceOpen === c.id}
+                    onClick={() => setVoiceOpen(voiceOpen === c.id ? null : c.id)}
+                  >
+                    <AudioLines className="h-4 w-4 mr-1" />
+                    Voice
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
