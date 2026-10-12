@@ -2,7 +2,7 @@
 extraction-run progress.
 
 Revision ID: spec09_extraction_scale
-Revises: 0011
+Revises: spec04_scene_book_id
 Create Date: 2026-10-12
 
 """
@@ -12,7 +12,7 @@ from typing import Sequence, Union
 from alembic import op
 
 revision: str = "spec09_extraction_scale"
-down_revision: Union[str, None] = "0011"
+down_revision: Union[str, None] = "spec04_scene_book_id"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
