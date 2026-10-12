@@ -675,6 +675,26 @@ async def generate_scene_into_chapter(
     cast_names = [c.name for c in cast]
     cast_ids = [str(c.id) for c in cast]
 
+    # Preflight with the same estimator the modal shows (SPEC-12/14, BRD R7.3):
+    # refuse with the estimate rather than start a scene that cannot finish.
+    from app.core import estimates
+    from app.planning.canon import build_canon, render_character
+
+    canon = await build_canon(db, chapter.book_id)
+    est = estimates.scene(
+        canon_chars=len(canon.full_block()),
+        cast_context_chars=sum(len(render_character(c)) + 1500 for c in cast),
+        target_words=payload.target_word_count,
+        mode=payload.mode,
+        cast_size=len(cast),
+    )
+    assessed = await estimates.assess(db, current_user.id, est)
+    if not assessed["allowed"]:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"message": assessed["reason"], "estimate": assessed},
+        )
+
     # Plain values survive the rollback of a failed insert attempt below
     # (ORM instances get expired on rollback). The chapter summary and the prior
     # scene's tail are NOT carried in the job: they go stale across a pause, so

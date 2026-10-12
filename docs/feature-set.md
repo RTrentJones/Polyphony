@@ -64,16 +64,16 @@ product's whole history.
 
 | Feature | Req | Status | Notes |
 |---|---|---|---|
-| Narrator / character / editor loop | — | ⬜ | |
+| Narrator / character / editor loop | — | ✅ | `app/orchestration/ensemble.py`; checkpointed per agent call (SPEC-08) |
 | Character agents scoped to their own bio + brief + chunks | — | ⬜ | ~800 tok. Cheaper **and** truer: a character does not know the plot |
 | Per-character proposals | — | ⬜ | Kept independent — distinct voice is the product's namesake |
 | Collapsed cross-character review | — | ⬜ | Objections need consistency across characters; one call |
 | Characters narrate **actions** | R6.1 | ⬜ | `actions` required, non-empty. Today `_generate_action` derives action *from* dialogue — backwards |
-| Action grounding retrieved separately | R6.2 | ⬜ | Else dialogue crowds it out |
+| Action grounding retrieved separately | R6.2 | ✅ | `<voice>` + `<physicality>` per agent, untyped fallback (SPEC-14) |
 | Editor verifies every present character acted | R6.3 | ⬜ | |
 | Measured convergence (explicit `satisfied` booleans) | — | ⬜ | Never inferred |
 | Anti-oscillation | — | ⬜ | If round 2's objections ≥ round 1's, keep round 1's prose |
-| Opt-in per scene; prose mode stays default | R7.4 | ⬜ | |
+| Opt-in per scene; prose mode stays default | R7.4 | ✅ | Mode choice in the scene modal; the response reports the mode that ran (SPEC-12) |
 | Concurrent ensemble jobs | — | ❌ | Worker runs one job at a time; a long ensemble blocks others. Accepted at this scale |
 
 ## 5. Versioning

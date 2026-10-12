@@ -85,7 +85,11 @@ async def build_character_context(
         rendered = _render_json_field(voice)
         if rendered:
             lines.append(f"Voice: {rendered}")
-    samples = await _retrieve(character, beat_description, max_samples, chunk_types)
+    samples = (
+        await _retrieve(character, beat_description, max_samples, chunk_types)
+        if max_samples > 0
+        else []
+    )
     if grounding is not None:
         grounding.extend(
             {
@@ -150,4 +154,63 @@ async def build_cast_context(
             character, character.name, beat_description, grounding=grounding
         )
         blocks.append(as_quoted_block(block, "character"))
+    return "\n\n".join(b for b in blocks if b)
+
+
+# Ensemble agents are grounded on how they SPEAK and how they MOVE separately
+# (BRD R6.2): one mixed retrieval lets dialogue crowd action out. The ingest
+# classifier under-labels, so a type with fewer than this many hits falls back
+# to untyped retrieval rather than leaving the agent ungrounded.
+_MIN_TYPED_HITS = 2
+_ACTION_TYPES = ("action", "description", "thought")
+
+
+async def build_agent_context(
+    character: Optional[Character],
+    name: str,
+    beat_description: str,
+    *,
+    k: int = 3,
+    grounding: Optional[list] = None,
+) -> str:
+    """A character agent's fenced context: bible, then <voice> (dialogue) and
+    <physicality> (action/description) samples retrieved separately (SPEC-14)."""
+    bio = await build_character_context(character, name, beat_description, 0)
+    blocks = [as_quoted_block(bio, "character")]
+    if character is None:
+        return "\n\n".join(b for b in blocks if b)
+
+    voice = await _retrieve(character, beat_description, k, ("dialogue",))
+    if len(voice) < _MIN_TYPED_HITS:
+        voice = await _retrieve(character, beat_description, k, None)
+    seen = {s.get("id") for s in voice}
+    body = await _retrieve(character, beat_description, k, _ACTION_TYPES)
+    if len(body) < _MIN_TYPED_HITS:
+        body = [
+            s
+            for s in await _retrieve(character, beat_description, k * 2, None)
+            if s.get("id") not in seen
+        ][:k]
+    if grounding is not None:
+        grounding.extend(
+            {
+                "character_id": str(character.id),
+                "chunk_id": s.get("id"),
+                "score": s.get("score"),
+            }
+            for s in [*voice, *body]
+        )
+    if voice:
+        blocks.append(
+            as_quoted_block(
+                "\n".join(f'- "{clean_for_llm(s["text"])}"' for s in voice), "voice"
+            )
+        )
+    if body:
+        blocks.append(
+            as_quoted_block(
+                "\n".join(f"- {clean_for_llm(s['text'])}" for s in body),
+                "physicality",
+            )
+        )
     return "\n\n".join(b for b in blocks if b)

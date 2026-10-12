@@ -27,7 +27,7 @@ from __future__ import annotations
 from typing import Optional
 from uuid import UUID
 
-from app.characters.context import build_character_context, load_characters_for_book
+from app.characters.context import build_agent_context, load_characters_for_book
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.logging_config import setup_logging
 from app.llm.client import get_llm_client
@@ -72,7 +72,9 @@ async def propose(
     `grounding`, when given, collects the voice chunks retrieved for this agent
     (character_id, chunk_id, score) — the same record the prose workflow keeps.
     """
-    context = await build_character_context(
+    # How this character speaks (<voice>) and moves (<physicality>), retrieved
+    # separately so dialogue cannot crowd action out (BRD R6.2, SPEC-14).
+    context = await build_agent_context(
         character, name, beat_description, grounding=grounding
     )
     feedback = ""
@@ -89,9 +91,12 @@ async def propose(
 
 You ARE {name}. You do not know the plot — only what {name} knows.
 
-{as_quoted_block(context, "character")}
+{context}
 
 The moment: {clean_for_llm(beat_description)}{feedback}
+
+Ground your ACTIONS in how {name} moves (<physicality>) and your LINES in how
+{name} speaks (<voice>).
 
 Your character may say NOTHING. What do they DO? Return ONLY a JSON object:
 {{
@@ -123,6 +128,7 @@ async def narrate(
     prior_tail: str,
     user_id,
     present: Optional[list[str]] = None,
+    chapter_summary: str = "",
 ) -> str:
     """Narrator: synthesize the proposals into prose (full canon + beat).
 
@@ -151,8 +157,11 @@ async def narrate(
 
 {canon_context}
 
+{as_quoted_block(chapter_summary, "chapter")}
+
 Setting: {clean_for_llm(str(scene_request.get("setting", "")))}
-Prior scene tail: {clean_for_llm(prior_tail)[:600]}
+The scene so far (continue seamlessly from it):
+{as_quoted_block(prior_tail, "prior") or "(this beat opens the scene)"}
 
 Characters present in this beat: {", ".join(present)}
 
@@ -175,14 +184,22 @@ Prose:"""
 
 
 async def editor_review(
-    draft: str, canon_context: str, beat_description: str, present: list[str], user_id
+    draft: str,
+    canon_context: str,
+    beat_description: str,
+    present: list[str],
+    user_id,
+    chapter_summary: str = "",
 ) -> dict:
     """Story editor: measured review — arc fit, coverage, who actually acts."""
     prompt = f"""{STORY_MATERIAL_NOTICE}
 
 {canon_context}
 
+{as_quoted_block(chapter_summary, "chapter")}
+
 The beat to cover: {clean_for_llm(beat_description)}
+It must serve this chapter's intent (above) as well as the book's arc.
 Characters present: {", ".join(present)}
 
 Review this draft:
@@ -250,6 +267,7 @@ async def run_ensemble(
     prior_tail: str = "",
     state: Optional[dict] = None,
     save_state=None,
+    chapter_summary: str = "",
 ) -> dict:
     """Run the ensemble loop for one beat. Returns {prose, evaluation, rounds}.
 
@@ -311,6 +329,7 @@ async def run_ensemble(
                 prior_tail,
                 user_id,
                 present=present,
+                chapter_summary=chapter_summary,
             )
             st["draft"] = draft
             await _checkpoint()
@@ -319,7 +338,12 @@ async def run_ensemble(
         review = st.get("review")
         if review is None:
             review = await editor_review(
-                draft, canon_context, beat_description, present, user_id
+                draft,
+                canon_context,
+                beat_description,
+                present,
+                user_id,
+                chapter_summary=chapter_summary,
             )
             st["review"] = review
             await _checkpoint()
@@ -458,6 +482,7 @@ async def run_ensemble_scene_workflow(
                 prior_tail=prior_tail,
                 state=checkpoint.get("beat_state"),
                 save_state=_save_beat,
+                chapter_summary=chapter_summary,
             )
             prose_parts.append(result["prose"])
             evaluations.append(result["evaluation"])
