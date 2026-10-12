@@ -19,6 +19,7 @@ from sqlalchemy import (
 # Generic Uuid type (native uuid on Postgres, CHAR on sqlite test databases)
 from sqlalchemy import Uuid as UUID
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import event, select
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
@@ -215,6 +216,14 @@ class Book(Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    # Scenes are book-rooted (SPEC-04): the DB cascade deletes them with the
+    # book, so the ORM need not load a whole manuscript just to delete it.
+    scenes = relationship(
+        "Scene",
+        back_populates="book",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     __table_args__ = (Index("idx_books_user_id", "user_id"),)
 
@@ -366,12 +375,18 @@ class Scene(Base):
     user_id = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
+    # The root (SPEC-04): a scene is reachable only through its book, and goes
+    # with it. Set from the chapter on every create (see _scene_book_from_parent).
+    book_id = Column(
+        UUID(as_uuid=True), ForeignKey("books.id", ondelete="CASCADE"), nullable=False
+    )
     # Provenance only, like Character.source_id: deleting the imported file must
     # not delete scenes drafted from it.
     source_id = Column(
         UUID(as_uuid=True), ForeignKey("sources.id", ondelete="SET NULL"), nullable=True
     )
-    # Book placement (nullable: standalone scenes exist outside any chapter)
+    # Placement within the book. Nullable only for legacy source-drafted scenes;
+    # deleting a chapter through the API moves or deletes its scenes first.
     chapter_id = Column(
         UUID(as_uuid=True),
         ForeignKey("chapters.id", ondelete="SET NULL"),
@@ -401,6 +416,7 @@ class Scene(Base):
 
     # Relationships
     user = relationship("User", back_populates="scenes")
+    book = relationship("Book", back_populates="scenes")
     source = relationship("Source", back_populates="scenes")
     chapter = relationship("Chapter", back_populates="scenes")
     beats = relationship(
@@ -416,6 +432,7 @@ class Scene(Base):
     # Indexes
     __table_args__ = (
         Index("idx_scenes_user_id", "user_id"),
+        Index("idx_scenes_book_id", "book_id"),
         Index("idx_scenes_source_id", "source_id"),
         Index("idx_scenes_chapter_id", "chapter_id"),
         Index("idx_scenes_status", "status"),
@@ -426,6 +443,26 @@ class Scene(Base):
         # sqlite, so any number of standalone scenes may share position 0.
         UniqueConstraint("chapter_id", "position", name="uq_scenes_chapter_position"),
     )
+
+
+@event.listens_for(Scene, "before_insert")
+def _scene_book_from_parent(mapper, connection, target) -> None:
+    """Derive a scene's book from its chapter (else its source) when unset.
+
+    The API sets book_id explicitly; this keeps any other creator — a job, a
+    script, a fixture — from tripping NOT NULL or, worse, filing a scene under
+    the wrong book. An explicit book_id always wins.
+    """
+    if target.book_id is not None:
+        return
+    if target.chapter_id is not None:
+        target.book_id = connection.execute(
+            select(Chapter.book_id).where(Chapter.id == target.chapter_id)
+        ).scalar_one_or_none()
+    if target.book_id is None and target.source_id is not None:
+        target.book_id = connection.execute(
+            select(Source.book_id).where(Source.id == target.source_id)
+        ).scalar_one_or_none()
 
 
 class SceneRevision(Base):

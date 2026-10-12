@@ -163,6 +163,9 @@ export const booksApi = {
 // Books + chapters store
 // ---------------------------------------------------------------------------
 
+/** What happens to a deleted chapter's scenes (SPEC-04): never silently orphaned. */
+export type ChapterScenesOnDelete = { mode: 'move'; to: string } | { mode: 'delete' }
+
 interface BookState {
   books: BookSummary[]
   currentBook: BookDetail | null
@@ -181,7 +184,12 @@ interface BookState {
   fetchChapter: (chapterId: string) => Promise<ChapterDetail>
   updateChapter: (chapterId: string, data: ChapterUpdateData) => Promise<void>
   moveChapter: (bookId: string, chapterId: string, position: number) => Promise<void>
-  deleteChapter: (bookId: string, chapterId: string) => Promise<void>
+  /** A chapter with scenes needs `scenes` (else the API answers 409). */
+  deleteChapter: (
+    bookId: string,
+    chapterId: string,
+    scenes?: ChapterScenesOnDelete
+  ) => Promise<void>
 
   generateScene: (
     chapterId: string,
@@ -316,11 +324,19 @@ export const useBookStore = create<BookState>((set, get) => ({
     }
   },
 
-  deleteChapter: async (bookId, chapterId) => {
+  deleteChapter: async (bookId, chapterId, scenes) => {
     try {
-      await apiClient.delete(`/books/chapters/${chapterId}`)
+      const params =
+        scenes?.mode === 'move'
+          ? { scenes: 'move', to: scenes.to }
+          : scenes?.mode === 'delete'
+            ? { scenes: 'delete' }
+            : undefined
+      await apiClient.delete(`/books/chapters/${chapterId}`, { params })
       set((state) => {
         const { [chapterId]: _removed, ...rest } = state.chapterDetails
+        // Moved scenes changed their target chapter too: drop its cached list.
+        if (scenes?.mode === 'move') delete rest[scenes.to]
         return { chapterDetails: rest }
       })
       await get().fetchBook(bookId)
