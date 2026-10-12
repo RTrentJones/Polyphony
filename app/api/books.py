@@ -839,10 +839,15 @@ async def move_scene(
 async def export_book(
     book_id: UUID,
     format: str = "md",
+    include_synopsis: bool = False,
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Export the book's current draft state as md | docx | epub."""
+    """Export the book's current draft state as md | docx | epub.
+
+    The synopsis is the author's storyboard, not manuscript prose, so it is left
+    out unless `include_synopsis=true`.
+    """
     if format not in CONTENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -865,7 +870,7 @@ async def export_book(
     export = BookExport(
         title=book.title,
         author=book.author or "",
-        synopsis=book.synopsis or "",
+        synopsis=(book.synopsis or "") if include_synopsis else "",
         chapters=[
             ChapterExport(
                 title=c.title,

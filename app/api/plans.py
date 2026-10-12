@@ -10,7 +10,8 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.books import _owned_book, _owned_chapter
@@ -31,6 +32,7 @@ from app.core.orm_models import (
     PlotThread as PlotThreadORM,
     PlotThreadEvent as PlotThreadEventORM,
     Scene as SceneORM,
+    Source as SourceORM,
     StyleGuide as StyleGuideORM,
     User as UserORM,
 )
@@ -318,14 +320,8 @@ async def promote_plan_node(
             status_code=status.HTTP_400_BAD_REQUEST, detail="node_index out of range"
         )
     node = nodes[payload.node_index]
-
-    next_pos = (
-        await db.execute(
-            select(func.coalesce(func.max(ChapterORM.position), -1)).where(
-                ChapterORM.book_id == book.id
-            )
-        )
-    ).scalar_one() + 1
+    # Read everything off the ORM objects now: a rollback below expires them.
+    book_pk = book.id
 
     child_summaries = "\n".join(
         f"- {child.get('title', '')}: {child.get('summary', '')}"
@@ -335,14 +331,34 @@ async def promote_plan_node(
     if child_summaries:
         summary = f"{summary}\n\nPlanned beats:\n{child_summaries}".strip()
 
-    chapter = ChapterORM(
-        book_id=book.id,
-        title=node.get("title", f"Chapter {next_pos + 1}"),
-        summary=summary,
-        position=next_pos,
-    )
-    db.add(chapter)
-    await db.commit()
+    # Same as create_chapter's append: a concurrent append can take max+1 first;
+    # the UNIQUE (book_id, position) constraint turns that into an
+    # IntegrityError — recompute and retry once.
+    for attempt in (1, 2):
+        next_pos = (
+            await db.execute(
+                select(func.coalesce(func.max(ChapterORM.position), -1)).where(
+                    ChapterORM.book_id == book_pk
+                )
+            )
+        ).scalar_one() + 1
+        chapter = ChapterORM(
+            book_id=book_pk,
+            title=node.get("title", f"Chapter {next_pos + 1}"),
+            summary=summary,
+            position=next_pos,
+        )
+        db.add(chapter)
+        try:
+            await db.commit()
+            break
+        except IntegrityError:
+            await db.rollback()
+            if attempt == 2:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Chapter position conflict; please retry",
+                )
     await db.refresh(chapter)
     return {
         "chapter_id": str(chapter.id),
@@ -452,6 +468,32 @@ async def _owned_thread(
     return thread
 
 
+async def _chapter_in_book(chapter_id: UUID, book_id: UUID, db: AsyncSession) -> bool:
+    return (
+        await db.execute(
+            select(ChapterORM.id).where(
+                ChapterORM.id == chapter_id, ChapterORM.book_id == book_id
+            )
+        )
+    ).first() is not None
+
+
+async def _scene_in_book(scene_id: UUID, book_id: UUID, db: AsyncSession) -> bool:
+    """A scene belongs to a book through its chapter or its source (scenes do not
+    all carry a `book_id` of their own yet)."""
+    in_book = [ChapterORM.book_id == book_id, SourceORM.book_id == book_id]
+    if hasattr(SceneORM, "book_id"):
+        in_book.append(SceneORM.book_id == book_id)
+    return (
+        await db.execute(
+            select(SceneORM.id)
+            .outerjoin(ChapterORM, SceneORM.chapter_id == ChapterORM.id)
+            .outerjoin(SourceORM, SceneORM.source_id == SourceORM.id)
+            .where(SceneORM.id == scene_id, or_(*in_book))
+        )
+    ).first() is not None
+
+
 @router.patch("/threads/{thread_id}", response_model=dict)
 async def update_thread(
     thread_id: UUID,
@@ -492,8 +534,20 @@ async def add_thread_event(
     db: AsyncSession = Depends(get_db),
 ):
     thread = await _owned_thread(thread_id, current_user, db)
-    if payload.chapter_id:
-        await _owned_chapter(payload.chapter_id, current_user, db)
+    # An event may only point at the thread's own book: a chapter or scene the
+    # user owns in another book (or anyone else's) is 404, not a dangling link.
+    if payload.chapter_id and not await _chapter_in_book(
+        payload.chapter_id, thread.book_id, db
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Chapter not found"
+        )
+    if payload.scene_id and not await _scene_in_book(
+        payload.scene_id, thread.book_id, db
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Scene not found"
+        )
     next_pos = (
         await db.execute(
             select(func.coalesce(func.max(PlotThreadEventORM.position), -1)).where(
