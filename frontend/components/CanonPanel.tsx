@@ -260,10 +260,10 @@ export default function CanonPanel({
                     variant="ghost"
                     size="sm"
                     onClick={async () => {
-                      if (!confirm(`Delete "${c.name}"? You can restore it.`)) return
+                      if (!confirm(`Move "${c.name}" to the Trash? Its voice is kept.`)) return
                       try {
                         await canonApi.deleteCharacter(c.id)
-                        addToast('Character deleted', 'success')
+                        addToast('Character moved to the Trash', 'success')
                         load()
                       } catch (err: any) {
                         addToast(err.message || 'Delete failed', 'error')
@@ -330,10 +330,10 @@ export default function CanonPanel({
                     variant="ghost"
                     size="sm"
                     onClick={async () => {
-                      if (!confirm(`Delete "${e.name}"? You can restore it.`)) return
+                      if (!confirm(`Move "${e.name}" to the Trash?`)) return
                       try {
                         await canonApi.deleteEntry(bookId, e.id)
-                        addToast('Entry deleted', 'success')
+                        addToast('Entry moved to the Trash', 'success')
                         load()
                       } catch (err: any) {
                         addToast(err.message || 'Delete failed', 'error')

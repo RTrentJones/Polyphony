@@ -15,6 +15,7 @@ import type {
   CharacterUpdateData,
   EntityVersionDetail,
   EntityVersionSummary,
+  RestoreVersionResult,
   StyleGuide,
   VersionedEntityType,
 } from './types'
@@ -60,11 +61,12 @@ export const canonApi = {
     entityType: VersionedEntityType,
     entityId: string,
     versionNo: number
-  ): Promise<void> {
+  ): Promise<RestoreVersionResult> {
     try {
-      await apiClient.post(
+      const { data } = await apiClient.post<RestoreVersionResult>(
         `/books/${bookId}/versions/${entityType}/${entityId}/restore/${versionNo}`
       )
+      return data
     } catch (err) {
       throw toApiError(err)
     }

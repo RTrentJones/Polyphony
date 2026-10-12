@@ -12,6 +12,7 @@ import {
   BookMarked,
   ChevronDown,
   ChevronRight,
+  History,
   Pencil,
   Plus,
   Trash2,
@@ -24,6 +25,7 @@ import Card from '@/components/Card'
 import Input from '@/components/Input'
 import Loading from '@/components/Loading'
 import Modal from '@/components/Modal'
+import VersionHistory from '@/components/VersionHistory'
 import type { ToastType } from '@/components/Toast'
 import { useBookStore } from '@/lib/books-store'
 import type { BookChapter } from '@/lib/types'
@@ -43,6 +45,7 @@ export default function ChaptersSection({
     currentBook,
     chapterDetails,
     createChapter,
+    fetchBook,
     fetchChapter,
     moveChapter,
     moveScene,
@@ -55,6 +58,7 @@ export default function ChaptersSection({
   const [adding, setAdding] = useState(false)
   const [generateFor, setGenerateFor] = useState<BookChapter | null>(null)
   const [deleteFor, setDeleteFor] = useState<BookChapter | null>(null)
+  const [historyFor, setHistoryFor] = useState<BookChapter | null>(null)
   const [busy, setBusy] = useState(false)
 
   const chapters = currentBook?.chapters ?? []
@@ -207,6 +211,13 @@ export default function ChaptersSection({
                       <Wand2 className="h-4 w-4 mr-1" />
                       Generate scene
                     </Button>
+                    <button
+                      onClick={() => setHistoryFor(chapter)}
+                      className="p-1 text-gray-400 hover:text-primary-600"
+                      aria-label="Chapter history"
+                    >
+                      <History className="h-4 w-4" />
+                    </button>
                     <button
                       onClick={() => handleDeleteChapter(chapter)}
                       className="p-1 text-gray-400 hover:text-red-600"
@@ -386,6 +397,16 @@ export default function ChaptersSection({
           chapter={generateFor}
           onClose={() => setGenerateFor(null)}
           onGenerated={onSceneGenerated}
+        />
+      )}
+      {historyFor && (
+        <VersionHistory
+          bookId={bookId}
+          entityType="chapter"
+          entityId={historyFor.id}
+          label={historyFor.title}
+          onClose={() => setHistoryFor(null)}
+          onRestored={() => fetchBook(bookId).catch(() => undefined)}
         />
       )}
       {deleteFor && (

@@ -4,9 +4,10 @@
  * Delete a chapter without silently orphaning its prose (SPEC-04).
  *
  * The first click asks the API to delete the chapter as-is. An empty chapter
- * goes; one with scenes answers 409 with the scene count, and this modal then
- * asks the author what to do with them: move them to the end of another chapter
- * of the book, or delete them (their prose is kept in the version log).
+ * goes to the Trash; one with scenes answers 409 with the scene count, and this
+ * modal then asks the author what to do with them: move them to the end of
+ * another chapter of the book, or delete them — they go to the Trash with the
+ * chapter and come back with it (SPEC-13).
  */
 
 import { useState } from 'react'
@@ -73,7 +74,7 @@ export default function DeleteChapterModal({
     <Modal isOpen onClose={onClose} title={`Delete "${chapter.title}"?`}>
       <div className="space-y-4">
         {sceneCount === null ? (
-          <p className="text-sm text-gray-700">This removes the chapter from the book.</p>
+          <p className="text-sm text-gray-700">This moves the chapter to the Trash, where you can restore it.</p>
         ) : (
           <>
             <div className="flex items-start space-x-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">

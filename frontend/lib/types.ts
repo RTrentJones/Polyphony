@@ -543,6 +543,39 @@ export type VersionedEntityType =
   | 'character'
   | 'canon_entry'
   | 'style_guide'
+  | 'source'
+  | 'chapter'
+
+/** POST .../restore/{n}. A source whose text changed offers re-extraction
+ *  (SPEC-13) — it is never run automatically. */
+export interface RestoreVersionResult {
+  entity_type: string
+  entity_id: string
+  restored_from: number
+  reextract?: { offered: boolean; endpoint: string; message: string }
+}
+
+// ---------------------------------------------------------------------------
+// Trash (app/api/trash.py, SPEC-13)
+// ---------------------------------------------------------------------------
+
+export type TrashEntityType = 'character' | 'canon_entry' | 'source' | 'chapter' | 'scene'
+
+/** One soft-deleted entity of a book, with what restoring it brings back. */
+export interface TrashItem {
+  type: TrashEntityType
+  id: string
+  name: string
+  deleted_at: string
+  restores: { voice_samples?: number; scenes?: number; words?: number }
+  summary: string
+}
+
+/** 409 body of a restore that would collide: the live entity in the way. */
+export interface TrashConflictDetail {
+  message: string
+  conflict: { type: string; id: string; name: string } | null
+}
 
 /** One entry in an entity's version history (newest first; max == live). */
 export interface EntityVersionSummary {
