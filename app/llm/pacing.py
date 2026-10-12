@@ -82,14 +82,19 @@ def reset_pacers() -> None:
     _pacers.clear()
 
 
-async def backoff_after_429(retry_after: Optional[float], attempt: int) -> float:
+async def backoff_after_429(
+    retry_after: Optional[float], attempt: int, cap: Optional[float] = None
+) -> float:
     """Sleep for the server-suggested interval, else jittered exponential.
 
-    Returns the seconds slept, so callers can bound total backoff."""
+    `cap` bounds this one sleep (the caller's remaining wait budget). Returns
+    the seconds slept, so callers can bound total backoff."""
     if retry_after and retry_after > 0:
         delay = min(retry_after, 120.0)
     else:
         delay = min(2.0 ** (attempt + 1), 60.0)
     delay *= 0.8 + random.random() * 0.4  # nosec B311 - jitter, not crypto
+    if cap is not None:
+        delay = max(0.0, min(delay, cap))
     await asyncio.sleep(delay)
     return delay

@@ -161,9 +161,11 @@ async def _live_scenes(db, chapter_id) -> list:
 async def _cancel_jobs(db: AsyncSession, domain_type: str, ids: list) -> None:
     """Cancel in-flight jobs whose domain row just went to the Trash (SPEC-07):
     a queued or paused job is cancelled now, in this transaction; a running one
-    is flagged and stops at its next seam between model calls. Its on_cancel
-    hook is not run — the row it would move is in the Trash, and a restore
-    shows it as it was left."""
+    is flagged and stops at its next seam between model calls (the worker then
+    runs its on_cancel hook). For a job cancelled here, the domain row is moved
+    out of its in-flight status in the same transaction, so a restore never
+    brings back a scene or extraction that says "processing" with no job behind
+    it."""
     if not ids:
         return
     jobs = (
@@ -182,8 +184,21 @@ async def _cancel_jobs(db: AsyncSession, domain_type: str, ids: list) -> None:
     for job in jobs:
         if job.status == "running":
             job.cancel_requested = True
-        else:
-            await jobs_repo.mark_cancelled(db, job)
+            continue
+        await jobs_repo.mark_cancelled(db, job)
+        model, in_flight = _IN_FLIGHT.get(domain_type, (None, ()))
+        if model is not None:
+            row = await db.get(model, job.domain_id)
+            if row is not None and row.status in in_flight:
+                row.status = "cancelled"
+
+
+# Domain rows a trashed job's cancellation must settle, and the statuses that
+# mean "a job is working on this".
+_IN_FLIGHT = {
+    "scene": (Scene, ("processing", "paused")),
+    "extraction_run": (ExtractionRun, ("pending", "processing", "paused")),
+}
 
 
 async def _cancel_jobs_of(db: AsyncSession, entity_type: str, row, scenes) -> None:

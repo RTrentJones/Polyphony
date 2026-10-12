@@ -53,6 +53,25 @@ async def deployment_cost_30d(db: AsyncSession) -> float:
     return float(value or 0)
 
 
+# check_monthly_ceiling runs on every LLM-spending request; a 30-day SUM over
+# api_usage per click is wasted work for a number that moves by cents. A short
+# TTL keeps the ceiling within seconds of exact (the usage page reads live).
+_CEILING_TTL_SECONDS = 30.0
+_ceiling_cache: dict[str, tuple[float, float]] = {}
+
+
+async def _cached_deployment_cost_30d(db: AsyncSession) -> float:
+    import time
+
+    now = time.monotonic()
+    hit = _ceiling_cache.get("spent")
+    if hit is not None and now - hit[0] < _CEILING_TTL_SECONDS:
+        return hit[1]
+    spent = await deployment_cost_30d(db)
+    _ceiling_cache["spent"] = (now, spent)
+    return spent
+
+
 async def check_monthly_ceiling(db: AsyncSession) -> None:
     """Raise 429 when the deployment's trailing-30-day spend has reached
     MONTHLY_COST_CEILING_USD (SPEC-03). A no-op when no ceiling is set."""
@@ -61,7 +80,7 @@ async def check_monthly_ceiling(db: AsyncSession) -> None:
     ceiling = get_tier().monthly_cost_ceiling_usd
     if not ceiling:
         return
-    spent = await deployment_cost_30d(db)
+    spent = await _cached_deployment_cost_30d(db)
     if spent >= ceiling:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,

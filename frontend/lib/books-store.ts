@@ -357,9 +357,15 @@ export const useBookStore = create<BookState>((set, get) => ({
 
   generateScene: async (chapterId, request) => {
     try {
+      const { idempotencyKey, ...body } = request as ChapterSceneRequest & {
+        idempotencyKey?: string
+      }
       const { data } = await apiClient.post<ChapterSceneGenerateResponse>(
         `/books/chapters/${chapterId}/scenes/generate`,
-        request
+        body,
+        // A double-click or a retried request returns the first scene instead of
+        // spending twice (SPEC-07).
+        idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined
       )
       return data
     } catch (err) {

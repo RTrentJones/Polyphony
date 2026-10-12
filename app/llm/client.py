@@ -196,14 +196,18 @@ class LLMClient:
                         "retry_after": retry_after,
                     },
                 )
-                if waited >= settings.LLM_MAX_RETRY_WAIT_SECONDS:
+                remaining = settings.LLM_MAX_RETRY_WAIT_SECONDS - waited
+                if remaining <= 0:
                     break
-                waited += await backoff_after_429(retry_after, attempt) or 0.0
+                waited += (
+                    await backoff_after_429(retry_after, attempt, cap=remaining) or 0.0
+                )
             except (APIConnectionError, APITimeoutError, InternalServerError) as e:
                 last_error = e
-                if waited >= settings.LLM_MAX_RETRY_WAIT_SECONDS:
+                remaining = settings.LLM_MAX_RETRY_WAIT_SECONDS - waited
+                if remaining <= 0:
                     break
-                waited += await backoff_after_429(None, attempt) or 0.0
+                waited += await backoff_after_429(None, attempt, cap=remaining) or 0.0
 
         llm_requests_total.labels(
             service="app", model=resolved_model, status="error"

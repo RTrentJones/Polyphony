@@ -258,6 +258,13 @@ class JobWorker:
             db_job = await session.get(Job, job_id)
             if db_job is None:  # deleted underneath us (user cascade)
                 return True
+            # The author asked to cancel while this run was in flight: honour it
+            # whatever the run ended in — never pause or retry a cancelled job
+            # (a paused one would resume later and spend again).
+            if db_job.cancel_requested and (
+                pause_after is not None or error is not None
+            ):
+                cancelled = True
             if cancelled:
                 await jobs_repo.mark_cancelled(session, db_job)
                 await session.commit()

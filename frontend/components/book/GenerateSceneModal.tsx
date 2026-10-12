@@ -68,6 +68,12 @@ export default function GenerateSceneModal({
   const [styleNotes, setStyleNotes] = useState('')
   const [mode, setMode] = useState<'prose' | 'ensemble'>('prose')
   const [est, setEst] = useState<Estimate | null>(null)
+  // One key per modal: every submit from this form is the same request.
+  const [idempotencyKey] = useState(() =>
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  )
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -123,7 +129,10 @@ export default function GenerateSceneModal({
     }
     setSubmitting(true)
     try {
-      const result = await generateScene(chapterId, request)
+      const result = await generateScene(chapterId, {
+        ...request,
+        idempotencyKey,
+      } as ChapterSceneRequest)
       onGenerated(result.scene_id, chapterId)
       onClose()
     } catch (err: any) {

@@ -334,7 +334,17 @@ async def _run_continuity(payload: dict) -> None:
 
     # LLM work happens outside any session. An exception here fails the job;
     # retry/backoff and the on_dead report flip are the worker's business.
-    result = await run_continuity_check(prose, fact_sheet, UUID(payload["user_id"]))
+    from app.jobs.cancel import raise_if_cancelled
+    from app.jobs.context import current_job
+
+    job_id = current_job().job_id
+
+    async def _seam() -> None:
+        await raise_if_cancelled(job_id)
+
+    result = await run_continuity_check(
+        prose, fact_sheet, UUID(payload["user_id"]), between_chunks=_seam
+    )
 
     async with get_async_session() as session:
         report = await session.get(ContinuityReport, report_id)

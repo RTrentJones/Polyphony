@@ -283,14 +283,22 @@ async def run_continuity_check(
     prose: str,
     fact_sheet: str,
     user_id: Optional[UUID] = None,
+    *,
+    between_chunks=None,
 ) -> ContinuityResult:
-    """Map-reduce over the prose with a rolling carry between chunks."""
+    """Map-reduce over the prose with a rolling carry between chunks.
+
+    `between_chunks`, when given, is awaited before every chunk after the first
+    — the job's cancellation seam, so a cancelled check stops instead of
+    spending the rest of the book (SPEC-07)."""
     all_findings: list[dict] = []
     total_tokens = 0
     chunks = chunk_prose(prose)
     checked, unchecked = 0, []
     carry = ""
     for i, chunk in enumerate(chunks):
+        if i and between_chunks is not None:
+            await between_chunks()
         label = f"part {i + 1}/{len(chunks)}"
         findings, tokens, ok = await check_chunk(
             chunk, fact_sheet, label, user_id, earlier=all_findings, carry=carry

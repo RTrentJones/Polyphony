@@ -624,20 +624,25 @@ async def start_continuity_check(
     # Preflight (SPEC-02, BRD R7.3): every chunk carries the whole fact sheet, so
     # a whole-book check on a big canon is expensive. Refuse with the estimate
     # rather than half-check the book.
-    from app.planning.continuity import build_fact_sheet, chunk_prose
+    from app.core import estimates
+    from app.planning.continuity import build_fact_sheet
 
     fact_sheet = await build_fact_sheet(db, book.id)
-    chunks = chunk_prose(prose)
-    estimate = len(chunks) * estimate_tokens(len(fact_sheet) + len(chunks[0]) + 2000)
-    remaining = await remaining_budget_24h(db, current_user.id)
-    if estimate > remaining:
+    est = estimates.continuity(
+        fact_sheet_chars=len(fact_sheet), prose_words=len(prose.split())
+    )
+    assessed = await estimates.assess(db, current_user.id, est)
+    if not assessed["allowed"]:
+        message = assessed["reason"]
+        if not payload.chapter_id:
+            message += " Try checking one chapter instead."
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail={
-                "message": "Not enough of today's budget left for this check. "
-                "Try checking one chapter instead.",
-                "estimate_tokens": estimate,
-                "remaining_tokens": remaining,
+                "message": message,
+                "estimate": assessed,
+                "estimate_tokens": est.tokens,
+                "remaining_tokens": assessed["remaining_tokens_24h"],
             },
         )
 

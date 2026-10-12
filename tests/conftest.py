@@ -28,11 +28,16 @@ def _reset_rate_limits():
     """Every test starts with empty rate-limit buckets. The suite logs in and
     polls from one client address far faster than any person; resetting the
     in-memory store keeps tests independent without weakening the limits."""
+    from app.core import budget, rate_limit
     from app.core.rate_limit import limiter
 
     limiter.reset()
+    rate_limit._TRUSTED_LOGIN_IPS.clear()
+    budget._ceiling_cache.clear()
     yield
     limiter.reset()
+    rate_limit._TRUSTED_LOGIN_IPS.clear()
+    budget._ceiling_cache.clear()
 
 
 @pytest.fixture(scope="function")

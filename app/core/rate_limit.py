@@ -149,12 +149,24 @@ def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
 # --- per-email login limit ---------------------------------------------------
 
 
-def login_email_check(email: str) -> int | None:
+# Addresses an account recently signed in from successfully. The per-email
+# budget exists to stop a botnet guessing one account's password from many IPs;
+# applied to everyone, it would also let that botnet lock the real owner out by
+# spending the budget. So the budget does not apply from an address the account
+# has already proven itself on (bounded per account; in-process, like every
+# limit here — ADR-001's single container).
+_TRUSTED_LOGIN_IPS: dict[str, list[str]] = {}
+_TRUSTED_PER_ACCOUNT = 5
+
+
+def login_email_check(email: str, ip: str | None = None) -> int | None:
     """Retry-After seconds if this email has used up its failed-login budget,
-    else None. Read-only: a correct password never spends the budget, so an
-    author who logs in on many devices is not locked out by success."""
-    item = parse(settings.LOGIN_EMAIL_RATE_LIMIT)
+    else None. Read-only: a correct password never spends the budget, and the
+    budget never applies from an address this account signed in from."""
     key = email.strip().lower()
+    if ip and ip in _TRUSTED_LOGIN_IPS.get(key, ()):
+        return None
+    item = parse(settings.LOGIN_EMAIL_RATE_LIMIT)
     if limiter.limiter.test(item, "login-email", key):
         return None
     return retry_after_seconds(item, "login-email", key)
@@ -163,6 +175,14 @@ def login_email_check(email: str) -> int | None:
 def login_email_record_failure(email: str) -> None:
     item = parse(settings.LOGIN_EMAIL_RATE_LIMIT)
     limiter.limiter.hit(item, "login-email", email.strip().lower())
+
+
+def login_email_record_success(email: str, ip: str | None) -> None:
+    if not ip:
+        return
+    key = email.strip().lower()
+    ips = [i for i in _TRUSTED_LOGIN_IPS.get(key, []) if i != ip]
+    _TRUSTED_LOGIN_IPS[key] = [ip, *ips][:_TRUSTED_PER_ACCOUNT]
 
 
 # --- route classes -----------------------------------------------------------
@@ -190,13 +210,20 @@ ROUTE_CLASSES: dict[tuple[str, str], str] = {
 }
 
 
+_CLASSIFIED_PREFIX = "/api/v1/"
+assert all(path.startswith(_CLASSIFIED_PREFIX) for _, path in ROUTE_CLASSES)
+
+
 def class_limit(cls: str) -> RateLimitItem:
     return parse(settings.RATE_LIMIT_POLL if cls == "poll" else settings.RATE_LIMIT_LLM)
 
 
 def _route_template(request: Request) -> str | None:
     """Resolve the matched route's template before routing runs (slowapi's
-    middleware does the same scan to find its handler)."""
+    middleware does the same scan to find its handler). Every classified route
+    is under /api/v1/, so static pages and assets skip the scan."""
+    if not request.url.path.startswith(_CLASSIFIED_PREFIX):
+        return None
     for route in request.app.routes:
         match, _ = route.matches(request.scope)
         if match == Match.FULL and hasattr(route, "endpoint"):
