@@ -57,6 +57,9 @@ export interface GenerateSceneModalProps {
   initialDescription?: string
   onClose: () => void
   onGenerated: (sceneId: string, chapterId: string) => void
+  /** Told when the scene runs differently from what was asked (e.g. an
+   *  ensemble request the tier runs as prose), so a downgrade is never silent. */
+  onNotice?: (message: string) => void
 }
 
 export default function GenerateSceneModal({
@@ -66,6 +69,7 @@ export default function GenerateSceneModal({
   initialDescription,
   onClose,
   onGenerated,
+  onNotice,
 }: GenerateSceneModalProps) {
   const { generateScene } = useBookStore()
 
@@ -168,6 +172,7 @@ export default function GenerateSceneModal({
         ...request,
         idempotencyKey,
       } as ChapterSceneRequest)
+      if (result.mode_reason) onNotice?.(result.mode_reason)
       onGenerated(result.scene_id, chapterId)
       onClose()
     } catch (err: any) {

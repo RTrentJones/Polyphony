@@ -329,15 +329,17 @@ function BookDetailContent() {
       </div>
 
       {/* Tabs */}
+      {/* Eight tabs outgrow a phone: the strip scrolls on its own, not the page. */}
       <div className="border-b border-gray-200 mb-6">
-        <nav className="flex space-x-4">
+        <nav className="flex gap-4 overflow-x-auto">
           {TABS.map((tab) => {
             const Icon = tab.icon
             return (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className={`inline-flex items-center px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                aria-current={activeTab === tab.key ? 'page' : undefined}
+                className={`inline-flex shrink-0 items-center whitespace-nowrap px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === tab.key
                     ? 'border-primary-600 text-primary-700'
                     : 'border-transparent text-gray-600 hover:text-primary-600'

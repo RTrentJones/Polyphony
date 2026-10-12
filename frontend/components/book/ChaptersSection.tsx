@@ -62,6 +62,8 @@ export default function ChaptersSection({
   const [deleteFor, setDeleteFor] = useState<BookChapter | null>(null)
   const [historyFor, setHistoryFor] = useState<BookChapter | null>(null)
   const [busy, setBusy] = useState(false)
+  // Live job status per scene, from its badge (see ScenesPanel).
+  const [liveStatus, setLiveStatus] = useState<Record<string, string>>({})
 
   const chapters = currentBook?.chapters ?? []
 
@@ -159,13 +161,14 @@ export default function ChaptersSection({
             return (
               <div
                 key={chapter.id}
+                data-testid="chapter-row"
                 className="border border-gray-200 rounded-lg overflow-hidden"
               >
                 <div className="flex items-center gap-2 p-3 bg-gray-50">
                   <button
                     onClick={() => toggleExpand(chapter.id)}
                     className="p-1 text-gray-500 hover:text-primary-600"
-                    aria-label={isOpen ? 'Collapse chapter' : 'Expand chapter'}
+                    aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${chapter.title}`}
                   >
                     {isOpen ? (
                       <ChevronDown className="h-4 w-4" />
@@ -193,7 +196,7 @@ export default function ChaptersSection({
                       onClick={() => handleMoveChapter(chapter, -1)}
                       disabled={chapter.position === 0 || busy}
                       className="p-1 text-gray-400 hover:text-primary-600 disabled:opacity-30"
-                      aria-label="Move chapter up"
+                      aria-label={`Move ${chapter.title} up`}
                     >
                       <ArrowUp className="h-4 w-4" />
                     </button>
@@ -201,7 +204,7 @@ export default function ChaptersSection({
                       onClick={() => handleMoveChapter(chapter, 1)}
                       disabled={chapter.position >= chapters.length - 1 || busy}
                       className="p-1 text-gray-400 hover:text-primary-600 disabled:opacity-30"
-                      aria-label="Move chapter down"
+                      aria-label={`Move ${chapter.title} down`}
                     >
                       <ArrowDown className="h-4 w-4" />
                     </button>
@@ -216,14 +219,14 @@ export default function ChaptersSection({
                     <button
                       onClick={() => setHistoryFor(chapter)}
                       className="p-1 text-gray-400 hover:text-primary-600"
-                      aria-label="Chapter history"
+                      aria-label={`History of ${chapter.title}`}
                     >
                       <History className="h-4 w-4" />
                     </button>
                     <button
                       onClick={() => handleDeleteChapter(chapter)}
                       className="p-1 text-gray-400 hover:text-red-600"
-                      aria-label="Delete chapter"
+                      aria-label={`Delete ${chapter.title}`}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -255,6 +258,9 @@ export default function ChaptersSection({
                                 onSettled={() => {
                                   fetchChapter(chapter.id).catch(() => {})
                                 }}
+                                onStatus={(st) =>
+                                  setLiveStatus((m) => ({ ...m, [scene.id]: st }))
+                                }
                               />
                             ) : (
                               <span
@@ -269,7 +275,8 @@ export default function ChaptersSection({
                             <p className="flex-1 min-w-0 text-sm text-gray-600 truncate">
                               {scene.preview || (
                                 <span className="italic text-gray-400">
-                                  {scene.status === 'paused'
+                                  {scene.status === 'paused' ||
+                                  liveStatus[scene.id] === 'paused'
                                     ? 'Paused — waiting for AI quota'
                                     : scene.status === 'processing'
                                     ? 'Generating…'
@@ -409,6 +416,7 @@ export default function ChaptersSection({
           chapter={generateFor}
           onClose={() => setGenerateFor(null)}
           onGenerated={onSceneGenerated}
+          onNotice={(m) => addToast(m, 'info')}
         />
       )}
       {historyFor && (

@@ -10,7 +10,7 @@
  * first poll lands, so the badge never flashes empty.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { JOB_STATUS_STYLES, isActiveJob, jobStatusLabel } from '@/lib/jobs'
 import type { Job, JobSummary } from '@/lib/types'
@@ -22,10 +22,18 @@ interface Props {
   initial?: JobSummary | null
   /** Called once when the job reaches a terminal state (incl. after Cancel). */
   onSettled?: (job: Job) => void
+  /** Called with each new live status, so a row can describe a pause the
+   *  moment it happens rather than when its list is next fetched. */
+  onStatus?: (status: Job['status']) => void
 }
 
-export default function JobStatusBadge({ jobId, initial, onSettled }: Props) {
+export default function JobStatusBadge({ jobId, initial, onSettled, onStatus }: Props) {
   const { job, cancel } = useJob(jobId, { onSettled })
+  const status = job?.status
+  useEffect(() => {
+    if (status) onStatus?.(status)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status])
   const [cancelling, setCancelling] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
   if (!jobId) return null

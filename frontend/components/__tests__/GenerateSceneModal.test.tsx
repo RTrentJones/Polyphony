@@ -136,3 +136,39 @@ describe('GenerateSceneModal defaults from a promoted chapter (SPEC-10)', () => 
     ).toHaveValue('Refusal: Bram will not open it')
   })
 })
+
+describe('GenerateSceneModal says when the scene runs differently (SPEC-12)', () => {
+  beforeEach(() => {
+    listCharacters.mockReset()
+    generateScene.mockReset()
+  })
+
+  it('passes the backend mode_reason to onNotice', async () => {
+    listCharacters.mockResolvedValue(cast)
+    generateScene.mockResolvedValue({
+      scene_id: 's-1',
+      chapter_id: 'ch-1',
+      position: 0,
+      status: 'processing',
+      mode_requested: 'ensemble',
+      mode_used: 'prose',
+      mode_reason: 'Ensemble is not available on the free tier.',
+    })
+    const onNotice = vi.fn()
+    const props = renderModal({ onNotice })
+
+    const picker = await screen.findByTestId('cast-picker')
+    fireEvent.click(picker.querySelector('button')!)
+    fireEvent.change(screen.getByPlaceholderText('What happens in this scene...'), {
+      target: { value: 'Ada argues with Bram at the gate.' },
+    })
+    fireEvent.change(screen.getByPlaceholderText(/dimly lit tavern/), {
+      target: { value: 'the gate' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
+    await waitFor(() =>
+      expect(onNotice).toHaveBeenCalledWith('Ensemble is not available on the free tier.')
+    )
+    expect(props.onGenerated).toHaveBeenCalledWith('s-1', 'ch-1')
+  })
+})

@@ -122,7 +122,7 @@ export default function ContinuityPanel({
             chapter summaries
           </p>
         </div>
-        <div className="flex items-end gap-2">
+        <div className="flex flex-wrap items-end gap-2">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">
               Scope

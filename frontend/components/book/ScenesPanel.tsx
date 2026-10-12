@@ -32,6 +32,9 @@ export default function ScenesPanel({
   const router = useRouter()
   const [scenes, setScenes] = useState<BookSceneSummary[]>([])
   const [loading, setLoading] = useState(true)
+  // Live job status per scene, from its badge: the list is fetched once, but a
+  // pause should read as a pause as soon as it happens.
+  const [liveStatus, setLiveStatus] = useState<Record<string, string>>({})
   const [genOpen, setGenOpen] = useState(false)
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -136,6 +139,9 @@ export default function ScenesPanel({
                       jobId={s.job?.job_id}
                       initial={s.job}
                       onSettled={() => load()}
+                      onStatus={(st) =>
+                        setLiveStatus((m) => ({ ...m, [s.id]: st }))
+                      }
                     />
                   ) : (
                     <span
@@ -156,7 +162,7 @@ export default function ScenesPanel({
                   </p>
                 )}
                 <p className="text-sm text-gray-600 line-clamp-2 mt-1">
-                  {s.status === 'paused'
+                  {s.status === 'paused' || liveStatus[s.id] === 'paused'
                     ? 'Paused — daily AI quota reached; resumes automatically.'
                     : s.preview ||
                       (s.status === 'processing'
@@ -189,6 +195,7 @@ export default function ScenesPanel({
           bookId={bookId}
           chapters={chapters}
           onClose={() => setGenOpen(false)}
+          onNotice={(m) => addToast(m, 'info')}
           onGenerated={() => {
             setGenOpen(false)
             load() // the new 'processing' scene appears + polls to completion

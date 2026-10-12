@@ -233,6 +233,7 @@ export default function CanonPanel({
                   <Button
                     variant="ghost"
                     size="sm"
+                    aria-label={`History of ${c.name}`}
                     onClick={() =>
                       setHistory({
                         type: 'character',
@@ -246,6 +247,7 @@ export default function CanonPanel({
                   <Button
                     variant="outline"
                     size="sm"
+                    aria-label={`Edit ${c.name}`}
                     onClick={async () => {
                       try {
                         setCharEdit(await canonApi.getCharacter(c.id))
@@ -259,6 +261,7 @@ export default function CanonPanel({
                   <Button
                     variant="ghost"
                     size="sm"
+                    aria-label={`Move ${c.name} to the Trash`}
                     onClick={async () => {
                       if (!confirm(`Move "${c.name}" to the Trash? Its voice is kept.`)) return
                       try {
@@ -317,18 +320,25 @@ export default function CanonPanel({
                   <Button
                     variant="ghost"
                     size="sm"
+                    aria-label={`History of ${e.name}`}
                     onClick={() =>
                       setHistory({ type: 'canon_entry', id: e.id, label: e.name })
                     }
                   >
                     <History className="h-4 w-4" />
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setEntryEdit(e)}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label={`Edit ${e.name}`}
+                    onClick={() => setEntryEdit(e)}
+                  >
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
+                    aria-label={`Move ${e.name} to the Trash`}
                     onClick={async () => {
                       if (!confirm(`Move "${e.name}" to the Trash?`)) return
                       try {

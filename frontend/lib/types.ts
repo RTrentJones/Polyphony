@@ -352,6 +352,10 @@ export interface ChapterSceneGenerateResponse {
   chapter_id: string
   position: number
   status: SceneStatus
+  mode_requested?: 'prose' | 'ensemble'
+  mode_used?: 'prose' | 'ensemble'
+  /** Why the mode that ran differs from the one asked for (SPEC-12). */
+  mode_reason?: string | null
 }
 
 /** PUT /books/scenes/{id}/content response. */

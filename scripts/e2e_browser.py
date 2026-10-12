@@ -8,6 +8,15 @@ deterministic stub LLM (evals/stub_llm.py), the way an author would:
   -> generate a scene from the cast picker -> read the scene -> generate an
   outline (staged job), confirm its premise, promote it to chapters -> run a continuity check -> export the book.
 
+Then the rest of the surface: trash and restore a character, restore an earlier
+synopsis, regenerate the outline with an EDITED premise (and prove the edit
+reached the model), plot threads, edit a scene and load an earlier revision,
+reorder and delete a chapter and restore it from the Trash, an ensemble request
+the free tier runs as prose (and says so), a scene paused by forced 429s that
+shows on the Usage page and is cancelled, the legacy pages' redirects, the
+dashboard, a second author who registers with an invite and cannot see the
+first author's book, and the book page at phone width.
+
 Each step asserts what the author should see, and saves a screenshot to
 $E2E_SHOTS (default ./e2e-shots) so a failure is diagnosable from CI artifacts.
 
@@ -33,7 +42,9 @@ BASE = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
 EMAIL = os.getenv("ADMIN_EMAIL", "admin@e2e.test")
 PASSWORD = os.getenv("ADMIN_PASSWORD", "admin-pass-12345")
 SHOTS = Path(os.getenv("E2E_SHOTS", "e2e-shots"))
+STUB = os.getenv("STUB_URL", "http://127.0.0.1:8099").rstrip("/")
 TIMEOUT = 90_000
+STATE: dict = {}
 
 SYNOPSIS = (
     "Bored to Undeath. Milo Voss, a lich systems analyst, is retained by Aeon "
@@ -90,6 +101,8 @@ async def journey(page: Page) -> None:
         await page.get_by_role("button", name="Create Book").click()
         await page.wait_for_url(re.compile(r"/books/detail"))
         await expect(page.get_by_text("Bored to Undeath").first).to_be_visible()
+        STATE["book_url"] = page.url
+        STATE["book_id"] = re.search(r"id=([0-9a-f-]+)", page.url).group(1)
         await shot(page, "book-created")
 
     async def paste_source_and_review():
@@ -199,6 +212,259 @@ async def journey(page: Page) -> None:
         text = path.read_text(encoding="utf-8", errors="replace")
         assert "Onboarding" in text, "export is missing the chapter"
 
+    async def tab(name: str):
+        await page.get_by_role("button", name=name, exact=True).first.click()
+
+    async def toast(text):
+        await expect(page.get_by_text(text).first).to_be_visible()
+
+    async def trash_and_restore_character():
+        await tab("Canon")
+        await page.get_by_role("button", name="Move Zara Okafor to the Trash").click()
+        await toast("Character moved to the Trash")
+        await tab("Trash")
+        await expect(page.get_by_text("Zara Okafor").first).to_be_visible()
+        await shot(page, "trash")
+        await page.get_by_role("button", name="Restore Zara Okafor").click()
+        await toast('Restored "Zara Okafor"')
+        await expect(page.get_by_text("The Trash is empty.")).to_be_visible()
+        await tab("Canon")
+        await expect(page.get_by_text("Zara Okafor").first).to_be_visible()
+
+    async def restore_earlier_synopsis():
+        await tab("Canon")
+        # The Synopsis card is the first on the Canon tab: its Edit and History
+        # are the first of their names there.
+        await page.get_by_role("button", name="Edit", exact=True).first.click()
+        await page.locator("textarea").first.fill("A heist in a monastery.")
+        await page.get_by_role("button", name="Save", exact=True).click()
+        await expect(page.get_by_text("A heist in a monastery.").first).to_be_visible()
+        await page.get_by_role("button", name="History", exact=True).first.click()
+        history = page.get_by_role("dialog")
+        await expect(history.get_by_text("History — Synopsis")).to_be_visible()
+        await shot(page, "synopsis-history")
+        # Restore the version before the edit (the newest is current).
+        await history.get_by_role("button", name="Restore").first.click()
+        await page.keyboard.press("Escape")
+        await expect(page.get_by_text("a lich systems analyst").first).to_be_visible()
+        await expect(page.get_by_text("A heist in a monastery.")).to_have_count(0)
+
+    async def regenerate_outline_with_edited_premise():
+        await tab("Outline")
+        await page.get_by_role("button", name=re.compile("Generate outline")).click()
+        checkpoint = page.get_by_test_id("premise-checkpoint")
+        await expect(checkpoint).to_be_visible(timeout=TIMEOUT)
+        await checkpoint.get_by_role("button", name="Edit and continue").click()
+        edited = "Milo Voss audits the afterlife and finds Aeon Holdings insolvent."
+        await checkpoint.get_by_label("Premise").fill(edited)
+        await shot(page, "premise-edit")
+        await checkpoint.get_by_role("button", name="Continue with my edits").click()
+        await expect(
+            page.get_by_text(re.compile("Promote to chapter")).first
+        ).to_be_visible(timeout=TIMEOUT)
+        # The author's premise, not the model's, steered the chapters stage.
+        r = await page.request.get(f"{STUB}/__stub/requests")
+        prompts = " ".join(str(x) for x in (await r.json()).get("requests", []))
+        assert edited in prompts, "the edited premise never reached the model"
+
+    async def plot_threads():
+        await tab("Threads")
+        await page.get_by_placeholder("Thread name, e.g. The stolen locket").fill(
+            "The appendices"
+        )
+        await page.get_by_placeholder("Description (optional)").fill(
+            "What Milo finds in them."
+        )
+        await page.get_by_role("button", name="Add Thread").click()
+        await expect(page.get_by_text("The appendices").first).to_be_visible()
+        await page.get_by_placeholder("Add an event note...").fill(
+            "Zara tells him to read them."
+        )
+        await page.get_by_role("button", name="Add", exact=True).click()
+        await expect(page.get_by_text("Zara tells him to read them.")).to_be_visible()
+        await page.get_by_role("button", name="Resolve").click()
+        await expect(page.get_by_role("button", name="Reopen")).to_be_visible()
+        await shot(page, "threads")
+
+    async def edit_scene_and_load_revision():
+        await tab("Chapters")
+        await page.get_by_role("button", name="Expand Onboarding").click()
+        row = page.get_by_test_id("chapter-row").filter(has_text="Onboarding")
+        await row.get_by_role("button", name="Edit", exact=True).first.click()
+        await page.wait_for_url(re.compile(r"/books/editor"))
+        editor = page.get_by_placeholder("Write your scene...")
+        await expect(editor).not_to_be_empty()
+        original = await editor.input_value()
+        await editor.fill("Milo closed the appendices. Nobody thanked anyone.")
+        await page.get_by_role("button", name="Save").click()
+        await expect(page.get_by_text(re.compile("saved"))).to_be_visible()
+        await page.get_by_role("button", name=re.compile("^Revision 1")).click()
+        await page.get_by_role("button", name="Restore").click()
+        await expect(editor).to_have_value(original)
+        await shot(page, "editor")
+        await page.get_by_role("button", name="Back to book").click()
+        await page.wait_for_url(re.compile(r"/books/detail"))
+
+    async def reorder_delete_and_restore_chapter():
+        await tab("Chapters")
+        rows = page.get_by_test_id("chapter-row")
+
+        async def title(row) -> str:
+            text = await row.locator("p.font-medium").first.inner_text()
+            return text.split(". ", 1)[1]
+
+        first = await title(rows.first)
+        await page.get_by_role("button", name=f"Move {first} down").click()
+        await expect(rows.nth(1)).to_contain_text(first)
+        # Delete the last chapter (a promoted one, no scenes) and restore it.
+        count = await rows.count()
+        last = await title(rows.last)
+        await page.get_by_role("button", name=f"Delete {last}").click()
+        await page.get_by_role("dialog").get_by_role(
+            "button", name="Delete chapter", exact=True
+        ).click()
+        await expect(rows).to_have_count(count - 1)
+        await tab("Trash")
+        await page.get_by_role("button", name=f"Restore {last}").click()
+        await toast(f'Restored "{last}"')
+        await tab("Chapters")
+        await expect(rows).to_have_count(count)
+        await expect(rows.filter(has_text=last)).to_have_count(1)
+        await shot(page, "chapters")
+
+    async def open_scene_modal():
+        await tab("Scenes")
+        await page.get_by_role("button", name="Generate scene").first.click()
+        picker = page.get_by_test_id("cast-picker")
+        milo = picker.get_by_role("button", name=re.compile("Milo Voss"))
+        # A promoted chapter pre-selects its cast (SPEC-10): select, don't toggle.
+        await expect(milo).to_be_visible()
+        if await milo.get_attribute("aria-pressed") != "true":
+            await milo.click()
+        await expect(milo).to_have_attribute("aria-pressed", "true")
+        await page.get_by_placeholder("What happens in this scene...").fill(
+            "Milo files his first reconciliation and it balances."
+        )
+        await page.get_by_placeholder(re.compile("dimly lit tavern")).fill(
+            "Reconciliations"
+        )
+
+    async def ensemble_runs_as_prose_and_says_so():
+        await open_scene_modal()
+        await page.get_by_label(re.compile("^Ensemble")).check()
+        await expect(page.get_by_test_id("estimate")).to_contain_text("runs as prose")
+        await shot(page, "ensemble-estimate")
+        await page.get_by_role("button", name="Generate", exact=True).click()
+        await toast(re.compile("Ensemble is not available on the free tier"))
+        # It still writes the scene: wait for it, so the next step's quota storm
+        # pauses only the scene it starts.
+        await expect(page.get_by_test_id("job-status")).to_have_count(
+            0, timeout=TIMEOUT
+        )
+
+    async def paused_scene_on_usage_then_cancel():
+        # Every model call now answers 429: the scene's job pauses for quota.
+        await page.request.post(
+            f"{STUB}/__stub/config", data={"fail_429": 10_000, "retry_after": 1}
+        )
+        try:
+            await open_scene_modal()
+            await page.get_by_role("button", name="Generate", exact=True).click()
+            badge = page.get_by_test_id("job-status").first
+            await expect(badge).to_contain_text("paused", timeout=TIMEOUT)
+            # The row says why it is waiting, not "Generating…".
+            await expect(
+                page.get_by_text(re.compile("Paused — daily AI quota reached")).first
+            ).to_be_visible()
+            await shot(page, "paused")
+            await page.get_by_role("link", name="Usage").first.click()
+            await expect(page.get_by_test_id("usage-page")).to_be_visible()
+            await expect(page.get_by_test_id("active-jobs")).to_be_visible()
+            await expect(page.get_by_text("Calls").first).to_be_visible()
+            await shot(page, "usage")
+            await page.goto(STATE["book_url"])
+            await tab("Scenes")
+            badge = page.get_by_test_id("job-status").first
+            await expect(page.get_by_test_id("job-status")).to_have_count(1)
+            await badge.get_by_role("button", name="Cancel").click()
+            await expect(page.get_by_test_id("job-status")).to_have_count(
+                0, timeout=TIMEOUT
+            )
+            await expect(
+                page.get_by_text("cancelled", exact=True).first
+            ).to_be_visible()
+        finally:
+            await page.request.post(f"{STUB}/__stub/config", data={"fail_429": 0})
+
+    async def legacy_pages_redirect_and_dashboard():
+        for path in ("characters", "generate", "sources", "sources/detail"):
+            await page.goto(f"{BASE}/{path}/")
+            await page.wait_for_url(re.compile(r"/books/?$"))
+        await page.goto(f"{BASE}/dashboard/")
+        await expect(page.get_by_role("heading", name="Dashboard")).to_be_visible()
+        await expect(page.get_by_text("Bored to Undeath").first).to_be_visible()
+
+    async def second_author_is_isolated():
+        login = await page.request.post(
+            f"{BASE}/api/v1/auth/login",
+            form={"username": EMAIL, "password": PASSWORD},
+        )
+        token = (await login.json())["access_token"]
+        invite = await page.request.post(
+            f"{BASE}/api/v1/auth/invites",
+            data={"max_uses": 1},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        code = (await invite.json())["code"]
+        other = await page.context.browser.new_context()
+        p2 = await other.new_page()
+        try:
+            await p2.goto(f"{BASE}/auth/register/")
+            await p2.fill("input[name=fullName]", "Second Author")
+            await p2.fill("input[name=email]", "second-author@example.com")
+            await p2.fill("input[name=password]", "second-pass-12345")
+            await p2.fill("input[name=confirmPassword]", "second-pass-12345")
+            await p2.fill("input[name=inviteCode]", code)
+            await p2.get_by_role(
+                "button", name=re.compile("Create|Register|Sign up")
+            ).click()
+            await p2.wait_for_url(re.compile(r"/dashboard"))
+            await p2.goto(f"{BASE}/books/")
+            await expect(p2.get_by_text("Bored to Undeath")).to_have_count(0)
+            await p2.goto(STATE["book_url"])
+            await expect(p2.get_by_text("Book not found").first).to_be_visible()
+            await p2.screenshot(path=str(SHOTS / "second-author.png"), full_page=True)
+        except Exception:
+            await p2.screenshot(path=str(SHOTS / "second-author-FAILED.png"))
+            print((await p2.inner_text("body"))[:1500], file=sys.stderr)
+            raise
+        finally:
+            await other.close()
+
+    async def book_page_at_phone_width():
+        state = await page.context.storage_state()
+        phone = await page.context.browser.new_context(
+            storage_state=state, viewport={"width": 390, "height": 844}
+        )
+        p3 = await phone.new_page()
+        try:
+            await p3.goto(STATE["book_url"])
+            await expect(p3.get_by_text("Bored to Undeath").first).to_be_visible()
+            tabs = ("Chapters", "Scenes", "Sources", "Canon", "Outline", "Threads")
+            for name in (*tabs, "Continuity", "Trash", "Usage"):
+                if name == "Usage":
+                    await p3.goto(f"{BASE}/usage/")
+                    await expect(p3.get_by_test_id("usage-page")).to_be_visible()
+                else:
+                    await p3.get_by_role("button", name=name, exact=True).first.click()
+                overflow = await p3.evaluate(
+                    "document.documentElement.scrollWidth - window.innerWidth"
+                )
+                assert overflow <= 1, f"{name}: page scrolls sideways by {overflow}px"
+            await p3.screenshot(path=str(SHOTS / "phone.png"), full_page=True)
+        finally:
+            await phone.close()
+
     await step("sign in", sign_in())
     await step("create a book", create_book())
     await step("paste a source, review, commit", paste_source_and_review())
@@ -208,6 +474,30 @@ async def journey(page: Page) -> None:
     await step("generate a staged outline", generate_outline())
     await step("run a continuity check", continuity())
     await step("export the book", export())
+    await step("trash a character and restore it", trash_and_restore_character())
+    await step("restore an earlier synopsis", restore_earlier_synopsis())
+    await step(
+        "regenerate the outline on an edited premise",
+        regenerate_outline_with_edited_premise(),
+    )
+    await step("plot threads", plot_threads())
+    await step("edit a scene, load a revision", edit_scene_and_load_revision())
+    await step(
+        "reorder, delete and restore a chapter", reorder_delete_and_restore_chapter()
+    )
+    await step(
+        "ensemble on the free tier runs as prose, and says so",
+        ensemble_runs_as_prose_and_says_so(),
+    )
+    await step(
+        "a quota-paused scene shows on Usage and cancels",
+        paused_scene_on_usage_then_cancel(),
+    )
+    await step(
+        "legacy pages redirect; dashboard", legacy_pages_redirect_and_dashboard()
+    )
+    await step("a second author cannot see the book", second_author_is_isolated())
+    await step("the book at phone width", book_page_at_phone_width())
 
 
 async def main() -> int:
@@ -215,6 +505,8 @@ async def main() -> int:
         exe = os.getenv("PLAYWRIGHT_CHROMIUM")
         browser = await p.chromium.launch(**({"executable_path": exe} if exe else {}))
         page = await browser.new_page(accept_downloads=True)
+        # "Move to the Trash?" confirms: an author clicking OK.
+        page.on("dialog", lambda d: asyncio.ensure_future(d.accept()))
         errors: list[str] = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         try:

@@ -37,8 +37,8 @@ export default function RegisterPage() {
 
     if (!formData.password) {
       newErrors.password = 'Password is required'
-    } else if (formData.password.length < 8) {
-      newErrors.password = 'Password must be at least 8 characters'
+    } else if (formData.password.length < 10) {
+      newErrors.password = 'Password must be at least 10 characters'
     }
 
     if (formData.password !== formData.confirmPassword) {
@@ -139,7 +139,7 @@ export default function RegisterPage() {
             onChange={handleChange}
             placeholder="••••••••"
             error={errors.password}
-            helperText="Must be at least 8 characters"
+            helperText="Must be at least 10 characters"
             required
             autoComplete="new-password"
           />
