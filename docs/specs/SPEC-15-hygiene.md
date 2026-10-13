@@ -34,14 +34,16 @@ skill sends agents there first, so stale status misleads every future change.
 
 ## 15c — Retire transition scaffolding (S)
 
-- Delete `app/migrate.py`'s legacy-reset shim once production and beta are confirmed on the
-  `sources` schema, and change the Dockerfile CMD to `alembic upgrade head`. Keep the
-  `POLYPHONY_FORCE_SCHEMA_RESET=1` escape hatch only if an operator still wants it, documented in
-  the README.
+- ✅ Done: `app/migrate.py`'s legacy-reset shim is deleted (production and beta are confirmed on
+  the `sources` schema). `python -m app.migrate` stays the container entrypoint (Dockerfile CMD,
+  `scripts/e2e_stub.sh`) but is a plain `alembic upgrade head`; `POLYPHONY_FORCE_SCHEMA_RESET` is
+  gone. The retired `scripts/init-db.sql` (which still named `character_chunks`) is deleted.
 - Read the app version from one place (`settings.APP_VERSION`, set from the image's
   `GREENLIGHT_SHA` short form or a package version) instead of the `"1.0.0"` literals in
   `app/main.py`.
-- Remove the deprecated `characters: list[str]` input once SPEC-01's one-release grace period ends.
+- ✅ Done: the deprecated `characters: list[str]` scene input is removed; `character_ids` is the
+  only cast input and a request still sending `characters` gets a 422. The scene's `characters`
+  name list stays as a read-only display field derived from the resolved cast.
 
 ## 15d — Frontend structure and tests (M)
 
@@ -51,6 +53,10 @@ skill sends agents there first, so stale status misleads every future change.
 - Add Vitest + React Testing Library with tests for the status badges (all job states from SPEC-07),
   the KeyValueEditor, and the cast picker, and run `npm test` in `test.yml`.
 - Introduce the minimal `BookProvider` the feature set already planned, to stop prop-drilling `?id=`.
+  *Done:* `frontend/components/book/BookProvider.tsx` holds the book id, the loaded book, its
+  chapters and characters (characters load lazily), and `refreshBook` / `refreshChapter` /
+  `refreshCharacters`; the detail page's panels read them with `useBook()`. Toasts (`addToast`)
+  and per-panel callbacks stay props.
 
 **Acceptance**: the split PR is a pure move (the diff is reviewable as moves); CI runs frontend
 tests.

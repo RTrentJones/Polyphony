@@ -47,14 +47,69 @@ _FIRST_PERSON = re.compile(r"\b(?:I|[Mm]y|[Mm]e|[Mm]yself|[Ww]e|[Oo]ur|[Uu]s)\b"
 _HEADING_MAX_CHARS = 140
 
 
+# Single-quoted speech ('My name is Hollis,' he said). An opening quote is not
+# preceded by a word character and a closing one is not followed by one, so
+# apostrophes (I'm, Hollis's, the dogs' bones) neither open nor close a span.
+# DOTALL: hard-wrapped speech crosses line breaks inside one paragraph.
+_SINGLE_QUOTED = re.compile(r"(?<!\w)'(?=\S).*?(?<=\S)'(?!\w)", re.DOTALL)
+
+
 def _narration_only(paragraph: str) -> str:
-    """The paragraph minus quoted speech — a narrator's "I" is outside quotes."""
-    return re.sub(r'"[^"]*"', " ", _normalize_quotes(paragraph))
+    """The paragraph minus quoted speech — a narrator's "I" is outside quotes.
+    Both dialogue styles are stripped: double and single quotation marks."""
+    text = re.sub(r'"[^"]*"', " ", _normalize_quotes(paragraph))
+    return _SINGLE_QUOTED.sub(" ", text)
 
 
 def _is_narrator_heading(para: str) -> bool:
+    return _heading(para)[0] is not None
+
+
+# A first-person narrator naming themselves in narration (outside quotes):
+# "My name is Rowan Merrow", "I, Rowan Merrow, …", "Call me Rowan". Up to an
+# honorific plus three capitalised words; a possessive ends the name.
+_NAME = r"((?:[A-Z][a-z]*\.?\s+)?[A-Z][\w-]*(?:\s+[A-Z][\w-]*){0,2})"
+_SELF_NAMING = [
+    re.compile(r"\b[Mm]y name (?:is|was) " + _NAME),
+    re.compile(r"(?:^|[.!?]\s+)I,\s+" + _NAME + r","),
+    re.compile(
+        r"\b(?:[Cc]all me|I am called|I was called|I am named|I was named|"
+        r"I was christened|they call me|[Pp]eople call me) " + _NAME
+    ),
+]
+
+
+def self_named_narrators(text: str) -> list[str]:
+    """Names a first-person narrator gives themselves in NARRATION, in order of
+    first appearance. Quoted speech is excluded: a character saying "My name is
+    X" to someone is a speaker, not the narrator."""
+    out: list[str] = []
+    for para in text.split("\n\n"):
+        narration = _narration_only(para)
+        for rx in _SELF_NAMING:
+            for m in rx.finditer(narration):
+                name = re.sub(r"'s$", "", m.group(1).strip()).strip()
+                if name and name not in out:
+                    out.append(name)
+    return out
+
+
+def _heading(para: str):
+    """(narrator heading match | None, is a chapter heading) for a short,
+    heading-like paragraph. A paragraph that keeps its line breaks (a PDF's
+    heading block: "CHAPTER VIII\nNORA VANCE'S JOURNAL") is also read line by
+    line; the last narrator line wins."""
     flat = " ".join(_normalize_quotes(para).split())
-    return len(flat) <= _HEADING_MAX_CHARS and bool(_NARRATOR_HEAD.match(flat))
+    if len(flat) > _HEADING_MAX_CHARS:
+        return None, False
+    head = _NARRATOR_HEAD.match(flat)
+    chapter = bool(_CHAPTER_HEAD.match(flat))
+    if head is None and "\n" in para:
+        for line in para.split("\n"):
+            line = " ".join(_normalize_quotes(line).split())
+            head = _NARRATOR_HEAD.match(line) or head
+            chapter = chapter or bool(_CHAPTER_HEAD.match(line))
+    return head, chapter
 
 
 def narrator_sections(text: str) -> list[tuple[str, list[tuple[int, str]]]]:
@@ -67,14 +122,13 @@ def narrator_sections(text: str) -> list[tuple[str, list[tuple[int, str]]]]:
         para = para.strip()
         if not para:
             continue
-        flat = " ".join(_normalize_quotes(para).split())
-        head = _NARRATOR_HEAD.match(flat) if len(flat) <= _HEADING_MAX_CHARS else None
+        head, chapter = _heading(para)
         if head:
             who = (head.group("owner") or head.group("writer") or "").strip(" _*.,")
             current = (who, [])
             sections.append(current)
             continue
-        if len(flat) <= _HEADING_MAX_CHARS and _CHAPTER_HEAD.match(flat):
+        if chapter:
             current = None
             continue
         if current is not None:
@@ -259,7 +313,9 @@ JSON array:"""
           resolved honorific-aware against the whole cast and skipped when the
           heading could be two characters;
         - when the source has no such headings and this character's role is
-          narrator, every first-person narration paragraph.
+          narrator — or the narration names its "I" as this character ("my
+          name is X", "I, X,", "call me X") and names no one else that way —
+          every first-person narration paragraph.
         """
         from app.parsing.names import match
 
@@ -315,7 +371,18 @@ JSON array:"""
                 if _FIRST_PERSON.search(_narration_only(para)):
                     add(i, para, "narration")
 
-        if not sections and is_narrator:
+        # No headings: the narrator may name themselves once ("my name is X",
+        # "I, X,"). When every self-naming in the narration resolves to ONE
+        # cast member, that member is the lone first-person narrator — a
+        # frame narrative with two self-named narrators is ambiguous and left
+        # to the headings / the narrator role.
+        self_named = None
+        if not sections:
+            owners = {owner_of(n) for n in self_named_narrators(text)}
+            if len(owners) == 1:
+                self_named = owners.pop()
+
+        if not sections and (is_narrator or self_named == character_name):
             for i, para in enumerate(text.split("\n\n")):
                 para = para.strip()
                 if para and _FIRST_PERSON.search(_narration_only(para)):

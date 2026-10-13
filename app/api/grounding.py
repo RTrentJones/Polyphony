@@ -2,10 +2,16 @@
 
 Prose and ensemble generation store, per beat, the voice chunks retrieved for
 each character and their similarity (`Scene.evaluation_scores["grounding"]`, as
-`{beat_index: [{character_id, chunk_id, score}]}`). Only ids and scores are
-stored, so this resolves them to the chunks' CURRENT text: an edited sample
-shows its edit, and a deleted one is reported as deleted rather than silently
-dropped (docs/BRD.md R5.3).
+`{beat_index: [{character_id, chunk_id, score, excerpt}]}`). This resolves the
+ids to the chunks' CURRENT text: an edited sample shows its edit, and a deleted
+one is reported as deleted rather than silently dropped (docs/BRD.md R5.3). The
+bounded `excerpt` stored at generation time is returned too, so a deleted
+sample still shows the wording that grounded the scene (scenes generated before
+excerpts were recorded have none).
+
+A character no sample grounded (none indexed, or an ensemble context-only
+character) is stored as an entry with no chunk and a `reason`; it is listed
+with no samples and that reason, so the view names everyone in the beat.
 """
 
 from uuid import UUID
@@ -95,9 +101,18 @@ async def get_scene_grounding(
             cid = str(e.get("character_id"))
             group = by_character.setdefault(
                 cid,
-                {"character_id": cid, "name": names.get(cid), "samples": []},
+                {
+                    "character_id": cid,
+                    "name": names.get(cid),
+                    "samples": [],
+                    "reason": None,
+                },
             )
-            chunk_id = str(e["chunk_id"]) if e.get("chunk_id") else None
+            if not e.get("chunk_id"):
+                # No sample grounded this character in this beat; say why.
+                group["reason"] = e.get("reason") or "no indexed voice samples"
+                continue
+            chunk_id = str(e["chunk_id"])
             chunk = live.get(chunk_id) if chunk_id else None
             if chunk is not None and chunk.get("character_id") != cid:
                 chunk = None  # an id that is not this character's is not grounding
@@ -109,6 +124,8 @@ async def get_scene_grounding(
                     "text": chunk["text"] if chunk else None,
                     "chunk_type": chunk["chunk_type"] if chunk else None,
                     "source": chunk["source"] if chunk else None,
+                    # What the sample said when the scene was generated.
+                    "excerpt": e.get("excerpt"),
                 }
             )
         index = _beat_key(key)

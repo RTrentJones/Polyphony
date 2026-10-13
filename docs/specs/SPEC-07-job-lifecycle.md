@@ -46,6 +46,10 @@ polling.
    `jobs(dedupe_key) WHERE status IN ('queued','running')` makes a second enqueue return the
    existing job (HTTP 200 with the existing `job_id`, not 409). Scene generation dedupes on a
    client-supplied `Idempotency-Key` header, since two scenes in one chapter are legitimate.
+   Voice indexing (`index_characters_voice`) uses a MERGING key, `voice:<book_id>:<source_id>`
+   (`jobs_repo.enqueue_merging`): a plain dedupe would drop newly approved character ids, so a
+   still-queued (incl. paused) holder gets the new ids unioned into its payload, and a running
+   holder releases the key and keeps running while a fresh job takes the new ids.
 6. **No unbounded LLM in requests.** The single-call outline fallback becomes a `generate_outline`
    job with `mode="single"`. `test-dialogue` stays synchronous (fast model, one call) but runs with
    a 45 s total budget (SPEC-03 step 5) and calls `check_user_budget`.

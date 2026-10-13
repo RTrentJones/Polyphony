@@ -97,6 +97,9 @@ python -m evals.tools.build_gt --book dracula                                 # 
   change counts only if it improves **both**: a gain on Dracula alone is likely
   overfitting to one book's ground truth. CI grades both and tags them as
   separate Tracer runs (`env=<label>-dracula` / `-frankenstein`).
+- **`cel`** — the synthetic fidelity corpus (the outline gate). Its prose is the
+  17k-char `synopsis.txt`, so `load_corpus` uploads synopsis + excerpt; the
+  excerpt alone never names Edric Thane, and extraction scored 0 against it.
 
 ## Adding a book — data only, no code
 

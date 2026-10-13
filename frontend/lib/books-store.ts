@@ -25,6 +25,8 @@ import type {
   ChapterSceneGenerateResponse,
   ChapterSceneRequest,
   ChapterUpdateData,
+  PlannedScenesRequest,
+  PlannedScenesResponse,
   ContinuityReport,
   ContinuityReportListResponse,
   ContinuityStartResponse,
@@ -206,7 +208,12 @@ interface BookState {
     chapterId: string,
     request: ChapterSceneRequest
   ) => Promise<ChapterSceneGenerateResponse>
-  moveScene: (chapterId: string, sceneId: string, position: number) => Promise<void>
+  /** One scene per planned beat, written in order (SPEC-10). */
+  generatePlannedScenes: (
+    chapterId: string,
+    request?: PlannedScenesRequest
+  ) => Promise<PlannedScenesResponse>
+  moveScene:(chapterId: string, sceneId: string, position: number) => Promise<void>
 }
 
 export const useBookStore = create<BookState>((set, get) => ({
@@ -368,6 +375,22 @@ export const useBookStore = create<BookState>((set, get) => ({
         // spending twice (SPEC-07).
         idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined
       )
+      return data
+    } catch (err) {
+      throw toApiError(err)
+    }
+  },
+
+  generatePlannedScenes: async (chapterId, request = {}) => {
+    try {
+      // No Idempotency-Key needed: a chapter has at most one batch in flight,
+      // and a repeat returns it (the server dedupes on the chapter).
+      const { data } = await apiClient.post<PlannedScenesResponse>(
+        `/books/chapters/${chapterId}/scenes/generate-planned`,
+        request
+      )
+      // The batch is queued either way; a failed refresh must not hide that.
+      await get().fetchChapter(chapterId).catch(() => undefined)
       return data
     } catch (err) {
       throw toApiError(err)

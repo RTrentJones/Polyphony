@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import TrashPanel from '@/components/book/TrashPanel'
+import { bookValue, renderWithBook } from './bookContext'
 import type { TrashItem } from '@/lib/types'
 
 const trashApi = vi.hoisted(() => ({
@@ -29,9 +30,7 @@ const chapter: TrashItem = {
 }
 
 function renderPanel() {
-  const props = { bookId: 'b', addToast: vi.fn(), onChanged: vi.fn() }
-  render(<TrashPanel {...props} />)
-  return props
+  return renderWithBook(<TrashPanel addToast={vi.fn()} />, bookValue({ bookId: 'b' }))
 }
 
 describe('TrashPanel (SPEC-13)', () => {
@@ -58,9 +57,9 @@ describe('TrashPanel (SPEC-13)', () => {
   it('restores, then refreshes the list and the book', async () => {
     trashApi.list.mockResolvedValueOnce([milo]).mockResolvedValueOnce([])
     trashApi.restore.mockResolvedValue(undefined)
-    const props = renderPanel()
+    const book = renderPanel()
     fireEvent.click(await screen.findByRole('button', { name: 'Restore Milo Voss' }))
-    await waitFor(() => expect(props.onChanged).toHaveBeenCalled())
+    await waitFor(() => expect(book.refreshBook).toHaveBeenCalled())
     expect(trashApi.restore).toHaveBeenCalledWith('b', 'character', 'c-1')
     expect(await screen.findByText('The Trash is empty.')).toBeInTheDocument()
   })
@@ -75,12 +74,12 @@ describe('TrashPanel (SPEC-13)', () => {
         conflict: { type: 'character', id: 'c-2', name: 'Milo Voss' },
       },
     })
-    const props = renderPanel()
+    const book = renderPanel()
     fireEvent.click(await screen.findByRole('button', { name: 'Restore Milo Voss' }))
     expect(await screen.findByRole('alert')).toHaveTextContent(
       "A character named 'Milo Voss' already exists"
     )
-    expect(props.onChanged).not.toHaveBeenCalled()
+    expect(book.refreshBook).not.toHaveBeenCalled()
     expect(screen.getByText('Milo Voss')).toBeInTheDocument()
   })
 

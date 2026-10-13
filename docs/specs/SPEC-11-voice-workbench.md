@@ -35,7 +35,10 @@ can show it.
    collect `{beat_index: {character_id: [{chunk_id, score}]}}` and store it on
    `Scene.evaluation_scores["grounding"]` (no migration; the column is already a JSON metadata
    bucket). `GET /books/scenes/{id}/grounding` resolves IDs to current chunk text, marking deleted
-   chunks as such.
+   chunks as such. Each entry also stores a bounded (~300-char) `excerpt` of the sample's text at
+   generation time, so a deleted chunk still shows its wording, marked "deleted since generation".
+   A character no sample grounded — none indexed, or an ensemble context-only character — gets an
+   entry with no chunk and a `reason`, so the view lists every character in the beat.
 4. **Scene view.** A "Why does it sound like this?" disclosure under each scene lists, per
    character, the grounding samples with scores.
 5. **Retire `character_chunks`.** Stop writing it in `add_voice_samples` and the indexing

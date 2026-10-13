@@ -23,6 +23,9 @@ export EVAL_JUDGE_PROVIDER=stub EVAL_RPM=600 DEBUG=true
 # The browser journey forces a quota storm through the stub: retry a 429 for
 # seconds, not the production minute and a half, before the job pauses.
 export LLM_MAX_RETRY_WAIT_SECONDS=${LLM_MAX_RETRY_WAIT_SECONDS:-3}
+# The browser journey starts more model work per minute than any author (the
+# production default is 10/minute per user); the limit itself is unit-tested.
+export RATE_LIMIT_LLM=${RATE_LIMIT_LLM:-60/minute}
 # Serve the static frontend when it has been built (frontend/out), so the
 # browser journey can drive the real site.
 export STATIC_DIR=${STATIC_DIR:-frontend/out}

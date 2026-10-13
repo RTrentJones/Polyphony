@@ -47,6 +47,9 @@ export interface GroundingSample {
   text: string | null
   chunk_type: string | null
   source: string | null
+  /** The sample's wording when the scene was generated (bounded, ~300 chars);
+   *  shown for a sample deleted since. Absent on older scenes. */
+  excerpt?: string | null
 }
 
 export interface SceneGroundingResponse {
@@ -61,6 +64,9 @@ export interface SceneGroundingResponse {
       character_id: string
       name: string | null
       samples: GroundingSample[]
+      /** Why no sample grounded this character (e.g. "no indexed voice
+       *  samples", "context only"); null when samples did. */
+      reason?: string | null
     }[]
   }[]
 }

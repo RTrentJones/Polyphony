@@ -230,8 +230,6 @@ class TestTrashedCharacterIsInvisible:
         with pytest.raises(HTTPException) as e:
             await resolve_cast(async_session, UUID(bid), character_ids=[UUID(zara)])
         assert e.value.status_code == 422
-        with pytest.raises(HTTPException):
-            await resolve_cast(async_session, UUID(bid), names=["Zara"])
         assert (
             await client.get(f"{API}/characters/{zara}", headers=auth_headers)
         ).status_code == 404

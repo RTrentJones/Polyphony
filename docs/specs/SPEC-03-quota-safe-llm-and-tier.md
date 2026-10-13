@@ -43,7 +43,7 @@ tracked and respected before a call is made.
 3. **Requests-per-day accounting.** Add `Tier.max_rpd` (provider-level, deployment-wide) and a
    small `llm_requests` daily counter (a row per provider per UTC day, incremented in
    `_account` and on every attempt that reaches the provider). Before a call, if the counter is at
-   the ceiling, raise `QuotaExhaustedError(reset_after=seconds_until_utc_midnight)` without calling
+   the ceiling, raise `QuotaExhaustedError(reset_after=seconds_until_provider_reset)` without calling
    the provider. Verify the current Gemini free-tier RPD for `gemini-2.5-flash` and
    `gemini-2.5-flash-lite` and record the figures with a date in BRD §6.
 4. **Monthly ceiling enforced.** When `monthly_cost_ceiling_usd` is set, `check_user_budget` and the
@@ -64,7 +64,7 @@ tracked and respected before a call is made.
 3. Setting only `LLM_TIER=paid` changes the pacer's RPM, the daily token cap and `allow_ensemble`.
    *(unit over `get_tier`, `get_pacer`, `remaining_budget_24h`)*
 4. With `max_rpd=3`, a fourth call raises `QuotaExhaustedError` without reaching the provider stub,
-   and `reset_after` is the seconds to the next UTC midnight. *(unit)*
+   and `reset_after` is the seconds to the provider's next daily reset (midnight Pacific for Gemini). *(unit)*
 5. With a $1 monthly ceiling and $1.01 of trailing spend, `check_user_budget` raises 429 with a
    message naming the ceiling. *(unit)*
 

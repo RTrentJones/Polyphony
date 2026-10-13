@@ -10,20 +10,18 @@ import Button from '@/components/Button'
 import Card from '@/components/Card'
 import type { ToastType } from '@/components/Toast'
 import { usePlanningStore } from '@/lib/books-store'
-import type { BookChapter, PlotThread, ThreadEventKind } from '@/lib/types'
+import { useBook } from '@/components/book/BookProvider'
+import type { PlotThread, ThreadEventKind } from '@/lib/types'
 import { THREAD_STATUS_STYLES, EVENT_KIND_STYLES } from '@/components/book/styles'
 
 function ThreadCard({
-  bookId,
   thread,
-  chapters,
   addToast,
 }: {
-  bookId: string
   thread: PlotThread
-  chapters: BookChapter[]
   addToast: (message: string, type: ToastType) => void
 }) {
+  const { bookId, chapters } = useBook()
   const { updateThread, deleteThread, addThreadEvent } = usePlanningStore()
 
   const [eventNote, setEventNote] = useState('')
@@ -190,14 +188,11 @@ function ThreadCard({
 }
 
 export default function ThreadsPanel({
-  bookId,
-  chapters,
   addToast,
 }: {
-  bookId: string
-  chapters: BookChapter[]
   addToast: (message: string, type: ToastType) => void
 }) {
+  const { bookId } = useBook()
   const { threads, fetchThreads, createThread } = usePlanningStore()
 
   const [name, setName] = useState('')
@@ -267,9 +262,7 @@ export default function ThreadsPanel({
           {threads.map((thread) => (
             <ThreadCard
               key={thread.id}
-              bookId={bookId}
               thread={thread}
-              chapters={chapters}
               addToast={addToast}
             />
           ))}

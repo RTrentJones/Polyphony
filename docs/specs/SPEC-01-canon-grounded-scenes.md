@@ -28,6 +28,7 @@ retrieval changes (SPEC-11).
 
 1. **Request shape.** Add `character_ids: list[UUID]` to `ChapterSceneRequest`
    (`app/api/books.py:84`). Keep `characters: list[str]` for one release as a deprecated input,
+   *(since removed in SPEC-15c: `character_ids` is the only cast input, and `characters` is 422)*
    resolved to IDs by exact name within the book; reject (422) any name or ID that is not in the
    chapter's book, listing the unknowns. Store both IDs and resolved names on the scene
    (`Scene.characters` stays the display list; add `Scene.character_ids` JSON).

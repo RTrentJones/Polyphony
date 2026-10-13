@@ -12,7 +12,8 @@ import type { Estimate } from '@/lib/usage-api'
 import Card from '@/components/Card'
 import JobStatusBadge from '@/components/JobStatusBadge'
 import type { ToastType } from '@/components/Toast'
-import { useBookStore, usePlanningStore } from '@/lib/books-store'
+import { usePlanningStore } from '@/lib/books-store'
+import { useBook } from '@/components/book/BookProvider'
 import { isActiveJob } from '@/lib/jobs'
 import type { BookPlan, Job, PlanKind, PlanNode } from '@/lib/types'
 
@@ -154,17 +155,14 @@ export function PremiseCheckpoint({
 }
 
 export default function OutlinePanel({
-  bookId,
-  hasSynopsis,
   addToast,
 }: {
-  bookId: string
-  hasSynopsis: boolean
   addToast: (message: string, type: ToastType) => void
 }) {
+  const { bookId, book, refreshBook } = useBook()
+  const hasSynopsis = !!book?.synopsis
   const { plans, fetchPlans, generatePlan, promoteNode, promoteAll, confirmPremise } =
     usePlanningStore()
-  const { fetchBook } = useBookStore()
 
   const [kind, setKind] = useState<PlanKind>('outline')
   const [chaptersTarget, setChaptersTarget] = useState(12)
@@ -240,7 +238,7 @@ export default function OutlinePanel({
     setPromotingAll(true)
     try {
       const res = await promoteAll(bookId)
-      await fetchBook(bookId)
+      await refreshBook()
       addToast(
         res.created
           ? `${res.created} chapter${res.created === 1 ? '' : 's'} created from the outline`
@@ -261,7 +259,7 @@ export default function OutlinePanel({
         nodeId: node.node_id,
         nodeIndex: index,
       })
-      await fetchBook(bookId)
+      await refreshBook()
       addToast(
         res.created === false
           ? `"${node.title}" already has a chapter`

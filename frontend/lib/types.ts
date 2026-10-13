@@ -165,10 +165,13 @@ export interface SourceCharactersResponse {
 // Scenes (app/api/scenes.py)
 // ---------------------------------------------------------------------------
 
-/** POST /scenes/generate body (app/core/models.py SceneRequest). */
+/** A scene's stored generation request (GET /scenes/{id} `scene_request`).
+ *  Read-only: requests are sent as ChapterSceneRequest (cast by `character_ids`);
+ *  `characters` here is the cast's names, derived server-side for display. */
 export interface SceneRequest {
   source_id: string
   characters: string[]
+  character_ids?: string[]
   scene_description: string
   setting: string
   emotional_tone: string
@@ -356,6 +359,35 @@ export interface ChapterSceneGenerateResponse {
   mode_used?: 'prose' | 'ensemble'
   /** Why the mode that ran differs from the one asked for (SPEC-12). */
   mode_reason?: string | null
+}
+
+/** POST /books/chapters/{id}/scenes/generate-planned request (SPEC-10). The
+ *  scene descriptions are the chapter's planned beats; the cast defaults to
+ *  the chapter's promoted one. */
+export interface PlannedScenesRequest {
+  character_ids?: string[]
+  setting?: string
+  emotional_tone?: string
+  target_word_count?: number
+  style_notes?: string | null
+  mode?: 'prose' | 'ensemble'
+}
+
+/** Its response: the first scene of the chain, or the batch already running. */
+export interface PlannedScenesResponse {
+  chapter_id: string
+  scene_id: string | null
+  job_id: string | null
+  status: string
+  /** Planned beats in the chapter. */
+  total: number | null
+  /** Scenes that will be written, one after another. */
+  queued: number
+  /** Beats that already had a scene. */
+  skipped?: number
+  already_running?: boolean
+  mode_requested?: 'prose' | 'ensemble'
+  mode_used?: 'prose' | 'ensemble'
 }
 
 /** PUT /books/scenes/{id}/content response. */

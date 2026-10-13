@@ -169,12 +169,14 @@ class TestModeGating:
             )
         ).json()
         # A scene's cast must exist in the book (SPEC-01).
-        await client.post(
-            "/api/v1/characters/",
-            json={"name": "Milo", "book_id": book["id"]},
-            headers=auth_headers,
-        )
-        return chapter["id"]
+        milo = (
+            await client.post(
+                "/api/v1/characters/",
+                json={"name": "Milo", "book_id": book["id"]},
+                headers=auth_headers,
+            )
+        ).json()
+        return chapter["id"], milo["id"]
 
     async def _enqueued_kind(self, async_session):
         from sqlalchemy import select
@@ -196,11 +198,11 @@ class TestModeGating:
         self, client, auth_headers, async_session, monkeypatch
     ):
         monkeypatch.setattr(settings, "LLM_TIER", "free")
-        chapter_id = await self._book_chapter(client, auth_headers)
+        chapter_id, milo_id = await self._book_chapter(client, auth_headers)
         r = await client.post(
             f"/api/v1/books/chapters/{chapter_id}/scenes/generate",
             json={
-                "characters": ["Milo"],
+                "character_ids": [milo_id],
                 "scene_description": "A quiet moment at the desk.",
                 "setting": "office",
                 "emotional_tone": "wry",
@@ -215,11 +217,11 @@ class TestModeGating:
         self, client, auth_headers, async_session, monkeypatch
     ):
         monkeypatch.setattr(settings, "LLM_TIER", "paid")
-        chapter_id = await self._book_chapter(client, auth_headers)
+        chapter_id, milo_id = await self._book_chapter(client, auth_headers)
         r = await client.post(
             f"/api/v1/books/chapters/{chapter_id}/scenes/generate",
             json={
-                "characters": ["Milo"],
+                "character_ids": [milo_id],
                 "scene_description": "A quiet moment at the desk.",
                 "setting": "office",
                 "emotional_tone": "wry",

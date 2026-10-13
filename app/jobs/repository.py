@@ -8,6 +8,7 @@ short transactions.
 """
 
 import json
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -83,6 +84,88 @@ async def enqueue(
         await session.flush()
     _notify_on_commit(session)
     return job
+
+
+async def enqueue_merging(
+    session: AsyncSession,
+    *,
+    kind: str,
+    payload: dict,
+    user_id: UUID,
+    dedupe_key: str,
+    merge: Callable[[dict, dict], dict],
+    max_attempts: int = 1,
+    domain: tuple[str, UUID] | None = None,
+) -> Job:
+    """Enqueue with a dedupe key whose duplicates MERGE instead of being dropped.
+
+    A plain dedupe returns the in-flight job and discards the new request, which
+    is wrong when the new request carries new work (voice indexing for newly
+    approved characters, SPEC-07/08). Here:
+
+    - a QUEUED holder (not yet claimed; a paused or retry-waiting job is also
+      'queued') gets `merge(existing_payload, payload)` written into it, and is
+      returned — it will run once, with the union;
+    - a RUNNING holder already read its payload, so merging would be lost: its
+      key is released (set NULL; it keeps running) and a fresh job takes the key.
+
+    The holder is read FOR UPDATE, so the worker's SKIP LOCKED claim cannot take
+    it between our read and our write; once a claim has committed we see
+    'running'. Two enqueuers racing past the lookup fall back on the partial
+    unique index, and the loser retries and merges into the winner.
+    """
+    for _ in range(3):
+        existing = (
+            await session.execute(
+                select(Job)
+                .where(Job.dedupe_key == dedupe_key, Job.status.in_(ACTIVE_STATUSES))
+                .limit(1)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            if existing.status == "queued":
+                existing.payload = merge(dict(existing.payload or {}), payload)
+                flag_modified(existing, "payload")
+                await session.flush()
+                return existing
+            existing.dedupe_key = None  # running: release the key, let it finish
+            await session.flush()
+        job = Job(
+            kind=kind,
+            payload=payload,
+            user_id=user_id,
+            status="queued",
+            max_attempts=max_attempts,
+            available_at=_utcnow(),
+            dedupe_key=dedupe_key,
+            domain_type=domain[0] if domain else None,
+            domain_id=domain[1] if domain else None,
+        )
+        if session.bind.dialect.name == "postgresql":
+            try:
+                async with session.begin_nested():
+                    session.add(job)
+                    await session.flush()
+            except IntegrityError:
+                continue  # lost a race to another enqueuer: merge into theirs
+        else:
+            session.add(job)
+            await session.flush()
+        _notify_on_commit(session)
+        return job
+    raise RuntimeError(f"could not enqueue or merge job for {dedupe_key!r}")
+
+
+def merge_id_lists(field: str) -> Callable[[dict, dict], dict]:
+    """A `merge` for enqueue_merging: union `field` (order-preserving), with the
+    rest of the payload taken from the existing job."""
+
+    def merge(existing: dict, new: dict) -> dict:
+        ids = list(dict.fromkeys([*existing.get(field, []), *new.get(field, [])]))
+        return {**existing, field: ids}
+
+    return merge
 
 
 async def find_active(session: AsyncSession, dedupe_key: str) -> Job | None:

@@ -1,7 +1,8 @@
-import { render, screen, within } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ContinuityPanel from '@/components/book/ContinuityPanel'
+import { renderWithBook } from './bookContext'
 import type { ContinuityReport } from '@/lib/types'
 
 const planning = vi.hoisted(() => ({
@@ -35,7 +36,7 @@ function renderWith(reports: ContinuityReport[]) {
   planning.reports = reports
   // Resolve with no in-flight reports so the panel does not start polling.
   planning.fetchContinuityReports.mockResolvedValue([])
-  render(<ContinuityPanel bookId="book-1" chapters={[]} addToast={() => {}} />)
+  renderWithBook(<ContinuityPanel addToast={() => {}} />)
 }
 
 describe('ContinuityPanel report status', () => {
