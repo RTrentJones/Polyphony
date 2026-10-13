@@ -132,7 +132,7 @@ async def test_an_exhausted_chain_is_judge_unavailable_and_steps_keep_metrics(
     from openai import NotFoundError
 
     from evals.harness.judge import JudgeUnavailable
-    from evals.harness.report import scorecard, tracer_export
+    from evals.harness.report import greenlight_export, scorecard, tracer_export
     from evals.steps.pipeline import _judge
 
     monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
@@ -166,6 +166,28 @@ async def test_an_exhausted_chain_is_judge_unavailable_and_steps_keep_metrics(
     }
     assert "n/a" in scorecard(run)
     assert tracer_export(run, model="m")["cases"] == []
+    assert greenlight_export(run)["checks"] == []
+
+
+def test_the_run_records_the_judge_that_actually_graded(monkeypatch):
+    import types
+
+    from evals.run import _record_judge_failover
+
+    result = {"judge": {"provider": "groq", "model": "x", "self": False}}
+    _record_judge_failover(
+        result,
+        types.SimpleNamespace(provider_id="groq", model_override="x", is_self=False),
+    )
+    assert "failed_over" not in result["judge"]
+    _record_judge_failover(
+        result,
+        types.SimpleNamespace(
+            provider_id="openrouter", model_override=None, is_self=False
+        ),
+    )
+    assert result["judge"]["provider"] == "openrouter"
+    assert result["judge"]["model"] is None and result["judge"]["failed_over"]
 
 
 def test_a_poll_timeout_says_what_the_app_was_doing():

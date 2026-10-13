@@ -131,7 +131,8 @@ def greenlight_export(run: dict) -> dict:
     """Shape results as greenlight eval checks[] (score in 0..1)."""
     checks = []
     for name, res in run["steps"].items():
-        if res.get("skipped") or "error" in res:
+        # A judge-less step (score None) has no 0..1 eval score to export.
+        if res.get("skipped") or "error" in res or res.get("score") is None:
             continue
         checks.append(
             {

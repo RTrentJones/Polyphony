@@ -481,15 +481,25 @@ async def step_ensemble(ctx: StepContext) -> dict:
                 "reason": "the tier ran ensemble as prose (set LLM_TIER=paid)",
             }
         prose = scene.get("content") or ""
-        j = await ctx.judge.score(rubric, prose or "(empty)")
+        judge, why = await _judge(ctx, rubric, prose or "(empty)")
         out[mode] = {
             "action_coverage": action_coverage(prose, cast),
-            "judge": j.score,
+            "judge": judge,
             "words": len(prose.split()),
         }
+        if judge is None:
+            out["judge_explanation"] = why
     out["action_coverage_delta"] = round(
         out["ensemble"]["action_coverage"] - out["prose"]["action_coverage"], 4
     )
-    out["judge_delta"] = round(out["ensemble"]["judge"] - out["prose"]["judge"], 4)
-    out["score"] = out["ensemble"]["action_coverage"] * out["ensemble"]["judge"]
+    judged = out["ensemble"]["judge"] is not None and out["prose"]["judge"] is not None
+    # Without a judge the deterministic action-coverage metrics still report.
+    out["judge_delta"] = (
+        round(out["ensemble"]["judge"] - out["prose"]["judge"], 4) if judged else None
+    )
+    out["score"] = (
+        out["ensemble"]["action_coverage"] * out["ensemble"]["judge"]
+        if judged
+        else None
+    )
     return out

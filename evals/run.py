@@ -25,6 +25,18 @@ from evals.steps import pipeline  # noqa: F401 — registers the steps
 from evals.steps.base import StepContext, all_steps, get_step
 
 
+def _record_judge_failover(result: dict, judge) -> None:
+    """A retired judge model fails over mid-run (Judge._next_in_chain): record
+    the judge that actually graded, not the one resolved before the steps ran."""
+    if judge.provider_id != result["judge"]["provider"]:
+        result["judge"].update(
+            provider=judge.provider_id,
+            model=judge.model_override,
+            self=judge.is_self,
+            failed_over=True,
+        )
+
+
 async def _app_sha(base_url: str) -> str:
     try:
         async with httpx.AsyncClient(timeout=10) as h:
@@ -155,6 +167,7 @@ async def run(book: str, step_names: list[str], out: str, repeat: int = 1) -> di
                         quota_exhausted = True
             passes.append(one)
         result["steps"] = _aggregate(passes)
+        _record_judge_failover(result, ctx.judge)
     finally:
         if ctx.client:
             await ctx.client.aclose()
