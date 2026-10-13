@@ -300,11 +300,15 @@ def _thinking_guard(provider: Provider, model: str, max_tokens: int):
     cap it starves (eval-audit backlog item 6). For a non-flash Gemini model,
     drop the knob and give thinking its own headroom."""
     extra = provider.extra_body
-    if provider.id == "groq" and "gpt-oss" not in model.lower():
-        # Groq rejects reasoning_effort on models that don't support it, so an
-        # LLM_MODEL / EVAL_JUDGE_MODEL override to another model must not carry it.
-        extra = {k: v for k, v in (extra or {}).items() if k != "reasoning_effort"}
-        return (extra or None), max_tokens
+    if provider.id == "groq":
+        if "gpt-oss" not in model.lower():
+            # Groq rejects reasoning_effort on models that don't support it, so
+            # an LLM_MODEL / EVAL_JUDGE_MODEL override must not carry it.
+            extra = {k: v for k, v in (extra or {}).items() if k != "reasoning_effort"}
+            return (extra or None), max_tokens
+        # gpt-oss reasons even at low effort, and reasoning counts against
+        # max_tokens: give it headroom so small caps still leave the answer.
+        return extra, max_tokens + 1024
     if provider.id == "gemini" and "flash" not in model.lower():
         extra = {k: v for k, v in (extra or {}).items() if k != "reasoning_effort"}
         return (extra or None), max_tokens + 4096

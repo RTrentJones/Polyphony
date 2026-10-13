@@ -250,8 +250,9 @@ def test_thinking_guard_keeps_groq_reasoning_effort_to_gpt_oss():
     from app.llm.client import _thinking_guard
     from app.llm.providers import PROVIDERS
 
-    extra, mt = _thinking_guard(PROVIDERS["groq"], "openai/gpt-oss-120b", 1024)
-    assert extra == {"reasoning_effort": "low"} and mt == 1024
+    extra, mt = _thinking_guard(PROVIDERS["groq"], "openai/gpt-oss-120b", 150)
+    # reasoning counts against max_tokens: a small cap gets headroom
+    assert extra == {"reasoning_effort": "low"} and mt == 150 + 1024
     extra, mt = _thinking_guard(PROVIDERS["groq"], "qwen/qwen3.8-27b", 1024)
     assert extra is None and mt == 1024
 
