@@ -204,6 +204,12 @@ def test_the_run_records_the_judge_that_actually_graded(monkeypatch):
     assert result["judge"]["unavailable"] is True
     assert "failed_over" not in result["judge"]
 
+    # Groq graded early steps, then the whole chain gave out: partial, not n/a.
+    result = {"judge": {"provider": "groq", "model": None, "self": False}}
+    _record_judge_failover(result, judge(graded_by=["groq"], exhausted=True))
+    assert result["judge"]["partial"] is True
+    assert "unavailable" not in result["judge"]
+
 
 def test_a_poll_timeout_says_what_the_app_was_doing():
     from evals.harness.client import _state

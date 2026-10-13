@@ -32,9 +32,11 @@ def _record_judge_failover(result: dict, judge) -> None:
     one judge, later by another) and the report says so; a chain that gave out
     entirely graded nothing, so the run is marked judge-unavailable instead of
     naming the last provider tried."""
-    if getattr(judge, "exhausted", False):
-        result["judge"]["unavailable"] = True
     graded_by = list(getattr(judge, "graded_by", None) or [])
+    if getattr(judge, "exhausted", False):
+        # Nothing graded at all → judge scores are n/a; graded earlier and
+        # then gave out → some steps have judge scores and later ones do not.
+        result["judge"]["partial" if graded_by else "unavailable"] = True
     if not graded_by or graded_by == [result["judge"]["provider"]]:
         return
     result["judge"].update(

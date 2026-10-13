@@ -26,6 +26,11 @@ def scorecard(run: dict) -> str:
             else ""
         )
         + (
+            "  ⚠ judge gave out mid-run: later steps have no judge score"
+            if run["judge"].get("partial")
+            else ""
+        )
+        + (
             "  ⚠ mixed judges (failover mid-run): scores are not comparable"
             if run["judge"].get("mixed")
             else ""
