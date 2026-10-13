@@ -69,9 +69,13 @@ PROVIDERS: dict[str, Provider] = {
         kind="openai",
         env_key="GROQ_API_KEY",
         base_url="https://api.groq.com/openai/v1",
-        default_model="llama-3.3-70b-versatile",
-        fast_model="llama-3.1-8b-instant",
+        # Groq retired the Llama 3.x models on 2026-08-16; these are its named
+        # replacements. gpt-oss is a reasoning model whose reasoning counts
+        # against max_tokens, so keep its effort low for short structured replies.
+        default_model="openai/gpt-oss-120b",
+        fast_model="openai/gpt-oss-20b",
         max_rpm=25,
+        extra_body={"reasoning_effort": "low"},
     ),
     "xai": Provider(
         id="xai",
@@ -117,9 +121,11 @@ PROVIDERS: dict[str, Provider] = {
         env_key="OPENROUTER_API_KEY",
         base_url="https://openrouter.ai/api/v1",
         # :free routes cost nothing; free daily request caps are modest —
-        # fine for judge duty, not for bulk generation.
-        default_model="meta-llama/llama-3.3-70b-instruct:free",
-        fast_model="meta-llama/llama-3.2-3b-instruct:free",
+        # fine for judge duty, not for bulk generation. The free Llama routes
+        # were withdrawn (2026-10); the free list changes, so check
+        # https://openrouter.ai/api/v1/models when a judge call 404s.
+        default_model="google/gemma-4-31b-it:free",
+        fast_model="google/gemma-4-26b-a4b-it:free",
         max_rpm=15,
     ),
     # PRIVACY: Mistral's free Experiment tier trains on submitted prompts.

@@ -57,7 +57,7 @@ def test_chain_fails_over_within_chain(monkeypatch):
     # (any chain member is a deliberate non-self judge choice).
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "or_test")
-    monkeypatch.setenv("EVAL_JUDGE_MODEL", "llama-3.3-70b-versatile")
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", "openai/gpt-oss-120b")
     j = Judge(_cfg(monkeypatch, "groq,openrouter"))
     assert j.provider_id == "openrouter"
     assert j.fell_back is False
@@ -119,6 +119,53 @@ async def test_a_retired_judge_model_falls_through_the_chain(monkeypatch):
     judgment = await j.score("rubric", "content")
     assert used == ["groq", "openrouter"]
     assert judgment.score == 0.8 and judgment.judge_provider == "openrouter"
+
+
+async def test_an_exhausted_chain_is_judge_unavailable_and_steps_keep_metrics(
+    monkeypatch,
+):
+    """Every judge 404s: the score is unavailable, but the step helper hands
+    back (None, why) so deterministic metrics and their gates still report."""
+    import types
+
+    import httpx
+    from openai import NotFoundError
+
+    from evals.harness.judge import JudgeUnavailable
+    from evals.harness.report import scorecard, tracer_export
+    from evals.steps.pipeline import _judge
+
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or_test")
+    j = Judge(_cfg(monkeypatch, "groq,openrouter"))
+
+    class Gone:
+        async def generate(self, *a, **kw):
+            raise NotFoundError(
+                "model_not_found",
+                response=httpx.Response(404, request=httpx.Request("POST", "http://t")),
+                body=None,
+            )
+
+    monkeypatch.setattr(j, "_ensure", lambda: Gone())
+    with pytest.raises(JudgeUnavailable):
+        await j.score("rubric", "content")
+
+    j2 = Judge(_cfg(monkeypatch, "groq,openrouter"))
+    monkeypatch.setattr(j2, "_ensure", lambda: Gone())
+    score, why = await _judge(types.SimpleNamespace(judge=j2), "rubric", "x")
+    assert score is None and why.startswith("judge unavailable")
+
+    # A judge-less step renders and exports without crashing on score=None.
+    run = {
+        "book": "cel",
+        "judge": {"provider": "groq", "model": None, "self": False},
+        "steps": {
+            "outline": {"score": None, "cast_fidelity": 1.0, "judge_explanation": why}
+        },
+    }
+    assert "n/a" in scorecard(run)
+    assert tracer_export(run, model="m")["cases"] == []
 
 
 def test_a_poll_timeout_says_what_the_app_was_doing():

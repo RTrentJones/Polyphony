@@ -21,6 +21,11 @@ _SYSTEM = (
 )
 
 
+class JudgeUnavailable(RuntimeError):
+    """Every judge in the chain failed for good (e.g. each vendor retired its
+    model). Steps record it and still report their deterministic metrics."""
+
+
 @dataclass
 class Judgment:
     score: float
@@ -141,12 +146,14 @@ class Judge:
         while True:
             try:
                 return await self._score_once(prompt)
-            except NotFoundError:
+            except NotFoundError as e:
                 # A vendor retired the judge model (a 404 is not transient):
                 # grade with the next provider in the chain instead of failing
                 # the whole step it belongs to.
                 if not self._next_in_chain():
-                    raise
+                    raise JudgeUnavailable(
+                        f"no judge in the chain is available: {e}"
+                    ) from e
 
     async def _score_once(self, prompt: str) -> Judgment:
         client = self._ensure()
@@ -156,7 +163,9 @@ class Judge:
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,
-            max_tokens=400,
+            # Headroom for reasoning judges (gpt-oss), whose reasoning counts
+            # against max_tokens; the JSON reply itself is short.
+            max_tokens=1024,
             purpose="eval_judge",
             model=self.model_override,
             # Structured-output mode: llama judges sometimes ignore the
