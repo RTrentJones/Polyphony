@@ -14,8 +14,9 @@ import JobStatusBadge from '@/components/JobStatusBadge'
 import Loading from '@/components/Loading'
 import type { ToastType } from '@/components/Toast'
 import { usePlanningStore } from '@/lib/books-store'
+import { useBook } from '@/components/book/BookProvider'
 import { isActiveJob } from '@/lib/jobs'
-import type { BookChapter, ContinuityFinding, ContinuityReport } from '@/lib/types'
+import type { ContinuityFinding, ContinuityReport } from '@/lib/types'
 import { formatRelativeTime } from '@/lib/utils'
 import { SEVERITY_STYLES, SEVERITY_ORDER } from '@/components/book/styles'
 import { rateLimitedPollDelay } from '@/lib/rate-limit'
@@ -45,14 +46,11 @@ function FindingRow({ finding }: { finding: ContinuityFinding }) {
 }
 
 export default function ContinuityPanel({
-  bookId,
-  chapters,
   addToast,
 }: {
-  bookId: string
-  chapters: BookChapter[]
   addToast: (message: string, type: ToastType) => void
 }) {
+  const { bookId, chapters } = useBook()
   const { reports, fetchContinuityReports, runContinuityCheck } = usePlanningStore()
 
   const [scopeChapterId, setScopeChapterId] = useState('')

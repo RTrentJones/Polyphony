@@ -27,6 +27,7 @@ import {
 import AddSourceModal from '@/components/AddSourceModal'
 import Button from '@/components/Button'
 import CanonPanel from '@/components/CanonPanel'
+import { BookProvider, useBook } from '@/components/book/BookProvider'
 import ChaptersSection from '@/components/book/ChaptersSection'
 import ContinuityPanel from '@/components/book/ContinuityPanel'
 import OutlinePanel from '@/components/book/OutlinePanel'
@@ -82,12 +83,26 @@ interface ToastItem {
 // ---------------------------------------------------------------------------
 
 function BookDetailContent() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const bookId = searchParams.get('id') || ''
+  return (
+    <BookProvider bookId={bookId}>
+      <BookDetailView />
+    </BookProvider>
+  )
+}
 
-  const { currentBook, isLoading, error, fetchBook, updateBook, fetchChapter } =
-    useBookStore()
+function BookDetailView() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const {
+    bookId,
+    book: currentBook,
+    isLoading,
+    error,
+    refreshChapter: fetchChapter,
+  } = useBook()
+  const { updateBook } = useBookStore()
 
   // `?tab=` deep-links a tab (e.g. back from the extraction review to Sources).
   const initialTab = searchParams.get('tab') as TabKey | null
@@ -119,14 +134,6 @@ function BookDetailContent() {
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }, [])
-
-  useEffect(() => {
-    if (bookId) {
-      fetchBook(bookId).catch(() => {
-        // error surfaced via store state
-      })
-    }
-  }, [bookId, fetchBook])
 
   // Clear scene pollers on unmount
   useEffect(() => {
@@ -355,57 +362,31 @@ function BookDetailContent() {
 
       {activeTab === 'chapters' && (
         <ChaptersSection
-          bookId={bookId}
           onSceneGenerated={handleSceneGenerated}
           addToast={addToast}
         />
       )}
       {activeTab === 'scenes' && (
-        <ScenesPanel
-          bookId={bookId}
-          chapters={currentBook.chapters}
-          addToast={addToast}
-        />
+        <ScenesPanel addToast={addToast} />
       )}
       {activeTab === 'sources' && (
-        <SourcesPanel bookId={bookId} addToast={addToast} />
+        <SourcesPanel addToast={addToast} />
       )}
       {activeTab === 'canon' && (
-        <CanonPanel
-          bookId={bookId}
-          synopsis={currentBook.synopsis}
-          onBookChanged={() => fetchBook(bookId)}
-          addToast={addToast}
-        />
+        <CanonPanel addToast={addToast} />
       )}
       {activeTab === 'outline' && (
-        <OutlinePanel
-          bookId={bookId}
-          hasSynopsis={!!currentBook.synopsis}
-          addToast={addToast}
-        />
+        <OutlinePanel addToast={addToast} />
       )}
       {activeTab === 'threads' && (
-        <ThreadsPanel
-          bookId={bookId}
-          chapters={currentBook.chapters}
-          addToast={addToast}
-        />
+        <ThreadsPanel addToast={addToast} />
       )}
       {activeTab === 'continuity' && (
-        <ContinuityPanel
-          bookId={bookId}
-          chapters={currentBook.chapters}
-          addToast={addToast}
-        />
+        <ContinuityPanel addToast={addToast} />
       )}
 
       {activeTab === 'trash' && (
-        <TrashPanel
-          bookId={bookId}
-          addToast={addToast}
-          onChanged={() => fetchBook(bookId)}
-        />
+        <TrashPanel addToast={addToast} />
       )}
 
       {/* Edit book modal */}

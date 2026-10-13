@@ -14,6 +14,7 @@ import Loading from '@/components/Loading'
 import Modal from '@/components/Modal'
 import type { ToastType } from '@/components/Toast'
 import { trashApi } from '@/lib/trash-api'
+import { useBook } from '@/components/book/BookProvider'
 import type { ApiError, TrashConflictDetail, TrashEntityType, TrashItem } from '@/lib/types'
 import { formatRelativeTime } from '@/lib/utils'
 
@@ -26,15 +27,12 @@ const TYPE_LABELS: Record<TrashEntityType, string> = {
 }
 
 export default function TrashPanel({
-  bookId,
   addToast,
-  onChanged,
 }: {
-  bookId: string
   addToast: (message: string, type: ToastType) => void
-  /** Called after a restore, so the page can refetch what came back. */
-  onChanged?: () => void
 }) {
+  // A restore refetches the book, so what came back shows on the page.
+  const { bookId, refreshBook } = useBook()
   const [items, setItems] = useState<TrashItem[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -61,7 +59,7 @@ export default function TrashPanel({
     try {
       await trashApi.restore(bookId, item.type, item.id)
       addToast(`Restored "${item.name}"`, 'success')
-      onChanged?.()
+      refreshBook().catch(() => undefined)
       await load()
     } catch (err) {
       const e = err as ApiError

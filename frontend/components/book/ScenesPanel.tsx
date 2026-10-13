@@ -14,22 +14,20 @@ import Loading from '@/components/Loading'
 import SceneGrounding from '@/components/SceneGrounding'
 import type { ToastType } from '@/components/Toast'
 import { booksApi } from '@/lib/books-store'
-import type { BookChapter, BookSceneSummary } from '@/lib/types'
+import { useBook } from '@/components/book/BookProvider'
+import type { BookSceneSummary } from '@/lib/types'
 import { SCENE_STATUS_STYLES } from '@/components/book/styles'
 import JobStatusBadge from '@/components/JobStatusBadge'
 import { isActiveJob } from '@/lib/jobs'
 import { rateLimitedPollDelay } from '@/lib/rate-limit'
 
 export default function ScenesPanel({
-  bookId,
-  chapters,
   addToast,
 }: {
-  bookId: string
-  chapters: BookChapter[]
   addToast: (message: string, type: ToastType) => void
 }) {
   const router = useRouter()
+  const { bookId, chapters } = useBook()
   const [scenes, setScenes] = useState<BookSceneSummary[]>([])
   const [loading, setLoading] = useState(true)
   // Live job status per scene, from its badge: the list is fetched once, but a

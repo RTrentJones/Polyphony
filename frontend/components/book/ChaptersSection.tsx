@@ -28,30 +28,28 @@ import Modal from '@/components/Modal'
 import VersionHistory from '@/components/VersionHistory'
 import type { ToastType } from '@/components/Toast'
 import { useBookStore } from '@/lib/books-store'
+import { useBook } from '@/components/book/BookProvider'
 import type { BookChapter } from '@/lib/types'
 import { SCENE_STATUS_STYLES } from '@/components/book/styles'
 import JobStatusBadge from '@/components/JobStatusBadge'
 import { isActiveJob } from '@/lib/jobs'
 
 export default function ChaptersSection({
-  bookId,
   onSceneGenerated,
   addToast,
 }: {
-  bookId: string
   onSceneGenerated: (sceneId: string, chapterId: string) => void
   addToast: (message: string, type: ToastType) => void
 }) {
   const router = useRouter()
   const {
-    currentBook,
-    chapterDetails,
-    createChapter,
-    fetchBook,
-    fetchChapter,
-    moveChapter,
-    moveScene,
-  } = useBookStore()
+    bookId,
+    book: currentBook,
+    chapters,
+    refreshBook,
+    refreshChapter: fetchChapter,
+  } = useBook()
+  const { chapterDetails, createChapter, moveChapter, moveScene } = useBookStore()
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [addModalOpen, setAddModalOpen] = useState(false)
@@ -64,8 +62,6 @@ export default function ChaptersSection({
   const [busy, setBusy] = useState(false)
   // Live job status per scene, from its badge (see ScenesPanel).
   const [liveStatus, setLiveStatus] = useState<Record<string, string>>({})
-
-  const chapters = currentBook?.chapters ?? []
 
   const toggleExpand = async (chapterId: string) => {
     const next = !expanded[chapterId]
@@ -426,7 +422,7 @@ export default function ChaptersSection({
           entityId={historyFor.id}
           label={historyFor.title}
           onClose={() => setHistoryFor(null)}
-          onRestored={() => fetchBook(bookId).catch(() => undefined)}
+          onRestored={() => refreshBook().catch(() => undefined)}
         />
       )}
       {deleteFor && (
