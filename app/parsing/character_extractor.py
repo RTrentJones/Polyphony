@@ -50,7 +50,8 @@ _HEADING_MAX_CHARS = 140
 # Single-quoted speech ('My name is Hollis,' he said). An opening quote is not
 # preceded by a word character and a closing one is not followed by one, so
 # apostrophes (I'm, Hollis's, the dogs' bones) neither open nor close a span.
-_SINGLE_QUOTED = re.compile(r"(?<!\w)'(?=\S).*?(?<=\S)'(?!\w)")
+# DOTALL: hard-wrapped speech crosses line breaks inside one paragraph.
+_SINGLE_QUOTED = re.compile(r"(?<!\w)'(?=\S).*?(?<=\S)'(?!\w)", re.DOTALL)
 
 
 def _narration_only(paragraph: str) -> str:

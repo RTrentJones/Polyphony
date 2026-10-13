@@ -138,21 +138,12 @@ async def _continue_batch(payload: dict) -> None:
     if not payload.get("batch"):
         return
     from app.core.logging_config import log_error
-    from app.jobs.cancel import cancel_requested
     from app.jobs.scene_batch import enqueue_next_planned_scene
 
     # A cancel that arrived after the workflow's last checkpoint still stops the
-    # batch: this scene is written, but nothing further is enqueued.
-    if await cancel_requested(current_job().job_id):
-        log_business_event(
-            logger,
-            "scene_batch_stopped",
-            reason="cancelled",
-            left=len((payload["batch"].get("remaining") or [])),
-        )
-        return
+    # batch: the check is made under a row lock in the enqueue's transaction.
     try:
-        await enqueue_next_planned_scene(payload)
+        await enqueue_next_planned_scene(payload, current_job().job_id)
     except Exception as e:  # the scene itself succeeded
         log_error(logger, e, {"event": "scene_batch_enqueue_failed"})
 

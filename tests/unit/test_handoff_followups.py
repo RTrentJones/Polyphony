@@ -659,49 +659,77 @@ async def test_a_failed_scene_ends_the_chain(async_session, test_book, monkeypat
 
 async def test_a_late_cancel_stops_the_chain(async_session, test_book, monkeypatch):
     """A cancel after the workflow's last checkpoint: the scene completes, but
-    the batch does not go on."""
-    import app.jobs.cancel as cancel_mod
-    import app.jobs.handlers as handlers_mod
+    the enqueue (which reads the job's flag in its own transaction) stops."""
+    import app.core.database as db_mod
 
-    called = []
-    monkeypatch.setattr(
-        scene_batch,
-        "enqueue_next_planned_scene",
-        AsyncMock(side_effect=lambda p: called.append(p)),
+    monkeypatch.setattr(db_mod, "get_async_session", lambda: _Ctx(async_session))
+    chapter = Chapter(book_id=test_book.id, title="Live", position=0)
+    current = Job(
+        kind="generate_prose_scene",
+        payload={},
+        user_id=test_book.user_id,
+        status="running",
+        cancel_requested=True,
     )
-    monkeypatch.setattr(
-        "app.orchestration.prose.run_prose_scene_workflow",
-        AsyncMock(return_value={"status": "completed"}),
-    )
-    monkeypatch.setattr(handlers_mod, "_scene_inputs", AsyncMock(return_value=("", "")))
-    job_id = uuid.uuid4()
-    monkeypatch.setattr(
-        handlers_mod,
-        "current_job",
-        lambda: types.SimpleNamespace(
-            job_id=job_id, checkpoint=None, save=None, note=None
-        ),
-    )
-    asked = {"value": True}
-
-    async def cancel_requested(jid):
-        assert jid == job_id
-        return asked["value"]
-
-    monkeypatch.setattr(cancel_mod, "cancel_requested", cancel_requested)
+    async_session.add_all([chapter, current])
+    await async_session.commit()
     payload = {
-        "scene_id": str(uuid.uuid4()),
-        "request": {},
         "user_id": str(test_book.user_id),
         "book_id": str(test_book.id),
-        "batch": {"remaining": [{"scene_description": "next"}]},
+        "batch": {
+            "key": "k",
+            "chapter_id": str(chapter.id),
+            "index": 0,
+            "remaining": [{"scene_description": "next"}],
+        },
     }
-    await handlers_mod._run_generate_prose_scene(payload)
-    assert called == []
+    assert await scene_batch.enqueue_next_planned_scene(payload, current.id) is None
+    assert [j.id for j in (await async_session.execute(select(Job))).scalars()] == [
+        current.id
+    ]
 
-    asked["value"] = False  # not cancelled: the chain goes on
-    await handlers_mod._run_generate_prose_scene(payload)
-    assert len(called) == 1
+    current.cancel_requested = False  # not cancelled: the chain goes on
+    await async_session.commit()
+    assert await scene_batch.enqueue_next_planned_scene(payload, current.id)
+    assert len((await async_session.execute(select(Job))).scalars().all()) == 2
+
+
+async def test_cancelling_a_batch_scene_cancels_its_queued_successor(
+    client, auth_headers, async_session, test_book
+):
+    """The other order of the race: the next scene was enqueued before the
+    cancel landed. Cancelling the running scene cancels the queued one too."""
+    batch = {"key": "scene-batch:u:c", "chapter_id": str(uuid.uuid4())}
+    running = Job(
+        kind="generate_prose_scene",
+        payload={"scene_id": str(uuid.uuid4()), "batch": {**batch, "index": 0}},
+        user_id=test_book.user_id,
+        status="running",
+        dedupe_key="scene-batch:u:c:0",
+    )
+    successor = Job(
+        kind="generate_prose_scene",
+        payload={"scene_id": str(uuid.uuid4()), "batch": {**batch, "index": 1}},
+        user_id=test_book.user_id,
+        status="queued",
+        dedupe_key="scene-batch:u:c:1",
+    )
+    other_batch = Job(
+        kind="generate_prose_scene",
+        payload={},
+        user_id=test_book.user_id,
+        status="queued",
+        dedupe_key="scene-batch:u:other:1",
+    )
+    async_session.add_all([running, successor, other_batch])
+    await async_session.commit()
+    r = await client.post(f"/api/v1/jobs/{running.id}/cancel", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    for job in (running, successor, other_batch):
+        await async_session.refresh(job)
+    assert running.cancel_requested is True
+    assert successor.status == "cancelled"
+    assert other_batch.status == "queued"
 
 
 async def test_the_chain_stops_when_the_chapter_was_trashed(

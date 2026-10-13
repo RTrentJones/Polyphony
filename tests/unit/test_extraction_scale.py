@@ -916,6 +916,8 @@ class TestNarratorVoice:
             # Single and curly-single quotation marks are dialogue too.
             "'My name is Hollis Crane,' he said.\n\nI did not trust him.",
             "\u2018My name is Hollis Crane,\u2019 he said.\n\nI did not trust him.",
+            # Hard-wrapped speech: the quote crosses a line break in one paragraph.
+            "'Listen. My name is\nHollis Crane,' he said.\n\nI did not trust him.",
         ):
             assert self_named_narrators(text) == [], text
             got = CharacterExtractor().extract_narration(

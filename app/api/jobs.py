@@ -166,11 +166,27 @@ async def cancel_job(
     """Cancel a job. Queued or paused: cancelled now and its domain row moved
     (on_cancel). Running: flagged, and the workflow stops at its next seam
     between model calls — a call in flight cannot be recalled."""
+    from app.jobs.handlers import HANDLERS
+    from app.jobs.scene_batch import cancel_successors
+    from app.jobs.worker import _hook
+
     job = await _owned_job(job_id, current_user, db)
     if job.status == "running":
         job.cancel_requested = True
+        # The flush takes the row lock a batch's next-scene enqueue reads under
+        # (scene_batch.enqueue_next_planned_scene), so a successor it already
+        # committed is visible here and is cancelled with this job.
+        await db.flush()
+        successors = await cancel_successors(db, job)
         await db.commit()
         await db.refresh(job)
+        for other in successors:
+            await _hook(
+                HANDLERS.get(other.kind),
+                "on_cancel",
+                other.payload or {},
+                JobContext(job_id=other.id, kind=other.kind),
+            )
         return job_view(job)
     if job.status != "queued":
         raise HTTPException(
@@ -180,9 +196,6 @@ async def cancel_job(
     await jobs_repo.mark_cancelled(db, job)
     await db.commit()
     await db.refresh(job)
-
-    from app.jobs.handlers import HANDLERS
-    from app.jobs.worker import _hook
 
     await _hook(
         HANDLERS.get(job.kind),

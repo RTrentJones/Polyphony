@@ -169,13 +169,21 @@ async def add_scene_job(
     return scene, job
 
 
-async def enqueue_next_planned_scene(payload: dict) -> Optional[str]:
+async def enqueue_next_planned_scene(
+    payload: dict, job_id: Optional[UUID] = None
+) -> Optional[str]:
     """After a batch scene completed: create the next scene and enqueue its job.
 
     Returns the new scene id, or None when the batch is done or cannot go on
-    (its chapter was trashed meanwhile). Called by the scene handlers only after
-    their workflow reported success, so a failed or cancelled scene ends the
-    chain without spending anything further.
+    (its chapter was trashed meanwhile, or the author cancelled this job).
+    Called by the scene handlers only after their workflow reported success, so
+    a failed or cancelled scene ends the chain without spending anything further.
+
+    `job_id` is the job that just wrote its scene. Its row is read FOR UPDATE
+    in the same transaction that inserts the next job, so a cancel cannot
+    commit in between: either the cancel lands first and the chain stops here,
+    or the next job commits first and the cancel endpoint cancels it as the
+    batch's queued successor (`cancel_successors`).
     """
     from app.core.database import get_async_session
 
@@ -193,6 +201,21 @@ async def enqueue_next_planned_scene(payload: dict) -> Optional[str]:
 
     for attempt in (1, 2):
         async with get_async_session() as session:
+            if job_id is not None:
+                current = (
+                    await session.execute(
+                        select(Job).where(Job.id == job_id).with_for_update()
+                    )
+                ).scalar_one_or_none()
+                if current is not None and current.cancel_requested:
+                    log_business_event(
+                        logger,
+                        "scene_batch_stopped",
+                        chapter_id=str(chapter_id),
+                        reason="cancelled",
+                        left=len(remaining),
+                    )
+                    return None
             chapter = await session.get(Chapter, chapter_id)
             if chapter is None or chapter.deleted_at is not None:
                 log_business_event(
@@ -235,3 +258,28 @@ async def enqueue_next_planned_scene(payload: dict) -> Optional[str]:
         )
         return scene_id
     return None
+
+
+async def cancel_successors(session: AsyncSession, job: Job) -> list[Job]:
+    """Cancel the queued jobs of the batch `job` belongs to (in this
+    transaction) and return them, so the caller can run their on_cancel hooks
+    after committing. Cancelling one scene of a batch stops the whole batch."""
+    key = ((job.payload or {}).get("batch") or {}).get("key")
+    if not key:
+        return []
+    queued = (
+        (
+            await session.execute(
+                select(Job).where(
+                    Job.dedupe_key.startswith(f"{key}:", autoescape=True),
+                    Job.status == "queued",
+                    Job.id != job.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for other in queued:
+        await jobs_repo.mark_cancelled(session, other)
+    return list(queued)
