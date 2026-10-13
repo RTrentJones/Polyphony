@@ -11,7 +11,8 @@ deterministic stub LLM (evals/stub_llm.py), the way an author would:
 Then the rest of the surface: trash and restore a character, restore an earlier
 synopsis, regenerate the outline with an EDITED premise (and prove the edit
 reached the model), plot threads, edit a scene and load an earlier revision,
-reorder and delete a chapter and restore it from the Trash, an ensemble request
+reorder and delete a chapter and restore it from the Trash, generate all of a
+promoted chapter's planned scenes in order, an ensemble request
 the free tier runs as prose (and says so), a scene paused by forced 429s that
 shows on the Usage page and is cancelled, the legacy pages' redirects, the
 dashboard, a second author who registers with an invite and cannot see the
@@ -332,6 +333,27 @@ async def journey(page: Page) -> None:
         await expect(rows.filter(has_text=last)).to_have_count(1)
         await shot(page, "chapters")
 
+    async def generate_all_planned_scenes():
+        await tab("Chapters")
+        rows = page.get_by_test_id("chapter-row")
+        button_name = "Generate all planned scenes"
+        row = rows.filter(has=page.get_by_role("button", name=button_name)).first
+        name = await row.locator("p.font-medium").first.inner_text()
+        row = rows.filter(has_text=name)
+        await row.get_by_role("button", name=button_name).click()
+        await toast(re.compile(r"Writing 2 planned scenes in order"))
+        # The scenes are a chain: the second is created when the first completes.
+        edits = row.get_by_role("button", name="Edit", exact=True)
+        await expect(edits).to_have_count(2, timeout=TIMEOUT)
+        await expect(page.get_by_test_id("job-status")).to_have_count(
+            0, timeout=TIMEOUT
+        )
+        # Clicking again writes nothing: every beat already has its scene.
+        await row.get_by_role("button", name=button_name).click()
+        await toast("Every planned beat in this chapter already has a scene.")
+        await expect(edits).to_have_count(2)
+        await shot(page, "planned-scenes")
+
     async def open_scene_modal():
         await tab("Scenes")
         await page.get_by_role("button", name="Generate scene").first.click()
@@ -485,6 +507,7 @@ async def journey(page: Page) -> None:
     await step(
         "reorder, delete and restore a chapter", reorder_delete_and_restore_chapter()
     )
+    await step("generate all planned scenes", generate_all_planned_scenes())
     await step(
         "ensemble on the free tier runs as prose, and says so",
         ensemble_runs_as_prose_and_says_so(),
