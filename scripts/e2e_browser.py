@@ -389,8 +389,10 @@ async def journey(page: Page) -> None:
 
     async def paused_scene_on_usage_then_cancel():
         # Every model call now answers 429: the scene's job pauses for quota.
+        # A long Retry-After keeps the job paused (not flapping between paused
+        # and resumed every ~2 s), so the badge's poll reliably sees "paused".
         await page.request.post(
-            f"{STUB}/__stub/config", data={"fail_429": 10_000, "retry_after": 1}
+            f"{STUB}/__stub/config", data={"fail_429": 10_000, "retry_after": 30}
         )
         try:
             await open_scene_modal()
