@@ -282,6 +282,35 @@ async def test_a_spent_author_budget_pauses_before_the_call(
     create.assert_not_called()
 
 
+async def test_the_budget_check_counts_reasoning_headroom(
+    async_session, test_user, monkeypatch
+):
+    """A gpt-oss call is sent with max_tokens + headroom: the pre-call budget
+    check must count that cap, not the caller's (Codex review on #37)."""
+    from app.core.orm_models import APIUsage
+    from app.llm.client import LLMClient
+    from app.llm.errors import UserBudgetExhaustedError
+    from app.llm.providers import PROVIDERS
+
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
+    monkeypatch.setattr(
+        "app.core.database.get_async_session", lambda: _Ctx(async_session)
+    )
+    monkeypatch.setattr(settings, "USER_DAILY_TOKEN_LIMIT", 2_000)
+    client = LLMClient(PROVIDERS["groq"])
+    create = AsyncMock(side_effect=AssertionError("called the provider"))
+    monkeypatch.setattr(client._client.chat.completions, "create", create)
+    async_session.add(APIUsage(user_id=test_user.id, tokens_used=900, cost_usd=0))
+    await async_session.commit()
+
+    # 150 tokens fit the 1,100 left; 150 + 1,024 of reasoning headroom do not.
+    with pytest.raises(UserBudgetExhaustedError):
+        await client.generate(
+            [{"role": "user", "content": "hi"}], user_id=test_user.id, max_tokens=150
+        )
+    create.assert_not_called()
+
+
 async def test_a_spent_author_budget_pauses_even_on_paid(
     async_session, test_user, monkeypatch
 ):

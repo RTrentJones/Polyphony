@@ -106,7 +106,10 @@ class LLMClient:
         start = time.monotonic()
         if user_id is not None:
             prompt_chars = sum(len(str(m.get("content") or "")) for m in messages)
-            await _check_user_budget(user_id, prompt_chars // 4 + max_tokens)
+            # Check the cap actually sent: reasoning models get headroom on top
+            # of the caller's max_tokens (_thinking_guard), and it is spent too.
+            _, sent_cap = _thinking_guard(self.provider, resolved_model, max_tokens)
+            await _check_user_budget(user_id, prompt_chars // 4 + sent_cap)
 
         # The circuit breaker wraps the WHOLE retry sequence, not each attempt:
         # one logical generate() = one breaker success/failure. Wrapping each
