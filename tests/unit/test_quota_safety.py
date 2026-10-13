@@ -244,6 +244,18 @@ def test_thinking_guard_for_non_flash_gemini():
     assert extra["reasoning_effort"] == "none" and mt == 1000
 
 
+def test_thinking_guard_keeps_groq_reasoning_effort_to_gpt_oss():
+    """Groq rejects reasoning_effort on models without it (Codex review on #37):
+    an LLM_MODEL / EVAL_JUDGE_MODEL override to another model drops it."""
+    from app.llm.client import _thinking_guard
+    from app.llm.providers import PROVIDERS
+
+    extra, mt = _thinking_guard(PROVIDERS["groq"], "openai/gpt-oss-120b", 1024)
+    assert extra == {"reasoning_effort": "low"} and mt == 1024
+    extra, mt = _thinking_guard(PROVIDERS["groq"], "qwen/qwen3.8-27b", 1024)
+    assert extra is None and mt == 1024
+
+
 async def test_a_spent_author_budget_pauses_before_the_call(
     llm, async_session, test_user, monkeypatch
 ):
