@@ -19,6 +19,11 @@ def scorecard(run: dict) -> str:
             "  ⚠ self-grading (judge == model under test)"
             if run["judge"]["self"]
             else ""
+        )
+        + (
+            "  ⚠ no judge available: judge scores n/a"
+            if run["judge"].get("unavailable")
+            else ""
         ),
         "-" * 64,
     ]

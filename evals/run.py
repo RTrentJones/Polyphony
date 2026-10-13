@@ -27,12 +27,17 @@ from evals.steps.base import StepContext, all_steps, get_step
 
 def _record_judge_failover(result: dict, judge) -> None:
     """A retired judge model fails over mid-run (Judge._next_in_chain): record
-    the judge that actually graded, not the one resolved before the steps ran."""
-    if judge.provider_id != result["judge"]["provider"]:
+    the judge that actually produced a judgment, not the one resolved before
+    the steps ran. A chain that gave out entirely grades nothing, so the run
+    is marked judge-unavailable instead of naming the last provider tried."""
+    if getattr(judge, "exhausted", False):
+        result["judge"]["unavailable"] = True
+    graded_by = getattr(judge, "graded_by", None)
+    if graded_by and graded_by != result["judge"]["provider"]:
         result["judge"].update(
-            provider=judge.provider_id,
+            provider=graded_by,
             model=judge.model_override,
-            self=judge.is_self,
+            self=judge.graded_is_self,
             failed_over=True,
         )
 

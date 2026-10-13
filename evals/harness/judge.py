@@ -64,6 +64,12 @@ class Judge:
     def __init__(self, cfg: EvalConfig):
         self._cfg = cfg
         self._client = None
+        # Who actually produced a judgment (None until one succeeds), and
+        # whether the whole chain gave out — the run report records these
+        # rather than whichever provider was merely tried last.
+        self.graded_by: str | None = None
+        self.graded_is_self = False
+        self.exhausted = False
         # Resolved eagerly so the report records the judge that will ACTUALLY
         # grade (post-fallback), not just the requested one.
         self.provider_id, self.fell_back = self._resolve()
@@ -145,12 +151,15 @@ class Judge:
         prompt = f"RUBRIC:\n{rubric}\n\nRESPONSE TO SCORE:\n{content}\n\nJSON:"
         while True:
             try:
-                return await self._score_once(prompt)
+                judgment = await self._score_once(prompt)
+                self.graded_by, self.graded_is_self = self.provider_id, self.is_self
+                return judgment
             except NotFoundError as e:
                 # A vendor retired the judge model (a 404 is not transient):
                 # grade with the next provider in the chain instead of failing
                 # the whole step it belongs to.
                 if not self._next_in_chain():
+                    self.exhausted = True
                     raise JudgeUnavailable(
                         f"no judge in the chain is available: {e}"
                     ) from e

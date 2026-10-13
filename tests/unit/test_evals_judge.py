@@ -119,6 +119,7 @@ async def test_a_retired_judge_model_falls_through_the_chain(monkeypatch):
     judgment = await j.score("rubric", "content")
     assert used == ["groq", "openrouter"]
     assert judgment.score == 0.8 and judgment.judge_provider == "openrouter"
+    assert j.graded_by == "openrouter" and not j.exhausted
 
 
 async def test_an_exhausted_chain_is_judge_unavailable_and_steps_keep_metrics(
@@ -150,6 +151,7 @@ async def test_an_exhausted_chain_is_judge_unavailable_and_steps_keep_metrics(
     monkeypatch.setattr(j, "_ensure", lambda: Gone())
     with pytest.raises(JudgeUnavailable):
         await j.score("rubric", "content")
+    assert j.exhausted and j.graded_by is None
 
     j2 = Judge(_cfg(monkeypatch, "groq,openrouter"))
     monkeypatch.setattr(j2, "_ensure", lambda: Gone())
@@ -174,20 +176,29 @@ def test_the_run_records_the_judge_that_actually_graded(monkeypatch):
 
     from evals.run import _record_judge_failover
 
+    def judge(**kw):
+        base = dict(
+            graded_by=None,
+            graded_is_self=False,
+            exhausted=False,
+            model_override=None,
+        )
+        return types.SimpleNamespace(**{**base, **kw})
+
     result = {"judge": {"provider": "groq", "model": "x", "self": False}}
-    _record_judge_failover(
-        result,
-        types.SimpleNamespace(provider_id="groq", model_override="x", is_self=False),
-    )
+    _record_judge_failover(result, judge(graded_by="groq"))
     assert "failed_over" not in result["judge"]
-    _record_judge_failover(
-        result,
-        types.SimpleNamespace(
-            provider_id="openrouter", model_override=None, is_self=False
-        ),
-    )
+    # Groq 404ed and OpenRouter graded: the report names OpenRouter.
+    _record_judge_failover(result, judge(graded_by="openrouter"))
     assert result["judge"]["provider"] == "openrouter"
-    assert result["judge"]["model"] is None and result["judge"]["failed_over"]
+    assert result["judge"]["failed_over"] and "unavailable" not in result["judge"]
+
+    # Every judge 404ed: nothing graded, so no provider is credited.
+    result = {"judge": {"provider": "groq", "model": None, "self": False}}
+    _record_judge_failover(result, judge(exhausted=True))
+    assert result["judge"]["provider"] == "groq"
+    assert result["judge"]["unavailable"] is True
+    assert "failed_over" not in result["judge"]
 
 
 def test_a_poll_timeout_says_what_the_app_was_doing():
