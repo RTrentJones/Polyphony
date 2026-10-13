@@ -629,6 +629,53 @@ async def test_a_failed_scene_ends_the_chain(async_session, test_book, monkeypat
     assert called == []
 
 
+async def test_a_late_cancel_stops_the_chain(async_session, test_book, monkeypatch):
+    """A cancel after the workflow's last checkpoint: the scene completes, but
+    the batch does not go on."""
+    import app.jobs.cancel as cancel_mod
+    import app.jobs.handlers as handlers_mod
+
+    called = []
+    monkeypatch.setattr(
+        scene_batch,
+        "enqueue_next_planned_scene",
+        AsyncMock(side_effect=lambda p: called.append(p)),
+    )
+    monkeypatch.setattr(
+        "app.orchestration.prose.run_prose_scene_workflow",
+        AsyncMock(return_value={"status": "completed"}),
+    )
+    monkeypatch.setattr(handlers_mod, "_scene_inputs", AsyncMock(return_value=("", "")))
+    job_id = uuid.uuid4()
+    monkeypatch.setattr(
+        handlers_mod,
+        "current_job",
+        lambda: types.SimpleNamespace(
+            job_id=job_id, checkpoint=None, save=None, note=None
+        ),
+    )
+    asked = {"value": True}
+
+    async def cancel_requested(jid):
+        assert jid == job_id
+        return asked["value"]
+
+    monkeypatch.setattr(cancel_mod, "cancel_requested", cancel_requested)
+    payload = {
+        "scene_id": str(uuid.uuid4()),
+        "request": {},
+        "user_id": str(test_book.user_id),
+        "book_id": str(test_book.id),
+        "batch": {"remaining": [{"scene_description": "next"}]},
+    }
+    await handlers_mod._run_generate_prose_scene(payload)
+    assert called == []
+
+    asked["value"] = False  # not cancelled: the chain goes on
+    await handlers_mod._run_generate_prose_scene(payload)
+    assert len(called) == 1
+
+
 async def test_the_chain_stops_when_the_chapter_was_trashed(
     async_session, test_book, monkeypatch
 ):

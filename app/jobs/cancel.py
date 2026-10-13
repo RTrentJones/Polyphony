@@ -27,3 +27,15 @@ async def raise_if_cancelled(job_id: Optional[UUID]) -> None:
         job = await session.get(Job, job_id)
         if job is not None and getattr(job, "cancel_requested", False):
             raise JobCancelled("cancelled by the author")
+
+
+async def cancel_requested(job_id: Optional[UUID]) -> bool:
+    """Whether the author asked to cancel this job (read, never raises)."""
+    if job_id is None:
+        return False
+    from app.core.database import get_async_session
+    from app.core.orm_models import Job
+
+    async with get_async_session() as session:
+        job = await session.get(Job, job_id)
+        return bool(job is not None and getattr(job, "cancel_requested", False))

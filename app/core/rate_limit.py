@@ -179,6 +179,25 @@ class _Lockout:
 
 
 _LOGIN_LOCKOUTS: dict[str, _Lockout] = {}
+# Keys are attacker-chosen (any email string), so the table is bounded: stale
+# entries are evicted, and past the cap the entries ending soonest go first.
+_LOGIN_LOCKOUTS_MAX = 10_000
+
+
+def _evict_lockouts(now: float) -> None:
+    """Drop entries that no longer matter, then make room for one more."""
+    reset = settings.LOGIN_EMAIL_BREACH_RESET_SECONDS
+    stale = [
+        k
+        for k, lock in _LOGIN_LOCKOUTS.items()
+        if lock.until <= now and now - lock.last_breach > reset
+    ]
+    for k in stale:
+        del _LOGIN_LOCKOUTS[k]
+    over = len(_LOGIN_LOCKOUTS) - (_LOGIN_LOCKOUTS_MAX - 1)
+    if over > 0:
+        for k in sorted(_LOGIN_LOCKOUTS, key=lambda k: _LOGIN_LOCKOUTS[k].until)[:over]:
+            del _LOGIN_LOCKOUTS[k]
 
 
 def _email_key(email: str) -> str:
@@ -220,6 +239,8 @@ def login_email_record_failure(email: str) -> None:
     if limiter.limiter.test(item, "login-email", key):
         return
     now = time.time()
+    if key not in _LOGIN_LOCKOUTS and len(_LOGIN_LOCKOUTS) >= _LOGIN_LOCKOUTS_MAX:
+        _evict_lockouts(now)
     lock = _LOGIN_LOCKOUTS.setdefault(key, _Lockout())
     if now - lock.last_breach > settings.LOGIN_EMAIL_BREACH_RESET_SECONDS:
         lock.breaches = 0  # quiet long enough: start the doubling over

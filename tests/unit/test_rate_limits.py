@@ -289,6 +289,27 @@ class TestPerEmailLockoutDecays:
             self._trip(email, 3)
             assert rate_limit.login_email_check(email) <= 300
 
+    def test_lockout_table_is_bounded_against_an_email_spray(self, monkeypatch):
+        clock = [3_000_000.0]
+        monkeypatch.setattr(rate_limit.time, "time", lambda: clock[0])
+        monkeypatch.setattr(settings, "LOGIN_EMAIL_RATE_LIMIT", "1/hour")
+        monkeypatch.setattr(settings, "LOGIN_EMAIL_LOCKOUT_SECONDS", 60)
+        monkeypatch.setattr(settings, "LOGIN_EMAIL_BREACH_RESET_SECONDS", 3600)
+        monkeypatch.setattr(rate_limit, "_LOGIN_LOCKOUTS_MAX", 5)
+        for i in range(20):  # every made-up address breaches at once
+            self._trip(f"spray{i}@example.com", 1)
+            clock[0] += 1
+            assert len(rate_limit._LOGIN_LOCKOUTS) <= 5
+        # At the cap the entries ending soonest went first: the newest remain.
+        assert set(rate_limit._LOGIN_LOCKOUTS) == {
+            f"spray{i}@example.com" for i in range(15, 20)
+        }
+        # Past the reset window every old entry is stale and evicted.
+        clock[0] += 3600 + 61
+        self._trip("victim@example.com", 1)
+        assert set(rate_limit._LOGIN_LOCKOUTS) == {"victim@example.com"}
+        assert rate_limit.login_email_check("victim@example.com") == 60
+
     def test_breach_count_forgets_after_a_quiet_period(self, monkeypatch):
         clock = [2_000_000.0]
         monkeypatch.setattr(rate_limit.time, "time", lambda: clock[0])
