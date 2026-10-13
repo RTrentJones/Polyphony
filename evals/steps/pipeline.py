@@ -59,11 +59,39 @@ async def _book_with_cast(ctx: StepContext, title: str, genre: str = "") -> dict
 
 
 def load_corpus(book: str) -> tuple[str, dict]:
+    """The manuscript an author would upload, plus the ground truth.
+
+    A corpus whose prose lives mostly in `synopsis.txt` (cel: a 389-char
+    excerpt, with the cast in the 17k synopsis) uploads synopsis + excerpt.
+    Uploading the excerpt alone graded extraction against a cast the text
+    never names (Edric Thane is not in it), so the score was 0 whatever the
+    model did."""
     d = CORPORA / book
+    text = (d / "excerpts.txt").read_text(encoding="utf-8")
+    synopsis = d / "synopsis.txt"
+    if synopsis.exists():
+        text = synopsis.read_text(encoding="utf-8").rstrip() + "\n\n" + text
     return (
-        (d / "excerpts.txt").read_text(encoding="utf-8"),
+        text,
         json.loads((d / "ground_truth.json").read_text(encoding="utf-8")),
     )
+
+
+def proposed_characters(run: dict) -> list[dict]:
+    """The character proposals of an extraction run, as the review screen sees
+    them (GET /books/{id}/extractions/{run} → `proposals.characters`).
+
+    Extraction PROPOSES; nothing is on the source until commit. Grading the
+    source's committed cast instead (what the harness did before the review
+    step shipped) read an empty list and pinned extraction at 0."""
+    props = run.get("proposals") or {}
+    out = []
+    for c in props.get("characters") or []:
+        if isinstance(c, str):
+            c = {"name": c}
+        if isinstance(c, dict) and (c.get("name") or "").strip():
+            out.append(c)
+    return out
 
 
 # --- Step 1: character extraction -----------------------------------------
@@ -83,13 +111,12 @@ async def step_extraction(ctx: StepContext) -> dict:
             "score": 0.0,
         }
     proposals = run.get("proposals") or {}
-    predicted = [c["name"] for c in proposals.get("characters", [])]
+    chars = proposed_characters(run)
+    predicted = [c["name"] for c in chars]
     score = extraction.grade_extraction(predicted, ctx.ground_truth["cast"])
     # The review's default selection (SPEC-09: one-window names pre-deselected,
     # eval-plan E5) — what an author who accepts the defaults commits.
-    selected = [
-        c["name"] for c in proposals.get("characters", []) if c.get("selected", True)
-    ]
+    selected = [c["name"] for c in chars if c.get("selected", True)]
     sel = extraction.grade_extraction(selected, ctx.ground_truth["cast"])
     await ctx.client.commit_extraction(
         up["book_id"], up["extraction_run_id"], proposals

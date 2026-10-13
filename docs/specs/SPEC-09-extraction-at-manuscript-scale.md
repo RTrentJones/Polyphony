@@ -26,6 +26,17 @@ proposal schema, the review UI fields, `Character.aliases`, parser paragraph nor
 voice-indexing heuristics for narrators.
 **Out**: OCR for scanned PDFs; extraction of plot threads (possible follow-up).
 
+*Why OCR is out of scope.* A scanned PDF has no text layer, so `_parse_pdf` finds no text and
+the upload fails with "No text could be extracted from PDF" rather than producing an empty
+source. Adding OCR would mean a native system dependency (Tesseract and its language data) or a
+paid vision API in the upload path. The first adds a native package to the single app image
+(docs/ADR-001) running on a small free-tier ARM instance, and its CPU cost is too high for the
+upload request: a novel is hundreds of pages at seconds per page, so OCR would need its own
+background job. The second adds per-page cost to a product that is free-first. OCR
+errors in names would also feed straight into extraction and fidelity, where a misread name is
+a new character. Authors with scans can run OCR in their own tools (most PDF readers have it)
+and upload the resulting text or DOCX.
+
 ## Design
 
 1. **Map.** Split `content_text` into windows of ~12k tokens on paragraph boundaries (never
@@ -51,10 +62,29 @@ voice-indexing heuristics for narrators.
    vocabulary plus "other: …".
 7. **Parser normalisation.** `DocumentParser` returns paragraphs separated by blank lines for every
    format (HTML block elements, DOCX paragraphs, PDF line-joining heuristics), and records the
-   source format on `Source` so evals can treat it as a covariate.
+   source format on `Source` so evals can treat it as a covariate. Verse-like runs are exempt
+   from reflow: a run of two or more short lines (under 3/4 of the document's prose line and
+   at most 90 characters) that share an indentation deeper than prose's, or that mostly end
+   without sentence punctuation, keeps its line breaks and leading indentation, in plain text
+   and in PDFs (where the run becomes its own paragraph instead of being joined). The short
+   last line of a prose paragraph is never the first line of such a run, so prose reflow is
+   unchanged. The same rule keeps a PDF's heading and letter-header blocks off the following
+   paragraph.
 8. **Narrator voice.** When a window's style signals mark first-person narration attributable to a
    character (diary headers, "I" narration in a section headed by the character), voice indexing
    attributes that narration to the character, not only paragraphs containing their name.
+   Attribution is heuristic and makes no LLM calls. It has three sources, in order:
+   - section headings ("X's Journal", "Letter, X to Y"), read line by line when a PDF heading
+     block keeps its line breaks;
+   - with no headings, a narrator who names themselves in narration, outside quotes ("my name
+     is X", "I, X,", "call me X"). This applies only when every such self-naming resolves to
+     the same cast member. Two self-named narrators (a frame story) are ambiguous and get
+     nothing;
+   - with no headings, the character whose role is narrator.
+
+   In each case only first-person paragraphs, judged outside quoted speech, are attributed.
+   Still out of reach: unheaded multi-narrator books, and letters identified only by their
+   sign-off.
 
 ## Acceptance
 

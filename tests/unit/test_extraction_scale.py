@@ -863,7 +863,117 @@ class TestNarratorVoice:
         cx = CharacterExtractor()
         got = cx.extract_narration(text, "Ishmael", is_narrator=True)
         assert [c["text"] for c in got] == ["Call me Ishmael. I went to sea."]
-        assert cx.extract_narration(text, "Ishmael") == []
+        # Without the narrator role: "Call me Ishmael" names the "I" (below);
+        # with no self-naming and no role, nothing is attributed.
+        anon = "I went to sea.\n\nThe whale was white."
+        assert cx.extract_narration(anon, "Ishmael") == []
+
+    # --- self-named first-person narrator (no headings, no narrator role) ----
+    SELF_NAMED = (
+        "My name is Rowan Merrow, and I have kept this account since the ship\n"
+        "left port.\n\n"
+        "The ice closed around the ship on the fourth day.\n\n"
+        "I walked the deck at night and counted the stars.\n\n"
+        '"I will not turn back," said Hollis Crane.\n\n'
+        '"Nor I," I answered, and we stood together in the cold.'
+    )
+    SN_CAST = [
+        {"name": "Rowan Merrow", "aliases": []},
+        {"name": "Hollis Crane", "aliases": []},
+    ]
+
+    def test_self_named_narrator_gets_first_person_narration(self):
+        from app.parsing.character_extractor import CharacterExtractor
+
+        cx = CharacterExtractor()
+        got = cx.extract_narration(self.SELF_NAMED, "Rowan Merrow", cast=self.SN_CAST)
+        texts = [c["text"] for c in got]
+        assert texts == [
+            "My name is Rowan Merrow, and I have kept this account since the ship\n"
+            "left port.",
+            "I walked the deck at night and counted the stars.",
+            '"Nor I," I answered, and we stood together in the cold.',
+        ]
+        # Third-person narration and another character's quoted "I" are not his.
+        assert all("Hollis Crane" not in t for t in texts)
+        # The other cast member gets no narration from this.
+        assert (
+            cx.extract_narration(self.SELF_NAMED, "Hollis Crane", cast=self.SN_CAST)
+            == []
+        )
+
+    def test_called_rule_matches_without_the_narrator_role(self):
+        from app.parsing.character_extractor import CharacterExtractor
+
+        text = "Call me Ishmael. I went to sea.\n\nThe whale was white."
+        got = CharacterExtractor().extract_narration(text, "Ishmael")
+        assert [c["text"] for c in got] == ["Call me Ishmael. I went to sea."]
+
+    def test_i_comma_name_and_honorifics_resolve_against_the_cast(self):
+        from app.parsing.character_extractor import CharacterExtractor
+
+        text = "I, Dr. Ward, set down these notes.\n\nI slept badly."
+        cast = [
+            {"name": "Elias Ward", "aliases": []},
+            {"name": "Nora Vance", "aliases": []},
+        ]
+        got = CharacterExtractor().extract_narration(text, "Elias Ward", cast=cast)
+        assert len(got) == 2
+
+    def test_self_naming_in_dialogue_is_a_speaker_not_the_narrator(self):
+        from app.parsing.character_extractor import (
+            CharacterExtractor,
+            self_named_narrators,
+        )
+
+        text = '"My name is Hollis Crane," he said.\n\nI did not trust him.'
+        assert self_named_narrators(text) == []
+        cast = [{"name": "Hollis Crane", "aliases": []}]
+        got = CharacterExtractor().extract_narration(text, "Hollis Crane", cast=cast)
+        assert got == []
+
+    def test_two_self_named_narrators_are_ambiguous(self):
+        from app.parsing.character_extractor import CharacterExtractor
+
+        text = (
+            "My name is Rowan Merrow. I write from the ice.\n\n"
+            "I, Hollis Crane, take up the tale. I was born in Geneva."
+        )
+        cx = CharacterExtractor()
+        for who in ("Rowan Merrow", "Hollis Crane"):
+            assert cx.extract_narration(text, who, cast=self.SN_CAST) == []
+
+    def test_self_naming_outside_the_cast_attributes_nothing(self):
+        from app.parsing.character_extractor import CharacterExtractor
+
+        text = "My name is Quentin Lorne. I write from the ice."
+        got = CharacterExtractor().extract_narration(
+            text, "Rowan Merrow", cast=self.SN_CAST
+        )
+        assert got == []
+
+    def test_headed_sections_take_precedence_over_self_naming(self):
+        from app.parsing.character_extractor import CharacterExtractor
+
+        text = (
+            "HOLLIS CRANE\u2019S JOURNAL\n\n"
+            "My name is Rowan Merrow, he told me. I wrote it down."
+        )
+        cx = CharacterExtractor()
+        assert cx.extract_narration(text, "Rowan Merrow", cast=self.SN_CAST) == []
+        assert len(cx.extract_narration(text, "Hollis Crane", cast=self.SN_CAST)) == 1
+
+    def test_pdf_heading_block_names_the_narrator(self):
+        # A PDF keeps a heading block's line breaks ("CHAPTER VIII" over the
+        # journal heading, in one paragraph): each line is read as a heading.
+        from app.parsing.character_extractor import narrator_sections
+
+        text = (
+            "\u201cART.\u201d\nCHAPTER VIII\nNORA VANCE\u2019S JOURNAL\n\n"
+            "I am so tired tonight."
+        )
+        sections = narrator_sections(text)
+        assert [(who.lower(), len(p)) for who, p in sections] == [("nora vance", 1)]
 
     async def test_index_job_uses_narration(
         self, async_session, test_book, test_source, monkeypatch
