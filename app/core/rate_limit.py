@@ -24,6 +24,7 @@ from __future__ import annotations
 import ipaddress
 import math
 import time
+from dataclasses import dataclass
 from functools import lru_cache
 
 from fastapi import Request
@@ -148,39 +149,92 @@ def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
 
 # --- per-email login limit ---------------------------------------------------
 
-
-# Addresses an account recently signed in from successfully. The per-email
-# budget exists to stop a botnet guessing one account's password from many IPs;
-# applied to everyone, it would also let that botnet lock the real owner out by
-# spending the budget. So the budget does not apply from an address the account
-# has already proven itself on (bounded per account; in-process, like every
-# limit here — ADR-001's single container).
+# The per-email limit exists to stop a botnet guessing one account's password
+# from many IPs. Its cost is that the same botnet can spend the budget to lock
+# the real owner out. Two things bound that (SPEC-05, "Per-email lockout"):
+#
+# - Trusted addresses. An account's recent successful-login addresses are
+#   exempt (bounded per account), so an owner on a known network is never
+#   locked out.
+# - A DECAYING lockout. Spending the failure budget (LOGIN_EMAIL_RATE_LIMIT)
+#   starts a short lockout that doubles per repeated breach and caps low
+#   (LOGIN_EMAIL_LOCKOUT_SECONDS .. LOGIN_EMAIL_LOCKOUT_MAX_SECONDS, minutes),
+#   then the budget refills. The breach count forgets after
+#   LOGIN_EMAIL_BREACH_RESET_SECONDS without a breach. A lockout therefore never
+#   outlasts the cap; to keep an owner out the attacker must keep spending fresh
+#   budgets, each of which the per-IP limit (5/minute) throttles.
+#
+# The per-IP limit is the main brute-force control; this one only caps how many
+# guesses a distributed attacker gets per account. In-process, like every limit
+# here (ADR-001's single container).
 _TRUSTED_LOGIN_IPS: dict[str, list[str]] = {}
 _TRUSTED_PER_ACCOUNT = 5
 
 
+@dataclass
+class _Lockout:
+    until: float = 0.0
+    breaches: int = 0
+    last_breach: float = 0.0
+
+
+_LOGIN_LOCKOUTS: dict[str, _Lockout] = {}
+
+
+def _email_key(email: str) -> str:
+    return email.strip().lower()
+
+
+def lockout_seconds(breaches: int) -> int:
+    """The lockout for the n-th breach (1-based): doubling, capped low."""
+    base = max(1, settings.LOGIN_EMAIL_LOCKOUT_SECONDS)
+    cap = max(base, settings.LOGIN_EMAIL_LOCKOUT_MAX_SECONDS)
+    return min(cap, base * 2 ** max(0, min(breaches - 1, 30)))
+
+
+def reset_login_state() -> None:
+    """Forget trusted addresses and lockouts (the test suite does this per test)."""
+    _TRUSTED_LOGIN_IPS.clear()
+    _LOGIN_LOCKOUTS.clear()
+
+
 def login_email_check(email: str, ip: str | None = None) -> int | None:
-    """Retry-After seconds if this email has used up its failed-login budget,
-    else None. Read-only: a correct password never spends the budget, and the
-    budget never applies from an address this account signed in from."""
-    key = email.strip().lower()
+    """Retry-After seconds if this email is in a lockout, else None. Read-only:
+    a correct password never spends the budget, and the lockout never applies
+    from an address this account signed in from."""
+    key = _email_key(email)
     if ip and ip in _TRUSTED_LOGIN_IPS.get(key, ()):
         return None
-    item = parse(settings.LOGIN_EMAIL_RATE_LIMIT)
-    if limiter.limiter.test(item, "login-email", key):
+    lock = _LOGIN_LOCKOUTS.get(key)
+    now = time.time()
+    if lock is None or lock.until <= now:
         return None
-    return retry_after_seconds(item, "login-email", key)
+    return max(1, math.ceil(lock.until - now))
 
 
 def login_email_record_failure(email: str) -> None:
+    """Spend one failed attempt; spending the whole budget starts a lockout."""
+    key = _email_key(email)
     item = parse(settings.LOGIN_EMAIL_RATE_LIMIT)
-    limiter.limiter.hit(item, "login-email", email.strip().lower())
+    limiter.limiter.hit(item, "login-email", key)
+    if limiter.limiter.test(item, "login-email", key):
+        return
+    now = time.time()
+    lock = _LOGIN_LOCKOUTS.setdefault(key, _Lockout())
+    if now - lock.last_breach > settings.LOGIN_EMAIL_BREACH_RESET_SECONDS:
+        lock.breaches = 0  # quiet long enough: start the doubling over
+    lock.breaches += 1
+    lock.last_breach = now
+    lock.until = now + lockout_seconds(lock.breaches)
+    limiter.limiter.clear(item, "login-email", key)  # a fresh budget afterwards
 
 
 def login_email_record_success(email: str, ip: str | None) -> None:
+    # Deliberately leaves the budget and any lockout alone: an owner signing
+    # in from a trusted address must not hand the attacker a fresh budget.
     if not ip:
         return
-    key = email.strip().lower()
+    key = _email_key(email)
     ips = [i for i in _TRUSTED_LOGIN_IPS.get(key, []) if i != ip]
     _TRUSTED_LOGIN_IPS[key] = [ip, *ips][:_TRUSTED_PER_ACCOUNT]
 

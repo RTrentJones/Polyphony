@@ -165,10 +165,13 @@ export interface SourceCharactersResponse {
 // Scenes (app/api/scenes.py)
 // ---------------------------------------------------------------------------
 
-/** POST /scenes/generate body (app/core/models.py SceneRequest). */
+/** A scene's stored generation request (GET /scenes/{id} `scene_request`).
+ *  Read-only: requests are sent as ChapterSceneRequest (cast by `character_ids`);
+ *  `characters` here is the cast's names, derived server-side for display. */
 export interface SceneRequest {
   source_id: string
   characters: string[]
+  character_ids?: string[]
   scene_description: string
   setting: string
   emotional_tone: string

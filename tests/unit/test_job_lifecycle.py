@@ -442,14 +442,16 @@ async def test_scene_generation_dedupes_on_idempotency_key(
             headers=auth_headers,
         )
     ).json()
-    await client.post(
-        "/api/v1/characters/",
-        json={"name": "Mina", "book_id": str(test_book.id)},
-        headers=auth_headers,
-    )
+    mina = (
+        await client.post(
+            "/api/v1/characters/",
+            json={"name": "Mina", "book_id": str(test_book.id)},
+            headers=auth_headers,
+        )
+    ).json()
     url = f"/api/v1/books/chapters/{ch['id']}/scenes/generate"
     body = {
-        "characters": ["Mina"],
+        "character_ids": [mina["id"]],
         "scene_description": "A storm breaks over the moor.",
         "setting": "moor",
         "emotional_tone": "ominous",
@@ -668,14 +670,16 @@ async def test_scene_provenance_must_come_from_the_same_book(
             headers=auth_headers,
         )
     ).json()
-    await client.post(
-        "/api/v1/characters/",
-        json={"name": "Mina", "book_id": str(test_book.id)},
-        headers=auth_headers,
-    )
+    mina = (
+        await client.post(
+            "/api/v1/characters/",
+            json={"name": "Mina", "book_id": str(test_book.id)},
+            headers=auth_headers,
+        )
+    ).json()
     url = f"/api/v1/books/chapters/{ch['id']}/scenes/generate"
     body = {
-        "characters": ["Mina"],
+        "character_ids": [mina["id"]],
         "scene_description": "A storm breaks over the moor.",
         "setting": "moor",
         "emotional_tone": "ominous",
@@ -763,3 +767,125 @@ async def test_a_lost_outline_race_returns_the_winning_job(
     again = await client.post(url, json={"kind": "outline"}, headers=auth_headers)
     assert again.status_code == 200, again.text
     assert again.json()["job_id"] == first.json()["job_id"]
+
+
+async def _voice_enqueue(session, user_id, ids, key="voice:b:s"):
+    job = await jobs_repo.enqueue_merging(
+        session,
+        kind="index_characters_voice",
+        payload={"source_id": "s", "book_id": "b", "character_ids": ids},
+        user_id=user_id,
+        max_attempts=3,
+        dedupe_key=key,
+        merge=jobs_repo.merge_id_lists("character_ids"),
+    )
+    await session.commit()
+    return job
+
+
+async def test_voice_index_merges_into_a_queued_job(async_session, test_user):
+    """SPEC-07/08: a second approval while the first voice job is still queued
+    unions its ids into that job instead of enqueuing another (or dropping them)."""
+    a = await _voice_enqueue(async_session, test_user.id, ["c1", "c2"])
+    b = await _voice_enqueue(async_session, test_user.id, ["c2", "c3"])
+    assert b.id == a.id
+    jobs = (
+        (
+            await async_session.execute(
+                select(Job).where(Job.kind == "index_characters_voice")
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(jobs) == 1
+    await async_session.refresh(jobs[0])
+    assert jobs[0].payload["character_ids"] == ["c1", "c2", "c3"]
+    assert jobs[0].payload["source_id"] == "s"
+
+
+async def test_voice_index_merges_into_a_paused_job(async_session, test_user):
+    # A paused job is 'queued' with paused_since: still unclaimed, so it merges.
+    a = await _voice_enqueue(async_session, test_user.id, ["c1"])
+    a.paused_since = datetime.now(timezone.utc)
+    await async_session.commit()
+    b = await _voice_enqueue(async_session, test_user.id, ["c9"])
+    assert b.id == a.id
+    await async_session.refresh(a)
+    assert a.payload["character_ids"] == ["c1", "c9"]
+
+
+async def test_voice_index_while_running_enqueues_a_new_job(async_session, test_user):
+    """A running job already read its payload; merging into it would lose the
+    new ids. It releases its key and keeps running; a fresh job takes the ids."""
+    a = await _voice_enqueue(async_session, test_user.id, ["c1"])
+    claimed = await jobs_repo.claim_one(async_session, worker_id="w")
+    assert claimed.id == a.id
+    await async_session.commit()
+
+    b = await _voice_enqueue(async_session, test_user.id, ["c2"])
+    assert b.id != a.id
+    await async_session.refresh(a)
+    assert a.status == "running" and a.dedupe_key is None
+    assert a.payload["character_ids"] == ["c1"]
+    assert b.status == "queued" and b.dedupe_key == "voice:b:s"
+    assert b.payload["character_ids"] == ["c2"]
+
+    # and a third approval merges into the NEW queued job
+    c = await _voice_enqueue(async_session, test_user.id, ["c3"])
+    assert c.id == b.id
+    await async_session.refresh(b)
+    assert b.payload["character_ids"] == ["c2", "c3"]
+
+
+async def test_voice_index_keys_are_per_source(async_session, test_user):
+    a = await _voice_enqueue(async_session, test_user.id, ["c1"], key="voice:b:s1")
+    b = await _voice_enqueue(async_session, test_user.id, ["c1"], key="voice:b:s2")
+    assert a.id != b.id
+
+
+async def test_voice_index_after_terminal_enqueues_fresh(async_session, test_user):
+    a = await _voice_enqueue(async_session, test_user.id, ["c1"])
+    a.status = "succeeded"
+    await async_session.commit()
+    b = await _voice_enqueue(async_session, test_user.id, ["c2"])
+    assert b.id != a.id
+    assert b.payload["character_ids"] == ["c2"]
+
+
+async def test_two_commits_from_one_source_share_one_voice_job(
+    client, auth_headers, async_session, test_book, test_source
+):
+    """Two extraction runs of the same source committed back to back: the second
+    commit's approved character joins the still-queued voice job."""
+    from app.core.orm_models import ExtractionRun
+
+    job_ids, created = [], []
+    for name in ("Edric Thane", "Mina Hale"):
+        run = ExtractionRun(
+            book_id=test_book.id,
+            source_id=test_source.id,
+            user_id=test_book.user_id,
+            status="ready",
+            proposals={},
+        )
+        async_session.add(run)
+        await async_session.commit()
+        r = await client.post(
+            f"/api/v1/books/{test_book.id}/extractions/{run.id}/commit",
+            json={"characters": [{"name": name, "role": "lead"}]},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        job_ids.append(r.json()["job_id"])
+        created += r.json()["result"]["characters"]["created"]
+
+    assert job_ids[0] == job_ids[1]
+    job = (
+        await async_session.execute(
+            select(Job).where(Job.kind == "index_characters_voice")
+        )
+    ).scalar_one()
+    await async_session.refresh(job)
+    assert job.payload["character_ids"] == created
+    assert job.dedupe_key == f"voice:{test_book.id}:{test_source.id}"

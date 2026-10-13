@@ -226,21 +226,24 @@ class TestCastValidation:
             **cast,
         }
 
-    async def test_unknown_name_is_rejected_and_nothing_enqueued(
+    async def test_unknown_id_is_rejected_and_nothing_enqueued(
         self, client, auth_headers, async_session
     ):
+        from uuid import uuid4
+
         from sqlalchemy import func, select
 
         from app.core.orm_models import Job
 
-        _book, chapter, _milo = await self._setup(client, auth_headers)
+        _book, chapter, milo = await self._setup(client, auth_headers)
+        stranger = str(uuid4())
         r = await client.post(
             f"/api/v1/books/chapters/{chapter['id']}/scenes/generate",
-            json=self._body(characters=["Milo Voss", "Elara"]),
+            json=self._body(character_ids=[milo["id"], stranger]),
             headers=auth_headers,
         )
         assert r.status_code == 422
-        assert r.json()["detail"]["unknown"] == ["Elara"]
+        assert r.json()["detail"]["unknown"] == [stranger]
         n_jobs = (await async_session.execute(select(func.count(Job.id)))).scalar()
         n_scenes = (await async_session.execute(select(func.count(Scene.id)))).scalar()
         assert n_jobs == 0 and n_scenes == 0
@@ -255,13 +258,31 @@ class TestCastValidation:
         )
         assert r.status_code == 422
 
-    async def test_names_resolve_case_insensitively_to_ids(
+    async def test_removed_names_input_is_rejected(
+        self, client, auth_headers, async_session
+    ):
+        # The deprecated by-name cast was removed (SPEC-15c): a stale client
+        # sending it gets a clear 422 and nothing is created.
+        from sqlalchemy import func, select
+
+        _b, chapter, milo = await self._setup(client, auth_headers)
+        r = await client.post(
+            f"/api/v1/books/chapters/{chapter['id']}/scenes/generate",
+            json=self._body(character_ids=[milo["id"]], characters=["Milo Voss"]),
+            headers=auth_headers,
+        )
+        assert r.status_code == 422
+        assert "character_ids" in r.text
+        n_scenes = (await async_session.execute(select(func.count(Scene.id)))).scalar()
+        assert n_scenes == 0
+
+    async def test_ids_store_ids_and_derived_display_names(
         self, client, auth_headers, async_session
     ):
         _b, chapter, milo = await self._setup(client, auth_headers)
         r = await client.post(
             f"/api/v1/books/chapters/{chapter['id']}/scenes/generate",
-            json=self._body(characters=["milo voss"]),
+            json=self._body(character_ids=[milo["id"]]),
             headers=auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -269,6 +290,7 @@ class TestCastValidation:
             Scene, __import__("uuid").UUID(r.json()["scene_id"])
         )
         assert scene.character_ids == [milo["id"]]
+        # the display list is derived from the resolved cast, read-only
         assert scene.characters == ["Milo Voss"]
 
 

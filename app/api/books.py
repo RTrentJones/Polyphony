@@ -13,7 +13,7 @@ from fastapi import (
     Response,
     status,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -89,11 +89,10 @@ class PositionUpdate(BaseModel):
 
 class ChapterSceneRequest(BaseModel):
     source_id: Optional[UUID] = None  # provenance only
-    # The cast, as character IDs of this book (SPEC-01). `characters` (names) is
-    # the deprecated input, resolved against the book's cast by name/alias; an
-    # unknown name is rejected rather than silently generated voice-blind.
+    # The cast, as character IDs of this book (SPEC-01). The deprecated
+    # `characters` (names) input was removed after its grace release (SPEC-15c);
+    # an unknown ID is rejected rather than silently generated voice-blind.
     character_ids: list[UUID] = Field(default_factory=list)
-    characters: list[str] = Field(default_factory=list)
     scene_description: str = Field(..., min_length=10)
     setting: str
     emotional_tone: str
@@ -103,6 +102,17 @@ class ChapterSceneRequest(BaseModel):
     # Generation mode (docs/BRD.md §8). prose = one call per beat (default);
     # ensemble = narrator/character/editor loop, opt-in and tier-gated.
     mode: str = Field(default="prose", pattern="^(prose|ensemble)$")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_removed_names_input(cls, data):
+        # A stale client still sending the removed by-name cast gets a clear 422
+        # instead of having its cast silently dropped.
+        if isinstance(data, dict) and "characters" in data:
+            raise ValueError(
+                "`characters` (names) was removed; send the cast as `character_ids`"
+            )
+        return data
 
 
 class SceneContentUpdate(BaseModel):
@@ -676,7 +686,6 @@ async def generate_scene_into_chapter(
         db,
         chapter.book_id,
         character_ids=payload.character_ids,
-        names=payload.characters,
     )
     cast_names = [c.name for c in cast]
     cast_ids = [str(c.id) for c in cast]
