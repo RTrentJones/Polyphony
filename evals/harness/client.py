@@ -209,6 +209,14 @@ class PolyphonyClient:
         return r.json()
 
     async def create_character(self, name: str, book_id: str, **fields) -> dict:
+        # Characters are book-scoped (Canon model: book-as-root), so the API
+        # 422s a create without book_id. Fail here, naming the cause, instead
+        # of spending a request on a 422 mid-run (the attribution defect).
+        if not book_id:
+            raise EvalClientError(
+                f"create character {name!r}: book_id is required (characters "
+                "belong to a book)"
+            )
         r = await self._post(
             "/api/v1/characters/", json={"name": name, "book_id": book_id, **fields}
         )

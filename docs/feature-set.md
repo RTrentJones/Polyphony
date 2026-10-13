@@ -39,8 +39,8 @@ product's whole history.
 | Extraction cost preflight | R4.4, R7.3, R7.5 | ✅ | Estimate returned on enqueue; refused with "first N chapters" when it cannot finish within `JOB_MAX_PAUSE_HOURS` |
 | Proposals ranked by mentions / windows | R4.4 | ✅ | One-window names pre-deselected unless a narrator (eval-plan E5) |
 | Character aliases (`characters.aliases`) | R1.4, R4.5 | ✅ | Proposed by extraction, editable; honoured by fidelity (`Canon.principals`, `canon_terms`), commit merging and scene casting |
-| Paragraph normalisation for every format | — | ✅ | HTML block elements, DOCX paragraphs, PDF line-joining → blank-line paragraphs; `Source.format` recorded as an eval covariate |
-| Narrator voice attribution | — | ✅ | First-person sections headed "X's Journal" / "Letter, X to Y" (or a lone narrator) are indexed as X's voice |
+| Paragraph normalisation for every format | — | ✅ | HTML block elements, DOCX paragraphs, PDF line-joining → blank-line paragraphs; verse keeps its line breaks and indentation; `Source.format` recorded as an eval covariate. Scanned PDFs (no text layer) are refused; OCR is out of scope (SPEC-09) |
+| Narrator voice attribution | — | ✅ | First-person sections headed "X's Journal" / "Letter, X to Y", a narrator who names themselves once ("my name is X", "I, X,"), or a lone narrator-role character are indexed as X's voice (heuristic, no LLM calls) |
 
 ## 3. Generation
 

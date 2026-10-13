@@ -50,16 +50,108 @@ _LINE_MARK = "\x00BR\x00"
 _TERMINAL = tuple(".!?:;\"'”’)]—")
 
 
+# A line that ends a sentence: . ! ? (or …), optionally inside closing quotes.
+_SENTENCE_END = re.compile(r"[.!?\u2026][\"'\u201d\u2019)\]]*$")
+# Shorter than this fraction of the document's typical line = a "short" line.
+_SHORT = 0.75
+# No verse line is longer than this.
+_MAX_VERSE = 90
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _tidy(line: str, keep_indent: bool) -> str:
+    """Collapse whitespace inside a line; keep its leading indentation only
+    when it is verse-like (the indentation IS the layout there)."""
+    body = " ".join(line.split())
+    return (" " * _indent(line) + body) if keep_indent and body else body
+
+
+class _LineStats:
+    """Document-wide line widths: what counts as a short line, and how deep
+    ordinary prose is indented (so verse must be indented deeper)."""
+
+    def __init__(self, lines: list[str]):
+        widths = [len(ln.strip()) for ln in lines if ln.strip()]
+        # The PDF paragraph-end rule's "typical line" (unchanged: the median).
+        self.typical = statistics.median(widths) if widths else 0
+        # Verse detection measures against the prose line, so a poem that is a
+        # large share of a short text can't drag the yardstick down to its own
+        # width: the 80th percentile is the wrapped prose line when there is
+        # any. Verse lines are also capped absolutely (an unwrapped paragraph
+        # is never a verse line).
+        wide = statistics.quantiles(widths, n=10)[7] if len(widths) > 1 else 0
+        self.verse_limit = min(_SHORT * wide, _MAX_VERSE)
+        self.prose_indent = max(
+            (_indent(ln) for ln in lines if len(ln.strip()) >= self.verse_limit),
+            default=0,
+        )
+
+    def short(self, line: str) -> bool:
+        return 0 < len(line.strip()) < self.verse_limit
+
+
+def _is_verse_run(run: list[str], stats: _LineStats) -> bool:
+    """A run of >=2 consecutive short lines is verse-like when its lines carry
+    the same indentation, deeper than prose's; or when most of them (the last
+    line aside, which may close the stanza) end without sentence punctuation —
+    a ragged prose paragraph ends ONE short line, a poem many."""
+    if len(run) < 2:
+        return False
+    indents = {_indent(ln) for ln in run}
+    if len(indents) == 1 and min(indents) > stats.prose_indent:
+        return True
+    body = run[:-1]
+    open_lines = sum(not _SENTENCE_END.search(ln.strip()) for ln in body)
+    return open_lines >= 1 and 2 * open_lines >= len(body)
+
+
+def _verse_mask(lines: list[str], stats: _LineStats) -> list[bool]:
+    """Per line: is it part of a verse-like run? `lines` are consecutive,
+    non-blank lines of one block."""
+    mask = [False] * len(lines)
+    i = 0
+    while i < len(lines):
+        if not stats.short(lines[i]):
+            i += 1
+            continue
+        j = i
+        while j < len(lines) and stats.short(lines[j]):
+            j += 1
+        # A short line right after a full-width one is that paragraph's ragged
+        # last line, not the poem's first — unless it is indented deeper than
+        # prose (then the indent says verse). Leave the tail with its prose.
+        tail = i > 0 and _indent(lines[i]) <= stats.prose_indent
+        start = i + 1 if tail else i
+        if _is_verse_run(lines[start:j], stats):
+            mask[start:j] = [True] * (j - start)
+        i = j
+    return mask
+
+
+def _prep(text: str) -> str:
+    return (text or "").replace("\r\n", "\n").replace("\r", "\n").expandtabs(4)
+
+
 def normalize_paragraphs(text: str) -> str:
     """Blank-line-separated paragraphs; whitespace inside a line collapsed,
-    line breaks inside a paragraph kept (verse, letters' address blocks)."""
-    text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    line breaks inside a paragraph kept (verse, letters' address blocks).
+
+    Verse-like runs (SPEC-09) also keep their leading indentation: a poem
+    embedded in prose is laid out by its indents, and flattening them lost
+    the structure. Prose lines are collapsed exactly as before."""
+    text = _prep(text)
+    blocks = re.split(r"\n\s*\n", text)
+    stats = _LineStats(text.split("\n"))
     paras = []
-    for block in re.split(r"\n\s*\n", text):
-        lines = [" ".join(ln.split()) for ln in block.split("\n")]
-        lines = [ln for ln in lines if ln]
-        if lines:
-            paras.append("\n".join(lines))
+    for block in blocks:
+        lines = [ln.rstrip() for ln in block.split("\n") if ln.strip()]
+        if not lines:
+            continue
+        mask = _verse_mask(lines, stats)
+        paras.append("\n".join(_tidy(ln, v) for ln, v in zip(lines, mask)))
     return "\n\n".join(paras)
 
 
@@ -194,29 +286,52 @@ def pdf_pages_to_paragraphs(pages: list[str]) -> str:
     it ends a sentence AND is clearly shorter than the page's typical line (the
     ragged last line of a paragraph). A page break continues the paragraph
     unless the page's last line ended one. Hyphenated wraps are re-joined.
+
+    Verse-like runs (see `_is_verse_run`) are NOT joined: a poem inside the
+    prose becomes its own paragraph, one line per verse line, with its
+    indentation (SPEC-09).
     """
     lines: list[str] = []
     for page in pages:
-        page = page.replace("\r", "").strip("\n")
-        page_lines = [ln.rstrip() for ln in page.split("\n")]
-        lines.extend(page_lines)
-        lines.append("\x01")  # page boundary
-    widths = [len(ln.strip()) for ln in lines if ln.strip() and ln != "\x01"]
-    typical = statistics.median(widths) if widths else 0
+        page = _prep(page).strip("\n")
+        lines.extend(ln.rstrip() for ln in page.split("\n"))
+    stats = _LineStats(lines)
+    # Verse runs are found per stretch of non-blank lines (a page break does
+    # not end a stretch: the paragraph, or the poem, runs on).
+    verse = [False] * len(lines)
+    i = 0
+    while i < len(lines):
+        if not lines[i].strip():
+            i += 1
+            continue
+        j = i
+        while j < len(lines) and lines[j].strip():
+            j += 1
+        verse[i:j] = _verse_mask(lines[i:j], stats)
+        i = j
 
     paras: list[str] = []
     cur = ""
+    poem: list[str] = []
 
     def flush():
         nonlocal cur
         if cur.strip():
-            paras.append(cur.strip())
+            paras.append(" ".join(cur.split()))
         cur = ""
 
-    for raw in lines:
-        if raw == "\x01":
-            continue
+    def flush_poem():
+        if poem:
+            paras.append("\n".join(poem))
+            poem.clear()
+
+    for raw, is_verse in zip(lines, verse):
         ln = raw.strip()
+        if is_verse:
+            flush()
+            poem.append(_tidy(raw, True))
+            continue
+        flush_poem()
         if not ln:
             flush()
             continue
@@ -224,8 +339,9 @@ def pdf_pages_to_paragraphs(pages: list[str]) -> str:
             cur = cur[:-1] + ln
         else:
             cur = f"{cur} {ln}" if cur else ln
-        short = typical and len(ln) < 0.75 * typical
+        short = stats.typical and len(ln) < _SHORT * stats.typical
         if short and ln.endswith(_TERMINAL):
             flush()
     flush()
-    return normalize_paragraphs("\n\n".join(paras))
+    flush_poem()
+    return "\n\n".join(paras)
