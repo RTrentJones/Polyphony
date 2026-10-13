@@ -257,6 +257,22 @@ def test_thinking_guard_keeps_groq_reasoning_effort_to_gpt_oss():
     assert extra is None and mt == 1024
 
 
+def test_groq_reasoning_headroom_fits_the_free_tier_minute_limit(monkeypatch):
+    """Free-tier Groq rejects a request whose cap exceeds its per-minute token
+    limit, so headroom is clamped there; the paid tier keeps it all."""
+    from app.llm.client import _GROQ_FREE_MAX_OUTPUT, _thinking_guard
+    from app.llm.providers import PROVIDERS
+
+    monkeypatch.setattr(settings, "LLM_TIER", "free")
+    _, mt = _thinking_guard(PROVIDERS["groq"], "openai/gpt-oss-120b", 8192)
+    assert mt == _GROQ_FREE_MAX_OUTPUT
+    _, mt = _thinking_guard(PROVIDERS["groq"], "openai/gpt-oss-120b", 150)
+    assert mt == 150 + 1024
+    monkeypatch.setattr(settings, "LLM_TIER", "paid")
+    _, mt = _thinking_guard(PROVIDERS["groq"], "openai/gpt-oss-120b", 8192)
+    assert mt == 8192 + 1024
+
+
 async def test_a_spent_author_budget_pauses_before_the_call(
     llm, async_session, test_user, monkeypatch
 ):

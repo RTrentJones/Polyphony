@@ -217,3 +217,12 @@ def test_a_poll_timeout_says_what_the_app_was_doing():
     plans = {"plans": [{"kind": "outline", "status": "paused", "stage": "chapters"}]}
     assert '"status": "paused"' in _state(plans)
     assert '"stage": "chapters"' in _state(plans)
+
+
+def test_a_lone_judged_repeat_is_kept_over_a_later_judgeless_one():
+    from evals.run import _aggregate
+
+    judged = {"outline": {"score": 0.8, "cast_fidelity": 1.0}}
+    judgeless = {"outline": {"score": None, "cast_fidelity": 1.0}}
+    assert _aggregate([judged, judgeless])["outline"]["score"] == 0.8
+    assert _aggregate([judgeless, judgeless])["outline"]["score"] is None

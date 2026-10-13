@@ -297,6 +297,11 @@ class LLMClient:
             )
 
 
+# Groq's free tier limits gpt-oss to ~8K tokens per minute, counting the
+# prompt and the requested cap; a larger cap is rejected outright.
+_GROQ_FREE_MAX_OUTPUT = 6144
+
+
 def _thinking_guard(provider: Provider, model: str, max_tokens: int):
     """Gemini 2.5 Pro cannot turn thinking off, and thinking tokens count
     against max_tokens — so a `reasoning_effort: none` it rejects, or a small
@@ -311,7 +316,14 @@ def _thinking_guard(provider: Provider, model: str, max_tokens: int):
             return (extra or None), max_tokens
         # gpt-oss reasons even at low effort, and reasoning counts against
         # max_tokens: give it headroom so small caps still leave the answer.
-        return extra, max_tokens + 1024
+        # On the free tier the request (prompt + cap) must also fit Groq's
+        # per-minute token limit, so the cap is clamped below it.
+        from .tier import get_tier
+
+        cap = max_tokens + 1024
+        if get_tier().name == "free":
+            cap = min(cap, _GROQ_FREE_MAX_OUTPUT)
+        return extra, cap
     if provider.id == "gemini" and "flash" not in model.lower():
         extra = {k: v for k, v in (extra or {}).items() if k != "reasoning_effort"}
         return (extra or None), max_tokens + 4096

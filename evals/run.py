@@ -88,10 +88,15 @@ def _aggregate(passes: list[dict]) -> dict:
             for p in passes
             if name in p and isinstance(p[name].get("score"), (int, float))
         ]
-        if len(scored) <= 1:
-            # 0 or 1 numeric passes: report the last pass verbatim (a lone error
-            # or skip surfaces as-is; a single score needs no aggregation).
+        if not scored:
+            # No numeric pass: report the last pass verbatim (a lone error or
+            # skip surfaces as-is).
             out[name] = passes[-1][name]
+            continue
+        if len(scored) == 1:
+            # One numeric pass (e.g. the judge gave out on the later repeats):
+            # keep that score rather than the last, judge-less pass.
+            out[name] = scored[0]
             continue
         # Seed from the last SCORED pass (not passes[-1]) so a transient error on
         # the final repeat can't drag an "error" key onto a valid aggregated mean
