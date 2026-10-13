@@ -239,6 +239,9 @@ async def journey(page: Page) -> None:
         await page.get_by_role("button", name="Edit", exact=True).first.click()
         await page.locator("textarea").first.fill("A heist in a monastery.")
         await page.get_by_role("button", name="Save", exact=True).click()
+        # The toast appears only once the save has returned, so the history
+        # opened next lists the edit's version (the text alone can show sooner).
+        await toast("Synopsis saved")
         await expect(page.get_by_text("A heist in a monastery.").first).to_be_visible()
         await page.get_by_role("button", name="History", exact=True).first.click()
         history = page.get_by_role("dialog")
