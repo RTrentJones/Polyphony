@@ -24,6 +24,11 @@ def scorecard(run: dict) -> str:
             "  ⚠ no judge available: judge scores n/a"
             if run["judge"].get("unavailable")
             else ""
+        )
+        + (
+            "  ⚠ mixed judges (failover mid-run): scores are not comparable"
+            if run["judge"].get("mixed")
+            else ""
         ),
         "-" * 64,
     ]

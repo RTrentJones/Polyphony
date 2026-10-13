@@ -27,19 +27,25 @@ from evals.steps.base import StepContext, all_steps, get_step
 
 def _record_judge_failover(result: dict, judge) -> None:
     """A retired judge model fails over mid-run (Judge._next_in_chain): record
-    the judge that actually produced a judgment, not the one resolved before
-    the steps ran. A chain that gave out entirely grades nothing, so the run
-    is marked judge-unavailable instead of naming the last provider tried."""
+    the judges that actually produced judgments, not the one resolved before
+    the steps ran. Several means the run's scores are MIXED (earlier steps by
+    one judge, later by another) and the report says so; a chain that gave out
+    entirely graded nothing, so the run is marked judge-unavailable instead of
+    naming the last provider tried."""
     if getattr(judge, "exhausted", False):
         result["judge"]["unavailable"] = True
-    graded_by = getattr(judge, "graded_by", None)
-    if graded_by and graded_by != result["judge"]["provider"]:
-        result["judge"].update(
-            provider=graded_by,
-            model=judge.model_override,
-            self=judge.graded_is_self,
-            failed_over=True,
-        )
+    graded_by = list(getattr(judge, "graded_by", None) or [])
+    if not graded_by or graded_by == [result["judge"]["provider"]]:
+        return
+    result["judge"].update(
+        provider="+".join(graded_by),
+        model=judge.model_override if len(graded_by) == 1 else None,
+        self=judge.graded_is_self,
+        graded_by=graded_by,
+        failed_over=True,
+    )
+    if len(graded_by) > 1:
+        result["judge"]["mixed"] = True
 
 
 async def _app_sha(base_url: str) -> str:

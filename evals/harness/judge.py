@@ -67,7 +67,9 @@ class Judge:
         # Who actually produced a judgment (None until one succeeds), and
         # whether the whole chain gave out — the run report records these
         # rather than whichever provider was merely tried last.
-        self.graded_by: str | None = None
+        # Every provider that produced a judgment, in order (a mid-run failover
+        # can leave earlier steps graded by one judge and later ones by another).
+        self.graded_by: list[str] = []
         self.graded_is_self = False
         self.exhausted = False
         # Resolved eagerly so the report records the judge that will ACTUALLY
@@ -152,7 +154,9 @@ class Judge:
         while True:
             try:
                 judgment = await self._score_once(prompt)
-                self.graded_by, self.graded_is_self = self.provider_id, self.is_self
+                if self.provider_id not in self.graded_by:
+                    self.graded_by.append(self.provider_id)
+                self.graded_is_self = self.graded_is_self or self.is_self
                 return judgment
             except NotFoundError as e:
                 # A vendor retired the judge model (a 404 is not transient):

@@ -119,7 +119,7 @@ async def test_a_retired_judge_model_falls_through_the_chain(monkeypatch):
     judgment = await j.score("rubric", "content")
     assert used == ["groq", "openrouter"]
     assert judgment.score == 0.8 and judgment.judge_provider == "openrouter"
-    assert j.graded_by == "openrouter" and not j.exhausted
+    assert j.graded_by == ["openrouter"] and not j.exhausted
 
 
 async def test_an_exhausted_chain_is_judge_unavailable_and_steps_keep_metrics(
@@ -151,7 +151,7 @@ async def test_an_exhausted_chain_is_judge_unavailable_and_steps_keep_metrics(
     monkeypatch.setattr(j, "_ensure", lambda: Gone())
     with pytest.raises(JudgeUnavailable):
         await j.score("rubric", "content")
-    assert j.exhausted and j.graded_by is None
+    assert j.exhausted and j.graded_by == []
 
     j2 = Judge(_cfg(monkeypatch, "groq,openrouter"))
     monkeypatch.setattr(j2, "_ensure", lambda: Gone())
@@ -178,20 +178,24 @@ def test_the_run_records_the_judge_that_actually_graded(monkeypatch):
 
     def judge(**kw):
         base = dict(
-            graded_by=None,
-            graded_is_self=False,
-            exhausted=False,
-            model_override=None,
+            graded_by=[], graded_is_self=False, exhausted=False, model_override=None
         )
         return types.SimpleNamespace(**{**base, **kw})
 
     result = {"judge": {"provider": "groq", "model": "x", "self": False}}
-    _record_judge_failover(result, judge(graded_by="groq"))
+    _record_judge_failover(result, judge(graded_by=["groq"]))
     assert "failed_over" not in result["judge"]
-    # Groq 404ed and OpenRouter graded: the report names OpenRouter.
-    _record_judge_failover(result, judge(graded_by="openrouter"))
+    # Groq 404ed before grading anything and OpenRouter graded: name OpenRouter.
+    _record_judge_failover(result, judge(graded_by=["openrouter"]))
     assert result["judge"]["provider"] == "openrouter"
-    assert result["judge"]["failed_over"] and "unavailable" not in result["judge"]
+    assert result["judge"]["failed_over"] and "mixed" not in result["judge"]
+
+    # Groq graded early steps, then 404ed, and OpenRouter graded the rest.
+    result = {"judge": {"provider": "groq", "model": None, "self": False}}
+    _record_judge_failover(result, judge(graded_by=["groq", "openrouter"]))
+    assert result["judge"]["mixed"] is True
+    assert result["judge"]["graded_by"] == ["groq", "openrouter"]
+    assert result["judge"]["provider"] == "groq+openrouter"
 
     # Every judge 404ed: nothing graded, so no provider is credited.
     result = {"judge": {"provider": "groq", "model": None, "self": False}}
