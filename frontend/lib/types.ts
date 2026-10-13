@@ -358,6 +358,35 @@ export interface ChapterSceneGenerateResponse {
   mode_reason?: string | null
 }
 
+/** POST /books/chapters/{id}/scenes/generate-planned request (SPEC-10). The
+ *  scene descriptions are the chapter's planned beats; the cast defaults to
+ *  the chapter's promoted one. */
+export interface PlannedScenesRequest {
+  character_ids?: string[]
+  setting?: string
+  emotional_tone?: string
+  target_word_count?: number
+  style_notes?: string | null
+  mode?: 'prose' | 'ensemble'
+}
+
+/** Its response: the first scene of the chain, or the batch already running. */
+export interface PlannedScenesResponse {
+  chapter_id: string
+  scene_id: string | null
+  job_id: string | null
+  status: string
+  /** Planned beats in the chapter. */
+  total: number | null
+  /** Scenes that will be written, one after another. */
+  queued: number
+  /** Beats that already had a scene. */
+  skipped?: number
+  already_running?: boolean
+  mode_requested?: 'prose' | 'ensemble'
+  mode_used?: 'prose' | 'ensemble'
+}
+
 /** PUT /books/scenes/{id}/content response. */
 export interface SceneContentSaveResponse {
   id: string

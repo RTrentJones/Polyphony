@@ -228,11 +228,18 @@ async def restore_entity_version(
             for field_name in fields:
                 if field_name in content:
                     setattr(row, field_name, content[field_name])
+            if entity_type == "chapter":
+                row.plan_node_id = await _free_plan_node(
+                    db, book_id, content.get("plan_node_id")
+                )
             db.add(row)
         else:
             for field_name in fields:
                 if field_name in content:
                     setattr(row, field_name, content[field_name])
+        if entity_type == "chapter":
+            # The promoted cast/POV (SPEC-10), against the book's current cast.
+            await entity_versions.apply_chapter_cast(db, row, content)
         if entity_type == "source":
             row.word_count = len((row.content_text or "").split())
             if row.content_text != prior_text:
@@ -287,6 +294,31 @@ async def _next_chapter_position(db: AsyncSession, book_id: UUID) -> int:
             ).where(ChapterORM.book_id == book_id)
         )
     ).scalar_one() + 1
+
+
+async def _free_plan_node(db: AsyncSession, book_id: UUID, plan_node_id) -> UUID | None:
+    """A recreated chapter keeps its outline-node link only while no live
+    chapter holds that node (one live chapter per node, SPEC-10): the node may
+    have been promoted again since the chapter was purged. Otherwise it comes
+    back unlinked rather than colliding with the live one."""
+    if not plan_node_id:
+        return None
+    try:
+        node_id = UUID(str(plan_node_id))
+    except ValueError:
+        return None
+    with db.no_autoflush:
+        taken = (
+            await db.execute(
+                trash.live(select(ChapterORM.id), ChapterORM)
+                .where(
+                    ChapterORM.book_id == book_id,
+                    ChapterORM.plan_node_id == node_id,
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    return None if taken is not None else node_id
 
 
 async def _check_name_free(db: AsyncSession, entity_type: str, row) -> None:

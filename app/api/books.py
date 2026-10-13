@@ -25,6 +25,7 @@ from app.core.database import get_db
 from app.core.orm_models import (
     Book as BookORM,
     Chapter as ChapterORM,
+    Character as CharacterORM,
     Scene as SceneORM,
     SceneRevision as SceneRevisionORM,
     Source as SourceORM,
@@ -42,6 +43,7 @@ from app.exports.builder import (
     to_markdown,
 )
 from app.jobs import repository as jobs_repo
+from app.jobs import scene_batch
 from app.llm.tier import get_tier
 from app.versioning import entities as entity_versions
 from app.versioning import trash
@@ -102,6 +104,19 @@ class ChapterSceneRequest(BaseModel):
     style_notes: Optional[str] = None
     # Generation mode (docs/BRD.md §8). prose = one call per beat (default);
     # ensemble = narrator/character/editor loop, opt-in and tier-gated.
+    mode: str = Field(default="prose", pattern="^(prose|ensemble)$")
+
+
+class PlannedScenesRequest(BaseModel):
+    """Generate every planned scene of a chapter (SPEC-10 follow-up). The
+    descriptions are the chapter's planned beats; the rest applies to each."""
+
+    # Defaults to the chapter's promoted cast when empty.
+    character_ids: list[UUID] = Field(default_factory=list)
+    setting: str = ""
+    emotional_tone: str = "neutral"
+    target_word_count: int = Field(default=800, ge=100, le=3000)
+    style_notes: Optional[str] = None
     mode: str = Field(default="prose", pattern="^(prose|ensemble)$")
 
 
@@ -715,52 +730,21 @@ async def generate_scene_into_chapter(
     # Concurrent appends can both compute max+1; the UNIQUE constraint turns
     # that into an IntegrityError — recreate scene AND job (both roll back)
     # with a recomputed position, once.
+    # Ensemble is opt-in AND tier-gated (docs/BRD.md §8): on the free tier it
+    # isn't allowed, so fall back to prose rather than reject the request.
+    job_kind = _scene_job_kind(payload.mode)
     for attempt in (1, 2):
-        next_pos = (
-            await db.execute(
-                live(
-                    select(func.coalesce(func.max(SceneORM.position), -1)), SceneORM
-                ).where(SceneORM.chapter_id == chapter_id)
-            )
-        ).scalar_one() + 1
-        scene = SceneORM(
-            user_id=user_id,
-            book_id=UUID(book_id),
-            source_id=payload.source_id,
-            chapter_id=chapter_id,
-            position=next_pos,
-            setting=payload.setting,
-            emotional_tone=payload.emotional_tone,
-            characters=cast_names,
-            character_ids=cast_ids,
-            scene_description=payload.scene_description,
-            scene_request=request_dict,
-            status="processing",
-        )
-        db.add(scene)
-        await db.flush()
-        # Ensemble is opt-in AND tier-gated (docs/BRD.md §8): on the free tier it
-        # isn't allowed, so fall back to prose rather than reject the request.
-        job_kind = (
-            "generate_ensemble_scene"
-            if payload.mode == "ensemble" and get_tier().allow_ensemble
-            else "generate_prose_scene"
-        )
         # Job + scene commit atomically: no 'processing' scene without a
         # durable job.
-        job = await jobs_repo.enqueue(
+        scene, job = await scene_batch.add_scene_job(
             db,
-            kind=job_kind,
-            payload={
-                "scene_id": str(scene.id),
-                "request": request_dict,
-                "user_id": str(user_id),
-                "book_id": book_id,
-            },
+            chapter_id=chapter_id,
+            book_id=UUID(book_id),
             user_id=user_id,
-            max_attempts=1,  # a retry re-spends LLM budget; user can re-trigger
+            request=request_dict,
+            job_kind=job_kind,
             dedupe_key=dedupe_key,
-            domain=("scene", scene.id),
+            source_id=payload.source_id,
         )
         if job.domain_id != scene.id:  # an identical request won the race
             await db.rollback()
@@ -798,6 +782,204 @@ async def generate_scene_into_chapter(
             if payload.mode != mode_used
             else None
         ),
+    }
+
+
+def _scene_job_kind(mode: str) -> str:
+    return (
+        "generate_ensemble_scene"
+        if mode == "ensemble" and get_tier().allow_ensemble
+        else "generate_prose_scene"
+    )
+
+
+@router.post("/chapters/{chapter_id}/scenes/generate-planned", response_model=dict)
+async def generate_planned_scenes(
+    chapter_id: UUID,
+    payload: PlannedScenesRequest,
+    current_user: UserORM = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """One scene per planned beat of a promoted chapter, written in order.
+
+    The beats are the "Planned beats:" lines promote wrote into the chapter
+    summary (SPEC-10); a beat that already has a live scene in the chapter is
+    skipped, so a second click after a failure picks up where it stopped. The
+    cast and POV default to the chapter's promoted ones.
+
+    Same gates as a single scene: budget check, the scene estimator's preflight
+    for ALL the scenes (refused with the estimate rather than stopping halfway),
+    the "llm" route class, and a dedupe key — one batch per chapter in flight, a
+    repeat returns it. The jobs run as a chain (app/jobs/scene_batch.py): only
+    the first is enqueued now, and each completed scene enqueues the next, so
+    every scene starts from the one before it.
+    """
+    chapter = await _owned_chapter(chapter_id, current_user, db)
+    key = scene_batch.batch_key(current_user.id, chapter_id)
+
+    async def _existing() -> Optional[dict]:
+        job = await scene_batch.find_active_batch_job(db, key)
+        if job is None:
+            return None
+        batch = (job.payload or {}).get("batch") or {}
+        return {
+            "chapter_id": str(chapter_id),
+            "scene_id": str(job.domain_id),
+            "job_id": str(job.id),
+            "status": "processing",
+            "already_running": True,
+            "total": batch.get("total"),
+            # Scenes of the batch not yet completed, this one included.
+            "queued": 1 + len(batch.get("remaining") or []),
+        }
+
+    if (found := await _existing()) is not None:
+        return found
+
+    beats = scene_batch.planned_beats(chapter.summary)
+    if not beats:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="This chapter has no planned beats. Promote it from the "
+            "outline, or generate scenes one at a time.",
+        )
+    written = await scene_batch.written_beats(db, chapter_id)
+    todo = [b for b in beats if b.strip() not in written]
+    if not todo:
+        return {
+            "chapter_id": str(chapter_id),
+            "scene_id": None,
+            "job_id": None,
+            "status": "nothing_to_do",
+            "total": len(beats),
+            "queued": 0,
+            "skipped": len(beats),
+        }
+
+    await check_user_budget(db, current_user.id)
+
+    # The cast: the request's, else the chapter's promoted cast — minus anyone
+    # trashed since promote (resolve_cast 422s on an unknown id, SPEC-01).
+    if payload.character_ids:
+        requested = list(payload.character_ids)
+    else:
+        live_ids = {
+            str(cid)
+            for cid in (
+                await db.execute(
+                    live(select(CharacterORM.id), CharacterORM).where(
+                        CharacterORM.book_id == chapter.book_id
+                    )
+                )
+            ).scalars()
+        }
+        requested = [
+            UUID(str(c)) for c in (chapter.character_ids or []) if str(c) in live_ids
+        ]
+    cast = await resolve_cast(db, chapter.book_id, character_ids=requested)
+    cast_names = [c.name for c in cast]
+    cast_ids = [str(c.id) for c in cast]
+    pov = next(
+        (c.name for c in cast if chapter.pov_character_id == c.id),
+        None,
+    )
+
+    # Preflight ALL the scenes with the single-scene estimator (SPEC-12).
+    from dataclasses import replace
+
+    from app.core import estimates
+    from app.planning.canon import build_canon, render_character
+
+    canon = await build_canon(db, chapter.book_id)
+    one = estimates.scene(
+        canon_chars=len(canon.full_block()),
+        cast_context_chars=sum(len(render_character(c)) + 1500 for c in cast),
+        target_words=payload.target_word_count,
+        mode=payload.mode,
+        cast_size=len(cast),
+    )
+    n = len(todo)
+    est = replace(
+        one,
+        calls=one.calls * n,
+        input_tokens=one.input_tokens * n,
+        output_tokens=one.output_tokens * n,
+        notes=[*one.notes, f"{n} scene(s), written one after another."],
+    )
+    assessed = await estimates.assess(db, current_user.id, est)
+    if not assessed["allowed"]:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"message": assessed["reason"], "estimate": assessed},
+        )
+
+    requests = [
+        {
+            "source_id": None,
+            "character_ids": cast_ids,
+            "characters": cast_names,
+            "scene_description": beat,
+            "setting": payload.setting,
+            "emotional_tone": payload.emotional_tone,
+            "pov_character": pov,
+            "target_word_count": payload.target_word_count,
+            "style_notes": payload.style_notes,
+            "mode": payload.mode,
+        }
+        for beat in todo
+    ]
+    job_kind = _scene_job_kind(payload.mode)
+    book_id = chapter.book_id
+    user_id = current_user.id
+    batch = {
+        "key": key,
+        "chapter_id": str(chapter_id),
+        "kind": job_kind,
+        "index": 0,
+        "total": n,
+        "remaining": requests[1:],
+    }
+    for attempt in (1, 2):
+        scene, job = await scene_batch.add_scene_job(
+            db,
+            chapter_id=chapter_id,
+            book_id=book_id,
+            user_id=user_id,
+            request=requests[0],
+            job_kind=job_kind,
+            dedupe_key=f"{key}:0",
+            batch=batch,
+        )
+        if job.domain_id != scene.id:  # an identical request won the race
+            await db.rollback()
+            return await _existing()
+        job_id = str(job.id)
+        try:
+            await db.commit()
+            break
+        except IntegrityError:
+            await db.rollback()
+            if (found := await _existing()) is not None:
+                return found
+            if attempt == 2:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Scene position conflict; please retry",
+                )
+    await db.refresh(scene)
+
+    mode_used = "ensemble" if job_kind == "generate_ensemble_scene" else "prose"
+    return {
+        "chapter_id": str(chapter_id),
+        "scene_id": str(scene.id),
+        "job_id": job_id,
+        "status": scene.status,
+        "total": len(beats),
+        "queued": n,
+        "skipped": len(beats) - n,
+        "mode_requested": payload.mode,
+        "mode_used": mode_used,
+        "estimate": assessed,
     }
 
 

@@ -21,6 +21,58 @@ from app.core.llm_text import as_quoted_block, clean_for_llm
 from app.core.orm_models import Character
 from app.rag.store import get_chunk_store
 
+# A grounding record keeps a bounded excerpt of each sample's text as it was at
+# generation time, so a sample deleted since still shows what grounded the
+# scene (R5.3). Bounded: the record lives in Scene.evaluation_scores and is
+# provenance, not a second copy of the voice index.
+GROUNDING_EXCERPT_CHARS = 300
+NO_SAMPLES_REASON = "no indexed voice samples"
+CONTEXT_ONLY_REASON = "context only"
+
+
+def grounding_excerpt(text_value: Optional[str]) -> Optional[str]:
+    """The first ~300 chars of a sample, cut at a word boundary when possible."""
+    if not text_value:
+        return None
+    text_value = text_value.strip()
+    if len(text_value) <= GROUNDING_EXCERPT_CHARS:
+        return text_value
+    cut = text_value[:GROUNDING_EXCERPT_CHARS]
+    space = cut.rfind(" ")
+    if space > GROUNDING_EXCERPT_CHARS // 2:
+        cut = cut[:space]
+    return cut.rstrip() + "…"
+
+
+def unsampled_entry(character: Character, reason: str) -> dict:
+    """A grounding entry for a character no sample grounded, and why."""
+    return {
+        "character_id": str(character.id),
+        "chunk_id": None,
+        "score": None,
+        "reason": reason,
+    }
+
+
+def grounding_entries(character: Character, samples: list[dict]) -> list[dict]:
+    """One character's grounding-record entries for one beat.
+
+    A character with no samples still gets an entry (no chunk, with a reason),
+    so the grounding view lists every character in the scene instead of
+    silently omitting the ones written without voice samples.
+    """
+    if not samples:
+        return [unsampled_entry(character, NO_SAMPLES_REASON)]
+    return [
+        {
+            "character_id": str(character.id),
+            "chunk_id": s.get("id"),
+            "score": s.get("score"),
+            "excerpt": grounding_excerpt(s.get("text")),
+        }
+        for s in samples
+    ]
+
 
 async def load_characters_for_book(
     names: list[str],
@@ -60,8 +112,9 @@ async def build_character_context(
 ) -> str:
     """One character's context block: bible summary + retrieved voice samples.
 
-    `grounding`, when given, collects the retrieved chunks (id + score) so the
-    caller can record which samples grounded this generation (R5.3).
+    `grounding`, when given, collects the retrieved chunks (id, score and a
+    bounded text excerpt) so the caller can record which samples grounded this
+    generation (R5.3); a character with none gets a reason entry instead.
     """
     lines = [f"### {name}"]
     if character is None:
@@ -90,15 +143,8 @@ async def build_character_context(
         if max_samples > 0
         else []
     )
-    if grounding is not None:
-        grounding.extend(
-            {
-                "character_id": str(character.id),
-                "chunk_id": s.get("id"),
-                "score": s.get("score"),
-            }
-            for s in samples
-        )
+    if grounding is not None and max_samples > 0:
+        grounding.extend(grounding_entries(character, samples))
     if samples:
         lines.append("Voice samples (match this voice — cadence, diction, syntax):")
         # These samples ARE the voice grounding — the product's whole premise.
@@ -192,14 +238,7 @@ async def build_agent_context(
             if s.get("id") not in seen
         ][:k]
     if grounding is not None:
-        grounding.extend(
-            {
-                "character_id": str(character.id),
-                "chunk_id": s.get("id"),
-                "score": s.get("score"),
-            }
-            for s in [*voice, *body]
-        )
+        grounding.extend(grounding_entries(character, [*voice, *body]))
     if voice:
         blocks.append(
             as_quoted_block(

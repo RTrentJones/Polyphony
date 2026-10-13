@@ -21,6 +21,7 @@ import {
 import Button from '@/components/Button'
 import DeleteChapterModal from '@/components/book/DeleteChapterModal'
 import GenerateSceneModal from '@/components/book/GenerateSceneModal'
+import GeneratePlannedScenesButton from '@/components/book/GeneratePlannedScenesButton'
 import Card from '@/components/Card'
 import Input from '@/components/Input'
 import Loading from '@/components/Loading'
@@ -212,6 +213,15 @@ export default function ChaptersSection({
                       <Wand2 className="h-4 w-4 mr-1" />
                       Generate scene
                     </Button>
+                    <GeneratePlannedScenesButton
+                      chapter={chapter}
+                      onDone={(message, kind) => {
+                        addToast(message, kind)
+                        if (kind !== 'error') {
+                          setExpanded((prev) => ({ ...prev, [chapter.id]: true }))
+                        }
+                      }}
+                    />
                     <button
                       onClick={() => setHistoryFor(chapter)}
                       className="p-1 text-gray-400 hover:text-primary-600"

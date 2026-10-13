@@ -27,7 +27,12 @@ from __future__ import annotations
 from typing import Optional
 from uuid import UUID
 
-from app.characters.context import build_agent_context, load_characters_for_book
+from app.characters.context import (
+    CONTEXT_ONLY_REASON,
+    build_agent_context,
+    load_characters_for_book,
+    unsampled_entry,
+)
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.logging_config import setup_logging
 from app.llm.client import get_llm_client
@@ -285,8 +290,10 @@ async def run_ensemble(
     present = list(dict.fromkeys(scene_request.get("characters") or []))  # dedup, order
     agents = present[: tier.max_agents]  # only these get their own proposal agent
 
+    # The whole present cast is loaded: agents get their rows, and context-only
+    # characters get a grounding entry saying why no sample grounded them.
     characters = await load_characters_for_book(
-        agents, user_id=user_id, book_id=book_id
+        present, user_id=user_id, book_id=book_id
     )
 
     st = dict(state or {})
@@ -374,6 +381,14 @@ async def run_ensemble(
         }
 
     assert best is not None
+    # Context-only characters have no agent and so no retrieval; record them
+    # anyway so the grounding view lists everyone in the beat (R5.3).
+    context_only = [
+        unsampled_entry(characters[n], CONTEXT_ONLY_REASON)
+        for n in present[len(agents) :]
+        if characters.get(n) is not None
+    ]
+    best["grounding"] = [*(best.get("grounding") or []), *context_only]
     best["rounds"] = round_no  # rounds actually run, not the best draft's round
     best["evaluation"]["converged"] = _converged(best["evaluation"])
     return best

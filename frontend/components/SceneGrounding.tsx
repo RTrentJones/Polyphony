@@ -3,7 +3,9 @@
  * scene, per beat and per character, with their retrieval scores (R5.3).
  *
  * Fetched only when opened: it is provenance, not something every read needs.
- * Text is the chunk's CURRENT text; a sample deleted since generation says so.
+ * Text is the chunk's CURRENT text; a sample deleted since generation shows
+ * the excerpt stored when the scene was written, marked as deleted. A character
+ * no sample grounded is listed with the reason (none indexed, context only).
  */
 
 'use client'
@@ -45,11 +47,13 @@ export default function SceneGrounding({ sceneId }: { sceneId: string }) {
             This scene was generated before grounding was recorded.
           </p>
         )}
-        {data && data.recorded && data.beats.every((b) => b.characters.length === 0) && (
-          <p className="text-gray-500">
-            No voice samples grounded this scene — its characters had none indexed.
-          </p>
-        )}
+        {data &&
+          data.recorded &&
+          data.beats.every((b) => b.characters.every((c) => c.samples.length === 0)) && (
+            <p className="text-gray-500">
+              No voice samples grounded this scene — its characters had none indexed.
+            </p>
+          )}
         {data?.beats
           .filter((b) => b.characters.length > 0)
           .map((beat) => (
@@ -62,7 +66,14 @@ export default function SceneGrounding({ sceneId }: { sceneId: string }) {
               </p>
               {beat.characters.map((c) => (
                 <div key={c.character_id} className="ml-3 mt-1">
-                  <p className="text-gray-700">{c.name || 'Deleted character'}</p>
+                  <p className="text-gray-700">
+                    {c.name || 'Deleted character'}
+                    {c.samples.length === 0 && (
+                      <span className="ml-2 text-xs italic text-gray-500">
+                        ({c.reason || 'no indexed voice samples'})
+                      </span>
+                    )}
+                  </p>
                   <ul className="ml-3 space-y-0.5">
                     {c.samples.map((s, i) => (
                       <li key={s.chunk_id || i} className="text-xs flex gap-2">
@@ -70,8 +81,11 @@ export default function SceneGrounding({ sceneId }: { sceneId: string }) {
                           {formatScore(s.score)}
                         </span>
                         {s.deleted ? (
-                          <span className="italic text-gray-400">
-                            (sample deleted since generation)
+                          <span className="text-gray-500">
+                            {s.excerpt && <span>{s.excerpt}</span>}
+                            <span className="ml-1 italic text-gray-400">
+                              (deleted since generation)
+                            </span>
                           </span>
                         ) : (
                           <span className="text-gray-800">{s.text}</span>
