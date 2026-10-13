@@ -19,16 +19,16 @@ import type { ToastType } from '@/components/Toast'
 import apiClient from '@/lib/api-client'
 import { isActiveJob } from '@/lib/jobs'
 import { useSourceStore } from '@/lib/store'
+import { useBook } from '@/components/book/BookProvider'
 import type { Source } from '@/lib/types'
 
 export default function SourcesPanel({
-  bookId,
   addToast,
 }: {
-  bookId: string
   addToast: (message: string, type: ToastType) => void
 }) {
   const router = useRouter()
+  const { bookId } = useBook()
   const { sources, fetchSources, editSource, deleteSource } = useSourceStore()
 
   const [editing, setEditing] = useState<Source | null>(null)

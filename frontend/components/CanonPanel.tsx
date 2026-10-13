@@ -18,12 +18,12 @@ import Modal from './Modal'
 import VersionHistory from './VersionHistory'
 import VoicePanel from './VoicePanel'
 import { type ToastType } from './Toast'
+import { useBook } from '@/components/book/BookProvider'
 import { useBookStore } from '@/lib/books-store'
 import { canonApi } from '@/lib/canon-store'
 import type {
   CanonCategory,
   CanonEntry,
-  Character,
   CharacterDetail,
   StyleGuide,
   VersionedEntityType,
@@ -52,21 +52,19 @@ function coerceMap(
 type HistoryTarget = { type: VersionedEntityType; id: string; label: string }
 
 export default function CanonPanel({
-  bookId,
-  synopsis,
-  onBookChanged,
   addToast,
 }: {
-  bookId: string
-  synopsis: string | null | undefined
-  /** Refetch the book so the header synopsis reflects an edit/restore. */
-  onBookChanged: () => void
   addToast: (message: string, type: ToastType) => void
 }) {
+  const { bookId, book, characters, refreshBook, refreshCharacters } = useBook()
+  const synopsis = book?.synopsis
+  /** Refetch the book so the header synopsis reflects an edit/restore. */
+  const onBookChanged = () => {
+    refreshBook().catch(() => undefined)
+  }
   const { updateBook } = useBookStore()
   const [entries, setEntries] = useState<CanonEntry[]>([])
   const [style, setStyle] = useState<StyleGuide | null>(null)
-  const [characters, setCharacters] = useState<Character[]>([])
   const [loading, setLoading] = useState(true)
 
   const [history, setHistory] = useState<HistoryTarget | null>(null)
@@ -81,19 +79,18 @@ export default function CanonPanel({
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [canon, chars] = await Promise.all([
+      const [canon] = await Promise.all([
         canonApi.getCanon(bookId),
-        canonApi.listCharacters(bookId),
+        refreshCharacters(),
       ])
       setEntries(canon.entries)
       setStyle(canon.style)
-      setCharacters(chars)
     } catch (err: any) {
       addToast(err.message || 'Failed to load canon', 'error')
     } finally {
       setLoading(false)
     }
-  }, [bookId, addToast])
+  }, [bookId, addToast, refreshCharacters])
 
   useEffect(() => {
     load()

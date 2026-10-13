@@ -51,6 +51,10 @@ skill sends agents there first, so stale status misleads every future change.
 - Add Vitest + React Testing Library with tests for the status badges (all job states from SPEC-07),
   the KeyValueEditor, and the cast picker, and run `npm test` in `test.yml`.
 - Introduce the minimal `BookProvider` the feature set already planned, to stop prop-drilling `?id=`.
+  *Done:* `frontend/components/book/BookProvider.tsx` holds the book id, the loaded book, its
+  chapters and characters (characters load lazily), and `refreshBook` / `refreshChapter` /
+  `refreshCharacters`; the detail page's panels read them with `useBook()`. Toasts (`addToast`)
+  and per-panel callbacks stay props.
 
 **Acceptance**: the split PR is a pure move (the diff is reviewable as moves); CI runs frontend
 tests.
