@@ -472,6 +472,34 @@ async def test_generate_planned_retries_a_position_clash_raised_at_flush(
     assert len((await async_session.execute(select(Job))).scalars().all()) == 1
 
 
+async def test_an_in_flight_batch_reports_the_chapter_total(
+    client, auth_headers, async_session, test_book
+):
+    """`total` is the chapter's planned-beat count even when some beats were
+    written before the batch started (they are `skipped`)."""
+    _, chapter_id = await _two_beat_chapter(
+        client, auth_headers, async_session, test_book
+    )
+    chapter = await async_session.get(Chapter, uuid.UUID(chapter_id))
+    async_session.add(
+        Scene(
+            user_id=test_book.user_id,
+            book_id=test_book.id,
+            chapter_id=chapter.id,
+            position=0,
+            scene_description="Badge photo: Milo learns he is dead",
+            status="completed",
+        )
+    )
+    await async_session.commit()
+    url = f"/api/v1/books/chapters/{chapter_id}/scenes/generate-planned"
+    first = (await client.post(url, json={}, headers=auth_headers)).json()
+    assert (first["total"], first["queued"], first["skipped"]) == (2, 1, 1)
+    again = (await client.post(url, json={}, headers=auth_headers)).json()
+    assert again["already_running"] is True
+    assert (again["total"], again["queued"], again["skipped"]) == (2, 1, 1)
+
+
 async def test_generate_planned_needs_planned_beats(
     client, auth_headers, async_session, test_book
 ):

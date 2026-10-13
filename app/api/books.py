@@ -842,6 +842,7 @@ async def generate_planned_scenes(
             "total": batch.get("total"),
             # Scenes of the batch not yet completed, this one included.
             "queued": 1 + len(batch.get("remaining") or []),
+            "skipped": batch.get("skipped", 0),
         }
 
     if (found := await _existing()) is not None:
@@ -948,7 +949,10 @@ async def generate_planned_scenes(
         "chapter_id": str(chapter_id),
         "kind": job_kind,
         "index": 0,
-        "total": n,
+        # The chapter's planned-beat count (the API's `total`), not this chain's
+        # length: beats written before the batch started are `skipped`.
+        "total": len(beats),
+        "skipped": len(beats) - n,
         "remaining": requests[1:],
     }
     for attempt in (1, 2):

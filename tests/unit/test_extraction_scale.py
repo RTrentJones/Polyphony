@@ -910,11 +910,26 @@ class TestNarratorVoice:
             self_named_narrators,
         )
 
-        text = '"My name is Hollis Crane," he said.\n\nI did not trust him.'
-        assert self_named_narrators(text) == []
         cast = [{"name": "Hollis Crane", "aliases": []}]
-        got = CharacterExtractor().extract_narration(text, "Hollis Crane", cast=cast)
-        assert got == []
+        for text in (
+            '"My name is Hollis Crane," he said.\n\nI did not trust him.',
+            # Single and curly-single quotation marks are dialogue too.
+            "'My name is Hollis Crane,' he said.\n\nI did not trust him.",
+            "\u2018My name is Hollis Crane,\u2019 he said.\n\nI did not trust him.",
+        ):
+            assert self_named_narrators(text) == [], text
+            got = CharacterExtractor().extract_narration(
+                text, "Hollis Crane", cast=cast
+            )
+            assert got == [], text
+
+    def test_apostrophes_do_not_hide_a_self_naming(self):
+        from app.parsing.character_extractor import self_named_narrators
+
+        text = (
+            "I'm tired, and the dogs' bones are Hollis's now. My name is Rowan Merrow."
+        )
+        assert self_named_narrators(text) == ["Rowan Merrow"]
 
     def test_two_self_named_narrators_are_ambiguous(self):
         from app.parsing.character_extractor import CharacterExtractor

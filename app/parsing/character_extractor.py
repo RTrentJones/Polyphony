@@ -47,9 +47,17 @@ _FIRST_PERSON = re.compile(r"\b(?:I|[Mm]y|[Mm]e|[Mm]yself|[Ww]e|[Oo]ur|[Uu]s)\b"
 _HEADING_MAX_CHARS = 140
 
 
+# Single-quoted speech ('My name is Hollis,' he said). An opening quote is not
+# preceded by a word character and a closing one is not followed by one, so
+# apostrophes (I'm, Hollis's, the dogs' bones) neither open nor close a span.
+_SINGLE_QUOTED = re.compile(r"(?<!\w)'(?=\S).*?(?<=\S)'(?!\w)")
+
+
 def _narration_only(paragraph: str) -> str:
-    """The paragraph minus quoted speech — a narrator's "I" is outside quotes."""
-    return re.sub(r'"[^"]*"', " ", _normalize_quotes(paragraph))
+    """The paragraph minus quoted speech — a narrator's "I" is outside quotes.
+    Both dialogue styles are stripped: double and single quotation marks."""
+    text = re.sub(r'"[^"]*"', " ", _normalize_quotes(paragraph))
+    return _SINGLE_QUOTED.sub(" ", text)
 
 
 def _is_narrator_heading(para: str) -> bool:
