@@ -49,9 +49,11 @@ PROVIDERS: dict[str, Provider] = {
         default_model="gemini-2.5-flash",
         fast_model="gemini-2.5-flash-lite",
         max_rpm=8,  # AI Studio free tier is ~10 RPM; leave headroom
-        # AI Studio free tier (verify against the rate-limits page before
-        # relying on it; record the date in docs/BRD.md §6): 2.5 Flash 250/day,
-        # 2.5 Flash-Lite 1,000/day, reset at midnight Pacific.
+        # Google no longer publishes a universal free-tier table: limits are
+        # per project and shown in AI Studio (re-checked 2026-10). The reset at
+        # midnight Pacific is documented. 250/day (2.5 Flash) and 1,000/day
+        # (Flash-Lite) are the last published figures and serve as conservative
+        # defaults; set LLM_MAX_RPD to the project's AI Studio value to override.
         max_rpd=250,
         fast_max_rpd=1000,
         rpd_reset_tz="America/Los_Angeles",

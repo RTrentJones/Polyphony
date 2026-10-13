@@ -326,7 +326,7 @@ plot.** The constraint and the craft agree.
 
 **Decision (2026-10, SPEC-14):** ensemble stays paid-tier-only. The free tier's requests-per-day ceiling is now tracked (R7.7), every scene request is preflighted against it, and an ensemble request that cannot finish within the provider's remaining requests is refused with its estimate rather than paused mid-loop. The `ensemble` eval step compares the same scene in both modes (action coverage + judge); run it with `LLM_TIER=paid` and a live key to revisit the gating with evidence.
 
-⚠️ **The binding limit is probably requests-per-day, not tokens.** *(Now tracked: the Gemini row carries 250/day for 2.5 Flash and 1,000/day for 2.5 Flash-Lite, reset at midnight Pacific — the published AI Studio free-tier figures as last known; re-verify on the rate-limits page before relying on them, 2026-10.)* The 200k token limit is our own
+⚠️ **The binding limit is probably requests-per-day, not tokens.** *(Now tracked: the Gemini row carries 250/day for 2.5 Flash and 1,000/day for 2.5 Flash-Lite, reset at midnight Pacific — the last figures Google published. As of 2026-10 the rate-limits page no longer lists per-model numbers (limits are per project and shown in AI Studio); only the midnight-Pacific reset is documented. These values are conservative defaults, overridden by `LLM_MAX_RPD` when a project's AI Studio limit differs.)* The 200k token limit is our own
 number and is cheap to raise; RPD is the provider's and is shared across all users. At ~12 calls
 per ensemble scene this is a low double-digit ceiling site-wide. **Verify the current free-tier
 RPD before building the ensemble.** If it is too low, the answer is the paid flip (R7.6), not a
