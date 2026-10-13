@@ -21,6 +21,11 @@ _SYSTEM = (
 )
 
 
+class JudgeUnavailable(RuntimeError):
+    """Every judge in the chain failed for good (e.g. each vendor retired its
+    model). Steps record it and still report their deterministic metrics."""
+
+
 @dataclass
 class Judgment:
     score: float
@@ -59,6 +64,14 @@ class Judge:
     def __init__(self, cfg: EvalConfig):
         self._cfg = cfg
         self._client = None
+        # Who actually produced a judgment (None until one succeeds), and
+        # whether the whole chain gave out — the run report records these
+        # rather than whichever provider was merely tried last.
+        # Every provider that produced a judgment, in order (a mid-run failover
+        # can leave earlier steps graded by one judge and later ones by another).
+        self.graded_by: list[str] = []
+        self.graded_is_self = False
+        self.exhausted = False
         # Resolved eagerly so the report records the judge that will ACTUALLY
         # grade (post-fallback), not just the requested one.
         self.provider_id, self.fell_back = self._resolve()
@@ -140,13 +153,20 @@ class Judge:
         prompt = f"RUBRIC:\n{rubric}\n\nRESPONSE TO SCORE:\n{content}\n\nJSON:"
         while True:
             try:
-                return await self._score_once(prompt)
-            except NotFoundError:
+                judgment = await self._score_once(prompt)
+                if self.provider_id not in self.graded_by:
+                    self.graded_by.append(self.provider_id)
+                self.graded_is_self = self.graded_is_self or self.is_self
+                return judgment
+            except NotFoundError as e:
                 # A vendor retired the judge model (a 404 is not transient):
                 # grade with the next provider in the chain instead of failing
                 # the whole step it belongs to.
                 if not self._next_in_chain():
-                    raise
+                    self.exhausted = True
+                    raise JudgeUnavailable(
+                        f"no judge in the chain is available: {e}"
+                    ) from e
 
     async def _score_once(self, prompt: str) -> Judgment:
         client = self._ensure()
@@ -156,7 +176,9 @@ class Judge:
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,
-            max_tokens=400,
+            # Headroom for reasoning judges (gpt-oss), whose reasoning counts
+            # against max_tokens; the JSON reply itself is short.
+            max_tokens=1024,
             purpose="eval_judge",
             model=self.model_override,
             # Structured-output mode: llama judges sometimes ignore the

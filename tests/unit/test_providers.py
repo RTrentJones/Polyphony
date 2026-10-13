@@ -49,8 +49,9 @@ class TestProviderRegistry:
         assert gemini.env_key == "GEMINI_API_KEY"
 
     def test_groq_default_model_is_live(self):
-        # The old default (llama-3.1-70b-versatile) was decommissioned on Groq.
-        assert PROVIDERS["groq"].default_model == "llama-3.3-70b-versatile"
+        # Groq retired its Llama 3.x models (2026-08-16); gpt-oss replaced them.
+        assert PROVIDERS["groq"].default_model == "openai/gpt-oss-120b"
+        assert PROVIDERS["groq"].extra_body == {"reasoning_effort": "low"}
 
     def test_default_provider_is_gemini(self):
         assert active_provider().id == "gemini"

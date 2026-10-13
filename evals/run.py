@@ -25,6 +25,31 @@ from evals.steps import pipeline  # noqa: F401 — registers the steps
 from evals.steps.base import StepContext, all_steps, get_step
 
 
+def _record_judge_failover(result: dict, judge) -> None:
+    """A retired judge model fails over mid-run (Judge._next_in_chain): record
+    the judges that actually produced judgments, not the one resolved before
+    the steps ran. Several means the run's scores are MIXED (earlier steps by
+    one judge, later by another) and the report says so; a chain that gave out
+    entirely graded nothing, so the run is marked judge-unavailable instead of
+    naming the last provider tried."""
+    graded_by = list(getattr(judge, "graded_by", None) or [])
+    if getattr(judge, "exhausted", False):
+        # Nothing graded at all → judge scores are n/a; graded earlier and
+        # then gave out → some steps have judge scores and later ones do not.
+        result["judge"]["partial" if graded_by else "unavailable"] = True
+    if not graded_by or graded_by == [result["judge"]["provider"]]:
+        return
+    result["judge"].update(
+        provider="+".join(graded_by),
+        model=judge.model_override if len(graded_by) == 1 else None,
+        self=judge.graded_is_self,
+        graded_by=graded_by,
+        failed_over=True,
+    )
+    if len(graded_by) > 1:
+        result["judge"]["mixed"] = True
+
+
 async def _app_sha(base_url: str) -> str:
     try:
         async with httpx.AsyncClient(timeout=10) as h:
@@ -63,10 +88,15 @@ def _aggregate(passes: list[dict]) -> dict:
             for p in passes
             if name in p and isinstance(p[name].get("score"), (int, float))
         ]
-        if len(scored) <= 1:
-            # 0 or 1 numeric passes: report the last pass verbatim (a lone error
-            # or skip surfaces as-is; a single score needs no aggregation).
+        if not scored:
+            # No numeric pass: report the last pass verbatim (a lone error or
+            # skip surfaces as-is).
             out[name] = passes[-1][name]
+            continue
+        if len(scored) == 1:
+            # One numeric pass (e.g. the judge gave out on the later repeats):
+            # keep that score rather than the last, judge-less pass.
+            out[name] = scored[0]
             continue
         # Seed from the last SCORED pass (not passes[-1]) so a transient error on
         # the final repeat can't drag an "error" key onto a valid aggregated mean
@@ -155,6 +185,7 @@ async def run(book: str, step_names: list[str], out: str, repeat: int = 1) -> di
                         quota_exhausted = True
             passes.append(one)
         result["steps"] = _aggregate(passes)
+        _record_judge_failover(result, ctx.judge)
     finally:
         if ctx.client:
             await ctx.client.aclose()

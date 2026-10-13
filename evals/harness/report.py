@@ -14,10 +14,25 @@ import json
 def scorecard(run: dict) -> str:
     lines = [
         f"Polyphony evals — book={run['book']} sha={run.get('app_sha','?')[:12]}",
-        f"judge={run['judge']['provider']}/{run['judge'].get('model','?')}"
+        f"judge={run['judge']['provider']}/{run['judge'].get('model') or 'default'}"
         + (
             "  ⚠ self-grading (judge == model under test)"
             if run["judge"]["self"]
+            else ""
+        )
+        + (
+            "  ⚠ no judge available: judge scores n/a"
+            if run["judge"].get("unavailable")
+            else ""
+        )
+        + (
+            "  ⚠ judge gave out mid-run: later steps have no judge score"
+            if run["judge"].get("partial")
+            else ""
+        )
+        + (
+            "  ⚠ mixed judges (failover mid-run): scores are not comparable"
+            if run["judge"].get("mixed")
             else ""
         ),
         "-" * 64,
@@ -42,6 +57,11 @@ def scorecard(run: dict) -> str:
         elif name == "continuity":
             extra = f"recall={res['detection_recall']} fpr={res['false_positive_rate']}"
         std = res.get("score_std")
+        if score is None:  # the judge was unavailable: metrics only
+            lines.append(
+                f"  {name:14s}  n/a      {res.get('judge_explanation', '')[:50]}"
+            )
+            continue
         score_str = f"{score:.3f}" + (
             f" ±{std:.3f} (n={res.get('repeats')})" if std is not None else ""
         )
@@ -71,7 +91,7 @@ def tracer_export(
     """
     cases = []
     for name, res in run["steps"].items():
-        if res.get("skipped") or "error" in res:
+        if res.get("skipped") or "error" in res or res.get("score") is None:
             continue
         score = round(min(1.0, max(0.0, float(res.get("score", 0.0)))), 4)
         out = _case_output(name, res)
@@ -126,7 +146,8 @@ def greenlight_export(run: dict) -> dict:
     """Shape results as greenlight eval checks[] (score in 0..1)."""
     checks = []
     for name, res in run["steps"].items():
-        if res.get("skipped") or "error" in res:
+        # A judge-less step (score None) has no 0..1 eval score to export.
+        if res.get("skipped") or "error" in res or res.get("score") is None:
             continue
         checks.append(
             {

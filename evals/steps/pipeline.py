@@ -94,6 +94,19 @@ def proposed_characters(run: dict) -> list[dict]:
     return out
 
 
+async def _judge(ctx, rubric: str, content: str) -> tuple[float | None, str]:
+    """(score, explanation) from the judge, or (None, why) when every judge in
+    the chain is unavailable — so a step still reports its deterministic
+    metrics (cast fidelity, word counts) and the gates on them still run."""
+    from evals.harness.judge import JudgeUnavailable
+
+    try:
+        j = await ctx.judge.score(rubric, content)
+    except JudgeUnavailable as e:
+        return None, f"judge unavailable: {e}"[:300]
+    return j.score, j.explanation
+
+
 # --- Step 1: character extraction -----------------------------------------
 # Extraction PROPOSES canon for the author to review (docs/BRD.md R4.4), so the
 # thing to grade is the proposal set; the step then approves everything (as an
@@ -305,12 +318,12 @@ async def step_outline(ctx: StepContext) -> dict:
         "about the reference story's own characters (an invented protagonist "
         "scores 0)."
     )
-    j = await ctx.judge.score(rubric, outline_txt or "(empty outline)")
+    judge, why = await _judge(ctx, rubric, outline_txt or "(empty outline)")
     result: dict = {
         "n_nodes": len(nodes),
         "structural_ok": structural,
-        "judge": j.score,
-        "judge_explanation": j.explanation,
+        "judge": judge,
+        "judge_explanation": why,
         "plan_status": out.get("status") if isinstance(out, dict) else None,
         "app_warnings": out.get("warnings") if isinstance(out, dict) else None,
     }
@@ -320,9 +333,13 @@ async def step_outline(ctx: StepContext) -> dict:
         result["cast_fidelity"] = fs.principal_recall
         result["unknown_rate"] = fs.unknown_rate
         result["missing_principals"] = fs.missing
-        result["score"] = round(fs.principal_recall * j.score, 4) if structural else 0.0
+        result["score"] = (
+            None
+            if judge is None
+            else round(fs.principal_recall * judge, 4) if structural else 0.0
+        )
     else:
-        result["score"] = j.score if structural else 0.0
+        result["score"] = None if judge is None else judge if structural else 0.0
     return result
 
 
@@ -416,11 +433,11 @@ async def step_prose(ctx: StepContext) -> dict:
         "readable prose; (c) do the two named characters read as distinct voices. "
         f"Characters: {', '.join(cast)}."
     )
-    j = await ctx.judge.score(rubric, prose)
+    judge, why = await _judge(ctx, rubric, prose)
     named = [c for c in cast if c.split()[0] in prose]
     return {
-        "score": j.score,
-        "judge_explanation": j.explanation,
+        "score": judge,
+        "judge_explanation": why,
         "words": len(prose.split()),
         "cast_named": len(named) / max(1, len(cast)),
     }
@@ -464,15 +481,25 @@ async def step_ensemble(ctx: StepContext) -> dict:
                 "reason": "the tier ran ensemble as prose (set LLM_TIER=paid)",
             }
         prose = scene.get("content") or ""
-        j = await ctx.judge.score(rubric, prose or "(empty)")
+        judge, why = await _judge(ctx, rubric, prose or "(empty)")
         out[mode] = {
             "action_coverage": action_coverage(prose, cast),
-            "judge": j.score,
+            "judge": judge,
             "words": len(prose.split()),
         }
+        if judge is None:
+            out["judge_explanation"] = why
     out["action_coverage_delta"] = round(
         out["ensemble"]["action_coverage"] - out["prose"]["action_coverage"], 4
     )
-    out["judge_delta"] = round(out["ensemble"]["judge"] - out["prose"]["judge"], 4)
-    out["score"] = out["ensemble"]["action_coverage"] * out["ensemble"]["judge"]
+    judged = out["ensemble"]["judge"] is not None and out["prose"]["judge"] is not None
+    # Without a judge the deterministic action-coverage metrics still report.
+    out["judge_delta"] = (
+        round(out["ensemble"]["judge"] - out["prose"]["judge"], 4) if judged else None
+    )
+    out["score"] = (
+        out["ensemble"]["action_coverage"] * out["ensemble"]["judge"]
+        if judged
+        else None
+    )
     return out

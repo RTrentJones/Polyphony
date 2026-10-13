@@ -239,6 +239,9 @@ async def journey(page: Page) -> None:
         await page.get_by_role("button", name="Edit", exact=True).first.click()
         await page.locator("textarea").first.fill("A heist in a monastery.")
         await page.get_by_role("button", name="Save", exact=True).click()
+        # The toast appears only once the save has returned, so the history
+        # opened next lists the edit's version (the text alone can show sooner).
+        await toast("Synopsis saved")
         await expect(page.get_by_text("A heist in a monastery.").first).to_be_visible()
         await page.get_by_role("button", name="History", exact=True).first.click()
         history = page.get_by_role("dialog")
@@ -386,8 +389,10 @@ async def journey(page: Page) -> None:
 
     async def paused_scene_on_usage_then_cancel():
         # Every model call now answers 429: the scene's job pauses for quota.
+        # A long Retry-After keeps the job paused (not flapping between paused
+        # and resumed every ~2 s), so the badge's poll reliably sees "paused".
         await page.request.post(
-            f"{STUB}/__stub/config", data={"fail_429": 10_000, "retry_after": 1}
+            f"{STUB}/__stub/config", data={"fail_429": 10_000, "retry_after": 30}
         )
         try:
             await open_scene_modal()

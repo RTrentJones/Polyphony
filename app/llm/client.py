@@ -106,7 +106,10 @@ class LLMClient:
         start = time.monotonic()
         if user_id is not None:
             prompt_chars = sum(len(str(m.get("content") or "")) for m in messages)
-            await _check_user_budget(user_id, prompt_chars // 4 + max_tokens)
+            # Check the cap actually sent: reasoning models get headroom on top
+            # of the caller's max_tokens (_thinking_guard), and it is spent too.
+            _, sent_cap = _thinking_guard(self.provider, resolved_model, max_tokens)
+            await _check_user_budget(user_id, prompt_chars // 4 + sent_cap)
 
         # The circuit breaker wraps the WHOLE retry sequence, not each attempt:
         # one logical generate() = one breaker success/failure. Wrapping each
@@ -294,12 +297,33 @@ class LLMClient:
             )
 
 
+# Groq's free tier limits gpt-oss to ~8K tokens per minute, counting the
+# prompt and the requested cap; a larger cap is rejected outright.
+_GROQ_FREE_MAX_OUTPUT = 6144
+
+
 def _thinking_guard(provider: Provider, model: str, max_tokens: int):
     """Gemini 2.5 Pro cannot turn thinking off, and thinking tokens count
     against max_tokens — so a `reasoning_effort: none` it rejects, or a small
     cap it starves (eval-audit backlog item 6). For a non-flash Gemini model,
     drop the knob and give thinking its own headroom."""
     extra = provider.extra_body
+    if provider.id == "groq":
+        if "gpt-oss" not in model.lower():
+            # Groq rejects reasoning_effort on models that don't support it, so
+            # an LLM_MODEL / EVAL_JUDGE_MODEL override must not carry it.
+            extra = {k: v for k, v in (extra or {}).items() if k != "reasoning_effort"}
+            return (extra or None), max_tokens
+        # gpt-oss reasons even at low effort, and reasoning counts against
+        # max_tokens: give it headroom so small caps still leave the answer.
+        # On the free tier the request (prompt + cap) must also fit Groq's
+        # per-minute token limit, so the cap is clamped below it.
+        from .tier import get_tier
+
+        cap = max_tokens + 1024
+        if get_tier().name == "free":
+            cap = min(cap, _GROQ_FREE_MAX_OUTPUT)
+        return extra, cap
     if provider.id == "gemini" and "flash" not in model.lower():
         extra = {k: v for k, v in (extra or {}).items() if k != "reasoning_effort"}
         return (extra or None), max_tokens + 4096

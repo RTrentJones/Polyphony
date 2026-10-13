@@ -57,7 +57,7 @@ def test_chain_fails_over_within_chain(monkeypatch):
     # (any chain member is a deliberate non-self judge choice).
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "or_test")
-    monkeypatch.setenv("EVAL_JUDGE_MODEL", "llama-3.3-70b-versatile")
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", "openai/gpt-oss-120b")
     j = Judge(_cfg(monkeypatch, "groq,openrouter"))
     assert j.provider_id == "openrouter"
     assert j.fell_back is False
@@ -119,6 +119,96 @@ async def test_a_retired_judge_model_falls_through_the_chain(monkeypatch):
     judgment = await j.score("rubric", "content")
     assert used == ["groq", "openrouter"]
     assert judgment.score == 0.8 and judgment.judge_provider == "openrouter"
+    assert j.graded_by == ["openrouter"] and not j.exhausted
+
+
+async def test_an_exhausted_chain_is_judge_unavailable_and_steps_keep_metrics(
+    monkeypatch,
+):
+    """Every judge 404s: the score is unavailable, but the step helper hands
+    back (None, why) so deterministic metrics and their gates still report."""
+    import types
+
+    import httpx
+    from openai import NotFoundError
+
+    from evals.harness.judge import JudgeUnavailable
+    from evals.harness.report import greenlight_export, scorecard, tracer_export
+    from evals.steps.pipeline import _judge
+
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or_test")
+    j = Judge(_cfg(monkeypatch, "groq,openrouter"))
+
+    class Gone:
+        async def generate(self, *a, **kw):
+            raise NotFoundError(
+                "model_not_found",
+                response=httpx.Response(404, request=httpx.Request("POST", "http://t")),
+                body=None,
+            )
+
+    monkeypatch.setattr(j, "_ensure", lambda: Gone())
+    with pytest.raises(JudgeUnavailable):
+        await j.score("rubric", "content")
+    assert j.exhausted and j.graded_by == []
+
+    j2 = Judge(_cfg(monkeypatch, "groq,openrouter"))
+    monkeypatch.setattr(j2, "_ensure", lambda: Gone())
+    score, why = await _judge(types.SimpleNamespace(judge=j2), "rubric", "x")
+    assert score is None and why.startswith("judge unavailable")
+
+    # A judge-less step renders and exports without crashing on score=None.
+    run = {
+        "book": "cel",
+        "judge": {"provider": "groq", "model": None, "self": False},
+        "steps": {
+            "outline": {"score": None, "cast_fidelity": 1.0, "judge_explanation": why}
+        },
+    }
+    assert "n/a" in scorecard(run)
+    assert tracer_export(run, model="m")["cases"] == []
+    assert greenlight_export(run)["checks"] == []
+
+
+def test_the_run_records_the_judge_that_actually_graded(monkeypatch):
+    import types
+
+    from evals.run import _record_judge_failover
+
+    def judge(**kw):
+        base = dict(
+            graded_by=[], graded_is_self=False, exhausted=False, model_override=None
+        )
+        return types.SimpleNamespace(**{**base, **kw})
+
+    result = {"judge": {"provider": "groq", "model": "x", "self": False}}
+    _record_judge_failover(result, judge(graded_by=["groq"]))
+    assert "failed_over" not in result["judge"]
+    # Groq 404ed before grading anything and OpenRouter graded: name OpenRouter.
+    _record_judge_failover(result, judge(graded_by=["openrouter"]))
+    assert result["judge"]["provider"] == "openrouter"
+    assert result["judge"]["failed_over"] and "mixed" not in result["judge"]
+
+    # Groq graded early steps, then 404ed, and OpenRouter graded the rest.
+    result = {"judge": {"provider": "groq", "model": None, "self": False}}
+    _record_judge_failover(result, judge(graded_by=["groq", "openrouter"]))
+    assert result["judge"]["mixed"] is True
+    assert result["judge"]["graded_by"] == ["groq", "openrouter"]
+    assert result["judge"]["provider"] == "groq+openrouter"
+
+    # Every judge 404ed: nothing graded, so no provider is credited.
+    result = {"judge": {"provider": "groq", "model": None, "self": False}}
+    _record_judge_failover(result, judge(exhausted=True))
+    assert result["judge"]["provider"] == "groq"
+    assert result["judge"]["unavailable"] is True
+    assert "failed_over" not in result["judge"]
+
+    # Groq graded early steps, then the whole chain gave out: partial, not n/a.
+    result = {"judge": {"provider": "groq", "model": None, "self": False}}
+    _record_judge_failover(result, judge(graded_by=["groq"], exhausted=True))
+    assert result["judge"]["partial"] is True
+    assert "unavailable" not in result["judge"]
 
 
 def test_a_poll_timeout_says_what_the_app_was_doing():
@@ -127,3 +217,12 @@ def test_a_poll_timeout_says_what_the_app_was_doing():
     plans = {"plans": [{"kind": "outline", "status": "paused", "stage": "chapters"}]}
     assert '"status": "paused"' in _state(plans)
     assert '"stage": "chapters"' in _state(plans)
+
+
+def test_a_lone_judged_repeat_is_kept_over_a_later_judgeless_one():
+    from evals.run import _aggregate
+
+    judged = {"outline": {"score": 0.8, "cast_fidelity": 1.0}}
+    judgeless = {"outline": {"score": None, "cast_fidelity": 1.0}}
+    assert _aggregate([judged, judgeless])["outline"]["score"] == 0.8
+    assert _aggregate([judgeless, judgeless])["outline"]["score"] is None
