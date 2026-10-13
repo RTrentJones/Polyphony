@@ -77,6 +77,53 @@ class TestChapterSceneGenerateEnqueues:
 
 
 @pytest.mark.integration
+class TestPlannedScenesEnqueueAChain:
+    @pytest.mark.asyncio
+    async def test_generate_planned_enqueues_one_job_and_dedupes(
+        self, client, auth_headers, test_user, async_session
+    ):
+        book = (
+            await client.post(
+                "/api/v1/books/",
+                json={"title": "B", "synopsis": "s"},
+                headers=auth_headers,
+            )
+        ).json()
+        mina = (
+            await client.post(
+                "/api/v1/characters/",
+                json={"name": "Mina", "book_id": book["id"]},
+                headers=auth_headers,
+            )
+        ).json()
+        chapter = (
+            await client.post(
+                f"/api/v1/books/{book['id']}/chapters",
+                json={
+                    "title": "C1",
+                    "summary": "Opening.\n\nPlanned beats:\n- Storm: the moor floods"
+                    "\n- Shelter: Mina finds a barn",
+                },
+                headers=auth_headers,
+            )
+        ).json()
+        url = f"/api/v1/books/chapters/{chapter['id']}/scenes/generate-planned"
+        body = {"character_ids": [mina["id"]]}
+        r = await client.post(url, json=body, headers=auth_headers)
+        assert r.status_code == 200, r.text
+        assert r.json()["queued"] == 2
+        again = await client.post(url, json=body, headers=auth_headers)
+        assert again.status_code == 200, again.text
+        assert again.json()["already_running"] is True
+        assert again.json()["job_id"] == r.json()["job_id"]
+
+        jobs = await _jobs(async_session, "generate_prose_scene")
+        assert len(jobs) == 1  # a chain: the next is enqueued when this completes
+        assert jobs[0].dedupe_key.endswith(":0")
+        assert len(jobs[0].payload["batch"]["remaining"]) == 1
+
+
+@pytest.mark.integration
 class TestSourceEnqueues:
     @pytest.mark.asyncio
     async def test_upload_starts_extraction_run(

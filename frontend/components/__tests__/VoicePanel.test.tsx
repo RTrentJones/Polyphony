@@ -185,8 +185,22 @@ describe('SceneGrounding', () => {
               name: 'Milo',
               samples: [
                 { chunk_id: 'c-1', score: 0.5, deleted: false, text: 'Live sample.', chunk_type: 'dialogue', source: '' },
-                { chunk_id: 'c-9', score: 0.3, deleted: true, text: null, chunk_type: null, source: null },
+                {
+                  chunk_id: 'c-9',
+                  score: 0.3,
+                  deleted: true,
+                  text: null,
+                  chunk_type: null,
+                  source: null,
+                  excerpt: 'What Milo once said.',
+                },
               ],
+            },
+            {
+              character_id: 'char-2',
+              name: 'Zara',
+              samples: [],
+              reason: 'context only',
             },
           ],
         },
@@ -201,7 +215,11 @@ describe('SceneGrounding', () => {
     await waitFor(() => expect(panel).toHaveTextContent('Milo'))
     expect(panel).toHaveTextContent('Beat 1 — They meet.')
     expect(panel).toHaveTextContent('0.500Live sample.')
-    expect(panel).toHaveTextContent('sample deleted since generation')
+    // A deleted sample shows the wording stored at generation, marked.
+    expect(panel).toHaveTextContent(/0\.300\s*What Milo once said\.\s*\(deleted since generation\)/)
+    // A character no sample grounded is still listed, with why.
+    expect(panel).toHaveTextContent(/Zara\s*\(context only\)/)
+    expect(panel).not.toHaveTextContent('No voice samples grounded this scene')
     expect(api.sceneGrounding).toHaveBeenCalledWith('s-1')
   })
 })

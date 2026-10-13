@@ -358,6 +358,7 @@ async def test_grounding_endpoint_resolves_live_and_marks_deleted(
         "text": "Edited since.",
         "chunk_type": "dialogue",
         "source": "manual",
+        "excerpt": None,  # recorded before excerpts were stored
     }
     gone = by_char[zara]["samples"][0]
     assert gone["deleted"] is True and gone["text"] is None

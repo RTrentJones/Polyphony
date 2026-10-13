@@ -59,6 +59,7 @@ product's whole history.
 | Promote outline node → chapter | — | ✅ | Idempotent on a stable `node_id`; "Promote all"; the chapter carries the node's cast and POV (SPEC-10) |
 | Structured outline nodes (POV, cast IDs, act, threads) | R1.5 | ✅ | Validated against the book's cast; the fidelity audit reads them strictly (SPEC-10) |
 | Scene defaults from a promoted chapter | — | ✅ | The generate-scene modal pre-selects the chapter's cast and POV and offers its planned beats (SPEC-10) |
+| Generate all planned scenes of a chapter | — | ✅ | `POST /books/chapters/{id}/scenes/generate-planned`: one scene per planned beat with the chapter's cast/POV, preflighted for the whole batch, "llm" rate class, one batch in flight per chapter; the jobs run as a chain so each scene starts from the previous one's tail; beats already written are skipped (SPEC-10 follow-up) |
 | Scene prose generation | — | ✅ | Currently canon-blind: `characters` is a list of name *strings* |
 | Continuity checking | — | ✅ | Ships an **empty cast** today — same dead `book_id` query as the outline |
 | Plot threads + events | — | ✅ | |
@@ -84,7 +85,7 @@ product's whole history.
 
 | Feature | Req | Status | Notes |
 |---|---|---|---|
-| `entity_versions` (plan, character, canon entry, style, source, chapter, synopsis, scene) | R4.1 | ✅ | Sources and chapters added in SPEC-13 |
+| `entity_versions` (plan, character, canon entry, style, source, chapter, synopsis, scene) | R4.1 | ✅ | Sources and chapters added in SPEC-13; a chapter version carries its promoted cast and POV (restored against the current cast) and its outline node |
 | Regeneration appends, never overwrites | R4.2 | ✅ | |
 | Forward-only restore | R4.3 | ✅ | |
 | Version history + restore UI | — | ✅ | `VersionHistory`; deleted entities in the Trash tab (SPEC-13) |
@@ -100,7 +101,7 @@ product's whole history.
 | Chunks carry `book_id`; retrieval filters by book | R3.3 | ✅ | `index_chunks` requires it; retrieval scopes by user and book |
 | Chunk browser / editor with re-embed | R5.2 | ✅ | Canon tab → character → **Voice** (`VoicePanel`): paged list (type, source, words) with type filter, inline edit (re-embeds via PATCH), delete, and "Add samples" (one per paragraph). API pages with `skip/limit` and filters by `source_id`/`chunk_type` (SPEC-11) |
 | Retrieval inspector (chunks + scores) | R5.3 | ✅ | Voice → "Test retrieval": ranked hits with scores and the `RAG_SCORE_THRESHOLD` line drawn; "Test a line" shows the samples that grounded it (SPEC-11) |
-| Grounding provenance per generated scene | R5.3 | ✅ | Prose and ensemble store `{beat: [{character_id, chunk_id, score}]}` on `Scene.evaluation_scores["grounding"]`; `GET /books/scenes/{id}/grounding` resolves to current text (deleted chunks marked); "Why does it sound like this?" in the scene list and editor (SPEC-11) |
+| Grounding provenance per generated scene | R5.3 | ✅ | Prose and ensemble store `{beat: [{character_id, chunk_id, score, excerpt}]}` on `Scene.evaluation_scores["grounding"]` (a ~300-char excerpt of each sample as it was at generation); every character in the beat has an entry, with a `reason` when no sample grounded it ("no indexed voice samples", ensemble "context only"); `GET /books/scenes/{id}/grounding` resolves to current text, and a deleted chunk shows its stored excerpt marked "deleted since generation"; "Why does it sound like this?" in the scene list and editor (SPEC-11) |
 | Structured character field editors | R5.4 | ✅ | Key-value editor (PR #30) |
 | `character_chunks` mirror table | — | ❌ | Dropped (SPEC-11): no longer written, ORM model removed, migration `spec11_drop_character_chunks` drops the table; `voice_chunks` is the one store |
 | Retrieval scoped by user | — | ✅ | Opt-in per call; `dialogue.py` omits it while `context.py` passes it — half-wired |

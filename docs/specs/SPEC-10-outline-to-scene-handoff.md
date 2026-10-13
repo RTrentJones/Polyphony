@@ -24,6 +24,15 @@ from it.
 fields, the outline panel, the generate-scene modal defaults.
 **Out**: automatic scene generation for a whole chapter (a natural follow-up once this lands).
 
+> **Follow-up landed.** `POST /books/chapters/{id}/scenes/generate-planned` (and "Generate all
+> planned scenes" on a chapter with planned beats) writes one scene per planned beat with the
+> chapter's cast and POV. It goes through the scene preflight (for the whole batch), the "llm"
+> rate class and a per-chapter dedupe key, and runs as a chain of jobs (`app/jobs/scene_batch.py`):
+> each completed scene enqueues the next, so every scene starts from the one before it and a failed
+> or cancelled scene stops the batch. Chapter versions now also carry `pov_character_id`,
+> `character_ids` and `plan_node_id`; restore re-applies the cast against the book's live cast, and
+> recreating a purged chapter relinks its node only while no live chapter holds it.
+
 ## Design
 
 1. **Premise checkpoint.** Store the skeleton on the plan (`BookPlan.premise JSON`:

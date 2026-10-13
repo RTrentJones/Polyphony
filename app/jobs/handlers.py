@@ -104,6 +104,7 @@ async def _run_generate_prose_scene(payload: dict) -> None:
     )
     if result.get("status") == "failed":
         raise JobExecutionError(result.get("error", "prose scene generation failed"))
+    await _continue_batch(payload)
 
 
 async def _run_generate_ensemble_scene(payload: dict) -> None:
@@ -126,6 +127,23 @@ async def _run_generate_ensemble_scene(payload: dict) -> None:
     )
     if result.get("status") == "failed":
         raise JobExecutionError(result.get("error", "ensemble scene generation failed"))
+    await _continue_batch(payload)
+
+
+async def _continue_batch(payload: dict) -> None:
+    """A "generate all planned scenes" batch is a chain (app/jobs/scene_batch):
+    only once this scene is completed is the next one created and enqueued, so
+    it starts from this scene's tail. A failure to enqueue it must not fail the
+    scene that just completed: it is logged, and the chain stops there."""
+    if not payload.get("batch"):
+        return
+    from app.core.logging_config import log_error
+    from app.jobs.scene_batch import enqueue_next_planned_scene
+
+    try:
+        await enqueue_next_planned_scene(payload)
+    except Exception as e:  # the scene itself succeeded
+        log_error(logger, e, {"event": "scene_batch_enqueue_failed"})
 
 
 async def _run_index_characters_voice(payload: dict) -> None:
