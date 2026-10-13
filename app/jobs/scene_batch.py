@@ -20,6 +20,7 @@ repeat request while any scene of the batch is in flight returns that batch.
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Optional
 from uuid import UUID
 
@@ -78,8 +79,9 @@ async def find_active_batch_job(session: AsyncSession, key: str) -> Job | None:
     ).scalar_one_or_none()
 
 
-async def written_beats(session: AsyncSession, chapter_id: UUID) -> set[str]:
-    """Scene descriptions already live in the chapter (and not failed/cancelled)."""
+async def written_beats(session: AsyncSession, chapter_id: UUID) -> Counter[str]:
+    """How many live (not failed/cancelled) scenes in the chapter carry each
+    description. Counted, not a set: two planned beats can read the same."""
     rows = (
         await session.execute(
             select(Scene.scene_description).where(
@@ -89,7 +91,20 @@ async def written_beats(session: AsyncSession, chapter_id: UUID) -> set[str]:
             )
         )
     ).scalars()
-    return {(d or "").strip() for d in rows}
+    return Counter((d or "").strip() for d in rows)
+
+
+def unwritten_beats(beats: list[str], written: Counter[str]) -> list[str]:
+    """The planned beats still without a scene, matched by occurrence: a beat
+    that appears twice needs two scenes before both count as written."""
+    left = Counter(written)
+    todo = []
+    for beat in beats:
+        if left[beat.strip()] > 0:
+            left[beat.strip()] -= 1
+        else:
+            todo.append(beat)
+    return todo
 
 
 async def add_scene_job(

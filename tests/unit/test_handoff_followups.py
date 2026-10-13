@@ -424,6 +424,54 @@ async def test_generate_planned_enqueues_the_first_scene_of_a_chain(
     assert len((await async_session.execute(select(Job))).scalars().all()) == 1
 
 
+def test_unwritten_beats_count_repeated_beats_by_occurrence():
+    from collections import Counter
+
+    beats = ["Milo: waits", "Zara: speaks", "Milo: waits"]
+    # One "Milo: waits" scene is written: the second occurrence is still owed.
+    assert scene_batch.unwritten_beats(beats, Counter({"Milo: waits": 1})) == [
+        "Zara: speaks",
+        "Milo: waits",
+    ]
+    assert (
+        scene_batch.unwritten_beats(
+            beats, Counter({"Milo: waits": 2, "Zara: speaks": 1})
+        )
+        == []
+    )
+    assert scene_batch.unwritten_beats(beats, Counter()) == beats
+
+
+async def test_generate_planned_retries_a_position_clash_raised_at_flush(
+    client, auth_headers, async_session, test_book, monkeypatch
+):
+    from sqlalchemy.exc import IntegrityError
+
+    _, chapter_id = await _two_beat_chapter(
+        client, auth_headers, async_session, test_book
+    )
+    real = scene_batch.add_scene_job
+    calls = {"n": 0}
+
+    async def clash_once(session, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # What a concurrent append taking the same position raises: the
+            # helper flushes the scene before the endpoint commits.
+            raise IntegrityError("INSERT INTO scenes", {}, Exception("position"))
+        return await real(session, **kwargs)
+
+    monkeypatch.setattr(scene_batch, "add_scene_job", clash_once)
+    r = await client.post(
+        f"/api/v1/books/chapters/{chapter_id}/scenes/generate-planned",
+        json={},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert calls["n"] == 2
+    assert len((await async_session.execute(select(Job))).scalars().all()) == 1
+
+
 async def test_generate_planned_needs_planned_beats(
     client, auth_headers, async_session, test_book
 ):

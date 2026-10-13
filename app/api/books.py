@@ -745,21 +745,23 @@ async def generate_scene_into_chapter(
     for attempt in (1, 2):
         # Job + scene commit atomically: no 'processing' scene without a
         # durable job.
-        scene, job = await scene_batch.add_scene_job(
-            db,
-            chapter_id=chapter_id,
-            book_id=UUID(book_id),
-            user_id=user_id,
-            request=request_dict,
-            job_kind=job_kind,
-            dedupe_key=dedupe_key,
-            source_id=payload.source_id,
-        )
-        if job.domain_id != scene.id:  # an identical request won the race
-            await db.rollback()
-            return await _existing()
-        job_id = str(job.id)
         try:
+            # add_scene_job flushes: a position clash can raise here, not
+            # only at commit.
+            scene, job = await scene_batch.add_scene_job(
+                db,
+                chapter_id=chapter_id,
+                book_id=UUID(book_id),
+                user_id=user_id,
+                request=request_dict,
+                job_kind=job_kind,
+                dedupe_key=dedupe_key,
+                source_id=payload.source_id,
+            )
+            if job.domain_id != scene.id:  # an identical request won the race
+                await db.rollback()
+                return await _existing()
+            job_id = str(job.id)
             await db.commit()
             break
         except IntegrityError:
@@ -852,8 +854,9 @@ async def generate_planned_scenes(
             detail="This chapter has no planned beats. Promote it from the "
             "outline, or generate scenes one at a time.",
         )
-    written = await scene_batch.written_beats(db, chapter_id)
-    todo = [b for b in beats if b.strip() not in written]
+    todo = scene_batch.unwritten_beats(
+        beats, await scene_batch.written_beats(db, chapter_id)
+    )
     if not todo:
         return {
             "chapter_id": str(chapter_id),
@@ -949,21 +952,23 @@ async def generate_planned_scenes(
         "remaining": requests[1:],
     }
     for attempt in (1, 2):
-        scene, job = await scene_batch.add_scene_job(
-            db,
-            chapter_id=chapter_id,
-            book_id=book_id,
-            user_id=user_id,
-            request=requests[0],
-            job_kind=job_kind,
-            dedupe_key=f"{key}:0",
-            batch=batch,
-        )
-        if job.domain_id != scene.id:  # an identical request won the race
-            await db.rollback()
-            return await _existing()
-        job_id = str(job.id)
         try:
+            # add_scene_job flushes: a position clash with a concurrent append
+            # can raise here, not only at commit.
+            scene, job = await scene_batch.add_scene_job(
+                db,
+                chapter_id=chapter_id,
+                book_id=book_id,
+                user_id=user_id,
+                request=requests[0],
+                job_kind=job_kind,
+                dedupe_key=f"{key}:0",
+                batch=batch,
+            )
+            if job.domain_id != scene.id:  # an identical request won the race
+                await db.rollback()
+                return await _existing()
+            job_id = str(job.id)
             await db.commit()
             break
         except IntegrityError:
