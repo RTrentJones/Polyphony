@@ -7,6 +7,7 @@ import httpx
 import pytest
 from starlette.requests import Request
 
+from app.core import rate_limit
 from app.core.config import settings
 from app.core.rate_limit import (
     ROUTE_CLASSES,
@@ -239,6 +240,74 @@ class TestPerEmailLoginLimit:
                 assert r.status_code == 200
         finally:
             await _close(c)
+
+
+class TestPerEmailLockoutDecays:
+    """The per-email lockout is short, grows per repeated breach, caps low, and
+    forgets — it cannot hold an owner out indefinitely (SPEC-05)."""
+
+    def _trip(self, email, n):
+        for _ in range(n):
+            rate_limit.login_email_record_failure(email)
+
+    def test_lockout_doubles_and_caps(self, monkeypatch):
+        monkeypatch.setattr(settings, "LOGIN_EMAIL_LOCKOUT_SECONDS", 60)
+        monkeypatch.setattr(settings, "LOGIN_EMAIL_LOCKOUT_MAX_SECONDS", 900)
+        assert [rate_limit.lockout_seconds(n) for n in range(1, 7)] == [
+            60,
+            120,
+            240,
+            480,
+            900,
+            900,
+        ]
+        assert rate_limit.lockout_seconds(10_000) == 900
+
+    def test_lockout_expires_and_the_budget_refills(self, monkeypatch):
+        clock = [1_000_000.0]
+        monkeypatch.setattr(rate_limit.time, "time", lambda: clock[0])
+        monkeypatch.setattr(settings, "LOGIN_EMAIL_RATE_LIMIT", "3/hour")
+        monkeypatch.setattr(settings, "LOGIN_EMAIL_LOCKOUT_SECONDS", 60)
+        monkeypatch.setattr(settings, "LOGIN_EMAIL_LOCKOUT_MAX_SECONDS", 300)
+        email = "victim@example.com"
+
+        self._trip(email, 2)
+        assert rate_limit.login_email_check(email) is None  # budget left
+        self._trip(email, 1)
+        assert rate_limit.login_email_check(email) == 60  # first breach: short
+
+        clock[0] += 61
+        assert rate_limit.login_email_check(email) is None  # over, not an hour
+        self._trip(email, 2)
+        assert rate_limit.login_email_check(email) is None  # a fresh budget
+        self._trip(email, 1)
+        assert rate_limit.login_email_check(email) == 120  # repeat: doubled
+
+        # an attacker re-tripping forever is held at the cap, never beyond
+        for _ in range(10):
+            clock[0] += 400
+            self._trip(email, 3)
+            assert rate_limit.login_email_check(email) <= 300
+
+    def test_breach_count_forgets_after_a_quiet_period(self, monkeypatch):
+        clock = [2_000_000.0]
+        monkeypatch.setattr(rate_limit.time, "time", lambda: clock[0])
+        monkeypatch.setattr(settings, "LOGIN_EMAIL_RATE_LIMIT", "2/hour")
+        monkeypatch.setattr(settings, "LOGIN_EMAIL_LOCKOUT_SECONDS", 60)
+        monkeypatch.setattr(settings, "LOGIN_EMAIL_BREACH_RESET_SECONDS", 3600)
+        email = "victim@example.com"
+        for _ in range(3):
+            self._trip(email, 2)
+            clock[0] += 1000
+        assert rate_limit._LOGIN_LOCKOUTS[email].breaches == 3
+        clock[0] += 3601
+        self._trip(email, 2)
+        assert rate_limit.login_email_check(email) == 60  # back to the base
+
+    def test_email_key_is_case_insensitive(self, monkeypatch):
+        monkeypatch.setattr(settings, "LOGIN_EMAIL_RATE_LIMIT", "1/hour")
+        self._trip("Victim@Example.com ", 1)
+        assert rate_limit.login_email_check("victim@example.com") is not None
 
 
 # --- acceptance 4: polling does not consume the generation limit -------------

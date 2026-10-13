@@ -71,7 +71,7 @@ remains in the schema (holding the shared name) so reverting is cheap.
 Neon Postgres (direct URL, small SQLAlchemy pool — the container is
 long-lived, so the pooled/PgBouncer URL is unnecessary and asyncpg-hostile)
 and Qdrant Cloud (1 GB free). Alembic owns the schema from migration 0001;
-`scripts/init-db.sql` is retired.
+`scripts/init-db.sql` is retired (and since deleted).
 
 ## Alternatives considered
 - **`target: docker` on a self-owned host** (keep the compose topology):

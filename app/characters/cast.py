@@ -18,24 +18,16 @@ from app.core.orm_models import Character
 from app.versioning.trash import live
 
 
-def _forms(c: Character) -> list[str]:
-    forms = [c.name]
-    forms.extend(a for a in (getattr(c, "aliases", None) or []) if a)
-    return [f.strip().lower() for f in forms if f and f.strip()]
-
-
 async def resolve_cast(
     db: AsyncSession,
     book_id: UUID,
     *,
     character_ids: list[UUID] | None = None,
-    names: list[str] | None = None,
 ) -> list[Character]:
     """The requested cast as Character rows of this book, in request order.
 
-    IDs win; names (deprecated input) resolve by exact name, then
-    case-insensitively by name or alias. Raises 422 listing every unknown, and
-    422 when the result is empty."""
+    The cast is by ID only (the deprecated by-name input was removed, SPEC-15c).
+    Raises 422 listing every unknown, and 422 when the result is empty."""
     # A trashed character is not in the cast (SPEC-13).
     query = live(select(Character), Character).where(Character.book_id == book_id)
     rows = (await db.execute(query)).scalars().all()
@@ -46,16 +38,6 @@ async def resolve_cast(
     for cid in character_ids or []:
         c = by_id.get(str(cid))
         (resolved.append(c) if c else unknown.append(str(cid)))
-
-    if not character_ids:
-        by_exact = {c.name: c for c in rows}
-        by_form: dict[str, Character] = {}
-        for c in rows:
-            for f in _forms(c):
-                by_form.setdefault(f, c)
-        for n in names or []:
-            c = by_exact.get(n) or by_form.get((n or "").strip().lower())
-            (resolved.append(c) if c else unknown.append(n))
 
     if unknown:
         raise HTTPException(

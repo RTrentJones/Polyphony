@@ -540,22 +540,6 @@ class TestAliasesHonoured:
         )
         assert recall == 1.0 and present == ["Edric Thane"]
 
-    async def test_scene_cast_resolves_by_alias(self, async_session, test_book):
-        from app.characters.cast import resolve_cast
-        from app.core.orm_models import Character
-
-        async_session.add(
-            Character(
-                book_id=test_book.id,
-                user_id=test_book.user_id,
-                name="Edric Thane",
-                aliases=["the CEL"],
-            )
-        )
-        await async_session.commit()
-        (c,) = await resolve_cast(async_session, test_book.id, names=["The CEL"])
-        assert c.name == "Edric Thane"
-
     async def test_character_api_records_aliases(self, client, auth_headers, test_book):
         r = await client.post(
             "/api/v1/characters/",

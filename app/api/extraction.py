@@ -516,12 +516,15 @@ async def commit_extraction(
     # Voice indexing is a RETRYABLE job over the EXPLICIT approved character IDs
     # (created + merged), so a merged existing character is indexed too, and a
     # transient vector failure is retried per-source, not skipped (PR review #2/#3).
+    # Its dedupe key MERGES (SPEC-07/08): a still-queued job for this book+source
+    # absorbs the newly approved ids instead of a second job being enqueued; a
+    # running one keeps running and a fresh job takes the new ids.
     target_ids = list(
         dict.fromkeys(result["characters"]["created"] + result["characters"]["updated"])
     )
     index_job = None
     if run.source_id and target_ids:
-        index_job = await jobs_repo.enqueue(
+        index_job = await jobs_repo.enqueue_merging(
             db,
             kind="index_characters_voice",
             payload={
@@ -532,6 +535,8 @@ async def commit_extraction(
             },
             user_id=current_user.id,
             max_attempts=3,
+            dedupe_key=f"voice:{book.id}:{run.source_id}",
+            merge=jobs_repo.merge_id_lists("character_ids"),
         )
 
     run.status = "committed"

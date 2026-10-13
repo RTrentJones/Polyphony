@@ -50,7 +50,7 @@ class TestChapterSceneGenerateEnqueues:
         r = await client.post(
             f"/api/v1/books/chapters/{chapter['id']}/scenes/generate",
             json={
-                "characters": ["Mina"],
+                "character_ids": [mina["id"]],
                 "scene_description": "The chapter opens with a storm.",
                 "setting": "moor",
                 "emotional_tone": "ominous",

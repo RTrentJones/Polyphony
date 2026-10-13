@@ -1,45 +1,29 @@
-"""The startup migrator's reset decision (app/migrate.py::_reset_reason).
+"""The startup migrator (app/migrate.py) is a plain `alembic upgrade head`.
 
-The destructive reset itself is exercised against real Postgres in
-tests/integration/test_pg_pipeline.py. Here we lock the decision logic DB-free:
-ONLY the legacy `manuscripts` schema is an automatic destructive trigger — a valid
-current schema is never wiped, even when stamped at an unknown (rolled-back)
-revision.
+The legacy-reset shim was retired (SPEC-15c): nothing in the entrypoint drops or
+recreates the schema any more. The real upgrade is exercised against Postgres in
+tests/integration/test_pg_pipeline.py.
 """
 
 import pytest
 
-from app.migrate import _reset_reason
+import app.migrate as migrate_mod
 
 pytestmark = pytest.mark.unit
 
 
-class _FakeConn:
-    """Answers _table_exists() from a fixed set of present table names."""
-
-    def __init__(self, tables: set[str]):
-        self._tables = tables
-
-    async def scalar(self, _stmt, params=None):
-        return 1 if params and params.get("n") in self._tables else None
-
-
-async def test_legacy_manuscript_schema_is_reset():
-    reason = await _reset_reason(_FakeConn({"manuscripts", "alembic_version"}))
-    assert reason is not None
+def test_main_runs_alembic_upgrade_head(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        migrate_mod.command, "upgrade", lambda cfg, rev: calls.append((cfg, rev))
+    )
+    migrate_mod.main()
+    assert len(calls) == 1
+    cfg, rev = calls[0]
+    assert rev == "head"
+    assert cfg.get_main_option("script_location") == "alembic"
 
 
-async def test_valid_current_schema_is_never_reset_even_if_stamp_unknown():
-    # `sources` present -> a valid new-schema DB. A rollback that leaves it stamped
-    # at an unknown future revision must NOT trigger a wipe.
-    assert await _reset_reason(_FakeConn({"sources", "alembic_version"})) is None
-
-
-async def test_fresh_database_is_not_reset():
-    assert await _reset_reason(_FakeConn(set())) is None
-
-
-async def test_mixed_schema_is_not_reset_because_sources_present():
-    # If both exist (a half-migrated oddity), `sources` present means "not the
-    # legacy schema" — do not auto-wipe.
-    assert await _reset_reason(_FakeConn({"manuscripts", "sources"})) is None
+def test_reset_shim_is_gone():
+    assert not hasattr(migrate_mod, "reset_if_legacy")
+    assert not hasattr(migrate_mod, "_reset_reason")

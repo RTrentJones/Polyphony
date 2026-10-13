@@ -49,11 +49,9 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s \
     CMD curl -fsS http://localhost:8000/health/live || exit 1
 
-# Migrations then serve — single container, no migration races. app.migrate wraps
-# `alembic upgrade head` with a one-time self-heal: a legacy pre-squash schema
-# (disposable data) is reset once rather than crash-looping; a valid schema is
-# never wiped, even on rollback (app/migrate.py, migration 0007).
-# POLYPHONY_FORCE_SCHEMA_RESET: unset=auto (legacy only), 1=force wipe, 0=never.
+# Migrations then serve — single container, no migration races. app.migrate is a
+# plain `alembic upgrade head` (the legacy-reset shim was retired, SPEC-15c); a DB
+# stamped at an unknown revision (rollback) fails loudly and is never wiped.
 # --no-proxy-headers: request.client stays the real TCP peer (the tunnel), so the
 # app alone decides when to believe CF-Connecting-IP (TRUSTED_PROXY_CIDRS,
 # app/core/rate_limit.py). uvicorn's default would rewrite it from

@@ -222,79 +222,13 @@ async def test_source_characters_cascade_preserves_cast(pg):
         ).scalar() == 1
 
 
-async def test_startup_migrator_resets_legacy_manuscript_schema(pg):
-    """app/migrate.py fingerprints + resets a LEGACY database — stamped at the
-    REUSED revision id '0006' with the old `manuscripts` table — then rebuilds to
-    head; a second run does NOT reset again (PR review, final).
-
-    Revision membership cannot detect this (both the old and new chains have a
-    '0006'), so the migrator keys on the schema shape instead.
-    """
-    import app.migrate as migrate_mod
-    from alembic import command
-
-    # Replace the fixture's up-to-date schema with the legacy one, stamped '0006'.
-    async with pg() as s:
-        await s.execute(text("DROP SCHEMA public CASCADE"))
-        await s.execute(text("CREATE SCHEMA public"))
-        await s.execute(text("CREATE TABLE manuscripts (id integer)"))  # old-only
-        await s.execute(
-            text("CREATE TABLE alembic_version (version_num varchar(32) NOT NULL)")
-        )
-        await s.execute(
-            text("INSERT INTO alembic_version VALUES ('0006')")
-        )  # reused id
-        await s.commit()
-
-    cfg = migrate_mod._alembic_config()
-    await migrate_mod.reset_if_legacy()
-    await asyncio.to_thread(command.upgrade, cfg, "head")
-
-    async with pg() as s:
-        # legacy table gone, new baseline present, chain at head
-        assert (
-            await s.scalar(
-                text("SELECT count(*) FROM pg_tables WHERE tablename = 'manuscripts'")
-            )
-        ) == 0
-        assert (
-            await s.scalar(
-                text("SELECT count(*) FROM pg_tables WHERE tablename = 'sources'")
-            )
-        ) == 1
-        from alembic.script import ScriptDirectory
-
-        head = ScriptDirectory.from_config(cfg).get_current_head()
-        assert (
-            await s.scalar(text("SELECT version_num FROM alembic_version"))
-        ) == head  # rebuilt to the current head, whatever it is
-        # a sentinel to prove the SECOND run does not drop the schema again
-        await s.execute(text("CREATE TABLE reset_sentinel (x integer)"))
-        await s.commit()
-
-    await migrate_mod.reset_if_legacy()  # up-to-date now -> must NOT reset
-    await asyncio.to_thread(command.upgrade, cfg, "head")
-
-    async with pg() as s:
-        assert (
-            await s.scalar(
-                text(
-                    "SELECT count(*) FROM pg_tables WHERE tablename = 'reset_sentinel'"
-                )
-            )
-        ) == 1  # survived the second run -> no reset
-        await s.execute(text("DROP TABLE reset_sentinel"))
-        await s.commit()
-
-
 async def test_startup_migrator_does_not_wipe_valid_schema_on_rollback(pg):
-    """A rollback to an older image must NOT erase a valid database. A DB on the
-    new `sources` schema but stamped at an UNKNOWN future revision — the state
-    after a later release migrated ahead and deployment rolled back to this image
-    — is left intact: auto-detection does not reset, and the subsequent upgrade
-    fails LOUDLY instead of wiping it (PR review, final)."""
+    """A rollback to an older image must NOT erase a valid database. A DB stamped
+    at an UNKNOWN future revision (a later release migrated ahead, then deployment
+    rolled back to this image) makes `python -m app.migrate` fail LOUDLY and leaves
+    the data intact: the migrator is a plain `alembic upgrade head` with no reset
+    shim (SPEC-15c)."""
     import app.migrate as migrate_mod
-    from alembic import command
 
     cfg = migrate_mod._alembic_config()
     # An id that is not (and won't become) a real revision, so it stays "unknown".
@@ -308,26 +242,9 @@ async def test_startup_migrator_does_not_wipe_valid_schema_on_rollback(pg):
             )
             await s.commit()
 
-        await migrate_mod.reset_if_legacy()  # must NOT reset a valid schema
-
-        async with pg() as s:
-            assert (
-                await s.scalar(
-                    text(
-                        "SELECT count(*) FROM pg_tables "
-                        "WHERE tablename = 'rollback_sentinel'"
-                    )
-                )
-            ) == 1
-            assert (
-                await s.scalar(
-                    text("SELECT count(*) FROM pg_tables WHERE tablename = 'sources'")
-                )
-            ) == 1
-
-        # the older image can't resolve '0008' -> upgrade fails loudly, no wipe
+        # the older image can't resolve the future revision -> fails loudly, no wipe
         with pytest.raises(Exception):
-            await asyncio.to_thread(command.upgrade, cfg, "head")
+            await asyncio.to_thread(migrate_mod.main)
 
         async with pg() as s:
             assert (
@@ -338,6 +255,11 @@ async def test_startup_migrator_does_not_wipe_valid_schema_on_rollback(pg):
                     )
                 )
             ) == 1  # database intact
+            assert (
+                await s.scalar(
+                    text("SELECT count(*) FROM pg_tables WHERE tablename = 'sources'")
+                )
+            ) == 1
     finally:
         # restore a clean head so later tests' fixture upgrade succeeds
         from alembic.script import ScriptDirectory
@@ -830,6 +752,67 @@ async def test_dedupe_race_returns_the_winning_job(pg, monkeypatch):
             )
         ).scalar()
         assert n == 1
+
+
+async def test_voice_index_merge_survives_a_concurrent_enqueue(pg):
+    """SPEC-07/08 merging dedupe on real Postgres: a second enqueuer that misses
+    the first's uncommitted job blocks on the partial unique index, loses, rolls
+    back to its savepoint and MERGES its ids into the winner — one job, union."""
+    from app.jobs import repository as jobs_repo
+
+    key = "voice:race:src"
+    merge = jobs_repo.merge_id_lists("character_ids")
+
+    def enqueue(s, user_id, ids):
+        return jobs_repo.enqueue_merging(
+            s,
+            kind="index_characters_voice",
+            payload={"source_id": "src", "character_ids": ids},
+            user_id=user_id,
+            dedupe_key=key,
+            merge=merge,
+        )
+
+    async with pg() as s:
+        await s.execute(text("DELETE FROM jobs"))
+        await s.commit()
+        user = await _a_user(s)
+
+    async with pg() as s1, pg() as s2:
+        first = await enqueue(s1, user.id, ["a"])  # inserted, not committed
+        second = asyncio.create_task(enqueue(s2, user.id, ["b"]))
+        await asyncio.sleep(0.3)  # s2 is now blocked on the unique index
+        await s1.commit()
+        got = await second
+        await s2.commit()
+        assert got.id == first.id
+
+    async with pg() as s:
+        rows = (
+            await s.execute(
+                text("SELECT status, payload FROM jobs WHERE dedupe_key = :k"),
+                {"k": key},
+            )
+        ).all()
+        assert len(rows) == 1
+        assert rows[0].payload["character_ids"] == ["a", "b"]
+
+        # running holder: releases the key, a fresh job takes the new ids
+        await s.execute(text("UPDATE jobs SET status = 'running'"))
+        await s.commit()
+        fresh = await enqueue(s, user.id, ["c"])
+        await s.commit()
+        assert fresh.id != first.id
+        held = (
+            (
+                await s.execute(
+                    text("SELECT id FROM jobs WHERE dedupe_key = :k"), {"k": key}
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert held == [fresh.id]
 
 
 async def test_spec07_migration_downgrades_and_reapplies(pg):

@@ -32,11 +32,11 @@ def _reset_rate_limits():
     from app.core.rate_limit import limiter
 
     limiter.reset()
-    rate_limit._TRUSTED_LOGIN_IPS.clear()
+    rate_limit.reset_login_state()
     budget._ceiling_cache.clear()
     yield
     limiter.reset()
-    rate_limit._TRUSTED_LOGIN_IPS.clear()
+    rate_limit.reset_login_state()
     budget._ceiling_cache.clear()
 
 

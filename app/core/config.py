@@ -143,8 +143,14 @@ class Settings(BaseSettings):
     # the real control; this stops runaway clients).
     RATE_LIMIT_POLL: str = "120/minute"
     RATE_LIMIT_LLM: str = "10/minute"
-    # Failed logins per email, across every IP (credential stuffing).
+    # Failed logins per email, across every IP (credential stuffing). Spending
+    # it starts a SHORT lockout that doubles per repeated breach and caps at
+    # LOGIN_EMAIL_LOCKOUT_MAX_SECONDS, so it can't lock an owner out for long
+    # (SPEC-05). The breach count resets after a quiet BREACH_RESET window.
     LOGIN_EMAIL_RATE_LIMIT: str = "20/hour"
+    LOGIN_EMAIL_LOCKOUT_SECONDS: int = 60
+    LOGIN_EMAIL_LOCKOUT_MAX_SECONDS: int = 900
+    LOGIN_EMAIL_BREACH_RESET_SECONDS: int = 3600
     # Peers whose CF-Connecting-IP header is believed: the cloudflared tunnel.
     # Default: loopback + the private ranges Docker hands its bridge networks.
     # From any other peer the header is ignored (it is client-controlled).
