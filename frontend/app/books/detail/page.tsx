@@ -2,8 +2,9 @@
  * Book Detail Page — the book dashboard.
  *
  * Sections: chapters (+ scenes, reorder, generate), outline / beat sheet,
- * plot threads, and continuity reports; plus export (md/docx/epub) and an
- * editable title/synopsis header.
+ * plot threads, and continuity reports; plus an export dialog (md/docx/epub,
+ * synopsis, empty chapters, chapter range — B9) and an editable
+ * title/synopsis header.
  */
 
 'use client'
@@ -13,6 +14,8 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowLeft,
   BookMarked,
+  ChevronLeft,
+  ChevronRight,
   Download,
   FileText,
   Film,
@@ -30,6 +33,7 @@ import CanonPanel from '@/components/CanonPanel'
 import { BookProvider, useBook } from '@/components/book/BookProvider'
 import ChaptersSection from '@/components/book/ChaptersSection'
 import ContinuityPanel from '@/components/book/ContinuityPanel'
+import ExportDialog from '@/components/book/ExportDialog'
 import OutlinePanel from '@/components/book/OutlinePanel'
 import ScenesPanel from '@/components/book/ScenesPanel'
 import SourcesPanel from '@/components/book/SourcesPanel'
@@ -41,7 +45,6 @@ import Loading from '@/components/Loading'
 import Modal from '@/components/Modal'
 import { ToastContainer, type ToastType } from '@/components/Toast'
 import { booksApi, useBookStore } from '@/lib/books-store'
-import type { BookExportFormat } from '@/lib/types'
 import { BOOK_STATUS_STYLES } from '@/components/book/styles'
 import { rateLimitedPollDelay } from '@/lib/rate-limit'
 
@@ -120,7 +123,7 @@ function BookDetailView() {
     status: 'drafting',
   })
   const [savingEdit, setSavingEdit] = useState(false)
-  const [exporting, setExporting] = useState<BookExportFormat | null>(null)
+  const [exportOpen, setExportOpen] = useState(false)
 
   const scenePollTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
@@ -218,18 +221,6 @@ function BookDetailView() {
     }
   }
 
-  const handleExport = async (format: BookExportFormat) => {
-    if (!currentBook) return
-    setExporting(format)
-    try {
-      await booksApi.exportBook(currentBook.id, format, currentBook.title)
-    } catch (err: any) {
-      addToast(err.message || `Failed to export ${format.toUpperCase()}`, 'error')
-    } finally {
-      setExporting(null)
-    }
-  }
-
   if (isLoading && !currentBook) {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
@@ -274,8 +265,8 @@ function BookDetailView() {
 
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <div className="flex items-center gap-3 mb-2">
-              <h1 className="text-3xl font-bold text-gray-900">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-2">
+              <h1 className="min-w-0 break-words text-3xl font-bold text-gray-900">
                 {currentBook.title}
               </h1>
               <span
@@ -308,7 +299,7 @@ function BookDetailView() {
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {/* Add source material (upload or paste) to THIS book, in place. */}
             <Button
               variant="outline"
@@ -318,47 +309,21 @@ function BookDetailView() {
               <Plus className="h-4 w-4 mr-1" />
               Add source
             </Button>
-            {(['md', 'docx', 'epub'] as BookExportFormat[]).map((format) => (
-              <Button
-                key={format}
-                variant="outline"
-                size="sm"
-                onClick={() => handleExport(format)}
-                isLoading={exporting === format}
-                disabled={exporting !== null}
-              >
-                <Download className="h-4 w-4 mr-1" />
-                {format.toUpperCase()}
-              </Button>
-            ))}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setExportOpen(true)}
+              aria-haspopup="dialog"
+            >
+              <Download className="h-4 w-4 mr-1" />
+              Export
+            </Button>
           </div>
         </div>
       </div>
 
       {/* Tabs */}
-      {/* Eight tabs outgrow a phone: the strip scrolls on its own, not the page. */}
-      <div className="border-b border-gray-200 mb-6">
-        <nav className="flex gap-4 overflow-x-auto">
-          {TABS.map((tab) => {
-            const Icon = tab.icon
-            return (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                aria-current={activeTab === tab.key ? 'page' : undefined}
-                className={`inline-flex shrink-0 items-center whitespace-nowrap px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === tab.key
-                    ? 'border-primary-600 text-primary-700'
-                    : 'border-transparent text-gray-600 hover:text-primary-600'
-                }`}
-              >
-                <Icon className="h-4 w-4 mr-2" />
-                {tab.label}
-              </button>
-            )
-          })}
-        </nav>
-      </div>
+      <BookTabs activeTab={activeTab} onSelect={setActiveTab} />
 
       {activeTab === 'chapters' && (
         <ChaptersSection
@@ -454,8 +419,120 @@ function BookDetailView() {
         </div>
       </Modal>
 
+      <ExportDialog
+        isOpen={exportOpen}
+        onClose={() => setExportOpen(false)}
+        bookId={currentBook.id}
+        bookTitle={currentBook.title}
+        chapterCount={currentBook.chapters?.length ?? 0}
+      />
+
       {addSourceOpen && (
         <AddSourceModal bookId={bookId} onClose={() => setAddSourceOpen(false)} />
+      )}
+    </div>
+  )
+}
+
+/**
+ * The tab strip. Eight tabs outgrow a phone, so the strip scrolls on its own
+ * (not the page), and says so (B4): an edge fade and a chevron on whichever
+ * side has more tabs, and the active tab is scrolled into view when the page
+ * opens (e.g. `?tab=trash`) and whenever it changes.
+ */
+function BookTabs({
+  activeTab,
+  onSelect,
+}: {
+  activeTab: TabKey
+  onSelect: (key: TabKey) => void
+}) {
+  const navRef = useRef<HTMLElement>(null)
+  const tabRefs = useRef<Partial<Record<TabKey, HTMLButtonElement | null>>>({})
+  const [more, setMore] = useState({ left: false, right: false })
+
+  const measure = useCallback(() => {
+    const nav = navRef.current
+    if (!nav) return
+    const left = nav.scrollLeft > 1
+    const right = nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 1
+    setMore((m) => (m.left === left && m.right === right ? m : { left, right }))
+  }, [])
+
+  useEffect(() => {
+    tabRefs.current[activeTab]?.scrollIntoView?.({
+      inline: 'nearest',
+      block: 'nearest',
+    })
+    measure()
+  }, [activeTab, measure])
+
+  useEffect(() => {
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [measure])
+
+  const scrollBy = (dir: -1 | 1) => {
+    const nav = navRef.current
+    if (!nav) return
+    nav.scrollBy?.({ left: dir * Math.max(nav.clientWidth * 0.7, 120), behavior: 'smooth' })
+  }
+
+  return (
+    <div className="relative border-b border-gray-200 mb-6" data-testid="book-tabs">
+      <nav
+        ref={navRef}
+        onScroll={measure}
+        aria-label="Book sections"
+        className="flex gap-4 overflow-x-auto [scrollbar-width:thin]"
+      >
+        {TABS.map((tab) => {
+          const Icon = tab.icon
+          return (
+            <button
+              key={tab.key}
+              ref={(el) => {
+                tabRefs.current[tab.key] = el
+              }}
+              onClick={() => onSelect(tab.key)}
+              aria-current={activeTab === tab.key ? 'page' : undefined}
+              className={`inline-flex shrink-0 items-center whitespace-nowrap px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === tab.key
+                  ? 'border-primary-600 text-primary-700'
+                  : 'border-transparent text-gray-600 hover:text-primary-600'
+              }`}
+            >
+              <Icon className="h-4 w-4 mr-2" />
+              {tab.label}
+            </button>
+          )
+        })}
+      </nav>
+      {more.left && (
+        <div className="pointer-events-none absolute inset-y-0 left-0 flex w-12 items-center bg-gradient-to-r from-gray-50 via-gray-50/90 to-transparent">
+          <button
+            type="button"
+            onClick={() => scrollBy(-1)}
+            aria-label="Scroll tabs left"
+            data-testid="tabs-more-left"
+            className="pointer-events-auto rounded-full p-1 text-gray-500 hover:text-primary-600"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+      {more.right && (
+        <div className="pointer-events-none absolute inset-y-0 right-0 flex w-12 items-center justify-end bg-gradient-to-l from-gray-50 via-gray-50/90 to-transparent">
+          <button
+            type="button"
+            onClick={() => scrollBy(1)}
+            aria-label="Scroll tabs right"
+            data-testid="tabs-more-right"
+            className="pointer-events-auto rounded-full p-1 text-gray-500 hover:text-primary-600"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
       )}
     </div>
   )

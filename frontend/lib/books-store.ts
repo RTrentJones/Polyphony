@@ -14,6 +14,8 @@ import type {
   BookCreateData,
   BookDetail,
   BookExportFormat,
+  BookExportOptions,
+  BookExportQuery,
   BookListResponse,
   BookPlan,
   BookPlanListResponse,
@@ -48,6 +50,22 @@ import type {
 // ---------------------------------------------------------------------------
 // Typed API helpers (thin wrappers; all throw the normalized ApiError)
 // ---------------------------------------------------------------------------
+
+/**
+ * The export dialog's choices as GET /books/{id}/export query params (B9).
+ * Booleans are always sent (so the server's defaults never decide silently);
+ * an unset chapter bound is left out. Chapter numbers are 1-based, inclusive.
+ */
+export function exportQuery(options: BookExportOptions): BookExportQuery {
+  const query: BookExportQuery = {
+    format: options.format,
+    include_synopsis: options.includeSynopsis,
+    skip_empty: options.skipEmpty,
+  }
+  if (options.fromChapter != null) query.from_chapter = options.fromChapter
+  if (options.toChapter != null) query.to_chapter = options.toChapter
+  return query
+}
 
 export const booksApi = {
   /** GET /books/{id} — a book's details without touching the store. */
@@ -135,17 +153,24 @@ export const booksApi = {
   // -- Export -----------------------------------------------------------------
 
   /**
-   * GET /books/{id}/export?format=... as a blob and trigger a browser
-   * file download (filename from Content-Disposition when present).
+   * GET /books/{id}/export?format=&include_synopsis=&skip_empty=
+   * &from_chapter=&to_chapter= as a blob and trigger a browser file download
+   * (filename from Content-Disposition when present). `options` come from the
+   * export dialog (B9); without them only `format` is sent and the server's
+   * defaults apply.
    */
   async exportBook(
     bookId: string,
     format: BookExportFormat,
-    fallbackTitle: string
+    fallbackTitle: string,
+    options?: Omit<BookExportOptions, 'format'>
   ): Promise<void> {
     try {
+      const params = options
+        ? exportQuery({ ...options, format })
+        : { format }
       const res = await apiClient.get<Blob>(`/books/${bookId}/export`, {
-        params: { format },
+        params,
         responseType: 'blob',
       })
       const disposition = (res.headers['content-disposition'] as string) || ''
