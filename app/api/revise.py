@@ -209,7 +209,7 @@ async def revise_scene(
         "beat_index": payload.beat_index,
         "base_text_hash": draft_hash,
     }
-    job = await jobs_repo.enqueue(
+    job, inserted = await jobs_repo.enqueue_reporting(
         db,
         kind=revise_job.KIND,
         payload=job_payload,
@@ -218,8 +218,9 @@ async def revise_scene(
         dedupe_key=dedupe_key,
         domain=("scene", scene.id),
     )
-    # Two requests racing past the lookup above: the loser gets the winner's job.
-    deduplicated = job.payload != job_payload
+    # Two requests racing past the lookup above: the loser gets the winner's
+    # job (identical payload or not), and is told so.
+    deduplicated = not inserted
     job_id = str(job.id)
     await db.commit()
     return {

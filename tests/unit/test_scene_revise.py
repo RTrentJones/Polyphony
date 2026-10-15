@@ -286,6 +286,33 @@ async def test_revise_enqueues_one_job_and_dedupes(
     assert story.scene.content == DRAFT
 
 
+async def test_an_identical_request_racing_past_the_lookup_is_deduplicated(
+    client, auth_headers, async_session, story, monkeypatch
+):
+    """Codex on #38: the loser of a race gets the winner's job, and with an
+    identical payload it must still say deduplicated (a double-click)."""
+    from app.api import revise as revise_api
+    from app.jobs import repository as jobs_repo
+
+    _bind(monkeypatch, async_session, FakeLLM())
+    r1 = await _revise(client, auth_headers, story.scene, range=_p2_range())
+    assert r1.json()["deduplicated"] is False
+
+    real = jobs_repo.find_active
+    calls = {"n": 0}
+
+    async def miss_first(session, key):
+        # The endpoint's own lookup misses (the race); enqueue's finds the job.
+        calls["n"] += 1
+        return None if calls["n"] == 1 else await real(session, key)
+
+    monkeypatch.setattr(revise_api.jobs_repo, "find_active", miss_first)
+    r2 = await _revise(client, auth_headers, story.scene, range=_p2_range())
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["job_id"] == r1.json()["job_id"]
+    assert r2.json()["deduplicated"] is True
+
+
 async def test_revise_is_refused_with_the_estimate_when_over_budget(
     client, auth_headers, async_session, story, monkeypatch
 ):
@@ -495,6 +522,36 @@ async def test_revise_then_accept_keeps_outside_text_and_snapshots_once(
         _url(story.scene, f"revisions/{proposal['id']}/accept"), headers=auth_headers
     )
     assert again.status_code == 409
+
+
+async def test_accept_keeps_edge_whitespace_outside_the_span(
+    client, auth_headers, async_session, story, monkeypatch
+):
+    """Codex on #38: the draft is the raw editable text, so an interior
+    revision keeps a trailing newline and the snapshot restores it exactly."""
+    raw = DRAFT + "\n"
+    story.scene.content = raw
+    await async_session.commit()
+    _bind(monkeypatch, async_session, FakeLLM(["Zara said nothing."]))
+    job = await _run_job(
+        client, auth_headers, async_session, story.scene, range=_p2_range()
+    )
+    assert job.status == "succeeded", job.error
+    [proposal] = (await _proposals(client, auth_headers, story.scene))["proposals"]
+    assert proposal["content"].endswith("\n")
+    before = await _revisions(async_session, story.scene)
+    r = await client.post(
+        _url(story.scene, f"revisions/{proposal['id']}/accept"), headers=auth_headers
+    )
+    assert r.status_code == 200, r.text
+    await async_session.refresh(story.scene)
+    assert story.scene.content.endswith(DRAFT[_p2_range()["end"] :] + "\n")
+    added = [
+        a
+        for a in await _revisions(async_session, story.scene)
+        if a.id not in {b.id for b in before}
+    ]
+    assert [a.content for a in added] == [raw]
 
 
 async def test_discard_leaves_the_draft_byte_identical(

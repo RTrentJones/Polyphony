@@ -38,11 +38,11 @@ class RevisionConflict(RuntimeError):
 
 
 def draft_of(scene: Scene) -> str:
-    """The draft a revision works on: the same text the editor saves over and
-    the export prints (edited content wins over the raw generation)."""
-    from app.exports.builder import scene_text
-
-    return scene_text(scene)
+    """The draft a revision works on: the raw text the editor loads and saves
+    (edited content wins over the raw generation). Not the export's trimmed
+    `scene_text`: splicing a trimmed draft dropped edge whitespace, a trailing
+    newline included, from the proposal and its accept snapshot."""
+    return scene.content or scene.generated_content or ""
 
 
 def cast_request(scene: Scene) -> dict:

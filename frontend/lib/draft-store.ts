@@ -132,13 +132,34 @@ export function useDraftAutosave({
   enabled,
 }: DraftAutosaveOptions): void {
   const latest = useRef({ sceneId, text, baseText, baseUpdatedAt, enabled })
-  latest.current = { sceneId, text, baseText, baseUpdatedAt, enabled }
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Text carried over a scene switch: when only `?scene=` changes, the page is
+  // reused and for a render or two `text` is still the previous scene's. Until
+  // it changes, it belongs to the old scene and must not be saved under the new
+  // scene's key.
+  const carried = useRef<{ sceneId: string; text: string } | null>(null)
+  if (latest.current.sceneId !== sceneId) {
+    if (timer.current) {
+      clearTimeout(timer.current)
+      timer.current = null
+    }
+    // Flush the old scene's pending text under its own key, then switch.
+    save(latest.current)
+    carried.current = { sceneId, text: latest.current.text }
+  }
+  if (carried.current && carried.current.text !== text) carried.current = null
+  latest.current = { sceneId, text, baseText, baseUpdatedAt, enabled }
+
+  function save(cur: DraftAutosaveOptions): void {
+    const c = carried.current
+    if (c && c.sceneId === cur.sceneId && c.text === cur.text) return
+    persist(cur)
+  }
 
   const isDirty = text !== baseText
 
   useEffect(() => {
-    const flush = () => persist(latest.current)
+    const flush = () => save(latest.current)
     const onPageHide = () => flush()
     window.addEventListener('pagehide', onPageHide)
     return () => {
@@ -159,13 +180,15 @@ export function useDraftAutosave({
         clearTimeout(timer.current)
         timer.current = null
       }
-      clearDraft(sceneId)
+      // Text carried from the previous scene says nothing about this scene's
+      // draft; clearing here would drop it before the restore banner shows.
+      if (!carried.current) clearDraft(sceneId)
       return
     }
     if (timer.current) return
     timer.current = setTimeout(() => {
       timer.current = null
-      persist(latest.current)
+      save(latest.current)
     }, AUTOSAVE_INTERVAL_MS)
   }, [sceneId, text, isDirty, enabled])
 }
