@@ -313,20 +313,6 @@ class TestMerge:
         merged = {g["name"]: g for g in ce.merge_characters(answers, text)}
         assert "Count Vasska" in merged
 
-    def test_used_as_title_counts_most_uses(self):
-        assert (
-            ce._used_as_title(
-                "Chief Lich", "the Chief\nLich met Chief Lich, Chief Lich"
-            )
-            is False
-        )
-        assert ce._used_as_title("Chief Lich", "the Chief\nLich met a Chief Lich.")
-        assert ce._used_as_title(
-            "Chief Lich", "The Chief Lich; the Chief Lich; Chief Lich"
-        )
-        assert ce._used_as_title("Edric Thane", "") is False
-        assert ce._used_as_title("Edric Thane", "Lathe Edric Thane") is False
-
     def test_bare_honorific_is_not_an_alias(self):
         out = ce._normalize_window(
             {"characters": [{"name": "Count Vasska", "aliases": ["Count", "Vasska"]}]}

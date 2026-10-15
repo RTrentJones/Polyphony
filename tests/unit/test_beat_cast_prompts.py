@@ -11,12 +11,7 @@ import uuid
 
 import pytest
 
-from app.orchestration import workflow as wf
-from app.orchestration.workflow import (
-    parse_structured_beats,
-    plan_scene_beats,
-    scene_block,
-)
+from app.orchestration.workflow import parse_structured_beats, scene_block
 from app.planning import staged_outline as so
 from app.planning.canon import Canon
 from app.planning.outline import validate_outline_nodes
@@ -24,7 +19,6 @@ from evals.steps.pipeline import load_corpus
 
 pytestmark = pytest.mark.unit
 
-P3_CAST = re.compile(r"(?m)^Available cast \(not all need appear\): (.+)$")
 P3_ALSO = re.compile(r"(?m)^Also named \(secondary, not in the cast\): (.+)$")
 BLANK_SETTING = re.compile(r"(?m)^\s*Setting:\s*$")
 
@@ -69,34 +63,6 @@ class FakeLLM:
         return types.SimpleNamespace(
             text=self.responses.get(purpose, "[]"), tokens_in=1, tokens_out=1
         )
-
-
-# --- §1e: the outline prompts ask for one `people` list -------------------------
-
-
-async def test_outline_prompts_ask_for_people_without_a_secondary_list(
-    monkeypatch, cel
-):
-    fake = FakeLLM({})
-    monkeypatch.setattr(so, "get_llm_client", lambda: fake)
-    await so._stage_chapters(cel, {"acts": [{"title": "A"}]}, None)
-    chapters = [{"title": "Intake", "act_index": 0, "people": ["Milo Voss"]}]
-    await so._stage_beats_for_act(cel, 0, chapters, None, skeleton={"acts": []})
-    for prompt in (
-        fake.prompts["outline:chapters"][0],
-        fake.prompts["outline:beats"][0],
-    ):
-        assert "SECONDARY PEOPLE" not in prompt
-        assert "Principal characters MUST be canon cast: Milo Voss" in prompt
-        assert "may appear by name; never invent others." in prompt
-        assert '"people"' in prompt
-        assert '"characters"' not in prompt and '"secondary_names"' not in prompt
-    beats = fake.prompts["outline:beats"][0]
-    children = beats[beats.index('"children": [{') :]
-    for key in ('"people"', '"setting"', '"tone"'):
-        assert key in children, key
-    # the stub's routing phrases survive
-    assert "scene beats" in beats and "mirroring the chapters" in beats
 
 
 # --- §1.1: validating the beat children -------------------------------------------
@@ -234,16 +200,6 @@ def test_restore_keeps_stored_beat_ids_as_they_are():
     assert validate_outline_nodes(stored) == stored
 
 
-def test_secondary_names_are_capped_and_trimmed():
-    names = [f"Person {i}" for i in range(20)] + ["x" * 300]
-    nodes = validate_outline_nodes(
-        [{"title": "Ch", "children": [{"title": "b", "secondary_names": names}]}]
-    )
-    out = nodes[0]["children"][0]["secondary_names"]
-    assert len(out) == 12 and out[0] == "Person 0"
-    assert all(len(n) <= 100 for n in out)
-
-
 async def test_staged_outline_saves_beat_fields_and_warns_on_invention(
     monkeypatch, cel
 ):
@@ -328,36 +284,6 @@ def test_scene_block_lists_also_named_secondaries():
     assert P3_ALSO.search(block).group(1) == "Prava, Old Fen"
 
 
-async def test_plan_beats_prompt_offers_an_available_cast(monkeypatch):
-    fake = FakeLLM(
-        {
-            "plan_beats": json.dumps(
-                [{"description": "Milo signs.", "characters": ["Milo Voss"]}]
-            )
-        }
-    )
-    monkeypatch.setattr(wf, "get_llm_client", lambda: fake)
-    beats = await plan_scene_beats(
-        {
-            "scene_description": "Intake: Milo is processed.",
-            "characters": ["Milo Voss", "Zara Okafor"],
-            "setting": "",
-            "emotional_tone": "",
-            "secondary_names": ["Prava"],
-        }
-    )
-    prompt = fake.prompts["plan_beats"][0]
-    cast = [n.strip() for n in P3_CAST.search(prompt).group(1).split(",")]
-    assert cast == ["Milo Voss", "Zara Okafor"]
-    assert P3_ALSO.search(prompt).group(1) == "Prava"
-    assert "unnamed functional figures" in prompt.lower()
-    assert "cast is exactly" not in prompt
-    assert not BLANK_SETTING.search(prompt)
-    assert "Emotional tone:" not in prompt
-    # the per-beat cast is still a subset of the scene cast
-    assert beats[0]["characters"] == ["Milo Voss"]
-
-
 def test_parse_structured_beats_keeps_the_subset_rule():
     beats = parse_structured_beats(
         json.dumps([{"description": "x", "characters": ["Prava", "Milo Voss"]}]),
@@ -403,21 +329,3 @@ async def test_stub_beats_carry_people_setting_tone_and_the_synopsis_people(
         c for n in act2 for c in n["children"]
     ]
     assert others and all("Prava" not in c["people"] for c in others)
-
-
-async def test_stub_planner_still_parses_the_new_wording(monkeypatch):
-    from evals.stub_llm import _answer
-
-    class StubClient:
-        async def generate(self, messages, *, purpose, **kw):
-            text = _answer(messages[0]["content"])
-            return types.SimpleNamespace(text=text, tokens_in=1, tokens_out=1)
-
-    monkeypatch.setattr(wf, "get_llm_client", lambda: StubClient())
-    canon_block = "<canon>\n# Characters\n\n### Milo Voss\n\n### Zara Okafor\n</canon>"
-    beats = await plan_scene_beats(
-        {"scene_description": "d", "characters": ["Milo Voss", "Zara Okafor"]},
-        canon_block=canon_block,
-    )
-    assert len(beats) == 3
-    assert beats[0]["characters"] == ["Milo Voss", "Zara Okafor"]

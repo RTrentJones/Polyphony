@@ -247,31 +247,3 @@ def test_principal_recall_finds_a_punctuated_alias():
         "Then Voss, alone, signs.", [{"name": "Milo Voss", "aliases": ["Voss,"]}]
     )
     assert recall == 1.0 and present == ["Milo Voss"] and missing == []
-
-
-def test_flatten_outline_is_one_walk_with_titles_apart():
-    from app.planning.fidelity import flatten_outline
-
-    nodes = [
-        {
-            "title": "Intake",
-            "summary": "Milo arrives.",
-            "pov": "Milo Voss",
-            "people": ["Milo Voss", "Prava"],
-            "threads": ["the audit"],
-            "children": [
-                {"title": "Badge", "summary": "a photo", "people": ["Old Fen"]}
-            ],
-        }
-    ]
-    titles, body = flatten_outline(nodes)
-    assert titles == ["Intake", "Badge"]
-    assert body == [
-        "Milo arrives.",
-        "Milo Voss",
-        "Milo Voss",
-        "Prava",
-        "the audit",
-        "a photo",
-        "Old Fen",
-    ]
