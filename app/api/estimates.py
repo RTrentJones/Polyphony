@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.revise import CharRange
 from app.core import estimates
 from app.core.database import get_db
 from app.core.orm_models import Book, Source, User as UserORM
@@ -21,8 +22,13 @@ router = APIRouter()
 
 
 class EstimateRequest(BaseModel):
-    action: Literal["scene", "outline", "continuity", "extraction"]
+    action: Literal["scene", "outline", "continuity", "extraction", "revise"]
     book_id: Optional[UUID] = None
+    # revise (SPEC-19): the scene, and the span (a range, a beat, or neither
+    # for the whole scene) — the same span rules as POST .../revise.
+    scene_id: Optional[UUID] = None
+    range: Optional[CharRange] = None
+    beat_index: Optional[int] = Field(default=None, ge=0)
     source_id: Optional[UUID] = None
     chapter_id: Optional[UUID] = None
     character_ids: list[UUID] = Field(default_factory=list)
@@ -77,6 +83,9 @@ async def estimate(
         est = estimates.extraction(text=text)
         return await estimates.assess(db, current_user.id, est)
 
+    if payload.action == "revise":
+        return await _revise_estimate(db, payload, current_user)
+
     book = await _owned_book(db, payload.book_id, current_user)
     canon = await build_canon(db, book.id)
     canon_chars = len(canon.full_block())
@@ -108,3 +117,23 @@ async def estimate(
             fact_sheet_chars=len(sheet), prose_words=len(prose.split())
         )
     return await estimates.assess(db, current_user.id, est)
+
+
+async def _revise_estimate(
+    db: AsyncSession, payload: EstimateRequest, user: UserORM
+) -> dict:
+    from app.api.books import owned_scene
+    from app.api.revise import _beat_text, resolve_request_span, revise_estimate
+    from app.jobs.revise import draft_of
+
+    if payload.scene_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Scene not found"
+        )
+    scene = await owned_scene(payload.scene_id, user, db)
+    beat_text = None
+    if payload.beat_index is not None and payload.range is None:
+        beat_text = await _beat_text(db, scene.id, payload.beat_index)
+    span = resolve_request_span(draft_of(scene), payload.range, beat_text)
+    est, _ = await revise_estimate(db, scene, span)
+    return await estimates.assess(db, user.id, est)

@@ -131,7 +131,22 @@ def _narrators(prompt: str) -> list[str]:
     return out
 
 
+def _revise(prompt: str) -> str:
+    """The revise family (SPEC-19): the <target> passage with its first
+    sentence dropped (its last word, if it is one sentence). Derived only from
+    the target the prompt carries, so a pipeline that stops sending the span
+    stops getting a revision of it."""
+    target = _blocks(prompt).get("target", "")
+    sentences = [s for s in re.split(r"(?<=[.!?])\s+", target.strip()) if s]
+    if len(sentences) > 1:
+        return " ".join(sentences[1:])
+    words = target.split()
+    return " ".join(words[:-1]) if len(words) > 1 else target
+
+
 def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
+    if prompt.lstrip().startswith("Revise the TARGET passage"):
+        return _revise(prompt)
     cast = _cast(prompt)
     lead = cast[0] if cast else "the protagonist"
     second = cast[1] if len(cast) > 1 else lead
