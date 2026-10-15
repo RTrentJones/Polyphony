@@ -8,6 +8,7 @@ single-source-per-book flow stays one step.
 """
 
 import hashlib
+import os
 
 from fastapi import (
     APIRouter,
@@ -25,6 +26,7 @@ from typing import Optional
 from uuid import UUID
 
 from app.core.budget import check_user_budget
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.models import SourceStatus
 from app.core.orm_models import (
@@ -49,6 +51,37 @@ from app.versioning import entities as entity_versions
 from app.versioning import trash
 
 router = APIRouter()
+
+# Formats an author is likely to try that the server cannot read, each with the
+# fix (SPEC-21, B14). Anything else outside ALLOWED_EXTENSIONS gets the list.
+_UNSUPPORTED_UPLOAD_HINTS = {
+    ".doc": "Old Word .doc files aren't supported. Save as .docx and upload again.",
+}
+
+
+def _check_upload_type(filename: str) -> None:
+    """415 for an extension the parser cannot read, before the bytes are read."""
+    ext = os.path.splitext(filename or "")[1].lower()
+    if ext in settings.ALLOWED_EXTENSIONS:
+        return
+    accepted = ", ".join(settings.ALLOWED_EXTENSIONS)
+    what = f"{ext} files are" if ext else "Files without an extension are"
+    detail = _UNSUPPORTED_UPLOAD_HINTS.get(ext) or (
+        f"{what} not supported. Accepted types: {accepted}"
+    )
+    raise HTTPException(
+        status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail=detail
+    )
+
+
+@router.get("/config", response_model=dict)
+async def upload_config():
+    """What an upload may be: the UI's file picker reads this, so the dialog
+    accepts exactly what the server can parse (B14)."""
+    return {
+        "accepted_extensions": list(settings.ALLOWED_EXTENSIONS),
+        "max_bytes": settings.MAX_UPLOAD_SIZE,
+    }
 
 
 async def _resolve_book(
@@ -95,6 +128,7 @@ async def upload_source(
 ):
     """Upload a source file; character extraction/indexing runs in the background."""
     # Extraction spends LLM quota — gate it on the per-user daily budget.
+    _check_upload_type(file.filename or "")
     await check_user_budget(db, current_user.id)
     if not title:
         title = file.filename or "Untitled"
