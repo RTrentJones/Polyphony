@@ -36,50 +36,66 @@ the continuity fact sheet; `suggested_characters` on `GET /plans` and both promo
 
 `chapters.planned_beats`: JSON on sqlite, JSONB on Postgres, nullable. It holds
 `list[PlannedBeat]` (`app/planning/planned_beat.py`, the frozen wave-2 contract):
-`{node_id, title, summary, character_ids, secondary_names, setting, tone}`. It is always read
-through `normalize_planned_beats`, which never raises. `character_ids == []` means "use the chapter
-cast". API chapter dicts (`_chapter_dict`) carry `planned_beats` (`[]` for a hand-made chapter).
+`{node_id, title, summary, character_ids, secondary_names, setting, tone}`. Every reader
+(`_chapter_dict`, generate-planned, `list_books`'s planned count, the fact sheet) calls
+`normalize_planned_beats(chapter.planned_beats)`, which never raises. `character_ids == []` means
+"use the chapter cast". API chapter dicts carry `planned_beats` (`[]` for a hand-made chapter).
+
+**There is no runtime fallback** (wave 2.5, PR-B1). Migrations run at container start, before the
+app serves, so after 0019 no served request meets a legacy-format chapter. 0019 and the chapter
+restore path convert legacy "Planned beats:" blocks at write time. A chapter whose `planned_beats`
+is empty plans **0** scenes, whatever its summary says: lines an author types into a summary are
+text.
 
 ### Promote (`app/api/plans.py::_promote_node`, `promoted_beats`)
 
 For each child of the node, one beat:
 
 - `node_id`, `title`, `summary`, `setting`, `tone` are the child's.
-- `character_ids` are the child's `character_ids` (or, defensively, `characters` names) that resolve
-  in the book's **current** cast (`CastIndex`). A character removed since the outline was drafted
-  is dropped.
-- A `secondary_names` entry that now resolves to the cast (the author added that person) **moves**
-  into `character_ids`. The others stay in `secondary_names`.
+- One `classify_people(child.character_ids + child.characters + child.secondary_names, current
+  cast, None)` call (SPEC-24) gives the beat's `character_ids` (`.ids`) and `secondary_names`
+  (`.secondary`). A character removed since the outline was drafted is dropped; a secondary name
+  that now resolves (the author added that person) **moves** into `character_ids`. A stored
+  outline's legacy `characters` key counts the same as `character_ids` + `secondary_names`.
+- The chapter's `character_ids` are `classify_people(node.character_ids, cast, None).ids`, with the
+  POV character first.
 
 The chapter `summary` is the node summary only. The chapter `title` is
 `clean_chapter_title(node.title)`, or `Chapter {position+1}` when that is empty.
 
 ### Generate-planned (`POST /books/chapters/{id}/scenes/generate-planned`)
 
-- **Beats**: `scene_batch.planned_beats(chapter)`. It returns `chapter.planned_beats` when that
-  holds any. Otherwise it parses the legacy summary lines (`planned_beat_lines`, the old string
-  parser, renamed) into the same shape: split on the first `": "`, and `title:` or a bare line is a
-  title with an empty summary. So an un-migrated or hand-written chapter still generates.
-- **Already written**: `unwritten_beats` matches each beat's `beat_scene_description(beat)`
-  (`"title: summary"`, byte-identical to the legacy line) against the live scenes' descriptions. A
-  trailing `:` is ignored on both sides, so a legacy `Lunch:` scene and a bare `Lunch` line still
-  count. Scenes written before this spec still count as written.
+- **Beats**: `normalize_planned_beats(chapter.planned_beats)`. Empty → 422 "no planned beats".
+- **Already written**: by **id only** (wave 2.5, review B3). `scene_batch.written_beat_ids` reads
+  the `scene_request.planned_beat_id` of the chapter's live, not failed/cancelled scenes, and
+  `planned_beat.unwritten_beats(beats, written_ids)` keeps the beats whose `node_id` is not among
+  them. Renaming or re-summarising a beat never makes its scene unwritten. Scenes written before
+  this spec were linked to their beats once, by migration 0019.
 - **Cast precedence**, per beat: a non-empty `payload.character_ids` (an explicit override for
-  every beat; an unknown id is a 422, SPEC-01) > the beat's `character_ids` plus any
-  `secondary_names` entry that now resolves > the chapter's `character_ids`. In every case ids that
-  are not live are dropped and the chapter POV character, when live, is put first if missing. A beat
-  whose cast ends up empty is a 422 (the same as before). `resolve_cast` runs once per distinct
-  cast.
+  every beat, **not** filtered: an unknown id is a 422, SPEC-01) > the beat's own cast,
+  `classify_people(beat.character_ids + beat.secondary_names, live cast, None).ids` (dead ids
+  dropped; a secondary that now resolves is cast) > the chapter's `character_ids` that are still
+  live. A beat whose own cast was all trashed therefore falls back to the chapter's (wave 2.5,
+  review S8). The chapter POV character, when live, is put first if missing. `resolve_cast` runs
+  once per distinct cast; it 422s an unknown explicit id and an empty cast.
 - **Request** (the keys the scene chain carries; SPEC-24 reads them):
   `scene_description = beat_scene_description(beat)`;
   `setting = payload.setting or beat.setting`; `emotional_tone = payload.emotional_tone or
   beat.tone` (both may be `""`); `pov_character` = the chapter POV name or `None`;
-  `planned_beat_id = beat.node_id`; `secondary_names` = the beat's names that still do not
-  resolve (may be `[]`). `source_id`, `target_word_count`, `style_notes` and `mode` are unchanged.
+  `planned_beat_id = beat.node_id`; `secondary_names` = the same `classify_people` call's
+  `.secondary` (may be `[]`). `source_id`, `target_word_count`, `style_notes` and `mode` are unchanged.
 - `PlannedScenesRequest.emotional_tone` defaults to `""` (was `"neutral"`): the style guide's tone
   governs.
 - **Preflight**: the sum of the single-scene estimator over the scenes to write, each with its own
   cast size and cast context.
+
+### A single scene from a beat (`POST /books/chapters/{id}/scenes/generate`)
+
+`ChapterSceneRequest.planned_beat_id: Optional[str]` (wave 2.5, review S7; the modal sends it).
+When it names a beat of the chapter's `planned_beats`, the stored request carries
+`planned_beat_id` (so generate-planned counts that beat as written) and `secondary_names` =
+`classify_people(beat.secondary_names, live cast, None).secondary`. An id the chapter does not
+have (a stale modal) is stored as `None`. The cast, setting and tone are the request's own.
 
 ### Chapter PATCH (`PATCH /books/chapters/{id}`)
 
@@ -91,46 +107,70 @@ chapter (SPEC-13) like a title or summary edit.
 ### Versions (`app/versioning/entities.py`)
 
 `CHAPTER_FIELDS` includes `planned_beats` (normalized in the version content). Restore writes it
-back through `apply_chapter_cast`, normalized, with ids no longer live dropped from each beat. A
-version taken before this spec has no `planned_beats` key and leaves the live beats alone.
+back through `apply_chapter_cast`, normalized, with ids no longer live dropped from each beat.
+
+A version taken before this spec has no `planned_beats` key, and its summary may hold a
+promote-format "Planned beats:" block. Restore (`app/api/versioning.py`) converts it at that write
+with `split_legacy_summary`: the summary becomes the text without the block, and **when the live
+`planned_beats` is empty** the lines become the beats (`beat_from_line`, uuid4 ids, stored once).
+Otherwise the live beats stay, so restoring the same version twice adds nothing.
+`split_legacy_summary` / `beat_from_line` exist only for this path and 0019's parity test. They go
+once no stored chapter version predates SPEC-23; versions are kept forever today, so they stay
+until a retention policy exists.
 
 ### Continuity fact sheet (`build_fact_sheet`)
 
 Each chapter is a heading `Ch N: title`, then its summary indented, then its beats as indented
-`  - title: summary` lines. A beat list never contains a `- Ch` line. A legacy chapter's
-`Planned beats:` text is rendered the same way, from the fallback parse.
+`  - title: summary` lines. A beat list never contains a `- Ch` line. `app/planning` does not
+import `app.jobs` (a one-assertion layering test).
 
 ### `suggested_characters` (wave-2 contract §1.2)
 
 `[{name, synopsis_sentence}]`, always a list. SPEC-24 computes it
-(`secondaries.suggested_characters(nodes, canon)`); this spec exposes it:
+(`secondaries.suggested_characters(names, canon)`); this spec collects the names and exposes it.
+The names are a node's `secondary_names` plus, for a **promoted** node, its chapter's stored
+beats' `secondary_names` (what generation uses), else the outline children's. `GET /plans` reads
+the book's live promoted chapters once per request.
 
 - `GET /books/{id}/plans`: each plan dict has `suggested_characters`. It is computed only for
   `kind == "outline"` and `status == "ready"`, against the current cast, so a name disappears once
   the author adds that person. One `build_canon` per request, and none when no plan qualifies.
 - `POST .../plans/promote`: a top-level key computed over the promoted node.
   `POST .../plans/promote-all`: a top-level key computed over the whole outline.
-- An exception in the suggestion code is logged and yields `[]`. Suggestions are advisory and never
-  take the plans or a promote down.
+- A `ValueError`, `TypeError` or `KeyError` in the suggestion code is logged and yields `[]`.
+  Suggestions are advisory and never take the plans or a promote down; any other exception is a
+  bug and surfaces.
 
 ### Migration `0019_w2_planned_beats` (`w2_planned_beats`, after `b3_scene_revise`)
 
-Postgres only, and guarded like 0017/0018. Migrations do not import app code, so the beat
-normalization and the `clean_chapter_title` regex are copied inline.
+Postgres only, and guarded like 0017/0018. Migrations do not import app code, so the block parser
+(`split_legacy_summary`), the beat caps and the `clean_chapter_title` regex are copied inline; a
+parity test checks the copy. Wave 2 never reached production, so wave 2.5 edited this migration in
+place.
 
 - `upgrade`:
   1. `ADD COLUMN IF NOT EXISTS planned_beats JSONB`.
-  2. For each chapter whose summary contains `Planned beats:` (and has no beats yet): if
-     `plan_node_id` matches a node of the book's outline, the beats are that node's children, with
-     node_ids and any new fields kept. Otherwise the `- title: summary` lines are parsed, with new
-     uuid4 node_ids. The summary becomes the text before the marker, stripped.
-  3. For chapters with a `plan_node_id`, a leading `Chapter N:` (same regex as
+  2. For each chapter with `planned_beats IS NULL` whose summary holds a **promote-format** block
+     (`Planned beats:` alone on its line, at the start of the summary or after a blank line, and a
+     `- ` line first): each `- ` line, with any continuation lines folded into it, becomes a beat
+     (`beat_from_line`, a new uuid4 `node_id`, no cast, setting or tone), capped at 12. **The lines
+     are the truth**: the author may have edited them, so the outline is never read. The summary
+     keeps its text before the block and after the block's ending blank line. A summary that merely
+     mentions the phrase ("Planned beats: TBD. Then…") is left alone and counted as skipped.
+  3. **Scene linking**, once: each converted chapter's live, not failed/cancelled scenes with no
+     `scene_request.planned_beat_id`, in position order, are matched to the beats by occurrence on
+     the `- ` line (a trailing `:` ignored on both sides): each scene takes the first open beat
+     with its line, and each beat takes at most one scene. The match writes
+     `scene_request.planned_beat_id`, an additive key older code ignores.
+  4. For chapters with a `plan_node_id`, a leading `Chapter N:` (same regex as
      `clean_chapter_title`) is stripped from the title, unless that would leave it empty.
+  5. One log line on `alembic.runtime.migration`:
+     `0019 planned beats: converted=<n> skipped=<n> scenes_linked=<n> beats=<n>`.
 - `downgrade`: re-appends `\n\nPlanned beats:\n- title: summary…` to the summary of every chapter
-  with beats, then drops the column. **The title strip is not reversed**: the prefix is not
-  recoverable, and older code does not need it.
-- upgrade → downgrade → upgrade leaves the same summaries, titles and beat titles/summaries, and a
-  plan-backed chapter keeps its node_ids.
+  with beats, then drops the column. Scenes keep `planned_beat_id`. **The title strip is not
+  reversed**: the prefix is not recoverable, and older code does not need it.
+- The round trip is exact for promote-format rows. Author text after the block ends up before it,
+  and continuation lines come back joined into their beat's line.
 
 ## Acceptance
 
@@ -145,10 +185,16 @@ normalization and the `clean_chapter_title` regex are copied inline.
 | The preflight sums per-beat cast sizes | `test_the_preflight_sums_each_beats_cast`, `test_handoff_followups.py::test_generate_planned_is_preflighted` |
 | Editing the summary leaves the requests unchanged | `test_editing_the_summary_does_not_change_the_requests` |
 | PATCH with a foreign id is a 422; a beat edit is versioned and restorable; restore drops dead ids | `test_patch_planned_beats_is_strict_and_versioned`, `test_restoring_beats_drops_characters_no_longer_live` |
-| A pre-migration chapter generates through the fallback, and its old-format scenes count as written | `test_a_summary_only_chapter_still_generates`, `test_legacy_lines_parse_into_beats_that_rebuild_the_line`, `test_job_enqueue.py` (summary-only chapter) |
+| A scene counts as written by its beat's id: renaming a beat does not write it again | `test_a_renamed_beat_keeps_its_written_scene`, `test_planned_beat_contract.py::test_unwritten_beats_is_by_id_only` |
+| No runtime fallback: a typed block in an empty-beats chapter plans nothing (422; `list_books` counts 0) | `test_a_typed_block_in_the_summary_plans_nothing`, `test_list_books_progress.py::test_planned_count_reads_the_beats_only` |
+| Restoring a pre-SPEC-23 version moves its block into `planned_beats` once | `test_restoring_a_pre_spec23_version_converts_its_block_once` |
+| A beat whose own cast was trashed takes the chapter cast; an explicit unknown id still 422s | `test_a_trashed_beat_cast_falls_back_but_an_explicit_unknown_422s` |
+| A single scene from a beat stores its id and secondaries; a stale id is stored as `None` | `test_a_single_scene_from_a_beat_stores_its_id_and_secondaries` |
+| Legacy `characters` and `character_ids` + `secondary_names` promote the same beats; a trashed node cast is dropped | `test_legacy_characters_and_people_lists_promote_the_same_beats` |
 | The fact sheet has indented beats and no `- Ch` in a beat list | `test_continuity_v2.py::test_fact_sheet_indents_planned_beats_under_their_chapter` |
-| `GET /plans` and both promotes return `suggested_characters`; only ready outlines; an error yields `[]` | `test_plans_and_promote_return_suggested_characters`, `test_suggestions_only_for_a_ready_outline_and_never_fatal` |
-| PG: JSONB column, backfill from plan children keeps node_ids, parse fallback, title strip, round trip | `tests/integration/test_pg_planned_beats.py` |
+| `GET /plans` and both promotes return `suggested_characters`; only ready outlines; an expected error yields `[]`; a promoted node's names come from its chapter's beats | `test_plans_and_promote_return_suggested_characters`, `test_suggestions_only_for_a_ready_outline_and_never_fatal`, `test_a_promoted_nodes_suggestions_come_from_its_chapter_beats` |
+| `app/planning` never imports `app.jobs` | `test_continuity_v2.py::test_planning_never_imports_jobs` |
+| PG: JSONB column; the author's edited line kept (i); a stray mention skipped (iii); a block at offset 0 (iv); text after the block kept (v); round trip (vi); parity with the app parser (vii); a pre-SPEC-23 scene linked and skipped by generate-planned (viii); a continuation line stays in its beat (ix); the log line; title strip | `tests/integration/test_pg_planned_beats.py` |
 
 ## Docs (delta for the orchestrator to apply)
 
@@ -160,8 +206,10 @@ normalization and the `clean_chapter_title` regex are copied inline.
 > beat: the beat's cast (else the chapter's; an explicit request cast overrides every beat) plus the
 > chapter's POV character, and the beat's setting and tone. An empty tone stays empty; the style
 > guide governs, and "neutral" is never injected. Editing the summary does not change what is
-> generated. The chapter PATCH edits the beats strictly (an id outside the book's live cast is a
-> 422) and versions them. Promoted titles drop the outline's "Chapter N:" prefix.
+> generated, and a "Planned beats:" block typed into a summary plans nothing. A scene is linked
+> to its beat by id, so renaming a beat never writes its scene twice. The chapter PATCH edits the
+> beats strictly (an id outside the book's live cast is a 422) and versions them. Promoted titles
+> drop the outline's "Chapter N:" prefix.
 
 **feature-set.md**:
 
@@ -174,6 +222,7 @@ normalization and the `clean_chapter_title` regex are copied inline.
   "(SPEC-23)".
 - Row `entity_versions`: append "; a chapter version also carries its planned beats (SPEC-23)".
 - New row under planning: "| Planned beats as data | R1.1b | ✅ (API) | `chapters.planned_beats`
-  (migration `0019_w2_planned_beats` backfills from the summary text or the outline node);
+  (migration `0019_w2_planned_beats` converts the summary's promote-format lines and links the
+  scenes already written to their beats);
   `PATCH /books/chapters/{id}` `planned_beats` (strict, versioned); editable list in the UI: W2-7
   (SPEC-23) |".

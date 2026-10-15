@@ -114,6 +114,9 @@ class ChapterSceneRequest(BaseModel):
     # Generation mode (docs/BRD.md §8). prose = one call per beat (default);
     # ensemble = narrator/character/editor loop, opt-in and tier-gated.
     mode: str = Field(default="prose", pattern="^(prose|ensemble)$")
+    # The planned beat this scene is written from (SPEC-23): links the scene to
+    # the beat, so "Generate all planned scenes" counts that beat as written.
+    planned_beat_id: Optional[str] = Field(default=None, max_length=64)
 
     @model_validator(mode="before")
     @classmethod
@@ -270,26 +273,6 @@ async def create_book(
     return {"id": str(book.id), "title": book.title, "status": book.status}
 
 
-def _planned_scene_count(chapter: ChapterORM) -> int:
-    """How many scenes a chapter plans: its `planned_beats` (SPEC-23), else the
-    legacy "- title: summary" lines after "Planned beats:" in its summary."""
-    # Imported here so this hunk stays clear of the module imports (SPEC-27).
-    from app.planning.planned_beat import normalize_planned_beats
-
-    stored = normalize_planned_beats(getattr(chapter, "planned_beats", None))
-    if stored:
-        return len(stored)
-    summary = chapter.summary or ""
-    at = summary.find("Planned beats:")
-    if at < 0:
-        return 0
-    return sum(
-        1
-        for line in summary[at:].split("\n")
-        if line.strip().startswith("- ") and line.strip()[2:].rstrip(":").strip()
-    )
-
-
 @router.get("/", response_model=dict)
 async def list_books(
     current_user: UserORM = Depends(get_current_active_user),
@@ -336,7 +319,9 @@ async def list_books(
         chapter_titles = {c.id: c.title for c in chapters}
         for c in chapters:
             progress[c.book_id]["chapter_count"] += 1
-            progress[c.book_id]["scenes_planned"] += _planned_scene_count(c)
+            progress[c.book_id]["scenes_planned"] += len(
+                normalize_planned_beats(c.planned_beats)
+            )
 
         # Live scenes in a live chapter, or standalone (no chapter).
         in_book = (
@@ -922,6 +907,23 @@ async def generate_scene_into_chapter(
     request_dict = payload.model_dump(mode="json")
     request_dict["characters"] = cast_names
     request_dict["character_ids"] = cast_ids
+    # A scene written from a planned beat carries the beat's id and its
+    # still-uncast named people; an id the chapter no longer has (a stale
+    # modal) is stored as None.
+    from app.planning.outline import CastIndex, classify_people
+
+    wanted = (payload.planned_beat_id or "").strip().lower()
+    beats = normalize_planned_beats(chapter.planned_beats)
+    beat = next((b for b in beats if b["node_id"] == wanted), None)
+    request_dict["planned_beat_id"] = beat["node_id"] if beat else None
+    if beat is not None:
+        book_cast = live(select(CharacterORM), CharacterORM).where(
+            CharacterORM.book_id == chapter.book_id
+        )
+        index = CastIndex((await db.execute(book_cast)).scalars().all())
+        request_dict["secondary_names"] = classify_people(
+            beat["secondary_names"], index, None
+        ).secondary
 
     # Concurrent appends can both compute max+1; the UNIQUE constraint turns
     # that into an IntegrityError — recreate scene AND job (both roll back)
@@ -1000,12 +1002,12 @@ async def generate_planned_scenes(
 ):
     """One scene per planned beat of a promoted chapter, written in order.
 
-    The beats are the chapter's `planned_beats` (SPEC-23; the legacy "Planned
-    beats:" summary lines for a chapter not yet migrated). A beat that already
-    has a live scene in the chapter is skipped, so a second click after a
-    failure picks up where it stopped. Each scene takes its beat's cast (else
-    the chapter's), setting and tone, plus the chapter's POV character; editing
-    the chapter summary changes none of it.
+    The beats are the chapter's `planned_beats` (SPEC-23); a "Planned beats:"
+    block typed into the summary is text, not beats. A beat that already has a
+    live scene in the chapter (one whose request carries the beat's id) is
+    skipped, so a second click after a failure picks up where it stopped. Each
+    scene takes its beat's cast (else the chapter's), setting and tone, plus the
+    chapter's POV character; editing the chapter summary changes none of it.
 
     Same gates as a single scene: budget check, the scene estimator's preflight
     for ALL the scenes (refused with the estimate rather than stopping halfway),
@@ -1037,16 +1039,17 @@ async def generate_planned_scenes(
     if (found := await _existing()) is not None:
         return found
 
-    beats = scene_batch.planned_beats(chapter)
+    beats = normalize_planned_beats(chapter.planned_beats)
     if not beats:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="This chapter has no planned beats. Promote it from the "
             "outline, or generate scenes one at a time.",
         )
-    todo = scene_batch.unwritten_beats(
-        beats, await scene_batch.written_beats(db, chapter_id)
-    )
+    from app.planning.outline import CastIndex, classify_people
+    from app.planning.planned_beat import beat_scene_description, unwritten_beats
+
+    todo = unwritten_beats(beats, await scene_batch.written_beat_ids(db, chapter_id))
     if not todo:
         return {
             "chapter_id": str(chapter_id),
@@ -1061,12 +1064,11 @@ async def generate_planned_scenes(
     await check_user_budget(db, current_user.id)
 
     # Each beat's cast (SPEC-23): an explicit request cast for every beat
-    # (resolve_cast 422s on an unknown id, SPEC-01) > the beat's own cast plus
-    # any secondary name that now resolves > the chapter's promoted cast. Ids
-    # no longer live are dropped, and the chapter's POV character is added.
-    from app.planning.outline import CastIndex
-    from app.planning.planned_beat import beat_scene_description
-
+    # (resolve_cast below 422s on an unknown id, SPEC-01) > the beat's own cast
+    # plus any secondary name that now resolves > the chapter's promoted cast.
+    # Ids no longer live are dropped from the last two (a beat whose own cast
+    # was all trashed falls back to the chapter's), and the chapter's POV
+    # character is added.
     live_cast = (
         (
             await db.execute(
@@ -1086,25 +1088,19 @@ async def generate_planned_scenes(
         else None
     )
     explicit = [str(c) for c in payload.character_ids]
-    if explicit:
-        await resolve_cast(db, chapter.book_id, character_ids=payload.character_ids)
-    chapter_cast = [str(c) for c in (chapter.character_ids or [])]
+    chapter_cast = [
+        c for c in (str(x) for x in chapter.character_ids or []) if c in index.names
+    ]
 
     def beat_cast(beat: dict) -> tuple[list[str], list[str]]:
         """(the scene's character ids, its still-unresolved secondary names)."""
-        secondary: list[str] = []
-        own = list(beat.get("character_ids") or [])
-        for name in beat.get("secondary_names") or []:
-            cid = index.resolve(name)
-            if cid is None:
-                secondary.append(name)
-            elif cid not in own:
-                own.append(cid)
-        ids = explicit or own or chapter_cast
-        ids = [c for c in dict.fromkeys(ids) if c in index.names]
+        own = classify_people(
+            beat["character_ids"] + beat["secondary_names"], index, None
+        )
+        ids = list(explicit or own.ids or chapter_cast)
         if pov_id is not None and pov_id not in ids:
             ids.insert(0, pov_id)
-        return ids, secondary
+        return ids, own.secondary
 
     plans = [(beat, *beat_cast(beat)) for beat in todo]
     # resolve_cast once per distinct cast (it also 422s an empty one).

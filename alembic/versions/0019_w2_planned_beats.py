@@ -5,21 +5,18 @@ as a list of PlannedBeat dicts (app/planning/planned_beat.py). Promote used to
 write them as "Planned beats:" lines inside the chapter summary, so editing the
 summary silently changed what generate-planned wrote.
 
-upgrade:
-  1. add the column;
-  2. backfill every chapter whose summary holds "Planned beats:": from its
-     outline node's children when `plan_node_id` still matches a node of the
-     book's outline (node_ids and any new fields kept), else by parsing the
-     "- title: summary" lines (new uuid4 node_ids). The summary keeps only the
-     text before "\\n\\nPlanned beats:";
-  3. strip a leading "Chapter N:" from promoted chapters' titles (the export
-     heading numbers chapters by position), unless that would empty it.
-downgrade: re-append the beats to the summary as "Planned beats:" lines and
-drop the column. The title strip is NOT reversed (SPEC-23).
+upgrade: add the column; convert each promote-format "Planned beats:" block
+(the `planned_beat.split_legacy_summary` rule) into beats parsed from its lines
+only (the author may have edited them; new uuid4 ids, no cast/setting/tone),
+leaving the rest of the summary; link each converted chapter's live scenes to
+their beats once (`scene_request.planned_beat_id`, by occurrence on the line);
+strip a leading "Chapter N:" from promoted titles unless that empties them; log
+the counts. downgrade: re-append the lines and drop the column; scenes keep
+their beat ids and titles stay stripped (SPEC-23).
 
-postgres-only and guarded, like 0017/0018: 0001 runs `create_all`, so a fresh
-database already has the column when this runs. Migrations do not import app
-code, so the beat normalization and the title regex are copied inline.
+postgres-only and guarded, like 0017/0018 (0001 runs `create_all`). Migrations
+do not import app code, so the parser, the caps and the title regex are copied
+inline (tests/integration/test_pg_planned_beats.py checks the parser copy).
 
 Revision ID: w2_planned_beats
 Revises: b3_scene_revise
@@ -28,6 +25,7 @@ Create Date: 2026-10-15
 """
 
 import json
+import logging
 import re
 import uuid
 from typing import Sequence, Union
@@ -42,7 +40,6 @@ depends_on: Union[str, Sequence[str], None] = None
 
 MARKER = "Planned beats:"
 MAX_BEATS = 12
-MAX_SECONDARY_NAMES = 12
 
 # Same as app.exports.builder._LEADING_CHAPTER (clean_chapter_title).
 _NUMBER_WORDS = (
@@ -56,71 +53,91 @@ _LEADING_CHAPTER = re.compile(
 )
 
 
-def _uuid_str(value):
-    try:
-        return str(uuid.UUID(str(value)))
-    except (ValueError, TypeError, AttributeError):
+_BLOCK = re.compile(rf"(?:\A|\n\n){re.escape(MARKER)}\n")
+
+
+def _split(summary):
+    """Inline copy of app.planning.planned_beat.split_legacy_summary:
+    (text, [(head, text)]) for a promote-format block, else None."""
+    if not isinstance(summary, str):
         return None
-
-
-def _beat(item: dict) -> dict:
-    """normalize_planned_beats for one item (the caller drops untitled ones)."""
-    return {
-        "node_id": _uuid_str(item.get("node_id")) or str(uuid.uuid4()),
-        "title": str(item.get("title") or "").strip()[:500],
-        "summary": str(item.get("summary") or "").strip()[:2000],
-        "character_ids": [
-            c for c in (_uuid_str(x) for x in item.get("character_ids") or []) if c
-        ],
-        "secondary_names": [
-            str(n).strip()[:100]
-            for n in (item.get("secondary_names") or [])
-            if str(n).strip()
-        ][:MAX_SECONDARY_NAMES],
-        "setting": str(item.get("setting") or "").strip()[:500],
-        "tone": str(item.get("tone") or "").strip()[:200],
-    }
-
-
-def _beats(items) -> list:
-    return [
-        _beat(i)
-        for i in (items if isinstance(items, list) else [])
-        if isinstance(i, dict) and str(i.get("title") or "").strip()
-    ][:MAX_BEATS]
-
-
-def _split_summary(summary: str):
-    """(summary before the marker, the "- " lines after it), or None."""
-    at = summary.find(MARKER)
-    if at < 0:
+    m = _BLOCK.search(summary)
+    if m is None:
         return None
-    head = summary[:at]
-    lines = []
-    for line in summary[at + len(MARKER) :].split("\n"):
-        line = line.strip()
-        if line.startswith("- ") and line[2:].strip().rstrip(":").strip():
-            lines.append(line[2:].strip())
-    return head.strip(), lines
+    rows = summary[m.end() :].split("\n")
+    if not rows[0].strip().startswith("- "):
+        return None
+    end = next((i for i, row in enumerate(rows) if not row.strip()), len(rows))
+    tail = "\n".join(rows[end + 1 :])
+    beats = []
+    current = None
+    for row in rows[:end]:
+        line = row.strip()
+        if line.startswith("- "):
+            head = line[2:].strip()
+            current = [head] if head.rstrip(":").strip() else None
+            if current is not None:
+                beats.append(current)
+        elif current is not None:
+            current.append(line)
+    text = (summary[: m.start()] + "\n\n" + tail).strip()
+    return text, [(b[0], " ".join(b)) for b in beats]
 
 
-def _parse_line(line: str) -> dict:
-    """ "title: summary" (split on the first ": "); "title:" or a bare line is a
-    title with an empty summary."""
+def _beat(line: str):
+    """normalize_planned_beats(beat_from_line(line)) for one line: a new beat
+    with a uuid4 id, or None when it has no title."""
     if ": " in line:
         title, summary = line.split(": ", 1)
     else:
         title, summary = line.rstrip(":"), ""
-    return {"title": title.strip(), "summary": summary.strip()}
+    if not title.strip():
+        return None
+    return {
+        "node_id": str(uuid.uuid4()),
+        "title": title.strip()[:500],
+        "summary": summary.strip()[:2000],
+        "character_ids": [],
+        "secondary_names": [],
+        "setting": "",
+        "tone": "",
+    }
+
+
+def _key(line) -> str:
+    # "Lunch:" (a titled beat with no summary) and "Lunch" are one line.
+    return (line or "").strip().rstrip(":").strip()
 
 
 def _load(value):
-    if isinstance(value, str):
-        try:
-            return json.loads(value)
-        except ValueError:
-            return None
-    return value
+    try:
+        return json.loads(value) if isinstance(value, str) else value
+    except ValueError:
+        return None
+
+
+def _link_scenes(bind, chapter_id, open_beats: list) -> int:
+    """Give each (line key, beat id) to the first live scene written from it."""
+    linked = 0
+    for scene_id, description, raw in bind.execute(
+        sa.text(
+            "SELECT id, scene_description, CAST(scene_request AS text) FROM scenes "
+            "WHERE chapter_id = :c AND deleted_at IS NULL "
+            "AND status NOT IN ('failed', 'cancelled') ORDER BY position"
+        ),
+        {"c": chapter_id},
+    ).fetchall():
+        request = r if isinstance(r := _load(raw), dict) else {}
+        keys = [key for key, _ in open_beats]
+        if request.get("planned_beat_id") or _key(description) not in keys:
+            continue
+        _, beat_id = open_beats.pop(keys.index(_key(description)))
+        bind.execute(
+            sa.text("UPDATE scenes SET scene_request = CAST(:r AS json) WHERE id = :i"),
+            {"r": json.dumps({**request, "planned_beat_id": beat_id}), "i": scene_id},
+        )
+        linked += 1
+    return linked
 
 
 def upgrade() -> None:
@@ -129,43 +146,33 @@ def upgrade() -> None:
         return
     op.execute("ALTER TABLE chapters ADD COLUMN IF NOT EXISTS planned_beats JSONB")
 
-    outlines: dict = {}
-    for book_id, content in bind.execute(
-        sa.text("SELECT book_id, content FROM book_plans WHERE kind = 'outline'")
-    ).fetchall():
-        nodes = _load(content)
-        outlines[str(book_id)] = {
-            str(n.get("node_id")): n
-            for n in (nodes if isinstance(nodes, list) else [])
-            if isinstance(n, dict) and n.get("node_id")
-        }
-
+    converted = skipped = linked = beat_count = 0
     rows = bind.execute(
         sa.text(
-            "SELECT id, book_id, summary, plan_node_id FROM chapters "
+            "SELECT id, summary FROM chapters "
             "WHERE summary LIKE :marker AND planned_beats IS NULL"
         ),
         {"marker": f"%{MARKER}%"},
     ).fetchall()
-    for chapter_id, book_id, summary, plan_node_id in rows:
-        split = _split_summary(summary or "")
+    for chapter_id, summary in rows:
+        split = _split(summary)
         if split is None:
+            skipped += 1
             continue
-        head, lines = split
-        node = (
-            outlines.get(str(book_id), {}).get(str(plan_node_id))
-            if plan_node_id is not None
-            else None
-        )
-        beats = _beats(node.get("children")) if node else []
-        if not beats:
-            beats = _beats([_parse_line(line) for line in lines])
+        text, lines = split
+        pairs = [(h, b) for h, b in ((h, _beat(t)) for h, t in lines) if b][:MAX_BEATS]
+        beats = [beat for _, beat in pairs]
         bind.execute(
             sa.text(
                 "UPDATE chapters SET summary = :s, "
                 "planned_beats = CAST(:b AS jsonb) WHERE id = :id"
             ),
-            {"s": head, "b": json.dumps(beats), "id": chapter_id},
+            {"s": text, "b": json.dumps(beats), "id": chapter_id},
+        )
+        converted += 1
+        beat_count += len(beats)
+        linked += _link_scenes(
+            bind, chapter_id, [(_key(head), b["node_id"]) for head, b in pairs]
         )
 
     for chapter_id, title in bind.execute(
@@ -177,6 +184,10 @@ def upgrade() -> None:
                 sa.text("UPDATE chapters SET title = :t WHERE id = :id"),
                 {"t": clean, "id": chapter_id},
             )
+    logging.getLogger("alembic.runtime.migration").info(
+        f"0019 planned beats: converted={converted} skipped={skipped} "
+        f"scenes_linked={linked} beats={beat_count}"
+    )
 
 
 def downgrade() -> None:
@@ -192,10 +203,17 @@ def downgrade() -> None:
         )
     ).fetchall()
     for chapter_id, summary, raw in rows:
-        beats = _beats(_load(raw))
+        beats = [
+            b
+            for b in (_load(raw) or [])
+            if isinstance(b, dict) and str(b.get("title") or "").strip()
+        ]
         if not beats:
             continue
-        lines = "\n".join(f"- {b['title']}: {b['summary']}" for b in beats)
+        lines = "\n".join(
+            f"- {str(b['title']).strip()}: {str(b.get('summary') or '').strip()}"
+            for b in beats
+        )
         bind.execute(
             sa.text("UPDATE chapters SET summary = :s WHERE id = :id"),
             {

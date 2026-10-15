@@ -29,6 +29,11 @@ from app.core.orm_models import (
 from app.characters.serialize import CHARACTER_FIELDS
 from app.core.security import get_current_active_user
 from app.planning.outline import validate_outline_nodes
+from app.planning.planned_beat import (
+    beat_from_line,
+    normalize_planned_beats,
+    split_legacy_summary,
+)
 from app.versioning import entities as entity_versions
 from app.versioning import repository as versions_repo
 from app.versioning import trash
@@ -240,6 +245,8 @@ async def restore_entity_version(
         if entity_type == "chapter":
             # The promoted cast/POV (SPEC-10), against the book's current cast.
             await entity_versions.apply_chapter_cast(db, row, content)
+            if "planned_beats" not in content:
+                _legacy_beats_to_data(row)
         if entity_type == "source":
             row.word_count = len((row.content_text or "").split())
             if row.content_text != prior_text:
@@ -284,6 +291,21 @@ async def restore_entity_version(
     if reextract:
         result["reextract"] = reextract
     return result
+
+
+def _legacy_beats_to_data(chapter) -> None:
+    """A chapter version from before SPEC-23 restores a "Planned beats:" block
+    into the summary: convert it at this write, as migration 0019 did. The
+    block leaves the summary; its lines become the planned beats only when the
+    chapter has none, so restoring the same version twice adds nothing."""
+    legacy = split_legacy_summary(chapter.summary)
+    if legacy is None:
+        return
+    chapter.summary = legacy.text
+    if not normalize_planned_beats(chapter.planned_beats):
+        chapter.planned_beats = normalize_planned_beats(
+            [beat_from_line(line.text) for line in legacy.lines]
+        )
 
 
 async def _next_chapter_position(db: AsyncSession, book_id: UUID) -> int:
