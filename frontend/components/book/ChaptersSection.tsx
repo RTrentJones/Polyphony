@@ -157,7 +157,7 @@ export default function ChaptersSection({
 
   /** Secondary row actions, which live in the "⋯" menu below `sm:`. */
   const menuActions = (chapter: BookChapter): RowAction[] => [
-    ...(plannedBeats(chapter.summary).length > 0
+    ...(plannedBeats(chapter).length > 0
       ? [
           {
             key: 'planned',

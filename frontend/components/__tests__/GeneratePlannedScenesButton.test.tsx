@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import GeneratePlannedScenesButton, {
   plannedScenesMessage,
 } from '@/components/book/GeneratePlannedScenesButton'
+import { beatDescription, plannedBeats } from '@/components/book/GenerateSceneModal'
 import type { BookChapter } from '@/lib/types'
 
 const { generatePlannedScenes } = vi.hoisted(() => ({
@@ -76,5 +77,55 @@ describe('GeneratePlannedScenesButton (SPEC-10)', () => {
     expect(plannedScenesMessage({ ...base, queued: 0, skipped: 3 })).toMatch(
       /already has a scene/
     )
+  })
+})
+
+describe('plannedBeats: the field first, the legacy summary as fallback (SPEC-23/25)', () => {
+  const beat = (title: string, summary = '') => ({
+    node_id: `n-${title}`,
+    title,
+    summary,
+    character_ids: [],
+    secondary_names: [],
+    setting: '',
+    tone: '',
+  })
+
+  it('reads chapter.planned_beats when present', () => {
+    const beats = plannedBeats({
+      summary: 'Old text\n\nPlanned beats:\n- Stale: ignored',
+      planned_beats: [beat('Intake', 'Milo is processed')],
+    })
+    expect(beats.map((b) => b.title)).toEqual(['Intake'])
+    expect(beatDescription(beats[0])).toBe('Intake: Milo is processed')
+  })
+
+  it('falls back to the "Planned beats:" lines, split on the first ": "', () => {
+    const beats = plannedBeats({
+      summary: 'Milo arrives\n\nPlanned beats:\n- Badge photo: he is dead: really\n- Lunch\n- :',
+      planned_beats: [],
+    })
+    expect(beats.map((b) => [b.title, b.summary])).toEqual([
+      ['Badge photo', 'he is dead: really'],
+      ['Lunch', ''],
+    ])
+    // Byte-identical to the server's beat_scene_description ("Lunch:").
+    expect(beatDescription(beats[1])).toBe('Lunch:')
+  })
+
+  it('is empty for a chapter with neither', () => {
+    expect(plannedBeats({ summary: 'Just a summary' })).toEqual([])
+    expect(plannedBeats(undefined)).toEqual([])
+  })
+
+  it('renders the button for a chapter with planned_beats and an empty summary', () => {
+    render(
+      <GeneratePlannedScenesButton
+        chapter={{ ...promoted, summary: '', planned_beats: [beat('Intake'), beat('Lunch')] }}
+        onDone={vi.fn()}
+      />
+    )
+    const button = screen.getByRole('button', { name: /Generate all planned scenes/ })
+    expect(button).toHaveAttribute('title', 'One scene per planned beat (2), written in order')
   })
 })

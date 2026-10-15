@@ -6,6 +6,10 @@
  * Safety net (SPEC-16): leaving with unsaved changes asks first
  * (useUnsavedChangesGuard), and the text autosaves to a local draft that is
  * offered back on reopen. Autosave never calls the API.
+ *
+ * AI revision (SPEC-25): RevisePanel asks for a revision of a selection, a
+ * beat or the whole saved scene, and shows it as a word diff to accept or
+ * discard. Accepting is a server-side save, so the editor is not dirty after.
  */
 
 'use client'
@@ -17,6 +21,7 @@ import Button from '@/components/Button'
 import Card from '@/components/Card'
 import Loading from '@/components/Loading'
 import SceneGrounding from '@/components/SceneGrounding'
+import RevisePanel from '@/components/editor/RevisePanel'
 import { ToastContainer, type ToastType } from '@/components/Toast'
 import { booksApi } from '@/lib/books-store'
 import {
@@ -121,6 +126,7 @@ function SceneEditorContent() {
   const [toasts, setToasts] = useState<ToastItem[]>([])
   /** An older local draft that differs from the server text, awaiting Restore/Discard. */
   const [pendingDraft, setPendingDraft] = useState<SceneDraft | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const addToast = useCallback((message: string, type: ToastType) => {
     setToasts((prev) => [
@@ -227,6 +233,16 @@ function SceneEditorContent() {
     } finally {
       setSaving(false)
     }
+  }
+
+  /** An accepted AI revision: the server already saved it as the draft. */
+  const handleRevisionAccepted = async (accepted: string, updatedAt: string | null) => {
+    setContent(accepted)
+    setSavedContent(accepted)
+    if (updatedAt) setLastSavedAt(updatedAt)
+    clearDraft(sceneId)
+    setPendingDraft(null)
+    await loadRevisions()
   }
 
   const handleRestore = (revision: SceneRevision) => {
@@ -337,6 +353,7 @@ function SceneEditorContent() {
         <div className="lg:col-span-3">
           <Card padding="sm">
             <textarea
+              ref={textareaRef}
               aria-label="Scene text"
               value={content}
               onChange={(e) => setContent(e.target.value)}
@@ -352,6 +369,15 @@ function SceneEditorContent() {
               </span>
             </div>
           </Card>
+          <RevisePanel
+            sceneId={scene.id}
+            content={content}
+            isDirty={isDirty}
+            canRevise={scene.status !== 'processing' && scene.status !== 'paused'}
+            textareaRef={textareaRef}
+            onAccepted={handleRevisionAccepted}
+            onNotice={addToast}
+          />
           {scene.status === 'completed' && <SceneGrounding sceneId={scene.id} />}
         </div>
 
