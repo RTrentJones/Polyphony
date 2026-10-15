@@ -29,6 +29,7 @@ from uuid import UUID
 
 from app.characters.context import (
     CONTEXT_ONLY_REASON,
+    SceneScope,
     build_agent_context,
     load_characters_for_book,
     unsampled_entry,
@@ -38,6 +39,7 @@ from app.core.logging_config import setup_logging
 from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_object
 from app.llm.tier import get_tier
+from app.orchestration.workflow import StoryPosition
 
 logger = setup_logging("orchestration.ensemble")
 
@@ -70,8 +72,8 @@ async def propose(
     prior_objections: list[dict],
     user_id,
     *,
+    scope: SceneScope,
     grounding: Optional[list] = None,
-    cast: Optional[list] = None,
 ) -> dict:
     """One character agent's proposal — scoped to its OWN context only.
 
@@ -81,7 +83,7 @@ async def propose(
     # How this character speaks (<voice>) and moves (<physicality>), retrieved
     # separately so dialogue cannot crowd action out (BRD R6.2, SPEC-14).
     context = await build_agent_context(
-        character, name, beat_description, grounding=grounding, cast=cast
+        character, name, beat_description, scope=scope, grounding=grounding
     )
     feedback = ""
     if prior_objections:
@@ -270,6 +272,7 @@ async def run_ensemble(
     user_id: UUID,
     book_id: UUID,
     canon_context: str,
+    scope: SceneScope,
     prior_tail: str = "",
     state: Optional[dict] = None,
     save_state=None,
@@ -322,8 +325,8 @@ async def run_ensemble(
                     beat_description,
                     prior_objections,
                     user_id,
+                    scope=scope,
                     grounding=round_grounding,
-                    cast=[c for c in characters.values() if c is not None],
                 )
             )
             st["proposals"] = proposals
@@ -409,8 +412,9 @@ async def run_ensemble_scene_workflow(
     scene_request: dict,
     user_id: UUID,
     *,
-    book_id: Optional[UUID] = None,
-    chapter_summary: str = "",
+    book_id: Optional[UUID],
+    chapter_summary: str,
+    story_position: Optional[StoryPosition],
     prior_scene_tail: str = "",
     checkpoint: Optional[dict] = None,
     save_checkpoint=None,
@@ -436,20 +440,21 @@ async def run_ensemble_scene_workflow(
         _canon_hash,
         plan_scene_beats,
         prose_tail,
+        scene_setup,
         trim_seam_repeat,
     )
-    from app.planning.canon import build_canon
 
     started = datetime.now(timezone.utc)
     checkpoint = dict(checkpoint or {})
     try:
-        if book_id is not None:
-            async with get_async_session() as session:
-                canon = await build_canon(session, book_id)
-            canon_context = canon.full_block()
-        else:
-            canon_context = ""
-        canon_hash = _canon_hash(canon_context, chapter_summary, prior_scene_tail)
+        if book_id is None:
+            raise RuntimeError("scene generation needs its book (book is the root)")
+        async with get_async_session() as session:
+            setup = await scene_setup(session, book_id, scene_request)
+        canon_context = setup.canon.full_block()
+        canon_hash = _canon_hash(
+            setup, chapter_summary, story_position, prior_scene_tail
+        )
         if checkpoint.get("canon_hash") not in (None, canon_hash):
             checkpoint = {}
             if on_restart is not None:
@@ -466,6 +471,11 @@ async def run_ensemble_scene_workflow(
                 user_id,
                 canon_block=canon_context,
                 chapter_summary=chapter_summary,
+                pov=setup.pov,
+                story_position=story_position,
+                # The planner sees the secondaries; the narrator and agent
+                # prompts do not yet (W3-10).
+                secondary_block=setup.secondary_block,
             )
             checkpoint = {
                 "canon_hash": canon_hash,
@@ -497,6 +507,7 @@ async def run_ensemble_scene_workflow(
                 user_id=user_id,
                 book_id=book_id,
                 canon_context=canon_context,
+                scope=setup.scope,
                 prior_tail=prior_tail,
                 state=checkpoint.get("beat_state"),
                 save_state=_save_beat,

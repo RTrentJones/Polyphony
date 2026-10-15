@@ -8,17 +8,27 @@ its `people`, and outline.classify_people keeps the ones the canon names as
 ("Add Prava to cast"): only names the MODEL declared, re-classified against
 today's cast and canon. A name absent from both the synopsis and the canon is
 never offered, and nothing here guesses who is a person from the canon text.
+A scene's secondaries reach its prompts as one fenced block (SPEC-29).
 """
 
 from __future__ import annotations
 
 import re
-from typing import Iterable, Optional
+from typing import Iterable, NamedTuple
 
+from app.core.llm_text import as_quoted_block
+from app.core.prompt_markers import (
+    INTRODUCED_LABEL,
+    NAME_HEADING,
+    SECONDARY_FENCE,
+    VOICE_SAMPLES_LABEL,
+)
 from app.parsing.names import mentions, norm
 from app.planning.fidelity import canon_known_text
 
 SENTENCE_CAP = 400
+SAMPLES = 3
+NO_SAMPLES_NOTE = "No samples: keep them brief and distinct from the cast."
 
 _SENTENCE_BREAK = re.compile(r"(?<=[.!?…])[\"”’'\)\]]*\s+(?=[\"“‘'(\[]?[A-Z0-9])")
 _PARAGRAPH = re.compile(r"\n[ \t]*\n")
@@ -53,12 +63,72 @@ def _cap(sentence: str, limit: int = SENTENCE_CAP) -> str:
     return cut.rstrip(" ,;:—-") + "…"
 
 
-def _first_sentence_naming(name: str, texts: Iterable[str]) -> Optional[str]:
+def intro_sentence(name: str, texts: Iterable[str]) -> str:
+    """The first sentence of `texts` that names `name`, capped; "" if none."""
     for text in texts:
         for sentence in _sentences(text):
             if mentions(norm(sentence), name):
                 return _cap(sentence)
-    return None
+    return ""
+
+
+class Secondary(NamedTuple):
+    name: str
+    intro_sentence: str  # "" when nothing names them
+    samples: list[str]  # <= SAMPLES of their own lines from the sources
+
+
+async def scene_secondaries(
+    session, book_id, names: list[str], canon
+) -> list[Secondary]:
+    """Each name's introduction and own lines (SPEC-17 attribution, each live
+    source attributed once; lines of 4+ words first)."""
+    from sqlalchemy import select
+
+    from app.core.orm_models import Source
+    from app.parsing import character_extractor as ce
+
+    if not names:
+        return []
+    rows = await session.execute(
+        select(Source.content_text)
+        .where(Source.book_id == book_id, Source.deleted_at.is_(None))
+        .order_by(Source.uploaded_at)
+    )
+    texts = [t for t in rows.scalars() if t]
+    attributed = [ce.attribute_speech(t) for t in texts]
+    cast = [{"name": c.name, "aliases": c.aliases or []} for c in canon.characters]
+    entries, out = _entry_texts(canon), []
+    for name in names:
+        said = [
+            line
+            for text, spans in zip(texts, attributed)
+            for _, line in ce.spoken_lines(text, name, cast=cast, attributed=spans)
+            if len(line.split()) >= ce.SPEECH_MIN_WORDS
+        ]
+        said = sorted(dict.fromkeys(said), key=lambda line: len(line.split()) < 4)
+        intro = intro_sentence(name, [canon.synopsis or "", *entries, *texts])
+        out.append(Secondary(name, intro, said[:SAMPLES]))
+    return out
+
+
+def _entry_texts(canon) -> list[str]:
+    """The canon entries' texts, in canon order."""
+    return [str(getattr(e, "content", "") or "") for e in canon.canon_entries or []]
+
+
+def render_secondaries(people: list[Secondary]) -> str:
+    """The `<secondary>` block; no bible fields (the canon carries them)."""
+    lines: list[str] = []
+    for p in people:
+        lines.append(f"{NAME_HEADING}{p.name}")
+        if p.intro_sentence:
+            lines.append(f"{INTRODUCED_LABEL} {p.intro_sentence}")
+        if p.samples:
+            lines += [VOICE_SAMPLES_LABEL, *(f'- "{s}"' for s in p.samples)]
+        else:
+            lines.append(NO_SAMPLES_NOTE)
+    return as_quoted_block("\n".join(lines), SECONDARY_FENCE)
 
 
 def suggested_characters(names: Iterable[str], canon) -> list[dict]:
@@ -75,16 +145,11 @@ def suggested_characters(names: Iterable[str], canon) -> list[dict]:
     cast = CastIndex(getattr(canon, "characters", None) or [])
     people = classify_people(names, cast, norm(canon_known_text(canon)))
     synopsis = getattr(canon, "synopsis", "") or ""
-    entry_texts = [
-        str(getattr(e, "content", "") or "")
-        for e in getattr(canon, "canon_entries", None) or []
-    ]
     return [
         {
             "name": name,
-            "synopsis_sentence": _first_sentence_naming(name, [synopsis])
-            or _first_sentence_naming(name, entry_texts)
-            or "",
+            "synopsis_sentence": intro_sentence(name, [synopsis])
+            or intro_sentence(name, _entry_texts(canon)),
         }
         for name in people.secondary
     ]

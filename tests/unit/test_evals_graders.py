@@ -215,6 +215,16 @@ class TestExtraction:
         s = extraction.grade_extraction([], ["Nora Vance"])
         assert s.precision == 0.0 and s.recall == 0.0 and s.f1 == 0.0
 
+    def test_a_real_secondary_is_not_spurious(self):
+        """W3-7: run-W25's six names, with the corpus' secondary cast."""
+        cast = ["Milo Voss", "Zara Okafor", "Edric Thane"]
+        predicted = [*cast, "Halvard Bell", "Old Fen", "Prava"]
+        s = extraction.grade_extraction(
+            predicted, cast, secondary=["Prava", "Old Fen", "Halvard Bell"]
+        )
+        assert s.precision == 1.0 and s.recall == 1.0 and s.spurious == []
+        assert s.secondary_found == ["Halvard Bell", "Old Fen", "Prava"]
+
 
 class TestAttribution:
     def _refs(self):
@@ -241,6 +251,19 @@ class TestAttribution:
         assert agg["n"] == 3 and agg["correct"] == 2
         assert agg["accuracy"] == pytest.approx(2 / 3, abs=1e-3)
         assert agg["chance"] == 0.5
+
+    def test_gap_is_top1_minus_top2_and_mean_gap_averages_it(self):
+        """W3-7: run-W25's Milo line ranked Milo 0.1907 over Edric 0.1878."""
+        milo = attribution.AttributionResult(
+            "Milo", "Milo", True, 0.0, [("Milo", 0.1907), ("Edric", 0.1878)]
+        )
+        zara = attribution.AttributionResult(
+            "Zara", "Zara", True, 0.0, [("Zara", 0.2346), ("Edric", 0.1166)]
+        )
+        assert milo.gap == pytest.approx(0.003, abs=5e-4)
+        assert milo.as_dict()["gap"] == 0.0029
+        mean = attribution.accuracy([milo, zara])["mean_gap"]
+        assert mean == pytest.approx((0.0029 + 0.118) / 2, abs=1e-4)
 
 
 class TestRetrieval:

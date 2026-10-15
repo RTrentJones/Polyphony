@@ -32,7 +32,8 @@ from app.jobs.handlers import Handler
 from app.jobs.worker import JobWorker
 from app.llm.errors import QuotaExhaustedError
 from app.orchestration import revise as rv
-from app.orchestration.prose import Pov
+from app.core.prompt_markers import POV_LIMIT_OPEN, POV_LINE_RE
+from app.orchestration.pov import Pov
 
 pytestmark = pytest.mark.unit
 
@@ -294,6 +295,8 @@ def test_stub_llm_revise_family_derives_the_answer_from_the_target():
         after=P3,
         instruction="tighten",
         pov=Pov("third person limited"),
+        story_position=None,
+        secondary_block="",
     )
     out = _answer(prompt)
     assert out == P2.split(". ", 1)[1]
@@ -541,6 +544,10 @@ async def test_prompt_carries_canon_cast_and_read_only_surroundings(
     assert f"<after>\n{P3}\n</after>" in prompt
     assert "<instruction>\nMake Zara colder.\n</instruction>" in prompt
     assert "of this scene's plan" not in prompt  # a range, not a beat
+    # S4: one amended sentence, every revise.
+    assert "Keep the events, and the facts, people and objects the surrounding" in (
+        " ".join(prompt.split())
+    )
 
 
 async def test_a_beat_revise_prompt_names_the_beat_from_the_plan(
@@ -551,9 +558,10 @@ async def test_a_beat_revise_prompt_names_the_beat_from_the_plan(
     _bind(monkeypatch, async_session, fake)
     job = await _run_job(client, auth_headers, async_session, story.scene, beat_index=1)
     assert job.status == "succeeded", job.error
-    assert (
-        "Point of view: third person limited\nBeat 2 of this scene's plan: b1\n"
-    ) in fake.prompts[0]
+    prompt = fake.prompts[0]
+    # W3-3: the whole POV paragraph, the limit included, not the bare label.
+    assert POV_LINE_RE.search(prompt) and POV_LIMIT_OPEN in prompt
+    assert "in this scene counts.\nBeat 2 of this scene's plan: b1\n" in prompt
 
 
 async def test_whole_scene_revise_has_no_surroundings(

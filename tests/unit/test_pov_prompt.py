@@ -1,8 +1,9 @@
 """SPEC-24 (W2-4): beat prose stays in the POV character's head.
 
-How the POV is resolved from the request and the style guide. The POV line and
-the last-beat rule in the real beat prompts are graded by the round trip
-(test_prompt_roundtrip.py: pov_line_has_mode_and_character, last_beat_no_wrap_up)."""
+How the POV is resolved from the request and the style guide, and the one
+wide-mode rule (`Pov.one_head`). The POV line in the real planner, beat and
+revise prompts is graded by the round trip (test_prompt_roundtrip.py:
+pov_line_has_mode_and_character)."""
 
 import types
 import uuid
@@ -10,7 +11,7 @@ import uuid
 import pytest
 
 from app.core.prompt_markers import POV_LIMIT_OPEN, POV_LINE_RE
-from app.orchestration.prose import (
+from app.orchestration.pov import (
     Pov,
     pov_instruction,
     pov_mode,
@@ -97,18 +98,27 @@ def test_a_titled_style_character_resolves_through_the_cast():
 def test_omniscient_and_objective_are_not_held_to_one_head():
     """Review: a wide mode is not told to narrate only what one character
     perceives, with or without a named POV character; it still may not run
-    ahead of the beat. The marker line parses either way."""
+    ahead, and says so without "after this beat", which means nothing to the
+    planner or to revise (B-1). The marker line parses either way."""
     for who in (None, "Milo Voss"):
         omni = pov_instruction(Pov("third person omniscient", who))
         objective = pov_instruction(Pov("third person objective", who))
         for text in (omni, objective):
-            assert POV_LIMIT_OPEN not in text
+            assert POV_LIMIT_OPEN not in text and "after this beat" not in text
             assert "no aftermath, no foreshadowing" in text
             m = POV_LINE_RE.search(text)
             assert m.group("who") == who
         assert "thoughts" in omni and "seen and heard" in objective
     limited = pov_instruction(Pov("third person limited", "Milo Voss"))
     assert f"{POV_LIMIT_OPEN} Milo Voss" in limited
+
+
+def test_one_head_modes_name_people_only_once_learned():
+    """W3-3: an introduction in the scene counts, so no name badges."""
+    rule = "learns their name in the story; an introduction in this scene counts"
+    assert f"before Milo Voss {rule}" in pov_instruction(
+        Pov("third person limited", "Milo Voss")
+    )
 
 
 def test_pov_mode():

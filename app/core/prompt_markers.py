@@ -9,7 +9,7 @@ changes only here.
 This module lives in `app/core` and imports nothing from `app`. Instruction
 wording that nothing parses stays in its emitter.
 
-Frozen for wave 2.5 (day-0 contract); changes go through the orchestrator.
+Frozen for wave 3 (day-0 contract); changes go through the orchestrator.
 """
 
 from __future__ import annotations
@@ -20,6 +20,9 @@ import re
 SCENE_DESCRIPTION_LABEL = "Scene description"
 SETTING_LABEL = "Setting"
 EMOTIONAL_TONE_LABEL = "Emotional tone"
+ALSO_NAMED_LABEL = "Also named (secondary, not in the cast)"
+# orchestration/workflow.story_position_line; .format(n=<chapter>, m=<chapters>)
+STORY_POSITION = "This scene is in chapter {n} of {m}."
 
 # --- the beat planner (orchestration/workflow.plan_scene_beats) ----------------
 AVAILABLE_CAST_LABEL = "Available cast (not all need appear)"
@@ -51,6 +54,14 @@ VOICE_SAMPLES_LABEL = (
 EVIDENCE_LABEL = "Evidence:"
 EVIDENCE_ITEM = "- (part {part}) {quote}"  # .format(part=<1-based>, quote=...)
 QUOTED_LINES_LABEL = "Quoted lines (their own words):"
+MOVEMENT_LABEL = (
+    "How they move (gesture and habit only; do not reuse these events, objects "
+    "or names):"
+)
+
+# --- secondary characters (planning/secondaries.render_secondaries) ------------
+SECONDARY_FENCE = "secondary"
+INTRODUCED_LABEL = "Introduced:"
 
 # --- the staged outline (planning/staged_outline) ------------------------------
 CONFIRMED_PREMISE_NOTE = " (confirmed by the author: treat it as authoritative)"
@@ -70,4 +81,9 @@ POV_LINE_RE = re.compile(
     rf"(?m)^{re.escape(POV_LABEL)}: "
     r"(?P<mode>(?:first|second|third) person[^,\n]*?)(?:, (?P<who>[^\n]+?))?"
     rf"\.\s+(?:{re.escape(POV_LIMIT_OPEN)}|{re.escape(POV_WIDE_OPEN)})"
+)
+STORY_POSITION_RE = re.compile(
+    re.escape(STORY_POSITION)
+    .replace(r"\{n\}", r"(?P<n>\d+)")
+    .replace(r"\{m\}", r"(?P<m>\d+)")
 )

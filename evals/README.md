@@ -89,8 +89,10 @@ calls it checks):
 | `plan_cast_from_beat` | `plan_beats` | the "Available cast" line parses to someone, and equals the corpus cast among the outline beat's `people` (else the chapter's) plus the chapter POV; a prompt whose line parses but matches no beat is listed in `unmatched`, not failed |
 | `no_blank_setting` | `plan_beats`, `beat_prose` | no empty `Setting:` line |
 | `no_neutral_tone` | `plan_beats`, `beat_prose` | no `Emotional tone: neutral` (checked only when `style.json` has a tone), unless the matched outline beat chose "neutral" |
-| `pov_line_has_mode_and_character` | `beat_prose` | `POV_LINE_RE` parses, `<who>` is the chapter POV (else the corpus `pov`), and "Narrate only what <who> … perceives or knows" follows (`<mode>` alone passes when no POV is expected) |
-| `last_beat_no_wrap_up` | `beat_prose` (last beat) | no "end the scene here" (a tripwire, to delete in wave 3) |
+| `pov_line_has_mode_and_character` | `beat_prose`, `plan_beats`, `scene_revise` | `POV_LINE_RE` parses, `<who>` is the chapter POV (else the corpus `pov`), and in a one-head mode (`Pov.one_head`) "Narrate only what <who> … perceives or knows" follows |
+| `secondary_has_context` | `beat_prose` | every name on the "Also named" line has a `### <name>` in `<secondary>` with an `Introduced:` line or voice samples |
+| `story_position_line` | `beat_prose`, `plan_beats`, `scene_revise` (with a `<chapter>`) | exactly one "This scene is in chapter N of M." with 1 ≤ N ≤ M |
+| `movement_names_in_scene` | `beat_prose` | no movement sample names a ground-truth person outside the prompt's cast; `movement_coverage` (principal blocks with a movement line) is reported and gated ≥ 0.8 in the eval |
 | `no_duplicate_bible` | `beat_prose` | no bible lines under CHARACTERS IN THIS BEAT; each corpus character description appears exactly once |
 | `no_doubled_voice_label` | every call | no `voice: voice:` |
 | `reduce_evidence_depth` | `extraction_reduce` | each principal section has ≥ 3 evidence or quoted lines |
@@ -106,8 +108,12 @@ so an archive from before the F8 fixture edit still grades.
 **Deterministic step checks.**
 
 - `extraction`: `principal_fields` ("k/3": description, goals and voice_characteristics all
-  non-empty), `principal_fields_missing`, `principal_mentions`, and `mention_order_ok` (Milo ≥
-  Zara ≥ Edric on cel; `None` when a principal is not proposed).
+  non-empty), `principal_fields_missing`, `principal_mentions`, and `principal_mentions_min`
+  (the fewest name mentions of any principal, target ≥ 10; pronouns are not counted). Precision
+  counts the corpus' `secondary_cast` as hits and lists them as `secondary_found`; recall stays
+  over the principals (SPEC-33).
+- `attribution`: per line `gap` (top-1 minus top-2 score) and `mean_gap`; `margin` is kept for
+  misses. The probe is the corpus' in-world `voice_probe`.
 - `outline`: `outline_names_synopsis_secondaries` ("k/2", from the outline text and any
   `secondary_names`) and `outline_secondaries_named`. `extraction` also reports
   `canonical_names_ok` ("k/n" over the principals with a title alias, such as Edric's "Chief

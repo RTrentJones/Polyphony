@@ -401,6 +401,12 @@ def _s(i, text, chunk_type, source="paragraph_1", score=0.5):
     }
 
 
+def _scope(*cast):
+    from app.characters.context import SceneScope
+
+    return SceneScope(tuple(cast), tuple(cast), (), frozenset(), "")
+
+
 def _blocks(out):
     from app.characters.context import MOVEMENT_LABEL, VOICE_SAMPLES_LABEL
 
@@ -426,7 +432,7 @@ class TestCharacterContext:
         monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
         grounding: list = []
         out = await ctx.build_character_context(
-            _char(), "Zara Okafor", "the desk", grounding=grounding
+            _char(), "Zara Okafor", "the desk", scope=_scope(), grounding=grounding
         )
         assert (
             "Voice samples (their own words — match cadence, diction, syntax):" in out
@@ -448,7 +454,9 @@ class TestCharacterContext:
             ]
         )
         monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
-        out = await ctx.build_character_context(_char(), "Zara Okafor", "the desk")
+        out = await ctx.build_character_context(
+            _char(), "Zara Okafor", "the desk", scope=_scope()
+        )
         voice, move = _blocks(out)
         assert ctx.VOICE_SAMPLES_LABEL not in out  # no words of hers: no block
         # The movement block may fall back to untyped hits — labelled as such.
@@ -470,15 +478,30 @@ class TestCharacterContext:
         monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
         cast = [_char("Milo Voss"), _char("Zara Okafor")]
         out = await ctx.build_character_context(
-            cast[1], "Zara Okafor", "the desk", cast=cast
+            cast[1], "Zara Okafor", "the desk", scope=_scope(*cast)
         )
         _, move = _blocks(out)
         assert "did not look up" in move
         assert "read the appendices" not in out
         # ...and the same passage DOES centre Milo.
         out = await ctx.build_character_context(
-            cast[0], "Milo Voss", "the desk", cast=cast
+            cast[0], "Milo Voss", "the desk", scope=_scope(*cast)
         )
+        assert "read the appendices" in _blocks(out)[1]
+
+    async def test_movement_is_judged_against_the_scene_not_the_beat(self, monkeypatch):
+        """B-3: Zara is in the scene but not in Milo's beat; her narration is
+        still not how Milo moves."""
+        import app.characters.context as ctx
+
+        text = "Zara watched Milo read the appendices."
+        store = TypedStore([_s("a1", text, "description")])
+        monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
+        milo, zara = _char("Milo Voss"), _char("Zara Okafor")
+        out = await ctx.build_cast_context([milo], "x", scope=_scope(milo, zara))
+        assert "### Milo Voss" in out and "read the appendices" not in out
+        # Non-vacuous: alone in the scene, the same passage is his.
+        out = await ctx.build_cast_context([milo], "x", scope=_scope(milo))
         assert "read the appendices" in _blocks(out)[1]
 
     async def test_first_person_narration_is_their_own_words(self, monkeypatch):
@@ -489,12 +512,12 @@ class TestCharacterContext:
         )
         monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
         out = await ctx.build_character_context(
-            _char("Jonathan Harker"), "Jonathan Harker", "the castle"
+            _char("Jonathan Harker"), "Jonathan Harker", "the castle", scope=_scope()
         )
         voice, move = _blocks(out)
         assert "Bistritz" in voice and "Bistritz" not in move
 
-    async def test_cast_context_passes_the_cast(self, monkeypatch):
+    async def test_cast_context_passes_the_scope(self, monkeypatch):
         import app.characters.context as ctx
 
         store = TypedStore(
@@ -507,9 +530,8 @@ class TestCharacterContext:
             ]
         )
         monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
-        out = await ctx.build_cast_context(
-            [_char("Milo Voss"), _char("Zara Okafor")], "the desk"
-        )
+        cast = [_char("Milo Voss"), _char("Zara Okafor")]
+        out = await ctx.build_cast_context(cast, "the desk", scope=_scope(*cast))
         milo, zara = out.split("### Zara Okafor")
         assert "read the appendices" in milo and "read the appendices" not in zara
 
@@ -519,11 +541,14 @@ class TestCharacterContext:
         store = TypedStore([_s("a1", "Milo Voss filed the form.", "action")])
         monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
         cast = [_char("Milo Voss"), _char("Zara Okafor")]
+        scope = _scope(*cast)
         out = await ctx.build_agent_context(
-            cast[1], "Zara Okafor", "the desk", cast=cast
+            cast[1], "Zara Okafor", "the desk", scope=scope
         )
         assert "filed the form" not in out
-        out = await ctx.build_agent_context(cast[0], "Milo Voss", "the desk", cast=cast)
+        out = await ctx.build_agent_context(
+            cast[0], "Milo Voss", "the desk", scope=scope
+        )
         assert "filed the form" in out
 
 
@@ -550,6 +575,75 @@ def test_centres():
     assert not _centres(lead, "Zara Okafor", cast, ["Zara"])
     # No cast: nobody else is known, so only the lead can claim it.
     assert _centres(milo, "Milo Voss")
+
+
+# --- SPEC-30: movement samples name no one outside the scene (cel cast) --------
+
+
+def _cel(synopsis=True):
+    """The real cel cast (Edric with "the CEL", "Chief Executive Lich", "the
+    Lich") and its canon, by first name."""
+    from app.planning.canon import Canon
+    from evals.steps import pipeline
+
+    _, gt = pipeline.load_corpus("cel")
+    cast = [_char(p["name"], p["aliases"]) for p in pipeline._cast_with_roles(gt)]
+    syn = gt["synopsis"] if synopsis else ""
+    canon = Canon(title="Cel", synopsis=syn, characters=cast)
+    return canon, {c.name.split()[0]: c for c in cast}
+
+
+async def _milo_moves(monkeypatch, texts, scene, secondaries=(), synopsis=True):
+    """Milo's movement lines in a scene of Milo + `scene` (first names)."""
+    import app.characters.context as ctx
+
+    canon, by = _cel(synopsis)
+    store = TypedStore([_s(f"a{i}", t, "action") for i, t in enumerate(texts)])
+    monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
+    cast = [by["Milo"], *(by[n] for n in scene)]
+    scope = ctx.SceneScope.of(canon, cast, secondaries)
+    out = await ctx.build_character_context(by["Milo"], "Milo Voss", "x", scope=scope)
+    return [ln[2:] for ln in _blocks(out)[1].splitlines() if ln.startswith("- ")]
+
+
+class TestMovementInScene:
+    WALK = "Milo walked the Marrow District at dusk."
+    DUSK = "At dusk he walked the Marrow District."
+    BELL = "On Tuesday the Bell account came across Milo's queue."
+    EDRIC = "Milo carried the memo up to Edric's floor."
+    FEN = "Milo fetched tea for Old Fen."
+
+    async def test_a_common_word_is_not_a_name(self, monkeypatch):
+        """B-2: "the" and "chief" are not Edric, in his scene or out of it."""
+        from app.characters.context import SceneScope, _centres, names_outside_scene
+
+        assert await _milo_moves(monkeypatch, [self.WALK], ["Zara"]) == [self.WALK]
+        assert await _milo_moves(monkeypatch, [self.DUSK], ["Edric"]) == [self.DUSK]
+        canon, by = _cel()
+        chief = "The chief reason was the form."
+        assert _centres(chief, "Milo Voss", [by["Milo"], by["Edric"]], ["Milo"])
+        scope = SceneScope.of(canon, [by["Milo"], by["Zara"]], ())
+        assert names_outside_scene(chief, by["Milo"], scope) == []
+        # Edric is still seen by any of his forms, capitalised.
+        lich = "Milo bowed to the Lich."
+        assert names_outside_scene(lich, by["Milo"], scope) == ["Edric Thane"]
+
+    # W3-2: Bell is no one here (two retrieved, one kept: no refill after the
+    # filter); a cast member counts only outside the scene.
+    @pytest.mark.parametrize(
+        "texts, scene, kept",
+        [([BELL, WALK], ["Zara"], [WALK]), ([EDRIC], ["Zara"], [])]
+        + [([EDRIC], ["Edric"], [EDRIC])],
+    )
+    async def test_outside_names_drop(self, monkeypatch, texts, scene, kept):
+        assert await _milo_moves(monkeypatch, texts, scene) == kept
+
+    async def test_a_named_secondary_belongs_to_the_scene(self, monkeypatch):
+        # Without the synopsis, nothing else makes Old Fen known.
+        fen = await _milo_moves(monkeypatch, [self.FEN], [], synopsis=False)
+        assert fen == []
+        fen = await _milo_moves(monkeypatch, [self.FEN], [], ["Old Fen"], False)
+        assert fen == [self.FEN]
 
 
 # --- reindex-voice ----------------------------------------------------------------

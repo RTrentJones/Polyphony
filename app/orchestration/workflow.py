@@ -13,25 +13,51 @@ beat, throwing away the planner's own casting (eval-audit backlog item 5).
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import NamedTuple, Optional
 from uuid import UUID
 
 from app.core.config import settings
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.logging_config import setup_logging
 from app.core.prompt_markers import (
+    ALSO_NAMED_LABEL,
     AVAILABLE_CAST_LABEL,
     CHAPTER_FENCE,
     EMOTIONAL_TONE_LABEL,
     SCENE_DESCRIPTION_LABEL,
     SETTING_LABEL,
+    STORY_POSITION,
 )
 from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_array
+from app.orchestration.pov import Pov, plan_pov_instruction
 
 logger = setup_logging("orchestration.workflow")
 
-ALSO_NAMED_LABEL = "Also named (secondary, not in the cast)"
+
+class StoryPosition(NamedTuple):  # SPEC-30
+    chapter: int  # Chapter.number
+    of: int  # live chapters in the book
+
+
+def story_position_line(position: Optional[StoryPosition]) -> str:
+    """The synopsis tells the whole book: say how much of it has happened."""
+    if position is None:
+        return ""
+    return (
+        f"{STORY_POSITION.format(n=position.chapter, m=position.of)} The synopsis "
+        "tells the whole book; nothing after this chapter has happened yet. Do not "
+        "mention, hint at or set up later events."
+    )
+
+
+def chapter_context(chapter_summary: str, position: Optional[StoryPosition]) -> str:
+    """`<chapter>`, then the story-position line right after it."""
+    parts = (
+        as_quoted_block(chapter_summary, CHAPTER_FENCE),
+        story_position_line(position),
+    )
+    return "\n".join(p for p in parts if p)
 
 
 def _one_line(value) -> str:
@@ -79,28 +105,35 @@ async def plan_scene_beats(
     scene_request: dict,
     user_id: Optional[UUID] = None,
     *,
-    canon_block: str = "",
-    chapter_summary: str = "",
+    canon_block: str,
+    chapter_summary: str,
+    pov: Pov,
+    story_position: Optional[StoryPosition],
+    secondary_block: str,
 ) -> list[dict]:
     """Break the scene into 3-5 beats via one planning call.
 
     Returns ``[{"description", "characters": [names]}]`` where each beat's cast
     is a validated subset of the scene's cast (an empty or invalid subset falls
-    back to the whole scene cast — never to an invented name).
+    back to the whole scene cast — never to an invented name); a non-JSON
+    answer gives one whole-scene beat.
 
     The cast is offered as AVAILABLE, not mandatory (SPEC-24, W2-1): the old
     "the scene's cast is exactly" made every beat of a Milo-and-a-caseworker
     scene a Milo-and-Zara scene.
     """
     cast: list[str] = list(scene_request.get("characters") or [])
-    chapter = as_quoted_block(chapter_summary, CHAPTER_FENCE)
+    pov_and_secondaries = "\n\n".join(
+        p for p in (plan_pov_instruction(pov), secondary_block) if p
+    )
     prompt = f"""{STORY_MATERIAL_NOTICE}
 
 {canon_block}
 
-{chapter}
+{chapter_context(chapter_summary, story_position)}
 
 {scene_block(scene_request)}
+{pov_and_secondaries}
 
 You are a narrative planner. Break this scene of THIS book into 3-5 beats
 (smaller moments), consistent with the canon above.
@@ -127,8 +160,10 @@ JSON:"""
 
     beats = parse_structured_beats(result.text, cast)
     if not beats:
-        beats = parse_beats(result.text, cast)
-    if not beats:
+        logger.warning(
+            "Planner answer is not a JSON beat list; one whole-scene beat",
+            extra_fields={"event": "plan_beats_unparsed"},
+        )
         beats = [
             {
                 "description": scene_request["scene_description"],
@@ -168,22 +203,4 @@ def parse_structured_beats(text: str, cast: list[str]) -> list[dict]:
         beats.append(
             {"description": desc, "characters": present or list(cast), "dialogue": []}
         )
-    return beats
-
-
-def parse_beats(beats_text: str, characters: list[str]) -> list[dict]:
-    """Fallback: parse a numbered-list planning response into beat dicts."""
-    beats = []
-    for line in beats_text.split("\n"):
-        line = line.strip()
-        if line and (line[0].isdigit() or line.startswith("-")):
-            beat_desc = line.split(".", 1)[-1].strip()
-            if beat_desc:
-                beats.append(
-                    {
-                        "description": beat_desc,
-                        "characters": characters,
-                        "dialogue": [],
-                    }
-                )
     return beats

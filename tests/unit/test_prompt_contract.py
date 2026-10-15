@@ -8,6 +8,7 @@ import json
 
 import pytest
 
+from app.core.prompt_markers import ALSO_NAMED_LABEL, MOVEMENT_LABEL
 from evals.graders import prompt_contract as pc
 
 pytestmark = pytest.mark.unit
@@ -53,13 +54,16 @@ FAILING = [
     (
         "beat_prose",
         "<chapter>\nMilo dies and is onboarded.\n</chapter>\n"
+        "This scene is in chapter 5 of 4.\n"
+        "Also named (secondary, not in the cast): Prava, Old Fen\n"
         "<beats>\n1. He arrives.\n→ 2. He signs.\n</beats>\n"
         "Point of view: third person limited, Zara Okafor. Narrate only what "
         "Zara Okafor perceives or knows.\n"
         "<canon>\n### Milo Voss\n" + f"Description: {MILO_DESC}\n</canon>\n"
         "CHARACTERS IN THIS BEAT\n### Milo Voss\n" + f"Description: {MILO_DESC}\n"
         'Voice samples (their own words):\n- "Don\'t thank her,"\n'
-        "BEAT TO WRITE: the last beat. End the scene here.\n"
+        "<secondary>\n### Old Fen\nIntroduced: Old Fen files.\n</secondary>\n"
+        "BEAT TO WRITE: the last beat.\n"
         "<prior>\nand then he left.\n</prior>\n"
         "description and action carry the scene.",
         "He signed.",
@@ -72,6 +76,12 @@ FAILING = [
     (
         "extraction_reduce",
         "### Milo Voss\nEvidence:\n- (part 1) one line\n</characters>",
+        "",
+    ),
+    (
+        "beat_prose",
+        f"CHARACTERS IN THIS BEAT\n### Milo Voss\n{MOVEMENT_LABEL}\n"
+        "- Milo carried the memo up to Edric.\nBEAT TO WRITE: x",
         "",
     ),
 ]
@@ -89,10 +99,13 @@ REASONS = {
     "no_neutral_tone": '"Emotional tone: neutral" line',
     "pov_line_has_mode_and_character": "POV is 'Zara Okafor', not the chapter POV "
     "'Milo Voss'",
-    "last_beat_no_wrap_up": '"end the scene here"',
+    "secondary_has_context": "Prava: no '### Prava' in <secondary>",
+    "story_position_line": "chapter 5 of 4",
     "no_duplicate_bible": "bible fields in CHARACTERS IN THIS BEAT: Description",
     "no_doubled_voice_label": 'doubled label "Voice: voice:"',
     "reduce_evidence_depth": "Milo Voss: 1 evidence/quote line(s) (< 3)",
+    "movement_names_in_scene": "Milo Voss: names Edric Thane: "
+    "'Milo carried the memo up to Edric.'",
 }
 
 
@@ -127,6 +140,9 @@ def test_every_check_fails_its_failing_fixture(tmp_path):
         reasons = [r for f in out[check]["failures"] for r in f["reasons"]]
         assert reason in reasons, (check, out[check])
     assert out["n_calls"] == len(FAILING)
+    # W3-3: the planner's POV line is graded too (record 2 has none).
+    pov = out["pov_line_has_mode_and_character"]
+    assert "2" in [f["id"] for f in pov["failures"]]
 
 
 def test_prior_keeps_its_paragraphs_and_starts_a_sentence():
@@ -196,3 +212,29 @@ def test_corpus_inputs_take_the_pov_from_the_ground_truth():
     kw = pc.corpus_inputs(gt, pipeline.load_style("cel"))
     assert kw["pov"] == "Milo Voss" and kw["style_tone"].startswith("Dry, deadpan")
     assert len(kw["principals"]) == 3 and len(kw["descriptions"]) == 3
+
+
+@pytest.mark.parametrize("brief", ["Zara audits.", "Zara audits Halvard Bell."])
+def test_movement_counts_the_scene_and_reports_coverage(tmp_path, brief):
+    """SPEC-30: a secondary on the Also-named line, or a principal the scene
+    names, may appear; Bell may not, even when the brief names him (NB-2).
+    Coverage counts principal blocks with a movement line (B-2: an emptied
+    block must not score 1.0 unseen)."""
+    prompt = (
+        f"<scene>\nScene description: {brief}\n{ALSO_NAMED_LABEL}: Prava\n"
+        "</scene>\nCHARACTERS IN THIS BEAT\n"
+        f"### Milo Voss\n{MOVEMENT_LABEL}\n- Milo nodded at Zara and Prava.\n"
+        f"- Milo closed the Halvard Bell file.\n### Zara Okafor\n{MOVEMENT_LABEL}\n"
+        "### Edric Thane\nBEAT TO WRITE: x"
+    )
+    _write(tmp_path, _rec("1", "beat_prose", prompt))
+    out = pc.grade(
+        pc.load_archive(tmp_path),
+        principals=PRINCIPALS,
+        secondary_cast=["Prava", "Old Fen", "Halvard Bell"],
+    )["movement_names_in_scene"]
+    assert [r for f in out["failures"] for r in f["reasons"]] == [
+        "Milo Voss: names Halvard Bell: 'Milo closed the Halvard Bell file.'"
+    ]
+    assert out["movement_coverage"] == round(1 / 3, 4)
+    assert out["movement_lines"] == {"Milo Voss": 2, "Zara Okafor": 0, "Edric Thane": 0}

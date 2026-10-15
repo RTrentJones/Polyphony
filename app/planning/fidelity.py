@@ -150,7 +150,9 @@ _SKIP_WORDS = _STOP_CAPS | _CONNECTIVES | _CALENDAR
 # Capitalised runs joined by a SINGLE space: a run never spans a field boundary
 # (fields are joined with two spaces), a comma or a line break, so "Debt" ending
 # one title and "In" opening the next summary are two words, not "Debt  In".
-_PROPER = re.compile(r"\b[A-Z][a-z]+(?:[ ][A-Z][a-z]+)*\b|\b[A-Z]{2,}\b")
+# An all-caps token (a sign or a stamp: INITIAL HERE) is never a candidate
+# (SPEC-33, N10).
+_PROPER = re.compile(r"\b[A-Z][a-z]+(?:[ ][A-Z][a-z]+)*\b")
 _WORD = re.compile(r"[A-Za-z]+")
 _OPENERS = '.!?;:"“(—'
 

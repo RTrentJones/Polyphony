@@ -432,6 +432,7 @@ async def test_ensemble_beat_resumes_after_the_last_agent_call(monkeypatch):
         user_id=None,
         book_id=None,
         canon_context="",
+        scope=ens.SceneScope((), (), (), frozenset(), ""),
         save_state=save,
     )
     with pytest.raises(QuotaExhaustedError):
@@ -450,7 +451,7 @@ async def test_handler_recomputes_derived_inputs_from_the_db(
 ):
     """chapter_summary/prior_tail are read at start, so an edit made during a
     pause reaches the resumed run (SPEC-08 §6)."""
-    from app.jobs.handlers import _scene_inputs
+    from app.jobs.handlers import _scene_context
 
     import app.jobs.handlers as handlers_mod
 
@@ -473,9 +474,9 @@ async def test_handler_recomputes_derived_inputs_from_the_db(
     ch.summary = "Edited during the pause"
     await async_session.commit()
 
-    summary, tail = await _scene_inputs(scene.id, {"chapter_summary": "stale"})
-    assert summary == "Edited during the pause"
-    assert tail.endswith("ends here")
+    got = await _scene_context(scene.id)
+    assert got["chapter_summary"] == "Edited during the pause"
+    assert got["prior_scene_tail"].endswith("ends here")
 
 
 async def test_prior_scene_tail_keeps_paragraph_breaks(
@@ -483,8 +484,9 @@ async def test_prior_scene_tail_keeps_paragraph_breaks(
 ):
     """The tail handed to the next scene is prose, not a wall of words: its
     paragraph breaks survive and it opens on a sentence (SPEC-18)."""
-    from app.jobs.handlers import _scene_inputs
-    from app.orchestration.prose import PREV_TAIL_WORDS, _canon_hash
+    from app.jobs.handlers import _scene_context
+    from app.orchestration.prose import PREV_TAIL_WORDS, SceneSetup, _canon_hash
+    from app.planning.canon import Canon
 
     import app.jobs.handlers as handlers_mod
 
@@ -507,13 +509,14 @@ async def test_prior_scene_tail_keeps_paragraph_breaks(
     async_session.add_all([prev, scene])
     await async_session.commit()
 
-    _, tail = await _scene_inputs(scene.id, {})
+    tail = (await _scene_context(scene.id))["prior_scene_tail"]
     assert tail.endswith("She left.\n\nThe lights hummed on.")
     assert "\n\n" in tail
     assert tail.startswith("Milo counted form ")  # a sentence, not a fragment
     # A checkpoint fingerprinted with the old flat tail still matches.
     legacy = " ".join(content.split()[-PREV_TAIL_WORDS:])
-    assert _canon_hash("c", "s", tail) == _canon_hash("c", "s", legacy)
+    setup = SceneSetup(Canon("c"), [], None, None, "")
+    assert _canon_hash(setup, "s", None, tail) == _canon_hash(setup, "s", None, legacy)
 
 
 async def test_editing_the_previous_scene_during_pause_restarts(

@@ -295,7 +295,7 @@ function BookDetailView() {
             </p>
             <p className="text-gray-600 max-w-3xl">
               {currentBook.synopsis || (
-                <span className="italic text-gray-400">
+                <span className="italic text-gray-500">
                   No synopsis yet — add one to enable outline generation
                 </span>
               )}

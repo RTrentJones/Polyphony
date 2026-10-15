@@ -323,6 +323,8 @@ export interface PlannedBeat {
   secondary_names: string[]
   setting: string
   tone: string
+  /** The live cast the server writes this beat with (SPEC-32). */
+  readonly cast_ids: string[]
 }
 
 /** A person the outline names who is in the synopsis/canon but not the cast (SPEC-24). */
@@ -340,6 +342,7 @@ export interface BookDetail {
   genre?: string | null
   status: BookStatus | string
   chapters: BookChapter[]
+  character_count: number // live characters (SPEC-32)
 }
 
 /** POST /books/{id}/chapters body */
@@ -890,12 +893,14 @@ export interface ThreadEventCreateData {
 
 export type ContinuityFindingSeverity = 'critical' | 'major' | 'minor'
 
-/** One continuity finding (app/planning/continuity.py validate_findings). */
+/** One continuity finding (app/planning/continuity.py Finding, SPEC-31). */
 export interface ContinuityFinding {
   type: 'timeline' | 'character' | 'object' | 'thread' | 'other' | string
   severity: ContinuityFindingSeverity | string
   detail: string
-  refs?: string
+  /** The model's quote and the scene the server found it in; absent on pre-SPEC-31 reports. */
+  quote?: string
+  scene_id?: string | null
 }
 
 /** Report item in GET /books/{id}/continuity. */

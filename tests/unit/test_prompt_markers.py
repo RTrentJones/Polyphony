@@ -62,7 +62,7 @@ def test_markers_module_imports_nothing_from_app():
 
 def test_pov_line_re_mode_and_who():
     """S5: a POV character may contain a period ("Dr. Ada Vance")."""
-    from app.orchestration.prose import Pov, pov_instruction
+    from app.orchestration.pov import Pov, pov_instruction
 
     m = POV_LINE_RE.search(pov_instruction(Pov("first person", "Dr. Ada Vance")))
     assert m.group("mode") == "first person"
@@ -71,6 +71,13 @@ def test_pov_line_re_mode_and_who():
     assert m.group("mode") == "third person limited"
     assert m.group("who") is None
     assert POV_LINE_RE.search("Point of view: first person, Milo.") is None
+
+
+def test_story_position_re_reads_n_and_m():
+    line = pm.STORY_POSITION.format(n=2, m=7)
+    (m,) = pm.STORY_POSITION_RE.finditer(f"Intro.\n{line}\nMore.")
+    assert (m.group("n"), m.group("m")) == ("2", "7")
+    assert pm.STORY_POSITION_RE.search("This scene is in chapter 3 of many.") is None
 
 
 async def test_outline_prompt_markers(monkeypatch):

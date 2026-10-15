@@ -20,7 +20,7 @@ import asyncio
 import re
 
 from evals.graders import extraction as extraction_grader
-from evals.steps.pipeline import load_corpus
+from evals.steps.pipeline import known_names, load_corpus
 
 _WORD = re.compile(r"[a-z']+")
 
@@ -82,7 +82,9 @@ async def offline_extraction(corpus_text: str, gt: dict) -> dict:
 
     proposals = await extract_canon(corpus_text)
     predicted = [c["name"] for c in proposals.get("characters", [])]
-    score = extraction_grader.grade_extraction(predicted, gt["cast"])
+    score = extraction_grader.grade_extraction(
+        predicted, gt["cast"], gt.get("secondary_cast") or []
+    )
     return {"predicted": predicted, **score.as_dict(), "score": score.f1}
 
 
@@ -141,7 +143,7 @@ async def offline_outline(gt: dict) -> dict:
         "app_warnings": warnings,
     }
     if fid:
-        fs = grade_fidelity(nodes, fid["principals"], set(fid["known"]))
+        fs = grade_fidelity(nodes, fid["principals"], known_names(gt))
         out["cast_fidelity"] = fs.principal_recall
         out["unknown_rate"] = fs.unknown_rate
         out["missing_principals"] = fs.missing

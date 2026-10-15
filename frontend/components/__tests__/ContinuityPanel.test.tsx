@@ -120,4 +120,31 @@ describe('ContinuityPanel report status', () => {
     renderWith([report({ status: 'cancelled', findings: null })])
     expect(screen.getByText('This check was cancelled.')).toBeInTheDocument()
   })
+
+  it('shows the quote, linked to the editor, or says it could not be located (SPEC-31)', () => {
+    const at = { severity: 'major', type: 'character', detail: 'D' }
+    renderWith([
+      report({
+        findings: [
+          { ...at, quote: 'eyes were green & gold', scene_id: 's-2' },
+          { ...at, quote: 'paraphrase', scene_id: null },
+        ],
+      }),
+    ])
+    expect(screen.getByText(/eyes were green & gold/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Open in editor' })).toHaveAttribute(
+      'href',
+      '/books/editor?book=book-1&scene=s-2'
+    )
+    expect(screen.getByText('could not locate')).toBeInTheDocument()
+  })
+
+  it('an old report with refs shows its detail only', () => {
+    // A pre-SPEC-31 row, as stored: `refs`, no quote.
+    const old = { severity: 'minor', type: 'other', detail: 'Old detail', refs: 'ch2' }
+    renderWith([report({ findings: [old] as unknown as ContinuityReport['findings'] })])
+    expect(screen.getByText('Old detail')).toBeInTheDocument()
+    expect(screen.queryByText(/ch2|could not locate/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+  })
 })

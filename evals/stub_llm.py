@@ -314,23 +314,23 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
     if "Write the book's synopsis" in prompt:
         return json.dumps({"synopsis": f"A story about {', '.join(cast[:4]) or lead}."})
     if "continuity editor" in prompt:
-        return json.dumps({"findings": []}) if "findings" in prompt else "[]"
+        # One minor finding quoting the first sentence of the first scene: a
+        # located finding for the journey to open in the editor (SPEC-31).
+        body = prompt.split("<prose>\n", 1)[1].split("\n", 2)[1]
+        quote = re.split(r"(?<=[.!?])\s", body, maxsplit=1)[0][:200]
+        found = {"type": "other", "severity": "minor", "detail": "Stub finding."}
+        return json.dumps({"findings": [{**found, "quote": quote}]})
     if "narrative planner" in prompt:
-        if "character_ids" in prompt or '"characters"' in prompt:
-            return json.dumps(
-                [
-                    {
-                        "description": f"{lead} confronts {second}.",
-                        "characters": cast[:2],
-                    },
-                    {
-                        "description": f"{second} gives ground.",
-                        "characters": cast[1:2] or cast,
-                    },
-                    {"description": "The silence after.", "characters": cast},
-                ]
-            )
-        return f"1. {lead} confronts {second}.\n2. {second} gives ground.\n3. Silence."
+        return json.dumps(
+            [
+                {"description": f"{lead} confronts {second}.", "characters": cast[:2]},
+                {
+                    "description": f"{second} gives ground.",
+                    "characters": cast[1:2] or cast,
+                },
+                {"description": "The silence after.", "characters": cast},
+            ]
+        )
     if prompt.lstrip().startswith("You ARE") or "\nYou ARE " in prompt:
         m = re.search(r"You ARE (.+?)\.", prompt)
         who = m.group(1) if m else lead

@@ -24,6 +24,7 @@ const beat = (title: string, summary = '') => ({
   secondary_names: [],
   setting: '',
   tone: '',
+  cast_ids: [],
 })
 
 const promoted: BookChapter = {
@@ -49,6 +50,7 @@ describe('GeneratePlannedScenesButton (SPEC-10)', () => {
             summary: 'Milo arrives\n\nPlanned beats:\n- Badge photo: he is dead',
             planned_beats,
           }}
+          blocker={null}
           onDone={vi.fn()}
         />
       )
@@ -67,7 +69,7 @@ describe('GeneratePlannedScenesButton (SPEC-10)', () => {
       skipped: 0,
     })
     const onDone = vi.fn()
-    render(<GeneratePlannedScenesButton chapter={promoted} onDone={onDone} />)
+    render(<GeneratePlannedScenesButton chapter={promoted} blocker={null} onDone={onDone} />)
     fireEvent.click(screen.getByRole('button', { name: /Generate all planned scenes/ }))
     await waitFor(() =>
       expect(onDone).toHaveBeenCalledWith('Writing 2 planned scenes in order.', 'success')
@@ -78,7 +80,7 @@ describe('GeneratePlannedScenesButton (SPEC-10)', () => {
   it('surfaces a refusal (e.g. the preflight estimate) as an error', async () => {
     generatePlannedScenes.mockRejectedValueOnce({ status: 429, message: 'Needs about 90,000 tokens' })
     const onDone = vi.fn()
-    render(<GeneratePlannedScenesButton chapter={promoted} onDone={onDone} />)
+    render(<GeneratePlannedScenesButton chapter={promoted} blocker={null} onDone={onDone} />)
     fireEvent.click(screen.getByRole('button', { name: /Generate all planned scenes/ }))
     await waitFor(() =>
       expect(onDone).toHaveBeenCalledWith('Needs about 90,000 tokens', 'error')
@@ -111,6 +113,7 @@ describe('planned beats come from the server (SPEC-23/25)', () => {
     render(
       <GeneratePlannedScenesButton
         chapter={{ ...promoted, summary: '', planned_beats: [beat('Intake'), beat('Lunch')] }}
+        blocker={null}
         onDone={vi.fn()}
       />
     )

@@ -21,11 +21,18 @@ import { canonApi } from '@/lib/canon-store'
 import { useBookStore } from '@/lib/books-store'
 import type {
   BookChapter,
+  BookDetail,
   Character,
   ChapterSceneRequest,
   PlannedBeat,
 } from '@/lib/types'
 import type { Estimate } from '@/lib/usage-api'
+
+/** Why no scene can be generated in this book yet, or null (SPEC-32). */
+export const generateBlocker = (book: Pick<BookDetail, 'chapters' | 'character_count'> | null) =>
+  !book ? null : book.chapters.length === 0 ? 'Add a chapter first'
+    : book.character_count === 0 ? 'Add characters to cast a scene' : null
+export const GENERATE_BLOCKER_ID = 'generate-blocker'
 
 /** The scene description a planned beat generates with: "title: summary",
  *  byte-identical to the server's beat_scene_description (planned_beat.py). */
@@ -80,8 +87,6 @@ export default function GenerateSceneModal({
   const [setting, setSetting] = useState('')
   const [tone, setTone] = useState<string>('')
   const [beatId, setBeatId] = useState<string | null>(null)
-  // True while a picked beat's cast is left to the server (no toggle since).
-  const [castFromBeat, setCastFromBeat] = useState(false)
   const [povId, setPovId] = useState('')
   const [wordCount, setWordCount] = useState(800)
   const [styleNotes, setStyleNotes] = useState('')
@@ -124,52 +129,44 @@ export default function GenerateSceneModal({
   // A chapter promoted from the outline carries its cast and POV (SPEC-10):
   // pre-select them when the cast loads or the target chapter changes. Only
   // characters still in the book's cast are selected.
-  const chapterCast = useMemo(
-    () => (activeChapter?.character_ids ?? []).filter((id) => byId.has(id)),
-    [activeChapter, byId]
-  )
+  // The server puts the chapter's live POV in every scene (with_pov), so its
+  // chip is locked on (R-2): the picker shows what is sent.
+  const povLock =
+    activeChapter?.pov_character_id && byId.has(activeChapter.pov_character_id)
+      ? activeChapter.pov_character_id
+      : null
   useEffect(() => {
     if (loadingCast || !activeChapter) return
-    const ids = chapterCast
+    const ids = (activeChapter.character_ids ?? []).filter((id) => byId.has(id))
+    if (povLock && !ids.includes(povLock)) ids.unshift(povLock)
     if (ids.length === 0) return
     setSelected(ids)
-    const pov = activeChapter.pov_character_id
-    setPovId(pov && ids.includes(pov) ? pov : '')
+    setPovId(povLock ?? '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingCast, activeChapter?.id])
 
   // A planned beat fills the description, setting and tone, and links the
   // scene to the beat by id (SPEC-23), so generate-all-planned never writes it
-  // twice. Its cast is the server's (review W-1), exactly as the batch casts
-  // it: the beat's own cast and anyone it names who is now in the book, else
-  // the chapter's, plus the chapter POV. The picker previews the beat's own
-  // ids, else the chapter's, plus the POV; once the author toggles someone,
-  // their pick is sent instead.
+  // twice. Its cast is the server's `cast_ids` (the batch's rule, W-1), shown
+  // as chips and sent as they are.
   const pickBeat = (beat: PlannedBeat) => {
     setDescription(beatDescription(beat))
     setSetting(beat.setting ?? '')
     setTone(beat.tone ?? '')
-    const own = beat.character_ids.filter((id) => byId.has(id))
-    const ids = own.length > 0 ? own : chapterCast
-    setSelected(povId && !ids.includes(povId) ? [povId, ...ids] : ids)
-    setCastFromBeat(true)
+    setSelected(beat.cast_ids)
     setBeatId(beat.node_id)
   }
 
   const toggle = (id: string) => {
-    setCastFromBeat(false)
+    if (id === povLock) return
     setSelected((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     )
   }
 
-  // A picked beat whose cast the author has not touched is cast by the server
-  // (beat_people), which may resolve people the picker does not preselect.
-  const serverCast = Boolean(beatId) && castFromBeat
-
   const handleSubmit = async () => {
     setError(null)
-    if (selected.length === 0 && !serverCast) {
+    if (selected.length === 0) {
       setError('Pick at least one character from the cast')
       return
     }
@@ -183,7 +180,7 @@ export default function GenerateSceneModal({
     }
     const pov = povId ? byId.get(povId)?.name : undefined
     const request: ChapterSceneRequest = {
-      character_ids: serverCast ? [] : selected,
+      character_ids: selected,
       scene_description: description.trim(),
       setting: setting.trim(),
       emotional_tone: tone,
@@ -265,6 +262,7 @@ export default function GenerateSceneModal({
                   type="button"
                   onClick={() => toggle(c.id)}
                   aria-pressed={selected.includes(c.id)}
+                  aria-disabled={c.id === povLock || undefined}
                   className={`px-3 py-1 text-sm rounded-full border transition-colors ${
                     selected.includes(c.id)
                       ? 'border-primary-500 bg-primary-50 text-primary-700'
@@ -272,8 +270,10 @@ export default function GenerateSceneModal({
                   }`}
                 >
                   {c.name}
-                  {c.role ? (
-                    <span className="ml-1 text-xs text-gray-400">· {c.role}</span>
+                  {c.id === povLock || c.role ? (
+                    <span className="ml-1 text-xs text-gray-500">
+                      · {c.id === povLock ? 'point of view for this chapter' : c.role}
+                    </span>
                   ) : null}
                 </button>
               ))}
@@ -440,7 +440,7 @@ export default function GenerateSceneModal({
             isLoading={submitting}
             disabled={
               (est !== null && !est.allowed) ||
-              (selected.length === 0 && !serverCast) ||
+              selected.length === 0 ||
               description.trim().length < 10 ||
               !setting.trim()
             }

@@ -176,7 +176,6 @@ class Settings(BaseSettings):
 
     # Cache settings (in-process TTL cache)
     CACHE_TTL_SECONDS: int = 3600
-    CACHE_DIALOGUE: bool = True
     CACHE_MAX_ENTRIES: int = 2048
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)

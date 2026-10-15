@@ -7,6 +7,8 @@ import pytest
 from app.core.config import settings
 from app.orchestration import ensemble as ens
 
+_SCOPE = ens.SceneScope((), (), (), frozenset(), "")
+
 pytestmark = pytest.mark.unit
 
 
@@ -110,6 +112,7 @@ class TestRunEnsemble:
             user_id=None,
             book_id=None,
             canon_context="",
+            scope=_SCOPE,
         )
         assert out["rounds"] == 1
         assert out["evaluation"]["converged"] is True
@@ -127,6 +130,7 @@ class TestRunEnsemble:
             user_id=None,
             book_id=None,
             canon_context="",
+            scope=_SCOPE,
         )
         # free tier max_agents == 3 -> only 3 proposals, rest are context-only
         assert fake.calls.count("ensemble:proposal") == 3
@@ -146,6 +150,7 @@ class TestRunEnsemble:
             user_id=None,
             book_id=None,
             canon_context="",
+            scope=_SCOPE,
         )
         assert out["rounds"] == 2  # ran the second round, then stopped
         assert out["evaluation"]["converged"] is False

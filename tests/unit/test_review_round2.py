@@ -106,7 +106,10 @@ async def test_continuity_stops_between_chunks_when_cancelled(monkeypatch):
     async def seam():
         raise JobCancelled("cancelled by the author")
 
-    words = " ".join(f"w{i}" for i in range(cont.CHUNK_WORDS * 3))
+    scenes = [
+        cont.ProseScene(f"s{n}", 1, "C", n, "", " ".join(["w"] * cont.CHUNK_WORDS))
+        for n in range(3)
+    ]
     with pytest.raises(JobCancelled):
-        await cont.run_continuity_check(words, "<canon>f</canon>", between_chunks=seam)
+        await cont.run_continuity_check(scenes, "<canon>f</canon>", between_chunks=seam)
     assert len(calls) == 1  # stopped before spending the rest of the book

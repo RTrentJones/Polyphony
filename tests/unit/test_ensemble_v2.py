@@ -9,6 +9,8 @@ import pytest
 from app.core.config import settings
 from app.orchestration import ensemble as ens
 
+_SCOPE = ens.SceneScope((), (), (), frozenset(), "")
+
 pytestmark = pytest.mark.unit
 
 
@@ -89,7 +91,13 @@ async def test_agent_gets_voice_and_physicality_retrieved_separately(monkeypatch
     monkeypatch.setattr(ctx, "get_chunk_store", lambda: TypedStore())
     grounding: list = []
     await ens.propose(
-        _character(), "Milo Voss", "the desk", [], None, grounding=grounding
+        _character(),
+        "Milo Voss",
+        "the desk",
+        [],
+        None,
+        scope=_SCOPE,
+        grounding=grounding,
     )
     prompt = fake.prompts["ensemble:proposal"][0]
     voice = prompt.split("<voice>")[1].split("</voice>")[0]
@@ -115,7 +123,7 @@ async def test_physicality_falls_back_when_untyped(monkeypatch):
     fake = FakeLLM()
     monkeypatch.setattr(ens, "get_llm_client", lambda: fake)
     monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
-    await ens.propose(_character(), "Milo Voss", "the desk", [], None)
+    await ens.propose(_character(), "Milo Voss", "the desk", [], None, scope=_SCOPE)
     prompt = fake.prompts["ensemble:proposal"][0]
     block = prompt.split("<physicality>\n")[1].split("\n</physicality>")[0]
     assert "He hummed while filing." in block  # untyped fallback fills it

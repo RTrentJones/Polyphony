@@ -46,12 +46,21 @@ route, change the spec in the same PR so it stays true. The acceptance criteria 
 | [SPEC-24](SPEC-24-beat-cast-secondaries-pov.md) | Generation prompts: beat cast, named secondaries, POV | W2-1 (prompts), W2-2, W2-4 | L | wave-2 day-0 contracts | ✅ (prose mode; ensemble prompts not covered) |
 | [SPEC-25](SPEC-25-revise-ui.md) | Revise UI, and planned beats read as data in the frontend | W2-3 (B3 UI), W2-1 (frontend) | M+ | SPEC-16, SPEC-19, SPEC-23 | ✅ |
 | [SPEC-26](SPEC-26-character-bible-extraction.md) | Extraction writes a real character bible; beat prompts stop repeating it | W2-5, W2-12 | M | SPEC-09, SPEC-17 | ✅ |
+| [SPEC-27](SPEC-27-secondary-cast-and-guided-start.md) | Suggested cast, the guided empty book, and the wave-2 journey | W2-2 (UI), W2-10 / B12 | M+ | SPEC-23, SPEC-24 | ✅ |
 | [SPEC-28](SPEC-28-eval-harness-v3.md) | Eval harness v3: fair caps, a consistent fixture, contracts for wave 2 | W2-11 (H1–H3, F8, F7) | M | wave-2 day-0 contracts | ✅ |
+| [SPEC-29](SPEC-29-secondary-voice.md) | Secondary characters sound like themselves | W3-1 | M | wave-3 day-0 markers, SPEC-17, SPEC-24 | ✅ |
+| [SPEC-30](SPEC-30-story-position.md) | Early scenes do not know the ending (story position, movement samples) | W3-2 | S/M | wave-3 day-0 markers, `Chapter.number` | ✅ |
+| [SPEC-31](SPEC-31-located-continuity.md) | Located continuity: each finding quotes the prose and opens it | W3-4 (B10 / W2-8 core) | M | SPEC-02 | ✅ (quote not selected in the editor; mark-fixed is W3-11) |
+| [SPEC-32](SPEC-32-chapter-rows-and-generate.md) | Chapter rows are unambiguous, and Generate is never a dead end | W3-6 (B12 rest) | M | SPEC-23, SPEC-24 | ✅ |
+| [SPEC-33](SPEC-33-eval-harness-v4.md) | Eval harness v4: honest denominators, one name rule | W3-7 | M | wave-3 day-0 contracts | ✅ |
 
 SPEC-01 to SPEC-15 close review findings (`F…`). SPEC-16 to SPEC-22 are wave 1 of the 2026-10
 cycle: they close product-backlog items (`B…`) and findings from the relay eval run, and SPEC-22
 merged first so the "before" and "after" evals share one harness. SPEC-23 to SPEC-28 are wave 2
-(backlog items `W2-…`); SPEC-28 re-scored the after-wave-1 run as wave 2's "before".
+(backlog items `W2-…`); SPEC-28 re-scored the after-wave-1 run as wave 2's "before". SPEC-29 to
+SPEC-33 are wave 3 (backlog items `W3-…`). Wave 3 also amended two earlier specs in place: SPEC-17
+(one voice retrieval and renderer, and the voice probe, W3-5) and SPEC-24 (the POV paragraph in the
+planner and revise, W3-3).
 
 ## Sequencing
 

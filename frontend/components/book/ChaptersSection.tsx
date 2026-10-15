@@ -21,7 +21,10 @@ import {
 } from 'lucide-react'
 import Button from '@/components/Button'
 import DeleteChapterModal from '@/components/book/DeleteChapterModal'
-import GenerateSceneModal from '@/components/book/GenerateSceneModal'
+import GenerateSceneModal, {
+  GENERATE_BLOCKER_ID,
+  generateBlocker,
+} from '@/components/book/GenerateSceneModal'
 import GeneratePlannedScenesButton, {
   plannedScenesMessage,
 } from '@/components/book/GeneratePlannedScenesButton'
@@ -39,6 +42,11 @@ import { SCENE_STATUS_STYLES } from '@/components/book/styles'
 import JobStatusBadge from '@/components/JobStatusBadge'
 import { isActiveJob } from '@/lib/jobs'
 import { displayChapterTitle } from '@/lib/utils'
+
+/** "chapter 3, Paperwork": two same-title rows never read alike (SPEC-32). */
+function rowLabel(chapter: BookChapter): string {
+  return `chapter ${chapter.position + 1}, ${displayChapterTitle(chapter.title)}`
+}
 
 export default function ChaptersSection({
   onSceneGenerated,
@@ -76,6 +84,8 @@ export default function ChaptersSection({
   const [plannedBusy, setPlannedBusy] = useState<Record<string, boolean>>({})
   // Live job status per scene, from its badge (see ScenesPanel).
   const [liveStatus, setLiveStatus] = useState<Record<string, string>>({})
+  const blocker = generateBlocker(currentBook)
+  const describedBy = blocker ? GENERATE_BLOCKER_ID : undefined
 
   const toggleExpand = async (chapterId: string) => {
     const next = !expanded[chapterId]
@@ -165,7 +175,7 @@ export default function ChaptersSection({
             onSelect: () => {
               handlePlannedFromMenu(chapter)
             },
-            disabled: !!plannedBusy[chapter.id],
+            disabled: !!plannedBusy[chapter.id] || !!blocker,
           },
         ]
       : []),
@@ -215,6 +225,11 @@ export default function ChaptersSection({
           Add Chapter
         </Button>
       </div>
+      {blocker && chapters.length > 0 && (
+        <p id={GENERATE_BLOCKER_ID} className="mb-3 text-sm text-gray-600">
+          {blocker}
+        </p>
+      )}
 
       {chapters.length === 0 ? (
         <div className="text-center py-8">
@@ -232,7 +247,8 @@ export default function ChaptersSection({
               <div
                 key={chapter.id}
                 data-testid="chapter-row"
-                data-chapter-title={chapter.title}
+                data-chapter-id={chapter.id}
+                data-chapter-position={chapter.position}
                 className="border border-gray-200 rounded-lg"
               >
                 {/* Below sm: two lines, the title and then its actions, so a
@@ -246,7 +262,7 @@ export default function ChaptersSection({
                     <button
                       onClick={() => toggleExpand(chapter.id)}
                       className="shrink-0 p-1 text-gray-500 hover:text-primary-600"
-                      aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${chapter.title}`}
+                      aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${rowLabel(chapter)}`}
                       aria-expanded={isOpen}
                     >
                       {isOpen ? (
@@ -283,7 +299,7 @@ export default function ChaptersSection({
                       onClick={() => handleMoveChapter(chapter, -1)}
                       disabled={chapter.position === 0 || busy}
                       className="p-1 text-gray-400 hover:text-primary-600 disabled:opacity-30"
-                      aria-label={`Move ${chapter.title} up`}
+                      aria-label={`Move ${rowLabel(chapter)} up`}
                     >
                       <ArrowUp className="h-4 w-4" />
                     </button>
@@ -291,7 +307,7 @@ export default function ChaptersSection({
                       onClick={() => handleMoveChapter(chapter, 1)}
                       disabled={chapter.position >= chapters.length - 1 || busy}
                       className="p-1 text-gray-400 hover:text-primary-600 disabled:opacity-30"
-                      aria-label={`Move ${chapter.title} down`}
+                      aria-label={`Move ${rowLabel(chapter)} down`}
                     >
                       <ArrowDown className="h-4 w-4" />
                     </button>
@@ -299,6 +315,8 @@ export default function ChaptersSection({
                       variant="outline"
                       size="sm"
                       onClick={() => setGenerateFor(chapter)}
+                      disabled={!!blocker}
+                      aria-describedby={describedBy}
                     >
                       <Wand2 className="h-4 w-4 mr-1" />
                       Generate scene
@@ -307,19 +325,20 @@ export default function ChaptersSection({
                     <div className="hidden items-center gap-1 sm:flex">
                       <GeneratePlannedScenesButton
                         chapter={chapter}
+                        blocker={blocker}
                         onDone={(message, kind) => onPlannedDone(chapter, message, kind)}
                       />
                       <button
                         onClick={() => setHistoryFor(chapter)}
                         className="p-1 text-gray-400 hover:text-primary-600"
-                        aria-label={`History of ${chapter.title}`}
+                        aria-label={`History of ${rowLabel(chapter)}`}
                       >
                         <History className="h-4 w-4" />
                       </button>
                       <button
                         onClick={() => handleDeleteChapter(chapter)}
                         className="p-1 text-gray-400 hover:text-red-600"
-                        aria-label={`Delete ${chapter.title}`}
+                        aria-label={`Delete ${rowLabel(chapter)}`}
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -327,7 +346,7 @@ export default function ChaptersSection({
                     {/* ... below sm: they move into the "⋯" menu. */}
                     <RowActionsMenu
                       className="sm:hidden"
-                      label={`More actions for ${chapter.title}`}
+                      label={`More actions for ${rowLabel(chapter)}`}
                       actions={menuActions(chapter)}
                     />
                   </div>

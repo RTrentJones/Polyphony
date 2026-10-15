@@ -1,5 +1,6 @@
 """Unit tests for the book domain: exports, prose call budget, planning."""
 
+import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -12,7 +13,7 @@ from app.exports.builder import (
     to_epub,
     to_markdown,
 )
-from app.planning.continuity import chunk_prose, validate_findings
+from app.planning.continuity import Chunk, validate_findings
 from app.planning.outline import validate_outline_nodes
 
 BOOK = BookExport(
@@ -77,11 +78,12 @@ class TestProseCallBudget:
     async def test_four_beat_scene_costs_at_most_six_calls(self):
         """Regression guard: prose mode must stay at 1 planning + 1 call/beat."""
         from app.orchestration import prose as prose_module
+        from app.orchestration.pov import Pov
 
         calls = {"n": 0}
 
         class FakeResult:
-            text = "1. beat one\n2. beat two\n3. beat three\n4. beat four"
+            text = json.dumps([{"description": f"beat {i}"} for i in range(4)])
             tokens_in = 10
             tokens_out = 10
 
@@ -108,11 +110,15 @@ class TestProseCallBudget:
                 prose_module, "build_cast_context", AsyncMock(return_value="cast")
             ),
         ):
-            beats = await prose_module.plan_scene_beats(scene_request, None)
+            context = {"pov": Pov("first person")}
+            context.update(story_position=None, secondary_block="")
+            beats = await prose_module.plan_scene_beats(
+                scene_request, None, canon_block="", chapter_summary="", **context
+            )
             assert len(beats) == 4
             for beat in beats:
                 await prose_module.write_beat_prose(
-                    beat, scene_request, "cast", "", user_id=None
+                    beat, scene_request, "cast", "", **context
                 )
 
         # 1 planning call + 4 beat calls = 5 <= 6
@@ -144,12 +150,6 @@ class TestOutlineValidation:
 
 @pytest.mark.unit
 class TestContinuityHelpers:
-    def test_chunking_covers_all_words(self):
-        text = " ".join(f"w{i}" for i in range(6000))
-        chunks = chunk_prose(text, chunk_words=2500)
-        assert len(chunks) == 3
-        assert sum(len(c.split()) for c in chunks) == 6000
-
     def test_findings_validation_filters_garbage(self):
         findings = validate_findings(
             [
@@ -157,7 +157,8 @@ class TestContinuityHelpers:
                 {"type": "weird", "detail": "still kept as other"},
                 {"detail": ""},
                 "not a dict",
-            ]
+            ],
+            Chunk("", []),
         )
         assert len(findings) == 2
         assert findings[0]["type"] == "timeline"

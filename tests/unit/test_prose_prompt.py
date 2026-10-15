@@ -8,20 +8,25 @@ the deterministic seam trim.
 
 import re
 import types
+from datetime import datetime, timezone
 
 import pytest
 
 from app.core.llm_text import as_quoted_block
 from app.orchestration import prose as prose_module
+from app.orchestration.pov import Pov
 from app.orchestration.prose import (
     GENERIC_CRAFT_GUIDANCE,
     PREV_TAIL_WORDS,
+    SceneSetup,
     _canon_hash,
     prose_tail,
+    scene_chapter,
     trim_seam_repeat,
     write_beat_prose,
 )
-from app.planning.canon import render_style
+from app.orchestration.workflow import StoryPosition
+from app.planning.canon import Canon, render_style
 
 pytestmark = pytest.mark.unit
 
@@ -49,6 +54,16 @@ _BEATS = [
     {"description": "The lights go out.", "characters": []},
 ]
 _REQUEST = {"scene_description": "The audit.", "setting": "Archive"}
+
+
+def _write(beat, prior="", **kw):
+    kw = {
+        "pov": Pov("first person"),
+        "story_position": None,
+        "secondary_block": "",
+        **kw,
+    }
+    return write_beat_prose(beat, _REQUEST, "cast", prior, **kw)
 
 
 def _sentence(i: int) -> str:
@@ -110,7 +125,10 @@ class TestProseTail:
         tail = prose_tail(text)
         assert "\n\n" in tail
         assert " ".join(tail.split()[-PREV_TAIL_WORDS:]) == legacy
-        assert _canon_hash("c", "ch", tail) == _canon_hash("c", "ch", legacy)
+        setup = SceneSetup(Canon("c"), [], None, None, "")
+        assert _canon_hash(setup, "ch", None, tail) == _canon_hash(
+            setup, "ch", None, legacy
+        )
 
 
 # --- trim_seam_repeat ---------------------------------------------------------
@@ -145,9 +163,7 @@ class TestSeamTrim:
 
 class TestBeatPrompt:
     async def test_beats_block_marks_the_current_beat_and_stop_line(self, fake):
-        await write_beat_prose(
-            _BEATS[1], _REQUEST, "cast", "", all_beats=_BEATS, beat_index=1
-        )
+        await _write(_BEATS[1], all_beats=_BEATS, beat_index=1)
         prompt = fake.prompts[0]
         block = prompt.split("<beats>")[1].split("</beats>")[0]
         assert block.strip().splitlines() == [
@@ -164,9 +180,7 @@ class TestBeatPrompt:
         assert prompt.index("</beats>") < prompt.index("CHARACTERS IN THIS BEAT")
 
     async def test_last_beat_ends_the_scene(self, fake):
-        await write_beat_prose(
-            _BEATS[2], _REQUEST, "cast", "", all_beats=_BEATS, beat_index=2
-        )
+        await _write(_BEATS[2], all_beats=_BEATS, beat_index=2)
         assert (
             "Write ONLY beat 3, the last beat: end the scene inside the moment, "
             "in POV; no summary of what follows." in fake.prompts[0]
@@ -175,7 +189,7 @@ class TestBeatPrompt:
 
     async def test_prior_keeps_paragraph_breaks(self, fake):
         prior = "He set the ledger down.\n\nShe did not look at it."
-        await write_beat_prose(_BEATS[1], _REQUEST, "cast", prior)
+        await _write(_BEATS[1], prior)
         prompt = fake.prompts[0]
         assert (
             "<prior>\nHe set the ledger down.\n\nShe did not look at it.\n</prior>"
@@ -193,9 +207,7 @@ class TestBeatPrompt:
             pov=None, tense=None, tone="clipped", comps=None, sample_prose=sample
         )
         canon_block = as_quoted_block(render_style(style), "canon")
-        await write_beat_prose(
-            _BEATS[0], _REQUEST, "cast", "", canon_block=canon_block, style=style
-        )
+        await _write(_BEATS[0], canon_block=canon_block, style=style)
         prompt = fake.prompts[0]
         assert prompt.count(sample) == 1 and prompt.count("clipped") == 1
         assert "<sample_prose>" not in prompt
@@ -206,16 +218,14 @@ class TestBeatPrompt:
     async def test_tone_alone_replaces_house_style(self, fake):
         style = types.SimpleNamespace(tone="banter-heavy, dialogue first")
         canon_block = as_quoted_block(render_style(style), "canon")
-        await write_beat_prose(
-            _BEATS[0], _REQUEST, "cast", "", canon_block=canon_block, style=style
-        )
+        await _write(_BEATS[0], canon_block=canon_block, style=style)
         prompt = fake.prompts[0]
         assert prompt.count("banter-heavy, dialogue first") == 1
         assert "follow the tone in the canon's style guide" in prompt
         assert "PUNCTUATES" not in prompt
 
     async def test_house_style_only_without_tone_or_sample(self, fake):
-        await write_beat_prose(_BEATS[0], _REQUEST, "cast", "")
+        await _write(_BEATS[0])
         prompt = fake.prompts[0]
         assert GENERIC_CRAFT_GUIDANCE in prompt
         assert prompt.index(GENERIC_CRAFT_GUIDANCE) < prompt.index(
@@ -223,9 +233,38 @@ class TestBeatPrompt:
         )
         assert "style guide, above" not in prompt
 
-    async def test_positional_call_still_works(self, fake):
-        """The signature tests/unit/test_books_domain.py relies on."""
-        out = await write_beat_prose(_BEATS[0], _REQUEST, "cast", "", user_id=None)
-        assert out == "Prose."
-        assert "<beats>" not in fake.prompts[0]  # no plan given, none rendered
+    async def test_no_plan_given_none_rendered(self, fake):
+        assert await _write(_BEATS[0]) == "Prose."
+        assert "<beats>" not in fake.prompts[0]
         assert "BEAT TO WRITE: Milo finds the ledger." in fake.prompts[0]
+
+
+# --- scene_chapter (SPEC-30) ----------------------------------------------------
+
+
+async def test_scene_chapter_counts_live_chapters_only(async_session, test_book):
+    from app.core.orm_models import Chapter, Scene
+
+    def chapter(pos, trashed=False):
+        return Chapter(
+            book_id=test_book.id,
+            title=f"c{pos}",
+            position=pos,
+            summary=f"s{pos}",
+            deleted_at=datetime.now(timezone.utc) if trashed else None,
+        )
+
+    chapters = [chapter(i) for i in range(5)] + [chapter(5, trashed=True)]
+    async_session.add_all(chapters)
+    await async_session.flush()
+    second, trashed = (
+        Scene(user_id=test_book.user_id, chapter_id=c.id, status="processing")
+        for c in (chapters[1], chapters[5])
+    )
+    loose = Scene(user_id=test_book.user_id, book_id=test_book.id, status="processing")
+    async_session.add_all([second, trashed, loose])
+    await async_session.commit()
+    assert await scene_chapter(async_session, second) == ("s1", StoryPosition(2, 5))
+    # R-3: a trashed chapter keeps its summary but has no place in the book.
+    assert await scene_chapter(async_session, trashed) == ("s5", None)
+    assert await scene_chapter(async_session, loose) == ("", None)

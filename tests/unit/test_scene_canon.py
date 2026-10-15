@@ -112,8 +112,8 @@ def _bind(monkeypatch, async_session, fake):
     monkeypatch.setattr(ctx_mod, "get_chunk_store", lambda: FakeStore())
 
 
-async def _run(async_session, cel, fake, monkeypatch, ids):
-    from app.orchestration.prose import run_prose_scene_workflow
+async def _run(async_session, cel, fake, monkeypatch, ids, secondaries=()):
+    from app.orchestration.prose import run_prose_scene_workflow, scene_chapter
 
     _bind(monkeypatch, async_session, fake)
     scene = Scene(
@@ -131,12 +131,15 @@ async def _run(async_session, cel, fake, monkeypatch, ids):
         "setting": "Reconciliations",
         "emotional_tone": "wry",
         "target_word_count": 300,
+        "secondary_names": list(secondaries),
     }
+    summary, position = await scene_chapter(async_session, scene)
     result = await run_prose_scene_workflow(
         scene.id,
         request,
         cel.book.user_id,
-        chapter_summary="Milo's first day.",
+        chapter_summary=summary,
+        story_position=position,
         book_id=cel.book.id,
     )
     return result, scene
@@ -195,6 +198,39 @@ async def test_per_beat_cast_is_preserved(async_session, cel_book, monkeypatch):
     assert "Elara" not in cast_part(second)  # never invented
     # grounding provenance recorded per beat (R5.3)
     assert scene.evaluation_scores["grounding"]["0"][0]["chunk_id"] == "chunk-1"
+
+
+async def test_secondaries_follow_the_cast_in_every_beat_and_never_a_cast_member(
+    async_session, cel_book, monkeypatch
+):
+    """SPEC-29. A secondary who is now a Character (Prava) is cast: a full
+    character block, not on the Also-named line, not in <secondary>, which
+    still carries the unresolved Old Fen. A guard, not failing-first: the cast
+    path already behaved this way (§2 item 5)."""
+    prava = Character(
+        book_id=cel_book.book.id,
+        user_id=cel_book.book.user_id,
+        name="Prava",
+        role="minor",
+    )
+    async_session.add(prava)
+    await async_session.commit()
+    plan = [
+        {"description": "Intake.", "characters": ["Milo Voss", "Prava"]},
+        {"description": "Desk.", "characters": ["Milo Voss"]},
+    ]
+    fake = FakeLLM(json.dumps(plan))
+    ids = [str(cel_book.milo.id), str(prava.id)]
+    result, _ = await _run(async_session, cel_book, fake, monkeypatch, ids, ["Old Fen"])
+    assert result["status"] == "completed", result
+    assert "### Old Fen" in fake.prompts["plan_beats"][0]
+    casts = []
+    for beat in fake.prompts["beat_prose"]:
+        cast_part, rest = beat.split("CHARACTERS IN THIS BEAT")[1].split("<secondary>")
+        fence = rest.split("</secondary>")[0]
+        assert "### Old Fen" in fence and "### Prava" not in fence
+        casts.append(cast_part)
+    assert "### Prava" in casts[0] and "### Prava" not in casts[1]
 
 
 class TestCastValidation:

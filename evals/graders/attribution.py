@@ -37,12 +37,18 @@ class AttributionResult:
     margin: float  # top score minus the intended character's score (0 if correct)
     ranking: list[tuple[str, float]]
 
+    @property
+    def gap(self) -> float:
+        """Top-1 minus top-2 score: how near the next voice is (SPEC-33)."""
+        return self.ranking[0][1] - self.ranking[1][1] if len(self.ranking) > 1 else 0.0
+
     def as_dict(self) -> dict:
         return {
             "intended": self.intended,
             "predicted": self.predicted,
             "correct": self.correct,
             "margin": round(self.margin, 4),
+            "gap": round(self.gap, 4),
             "ranking": [(n, round(s, 4)) for n, s in self.ranking],
         }
 
@@ -66,7 +72,7 @@ def attribute(
 
 
 def accuracy(results: list[AttributionResult]) -> dict:
-    """Aggregate: top-1 accuracy and chance baseline."""
+    """Aggregate: top-1 accuracy, chance baseline and the mean gap."""
     n = len(results)
     correct = sum(r.correct for r in results)
     n_chars = max((len(r.ranking) for r in results), default=0)
@@ -75,4 +81,5 @@ def accuracy(results: list[AttributionResult]) -> dict:
         "correct": correct,
         "accuracy": round(correct / n, 4) if n else 0.0,
         "chance": round(1 / n_chars, 4) if n_chars else 0.0,
+        "mean_gap": round(sum(r.gap for r in results) / n, 4) if n else None,
     }

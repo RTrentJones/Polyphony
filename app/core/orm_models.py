@@ -279,6 +279,15 @@ class Chapter(Base):
     book = relationship("Book", back_populates="chapters")
     scenes = relationship("Scene", back_populates="chapter", order_by="Scene.position")
 
+    @property
+    def number(self) -> int:
+        """1-based book order of a LIVE chapter: the backend's one "chapter N"
+        rule. Live positions are contiguous from 0 because every delete, move
+        and restore renumbers them (`renumber_two_phase`), so this equals the
+        export's `enumerate(…, 1)` numbering. A trashed chapter keeps its last
+        position, and its number is meaningless."""
+        return self.position + 1
+
     __table_args__ = (
         Index("idx_chapters_book_id", "book_id"),
         # One live chapter per outline node: promote is idempotent even when
@@ -639,7 +648,7 @@ class ContinuityReport(Base):
     status = Column(String(20), nullable=False, default="processing")
     # {"chunks_checked", "chunks_total", "unchecked": [labels]}
     coverage = Column(JSON)
-    # [{"type": "timeline|character|object|thread", "severity", "detail", "refs"}]
+    # list[continuity.Finding] (SPEC-31); pre-SPEC-31 rows carry "refs"
     findings = Column(JSON)
     model = Column(String(100))
     tokens_used = Column(Integer, default=0)
