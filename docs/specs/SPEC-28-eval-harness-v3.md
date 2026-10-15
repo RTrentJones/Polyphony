@@ -89,7 +89,7 @@ archive carries the header). Fourteen checks, each 1.0 of the calls it checks:
 | `style_first` | beat_prose | the style sample prose is in the prompt and the generic craft text is not |
 | `plan_cast_from_beat` | plan_beats | the `Available cast` line parses to someone (a missing or empty line fails), and equals the corpus cast among the outline beat's `people` (falling back to `characters`; else the chapter's) plus the chapter POV. Beats are matched by `Scene description:` = `title: summary`; a prompt that matches none is listed in `unmatched` |
 | `no_blank_setting` | plan_beats, beat_prose | no `^\s*Setting:\s*$` |
-| `no_neutral_tone` | plan_beats, beat_prose | only when the style has a tone: no `Emotional tone: neutral` |
+| `no_neutral_tone` | plan_beats, beat_prose | only when the style has a tone: no `Emotional tone: neutral`, unless the matched outline beat's own tone is "neutral" (S7: an author's deliberate "neutral" is kept; only a blank tone is omitted) |
 | `pov_line_has_mode_and_character` | beat_prose | `POV_LINE_RE` parses; `who` is the chapter POV (the outline answer's chapter whose summary is in `<chapter>`, else ground truth `pov`); "Narrate only what <who> … perceives or knows" follows. With no expected POV, the mode alone passes. "Dr. Ada Vance" is read whole (S5) |
 | `last_beat_no_wrap_up` | beat_prose, last beat | no "end the scene here" (case-insensitive). A tripwire: delete in wave 3 |
 | `no_duplicate_bible` | beat_prose | no bible line in `CHARACTERS IN THIS BEAT`; each corpus description exactly once |

@@ -27,7 +27,8 @@ Wave 2 (SPEC-28; the strings are tpm-plan-wave2 §1.3 P1-P10):
                        equals the outline beat's ``people`` that are corpus cast
                        (else the chapter's) plus the chapter POV; a prompt
                        matching no beat is listed in ``unmatched`` (F2, S5).
-* ``no_blank_setting`` / ``no_neutral_tone``  plan_beats, beat_prose (F3).
+* ``no_blank_setting`` / ``no_neutral_tone``  plan_beats, beat_prose (F3); a
+                       "neutral" the outline beat chose is the author's (S7).
 * ``pov_line_has_mode_and_character``  beat_prose: ``POV_LINE_RE`` parses, it
                        names the chapter POV (else the corpus ``pov``), and the
                        "Narrate only what" limit names them too (F9, S5).
@@ -362,9 +363,13 @@ def check_no_blank_setting(prompt: str) -> list[str]:
     return ['blank "Setting:" line'] if _BLANK_SETTING.search(prompt) else []
 
 
-def check_no_neutral_tone(prompt: str) -> list[str]:
-    """P4 / F3: the style guide's tone governs; "neutral" is never injected."""
-    return ['"Emotional tone: neutral" line'] if _NEUTRAL_TONE.search(prompt) else []
+def check_no_neutral_tone(prompt: str, chosen_tone: str = "") -> list[str]:
+    """P4 / F3: the style guide's tone governs; "neutral" is never injected.
+    A "neutral" the plan chose (`chosen_tone`, the outline beat's tone) is
+    the author's and is kept (S7)."""
+    if not _NEUTRAL_TONE.search(prompt) or chosen_tone.strip().lower() == "neutral":
+        return []
+    return ['"Emotional tone: neutral" line']
 
 
 def check_pov_line(prompt: str, expected_who: str | None) -> list[str]:
@@ -517,6 +522,7 @@ class OutlineIndex:
                 desc = f"{child.get('title', '')}: {child.get('summary', '')}".strip()
                 self.beats[_squash(desc)] = {
                     "people": self._people(child),
+                    "tone": str(child.get("tone") or ""),
                     "chapter": chapter,
                 }
 
@@ -687,7 +693,10 @@ def grade(
         if pur in ("plan_beats", "beat_prose"):
             tallies["no_blank_setting"].add(rec, check_no_blank_setting(prompt))
             if style_tone.strip():
-                tallies["no_neutral_tone"].add(rec, check_no_neutral_tone(prompt))
+                planned = outline.beat_for(prompt) or {}
+                tallies["no_neutral_tone"].add(
+                    rec, check_no_neutral_tone(prompt, planned.get("tone") or "")
+                )
         if pur == "beat_prose":
             beat_prompt_chars.append(len(prompt))
             chapter = outline.chapter_for(prompt)

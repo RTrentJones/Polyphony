@@ -88,7 +88,7 @@ calls it checks):
 |---|---|---|
 | `plan_cast_from_beat` | `plan_beats` | the "Available cast" line parses to someone, and equals the corpus cast among the outline beat's `people` (else the chapter's) plus the chapter POV; a prompt whose line parses but matches no beat is listed in `unmatched`, not failed |
 | `no_blank_setting` | `plan_beats`, `beat_prose` | no empty `Setting:` line |
-| `no_neutral_tone` | `plan_beats`, `beat_prose` | no `Emotional tone: neutral` (checked only when `style.json` has a tone) |
+| `no_neutral_tone` | `plan_beats`, `beat_prose` | no `Emotional tone: neutral` (checked only when `style.json` has a tone), unless the matched outline beat chose "neutral" |
 | `pov_line_has_mode_and_character` | `beat_prose` | `POV_LINE_RE` parses, `<who>` is the chapter POV (else the corpus `pov`), and "Narrate only what <who> … perceives or knows" follows (`<mode>` alone passes when no POV is expected) |
 | `last_beat_no_wrap_up` | `beat_prose` (last beat) | no "end the scene here" (a tripwire, to delete in wave 3) |
 | `no_duplicate_bible` | `beat_prose` | no bible lines under CHARACTERS IN THIS BEAT; each corpus character description appears exactly once |

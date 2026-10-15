@@ -138,6 +138,14 @@ def test_prior_keeps_its_paragraphs_and_starts_a_sentence():
     assert pc.check_prior("“Read it,” she said.") == []
 
 
+def test_a_neutral_tone_the_plan_chose_is_kept():
+    """S7: only a blank tone is omitted; the outline beat's own "neutral" is
+    the author's choice, not an injected default."""
+    prompt = "Scene description: Intake: x\nEmotional tone: neutral"
+    assert pc.check_no_neutral_tone(prompt, "neutral") == []
+    assert pc.check_no_neutral_tone(prompt, "wry") == ['"Emotional tone: neutral" line']
+
+
 def test_the_last_beat_needs_no_stop_instruction():
     middle = "<beats>\n→ 1. He arrives.\n2. She leaves.\n</beats>\nWrite beat 1."
     assert pc.check_beats_block(middle) == [
