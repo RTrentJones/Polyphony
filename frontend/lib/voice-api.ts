@@ -25,11 +25,15 @@ export interface RetrievalResult {
   results: RetrievalHit[]
 }
 
+/** One grounding entry, recorded as a scene records it (`grounding_entries`). */
 export interface DialogueGroundingSample {
+  character_id: string
   chunk_id: string | null
   score: number | null
-  chunk_type?: string | null
-  text: string
+  /** The sample's wording, bounded (~300 chars). */
+  excerpt?: string | null
+  /** Why no sample grounded the line (e.g. "no indexed voice samples"). */
+  reason?: string | null
 }
 
 export interface DialogueTestResult {

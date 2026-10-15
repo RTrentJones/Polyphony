@@ -364,7 +364,8 @@ export default function VoicePanel({
                 <ul className="text-xs text-gray-600 list-disc ml-4">
                   {line.grounding.map((g, i) => (
                     <li key={g.chunk_id || i}>
-                      <span className="font-mono">{formatScore(g.score)}</span> {g.text}
+                      <span className="font-mono">{formatScore(g.score)}</span>{' '}
+                      {g.excerpt ?? g.reason}
                     </li>
                   ))}
                 </ul>

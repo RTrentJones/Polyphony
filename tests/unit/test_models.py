@@ -7,7 +7,6 @@ from pydantic import ValidationError
 from app.core.models import (
     UserCreate,
     SceneRequest,
-    DialogueRequest,
     ChunkType,
 )
 
@@ -133,40 +132,6 @@ class TestSceneModels:
                 setting="Test setting",
                 emotional_tone="neutral",
             )
-
-
-@pytest.mark.unit
-class TestDialogueModels:
-    """Test Dialogue-related models"""
-
-    def test_dialogue_request_valid(self):
-        """Test creating valid dialogue request"""
-        request = DialogueRequest(
-            character_name="Alice",
-            scene_context={"setting": "library"},
-            emotional_state="curious",
-            other_characters=["Bob"],
-            beat_description="Alice asks a question",
-        )
-
-        assert request.character_name == "Alice"
-        assert request.emotional_state == "curious"
-        assert len(request.other_characters) == 1
-        assert len(request.previous_dialogue) == 0
-
-    def test_dialogue_request_with_previous_dialogue(self):
-        """Test dialogue request with previous dialogue"""
-        request = DialogueRequest(
-            character_name="Alice",
-            scene_context={"setting": "library"},
-            emotional_state="curious",
-            other_characters=["Bob"],
-            beat_description="Alice responds",
-            previous_dialogue=[{"character": "Bob", "dialogue": "Hello"}],
-        )
-
-        assert len(request.previous_dialogue) == 1
-        assert request.previous_dialogue[0]["character"] == "Bob"
 
 
 @pytest.mark.unit

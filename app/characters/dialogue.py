@@ -1,143 +1,92 @@
-"""Character-voice dialogue generation.
+"""Character-voice dialogue generation: the voice workbench's "Test dialogue".
 
-Was services/character-agent (one container per hardcoded character); now an
-async function over any Character row — RAG-retrieve the character's voice
-samples, generate the next line in that voice, score consistency.
+One caller (`app/api/characters.test_dialogue`). The samples come from the
+scene path (`context.character_samples`) and print through its renderer
+(`context.render_character`), so the author tests the voice their scenes are
+written from (SPEC-17, W3-5).
 """
 
-import hashlib
-import json
 from typing import Optional
 from uuid import UUID
 
-from cachetools import TTLCache
-
-from app.core.config import settings
+from app.characters.context import (
+    SceneScope,
+    character_samples,
+    grounding_entries,
+    render_character,
+)
+from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.logging_config import setup_logging
-from app.core.llm_text import clean_for_llm
+from app.core.orm_models import Character
 from app.llm.client import get_llm_client
 from app.rag.embeddings import cosine_similarity, get_embedder
-from app.rag.store import get_chunk_store
 
 logger = setup_logging("characters.dialogue")
-
-# In-process dialogue cache (was Redis; ADR-001 §4)
-_dialogue_cache: TTLCache = TTLCache(
-    maxsize=settings.CACHE_MAX_ENTRIES, ttl=settings.CACHE_TTL_SECONDS
-)
 
 
 async def generate_dialogue(
     *,
-    character_id: str,
-    character_name: str,
-    beat_description: str,
-    scene_context: dict,
-    emotional_state: str,
-    other_characters: list[str],
-    previous_dialogue: Optional[list[dict]] = None,
+    character: Character,
+    prompt: str,
+    context: str,
+    scope: SceneScope,
     user_id: Optional[UUID] = None,
 ) -> dict:
-    """Generate one in-voice dialogue turn (plus action) for a character."""
-    previous_dialogue = previous_dialogue or []
+    """One in-voice line (plus an action) for `character`: `prompt` is the
+    moment to answer, `context` the author's optional scene note."""
+    name = character.name
+    words, movement = await character_samples(character, prompt, 3, scope=scope)
+    block = as_quoted_block(render_character(name, words, movement), "character")
+    note = clean_for_llm(context)
+    scene = f"Scene context: {note}\n" if note else ""
+    body = f"""{STORY_MATERIAL_NOTICE}
 
-    cache_key = _cache_key(
-        character_id, beat_description, emotional_state, previous_dialogue
-    )
-    if settings.CACHE_DIALOGUE and cache_key in _dialogue_cache:
-        return _dialogue_cache[cache_key]
+You are {name}, a character in this story.
 
-    store = get_chunk_store()
-    # Retrieve across ALL chunk types, not dialogue-only: the ingest-time
-    # classifier under-labels dialogue, so a dialogue-only filter starves this to
-    # nothing (mirrors the fix in characters/context.py).
-    similar = await store.retrieve_similar(
-        character_id=character_id,
-        query=scene_context.get("description", beat_description),
-    )
+{block}
 
-    examples_text = (
-        "\n".join(f"- \"{clean_for_llm(ex['text'])}\"" for ex in similar[:3])
-        if similar
-        else "No previous examples available."
-    )
-    safe_beat = clean_for_llm(beat_description)
-    safe_setting = clean_for_llm(str(scene_context.get("setting", "Unknown")))
+{scene}The moment: {clean_for_llm(prompt)}
 
-    prompt = f"""You are {character_name}, a character in this story.
-
-Scene context: {safe_beat}
-Setting: {safe_setting}
-Your emotional state: {emotional_state}
-Other characters present: {', '.join(other_characters)}
-
-Here are examples of how {character_name} speaks:
-{examples_text}
-
-Previous dialogue in this scene:
-{_format_previous_dialogue(previous_dialogue)}
-
-Write {character_name}'s next line of dialogue. Match their unique voice and speech patterns from the examples.
+Write {name}'s next line of dialogue. Match the cadence, diction and syntax of their voice samples.
 
 Important:
 - Stay in character
-- Match the emotional tone: {emotional_state}
 - Be natural and conversational
 - Keep it concise (1-3 sentences)
 - Do NOT include character name or quotes, just the dialogue
 
-{character_name} says:"""
+{name} says:"""
 
-    client = get_llm_client()
-    result = await client.generate(
-        [{"role": "user", "content": prompt}],
+    result = await get_llm_client().generate(
+        [{"role": "user", "content": body}],
         temperature=0.9,
         max_tokens=400,
         user_id=user_id,
         purpose="dialogue",
     )
     dialogue = result.text.strip('"').strip("'")
-
-    action = await _generate_action(
-        character_name, scene_context, dialogue, emotional_state, user_id
-    )
-    confidence = await _voice_consistency(dialogue, [ex["text"] for ex in similar])
-
-    response = {
-        "character": character_name,
+    return {
+        "character": name,
         "dialogue": dialogue,
-        "action": action,
-        "confidence_score": confidence,
-        "retrieved_examples": [ex["text"][:100] for ex in similar[:3]],
-        # The samples that actually reached the prompt, whole and scored, so the
-        # voice workbench can show what grounded this line (R5.3).
-        "grounding": [
-            {
-                "chunk_id": ex.get("id"),
-                "score": ex.get("score"),
-                "chunk_type": ex.get("chunk_type"),
-                "text": ex["text"],
-            }
-            for ex in similar[:3]
-        ],
+        "action": await _generate_action(name, block, dialogue, user_id),
+        "confidence_score": await _voice_consistency(
+            dialogue, [s["text"] for s in words]
+        ),
+        # Recorded like a scene's (R5.3), so the workbench shows what grounded it.
+        "grounding": grounding_entries(character, [*words, *movement]),
     }
-    if settings.CACHE_DIALOGUE:
-        _dialogue_cache[cache_key] = response
-    return response
 
 
 async def _generate_action(
-    character_name: str,
-    scene_context: dict,
-    dialogue: str,
-    emotional_state: str,
-    user_id: Optional[UUID],
+    character_name: str, block: str, dialogue: str, user_id: Optional[UUID]
 ) -> str:
-    """Generate a brief accompanying action (fast model)."""
+    """A brief accompanying action (fast model), from the same character block."""
     try:
-        prompt = f"""Given this dialogue by {character_name}: "{dialogue}"
-Emotional state: {emotional_state}
-Scene: {scene_context.get('description', '')}
+        prompt = f"""{STORY_MATERIAL_NOTICE}
+
+{block}
+
+Given this dialogue by {character_name}: "{dialogue}"
 
 Write a brief action or body language for {character_name} (1 short sentence).
 Do NOT include the character's name in the action.
@@ -176,30 +125,3 @@ async def _voice_consistency(generated: str, examples: list[str]) -> float:
             extra_fields={"event": "voice_consistency_failed"},
         )
         return 0.5
-
-
-def _format_previous_dialogue(dialogue_list: list[dict]) -> str:
-    if not dialogue_list:
-        return "This is the start of the scene."
-    return "\n".join(
-        f"{turn.get('character', 'Unknown')}: \"{turn.get('dialogue', '')}\""
-        for turn in dialogue_list[-5:]
-    )
-
-
-def _cache_key(
-    character_id: str,
-    beat_description: str,
-    emotional_state: str,
-    previous_dialogue: list[dict],
-) -> str:
-    payload = json.dumps(
-        [character_id, beat_description, emotional_state, previous_dialogue],
-        sort_keys=True,
-    )
-    return hashlib.sha256(payload.encode()).hexdigest()
-
-
-def clear_dialogue_cache() -> None:
-    """Test hook."""
-    _dialogue_cache.clear()
