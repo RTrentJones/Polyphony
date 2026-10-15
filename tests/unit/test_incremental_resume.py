@@ -478,6 +478,44 @@ async def test_handler_recomputes_derived_inputs_from_the_db(
     assert tail.endswith("ends here")
 
 
+async def test_prior_scene_tail_keeps_paragraph_breaks(
+    async_session, test_user, test_book, monkeypatch
+):
+    """The tail handed to the next scene is prose, not a wall of words: its
+    paragraph breaks survive and it opens on a sentence (SPEC-18)."""
+    from app.jobs.handlers import _scene_inputs
+    from app.orchestration.prose import PREV_TAIL_WORDS, _canon_hash
+
+    import app.jobs.handlers as handlers_mod
+
+    monkeypatch.setattr(handlers_mod, "get_async_session", lambda: _Ctx(async_session))
+    ch = Chapter(book_id=test_book.id, title="One", position=0, summary="s")
+    async_session.add(ch)
+    await async_session.flush()
+    paragraph = " ".join(f"Milo counted form {i} twice over." for i in range(40))
+    content = "\n\n".join([paragraph] * 4 + ["She left.\n\nThe lights hummed on."])
+    prev = Scene(
+        user_id=test_user.id,
+        chapter_id=ch.id,
+        position=0,
+        status="completed",
+        content=content,
+    )
+    scene = Scene(
+        user_id=test_user.id, chapter_id=ch.id, position=1, status="processing"
+    )
+    async_session.add_all([prev, scene])
+    await async_session.commit()
+
+    _, tail = await _scene_inputs(scene.id, {})
+    assert tail.endswith("She left.\n\nThe lights hummed on.")
+    assert "\n\n" in tail
+    assert tail.startswith("Milo counted form ")  # a sentence, not a fragment
+    # A checkpoint fingerprinted with the old flat tail still matches.
+    legacy = " ".join(content.split()[-PREV_TAIL_WORDS:])
+    assert _canon_hash("c", "s", tail) == _canon_hash("c", "s", legacy)
+
+
 async def test_editing_the_previous_scene_during_pause_restarts(
     async_session, test_user, test_book, monkeypatch
 ):

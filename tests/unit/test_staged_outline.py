@@ -195,6 +195,105 @@ class TestStagedOrchestration:
         assert warnings == []  # repair recovered the cast
 
 
+class TestBeatsStageSeesThePlan:
+    """SPEC-18 (B11): the beats stage gets the premise, the central conflict
+    and its act's goal and turn; acts are numbered from 1; embedded structures
+    are JSON."""
+
+    _SKELETON = (
+        '{"premise_restated":"Milo Voss, a dead accountant, organises the '
+        "afterlife's clerks against the Chief Executive Lich.\","
+        '"central_conflict":"Milo\'s union against Edric Thane\'s quotas",'
+        '"acts":[{"title":"Onboarding","goal":"Milo learns the rules",'
+        '"turn":"Milo refuses a soul-quota"},'
+        '{"title":"The Strike","goal":"the clerks walk out",'
+        '"turn":"Edric concedes the ledger"}]}'
+    )
+    _CHAPTERS = (
+        '[{"title":"Ch1","summary":"Milo Voss signs on","act_index":0,'
+        '"pov":"Milo Voss","characters":["Milo Voss","Zara Okafor"],"threads":[]},'
+        '{"title":"Ch2","summary":"Edric Thane yields","act_index":1,'
+        '"pov":"Zara Okafor","characters":["Edric Thane","Zara Okafor"],"threads":[]}]'
+    )
+    _BEATS = [
+        '[{"title":"Ch1","summary":"Milo Voss and Zara Okafor",'
+        '"children":[{"title":"b","summary":"x","children":[]}]}]',
+        '[{"title":"Ch2","summary":"Edric Thane gives way",'
+        '"children":[{"title":"b","summary":"x","children":[]}]}]',
+    ]
+
+    async def _run(self, monkeypatch, **kw):
+        fake = FakeLLM(
+            {
+                "outline:skeleton": self._SKELETON,
+                "outline:chapters": self._CHAPTERS,
+                "outline:beats": list(self._BEATS),
+            }
+        )
+        monkeypatch.setattr(so, "get_llm_client", lambda: fake)
+        await so.generate_staged_outline(
+            TestStagedOrchestration()._canon(), chapters_target=2, **kw
+        )
+        return fake
+
+    async def test_beats_prompt_carries_premise_conflict_and_act_plan(
+        self, monkeypatch
+    ):
+        fake = await self._run(monkeypatch)
+        act1, act2 = fake.prompts["outline:beats"]
+        for prompt in (act1, act2):
+            assert "organises the afterlife's clerks" in prompt
+            assert "Milo's union against Edric Thane's quotas" in prompt
+            assert "authoritative" not in prompt  # not confirmed by the author
+        assert "This is act 1 of 2: Onboarding" in act1
+        assert "Act 1 goal: Milo learns the rules" in act1
+        assert "Milo refuses a soul-quota" in act1
+        assert "This is act 2 of 2: The Strike" in act2
+        assert "Edric concedes the ledger" in act2
+        assert "Edric concedes" not in act1  # each act sees its own turn
+        # stub markers (evals/stub_llm.py) survive
+        assert "scene beats" in act1 and "mirroring the chapters" in act1
+
+    async def test_acts_are_numbered_from_one(self, monkeypatch):
+        fake = await self._run(monkeypatch)
+        act1, act2 = fake.prompts["outline:beats"]
+        assert "chapters of act 1, in order" in act1
+        assert "chapters of act 2, in order" in act2
+        for prompt in fake.prompts["outline:beats"]:
+            assert "act 0" not in prompt.lower()
+        chapters = fake.prompts["outline:chapters"][0]
+        assert '"act": 1' in chapters and '"act_index": 0' in chapters
+
+    async def test_confirmed_premise_is_authoritative_in_the_beats_stage(
+        self, monkeypatch
+    ):
+        import json
+
+        skeleton = json.loads(self._SKELETON)
+        skeleton["premise_restated"] = "The author's own rewritten premise."
+        skeleton["confirmed"] = True
+        fake = await self._run(monkeypatch, skeleton=skeleton)
+        assert "outline:skeleton" not in fake.calls
+        for prompt in fake.prompts["outline:beats"]:
+            assert (
+                "Premise (confirmed by the author: treat it as authoritative): "
+                "The author's own rewritten premise." in prompt
+            )
+
+    async def test_no_python_repr_in_any_staged_prompt(self, monkeypatch):
+        fake = await self._run(monkeypatch)
+        prompts = [p for ps in fake.prompts.values() for p in ps]
+        assert len(prompts) == 4  # skeleton, chapters, two acts of beats
+        for prompt in prompts:
+            assert "{'" not in prompt and "['" not in prompt
+        # the chapters reach the beats stage as parseable JSON
+        act1 = fake.prompts["outline:beats"][0]
+        body = act1.split("chapters of act 1, in order:\n")[1].split("\n\nFor EACH")[0]
+        import json
+
+        assert json.loads(body)[0]["title"] == "Ch1"
+
+
 class TestGenerateEndpointEnqueues:
     async def test_outline_enqueues_staged_job(
         self, client, auth_headers, async_session, test_book

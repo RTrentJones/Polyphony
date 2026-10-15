@@ -308,3 +308,85 @@ def test_no_string_slices_of_author_content_in_scene_paths():
             if "hexdigest()" in line:  # a hash prefix, not author content
                 continue
             assert not re.search(r"\[:\s*\d+\s*\]", line), f"{path}: {line}"
+
+
+class _BeatScriptLLM:
+    """Plan text for plan_beats; a scripted reply per beat_prose call."""
+
+    def __init__(self, plan_text, beat_texts):
+        self.plan_text = plan_text
+        self.beat_texts = list(beat_texts)
+        self.prompts: dict[str, list[str]] = {}
+
+    async def generate(self, messages, *, purpose, **kw):
+        self.prompts.setdefault(purpose, []).append(messages[0]["content"])
+        text = self.plan_text if purpose == "plan_beats" else self.beat_texts.pop(0)
+        return types.SimpleNamespace(text=text, tokens_in=1, tokens_out=1)
+
+
+async def test_workflow_sends_the_plan_paragraphs_and_the_authors_style(
+    async_session, cel_book, monkeypatch
+):
+    """SPEC-18 end to end through the prose workflow: every beat sees the
+    scene's whole plan with itself marked, the prose so far keeps its
+    paragraph breaks, sample prose leads the style guidance, and a seam
+    repeat is trimmed before it reaches the author."""
+    from sqlalchemy import select
+
+    from app.core.orm_models import SceneBeat
+
+    style = (
+        await async_session.execute(
+            select(StyleGuide).where(StyleGuide.book_id == cel_book.book.id)
+        )
+    ).scalar_one()
+    style.sample_prose = '"Sit," Edric said. Milo sat. Nobody had ever not sat.'
+    await async_session.commit()
+
+    plan = json.dumps(
+        [
+            {"description": "Milo arrives.", "characters": ["Milo Voss"]},
+            {"description": "Zara hands him a form.", "characters": ["Zara Okafor"]},
+            {"description": "He signs.", "characters": ["Milo Voss"]},
+        ]
+    )
+    fake = _BeatScriptLLM(
+        plan,
+        [
+            "Milo came in from the rain.\n\nThe lobby smelled of old paper and ink.",
+            # opens by restating the last sentence of beat 1
+            "The lobby smelled of old paper and ink. Zara slid a form across.",
+            "He signed it without reading a word of it.",
+        ],
+    )
+    ids = [str(cel_book.milo.id), str(cel_book.zara.id)]
+    result, scene = await _run(async_session, cel_book, fake, monkeypatch, ids)
+    assert result["status"] == "completed", result
+
+    first, second, third = fake.prompts["beat_prose"]
+    assert "→ 1. Milo arrives." in first
+    assert "Write ONLY beat 1. Stop where beat 2 begins" in first
+    assert "→ 2. Zara hands him a form." in second and "1. Milo arrives." in second
+    assert "end the scene here" in third
+    # the prior beat's paragraph break survives into <prior>
+    assert "Milo came in from the rain.\n\nThe lobby smelled" in second
+    # the author's sample prose is the primary reference; no house style
+    for prompt in (first, second, third):
+        assert "Match this sample's voice and rhythm" in prompt
+        assert "PUNCTUATES" not in prompt
+        assert prompt.index("<sample_prose>") < prompt.index("Write approximately")
+
+    beats = (
+        (
+            await async_session.execute(
+                select(SceneBeat)
+                .where(SceneBeat.scene_id == scene.id)
+                .order_by(SceneBeat.beat_number)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert beats[1].content == "Zara slid a form across."  # seam repeat trimmed
+    await async_session.refresh(scene)
+    assert scene.content.count("The lobby smelled of old paper and ink.") == 1
