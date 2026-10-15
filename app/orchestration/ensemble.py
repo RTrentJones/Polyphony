@@ -431,9 +431,10 @@ async def run_ensemble_scene_workflow(
     from app.llm.errors import QuotaExhaustedError
     from app.orchestration.prose import (
         CANON_CHANGED_NOTE,
-        PREV_TAIL_WORDS,
         _canon_hash,
         plan_scene_beats,
+        prose_tail,
+        trim_seam_repeat,
     )
     from app.planning.canon import build_canon
 
@@ -479,7 +480,7 @@ async def run_ensemble_scene_workflow(
         grounding: dict[str, list] = dict(checkpoint.get("grounding") or {})
         prior_tail = prior_scene_tail
         if prose_parts:
-            prior_tail = " ".join("\n\n".join(prose_parts).split()[-PREV_TAIL_WORDS:])
+            prior_tail = prose_tail("\n\n".join(prose_parts))
 
         for idx in range(len(prose_parts), len(beats)):
             beat = beats[idx]
@@ -499,11 +500,10 @@ async def run_ensemble_scene_workflow(
                 save_state=_save_beat,
                 chapter_summary=chapter_summary,
             )
-            prose_parts.append(result["prose"])
+            prose_parts.append(trim_seam_repeat(result["prose"], prior_tail))
             evaluations.append(result["evaluation"])
             grounding[str(idx)] = result.get("grounding") or []
-            joined = "\n\n".join(prose_parts)
-            prior_tail = " ".join(joined.split()[-PREV_TAIL_WORDS:])
+            prior_tail = prose_tail("\n\n".join(prose_parts))
             checkpoint.update(
                 prose=prose_parts,
                 evaluations=evaluations,

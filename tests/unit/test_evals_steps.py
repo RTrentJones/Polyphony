@@ -9,6 +9,7 @@ the weekly live run:
     them without a book_id.
 """
 
+import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -170,3 +171,385 @@ async def test_client_sends_book_id_in_the_create_body():
     body = c._http.post.await_args.kwargs["json"]
     assert body == {"name": "Nora", "book_id": "book-9", "role": "supporting"}
     await c.aclose()
+
+
+# --- Eval harness v2 (SPEC-22): the cel canon, the product path, the rubrics ---
+
+_RUBRIC_SCORES = {"R1": 1.0, "R2": 0.8, "R3": 0.6, "R4": 0.9, "R5": 0.7, "R6": 0.5}
+
+
+class _RubricJudge:
+    """Scores each rubric at a fixed value and keeps what it was shown."""
+
+    def __init__(self):
+        self.seen: list[tuple[str, str]] = []
+
+    async def score(self, rubric, content):
+        from types import SimpleNamespace
+
+        rid = rubric.split(".")[0].replace("### ", "")
+        self.seen.append((rid, content))
+        return SimpleNamespace(score=_RUBRIC_SCORES[rid], explanation=f"{rid} ok")
+
+
+BEAT_A = "Milo initialled the form. Zara did not look up from her screen at all."
+BEAT_B_COPY = "Zara did not look up from her screen at all. The queue doubled by noon."
+BEAT_B_CLEAN = '"Read it," Zara said. "Then thank no one." Milo read it.'
+SCENE_1 = f"{BEAT_A}\n\n{BEAT_B_COPY}"
+SCENE_2 = (
+    '"Is that normal?" Milo asked. "Zara, is it?"\n\n'
+    '"No," said Zara Okafor. "Bring nothing."'
+)
+
+
+class _ProductClient:
+    """The API surface the v2 prose/outline steps drive, answering like the
+    app: ids are per book, promote returns chapters, generate-planned returns
+    the chapter's scenes."""
+
+    def __init__(self, *, two_principal_chapter=True, outline_nodes=None):
+        self.n = 0
+        self.chars: dict[str, dict] = {}
+        self.ids: dict[str, dict[str, str]] = {}
+        self.style: dict[str, dict] = {}
+        self.calls: list[tuple] = []
+        self.two = two_principal_chapter
+        self.outline_nodes = outline_nodes
+
+    async def create_book(self, title, synopsis, genre=""):
+        self.n += 1
+        bid = f"book-{self.n}"
+        self.ids[bid] = {}
+        self.calls.append(("create_book", bid, title))
+        return {"id": bid, "title": title, "synopsis": synopsis}
+
+    async def create_character(self, name, book_id, **fields):
+        cid = f"{book_id}:{name}"
+        self.ids[book_id][name] = cid
+        self.chars[cid] = {"id": cid, "name": name, "book_id": book_id, **fields}
+        return {"id": cid}
+
+    async def set_style(self, book_id, style):
+        self.style[book_id] = {k: v for k, v in style.items() if k[0] != "_"}
+
+    async def get_book(self, book_id):
+        return {"id": book_id, "title": "Bored to Undeath", "synopsis": "s"}
+
+    async def list_characters(self, book_id):
+        return [{"id": c, "name": n} for n, c in self.ids[book_id].items()]
+
+    async def get_character(self, cid):
+        return {**self.chars[cid], "voice_stats": {"total_chunks": 4}}
+
+    async def get_canon(self, book_id):
+        return {"entries": [], "style": self.style.get(book_id)}
+
+    async def upload_source(self, filename, content, title, book_id=None):
+        self.calls.append(("upload", book_id, content.decode()[:40]))
+        return {"id": "src-v", "book_id": book_id, "extraction_run_id": "run-v"}
+
+    async def wait_extraction(self, book_id, run_id, timeout=600):
+        return {"status": "ready", "proposals": {"characters": [{"name": "Prava"}]}}
+
+    async def commit_extraction(self, book_id, run_id, proposals, synopsis=False):
+        self.calls.append(("commit", book_id, proposals))
+
+    async def wait_voice_indexed(self, source_id, timeout=300):
+        book = self.calls[-1][1]
+        return [{"id": c, "name": n} for n, c in self.ids[book].items()]
+
+    async def generate_outline(self, book_id, chapters_target=8, *, premise=None):
+        self.calls.append(("outline", book_id, premise))
+        ids = self.ids[book_id]
+        nodes = self.outline_nodes or [
+            {
+                "title": "Milo is retained",
+                "summary": "Milo Voss joins Reconciliations.",
+                "character_ids": [ids["Milo Voss"]],
+                "children": [{"title": "Intake", "summary": "Prava onboards him."}],
+            },
+            {
+                "title": "The Lich",
+                "summary": "Zara Okafor and Milo meet Edric Thane.",
+                "character_ids": [ids["Milo Voss"], ids["Zara Okafor"]],
+                "children": [],
+            },
+        ]
+        return {"content": nodes, "status": "ready", "premise": {"acts": []}}
+
+    async def put_outline(self, book_id, content):
+        self.calls.append(("put_outline", book_id, content))
+
+    async def promote_all(self, book_id):
+        self.calls.append(("promote", book_id))
+        self.book = book_id
+        return {
+            "chapters": [
+                {"chapter_id": "ch-2", "position": 1},
+                {"chapter_id": "ch-1", "position": 0},
+            ]
+        }
+
+    async def get_chapter(self, chapter_id):
+        ids = self.ids[self.book]
+        cast = [ids["Milo Voss"]]
+        if chapter_id == "ch-2" and self.two:
+            cast.append(ids["Zara Okafor"])
+        return {"title": f"title {chapter_id}", "summary": "s", "character_ids": cast}
+
+    async def generate_planned(self, chapter_id, body=None):
+        self.calls.append(("generate_planned", chapter_id))
+        return {"total": 2, "scenes": [{"id": "s1"}, {"id": "s2"}]}
+
+    async def create_chapter(self, book_id, title, summary=""):
+        return {"id": "ch-fallback"}
+
+    async def generate_scene(self, chapter_id, body):
+        self.calls.append(("generate_scene", chapter_id, body))
+        return {"id": "s2", "status": "completed"}
+
+    async def get_scene(self, sid):
+        return {
+            "status": "completed",
+            "content": SCENE_1 if sid == "s1" else SCENE_2,
+            "characters": ["Milo Voss", "Zara Okafor"],
+            "scene_request": {"scene_description": f"brief {sid}"},
+        }
+
+    async def scene_beats(self, sid, database_url=None):
+        second = BEAT_B_COPY if sid == "s1" else BEAT_B_CLEAN
+        return (
+            [
+                {"beat_number": 0, "description": "Milo signs", "content": BEAT_A},
+                {"beat_number": 1, "description": "Zara warns", "content": second},
+            ],
+            "db",
+        )
+
+
+def _cel_ctx(tmp_path, client, judge=None):
+    text, gt = pipeline.load_corpus("cel")
+    return StepContext(
+        book="cel",
+        corpus_text=text,
+        ground_truth=gt,
+        cache=Cache(str(tmp_path), "sha"),
+        judge=judge or _RubricJudge(),
+        client=client,
+    )
+
+
+def test_cel_cast_is_the_real_canon():
+    _, gt = pipeline.load_corpus("cel")
+    cast = {c["name"]: c for c in pipeline._cast_with_roles(gt)}
+    assert cast["Milo Voss"]["role"] == "protagonist"
+    assert "deuteragonist" in cast["Zara Okafor"]["role"]
+    assert cast["Edric Thane"]["role"] == "antagonist"
+    assert "the CEL" in cast["Edric Thane"]["aliases"]
+    for c in cast.values():
+        assert "from the corpus" not in c["description"]
+        assert c["goals"] and c["voice_characteristics"]["voice"]
+
+
+def test_corpora_without_entries_keep_the_placeholder_cast():
+    gt = {"cast": ["Nora", "Elias"], "fidelity": {"principals": [{"name": "Nora"}]}}
+    cast = pipeline._cast_with_roles(gt)
+    assert cast[0] == {
+        "name": "Nora",
+        "role": "protagonist",
+        "description": "Nora, from the corpus.",
+    }
+    assert cast[1]["role"] == "supporting"
+
+
+def test_cel_excerpt_carries_speaker_labelled_voice():
+    _, gt = pipeline.load_corpus("cel")
+    excerpt = pipeline.load_excerpts("cel")
+    assert 4000 <= len(excerpt) <= 6500
+    gold = gt["gold_lines"]
+    assert set(gold) == {"Milo Voss", "Zara Okafor", "Edric Thane"}
+    for name, v in gold.items():
+        lines = v["train"] + v["test"]
+        assert len(lines) >= 6, name
+        assert v["test"], name
+        for line in lines:
+            assert line in excerpt, (name, line)
+    for lines in gt["other_lines"].values():
+        assert all(line in excerpt for line in lines)
+    style = pipeline.load_style("cel")
+    assert style["tense"] == "past" and "Milo" in style["pov"]
+    assert style["sample_prose"].count("\n\n") >= 1
+
+
+def test_cel_plants_five_contradictions_in_the_excerpt():
+    from evals.graders import continuity
+
+    _, gt = pipeline.load_corpus("cel")
+    assert gt["continuity_source"] == "excerpts"
+    excerpt = pipeline.load_excerpts("cel")
+    injected, expected = continuity.apply_injections(
+        excerpt, gt["continuity_injections"]
+    )
+    assert len(expected) == 5 and injected != excerpt
+    # Each planted error leaves the original fact standing elsewhere.
+    for inj in gt["continuity_injections"]:
+        assert inj["replace"] in injected
+        if inj["id"] not in ("dead-speaks", "timeline-inversion"):
+            assert inj["locate"] in injected, inj["id"]
+
+
+async def test_continuity_runs_on_the_excerpt_for_cel(tmp_path):
+    seen = []
+
+    class Client:
+        async def create_book(self, title, synopsis, genre=""):
+            return {"id": title}
+
+        async def create_chapter(self, book_id, title, summary=""):
+            return {"id": book_id}
+
+        async def create_scene(self, chapter_id, content="", characters=None):
+            seen.append(content)
+
+        async def run_continuity(self, book_id, chapter_id=None):
+            if "injected" in book_id:
+                return [
+                    {"detail": "Edwin Thane vs Edric Thane", "refs": '"Edwin Thane"'}
+                ]
+            return []
+
+    out = await pipeline.step_continuity(_cel_ctx(tmp_path, Client()))
+    assert out["n_injected"] == 5 and out["detected"] == ["broken-alias"]
+    assert out["precision"] == 1.0 and out["quote_verbatim"] == 1.0
+    assert "Halvard Bell" in seen[0] and "BORED TO UNDEATH" not in seen[0]
+
+
+def test_strip_tags_leaves_only_spoken_lines_with_names_masked():
+    text = (
+        'Zara set down her pen. "Read it, Milo," said Zara Okafor.\n\n'
+        "“Is that normal?” Milo asked."
+    )
+    assert pipeline.strip_tags(text, ["Milo Voss", "Milo", "Zara Okafor", "Zara"]) == [
+        "Read it, [name],",
+        "Is that normal?",
+    ]
+
+
+async def test_prose_writes_the_planned_scenes_of_a_two_principal_chapter(tmp_path):
+    client = _ProductClient()
+    judge = _RubricJudge()
+    out = await pipeline.step_prose(_cel_ctx(tmp_path, client, judge))
+
+    assert out["path"] == "planned"
+    # ch-1 casts only Milo; ch-2 (Milo + Zara) is the one written, in order.
+    assert ("generate_planned", "ch-2") in client.calls
+    assert not any(c[0] == "generate_scene" for c in client.calls)
+    # The voice excerpt went into the prose book, and the commit approved the
+    # canon cast by name only (curated entries are not overwritten).
+    upload = next(c for c in client.calls if c[0] == "upload")
+    commit = next(c for c in client.calls if c[0] == "commit")
+    assert upload[1] == commit[1] and upload[2].startswith("Milo Voss opened")
+    assert all(set(c) == {"name"} for c in commit[2]["characters"])
+    assert out["voice"]["chunks"]["Zara Okafor"] == 4
+
+    s1, s2 = out["scenes"]
+    # Scene 1 repeats a sentence across its beat seam: R4 is capped at 0.
+    assert s1["beat_seam_max_overlap"] >= 1
+    assert s1["rubrics"]["R4"]["score"] == 0.0 and "R4" in s1["deterministic_failures"]
+    assert s1["score"] == pytest.approx(1.0 * (0.8 + 0.6 + 0.0 + 0.7) / 4)
+    assert s2["beat_seam_max_overlap"] == 0 and s2["deterministic_failures"] == {}
+    assert s2["score"] == pytest.approx(1.0 * (0.8 + 0.6 + 0.9 + 0.7) / 4)
+    assert out["score"] == pytest.approx((s1["score"] + s2["score"]) / 2, abs=1e-4)
+    assert out["cast_named"] == 1.0 and out["words"] > 0
+
+    shown = dict(judge.seen[-5:])
+    # The judge sees the canon, the style guide's sample prose and the beats...
+    assert "Milo initialled the form in the box marked INITIAL HERE" in shown["R3"]
+    assert "PLANNED BEATS (in order):\n1. Milo signs\n2. Zara warns" in shown["R3"]
+    assert "Chief Executive Lich" in shown["R1"]
+    # ...and for R2, only the untagged lines plus each speaker's own samples.
+    assert "said Zara" not in shown["R2"] and "1. Is that normal?" in shown["R2"]
+    assert "2. [name], is it?" in shown["R2"]
+    assert "Bring nothing. Sign nothing." in shown["R2"]
+
+
+def test_r1_requires_the_principals_the_scene_plan_names():
+    _, gt = pipeline.load_corpus("cel")
+    forms = pipeline._forms(gt)
+    scene = {
+        "content": "Milo signed. Zara watched him sign.",
+        "characters": ["Milo Voss", "Zara Okafor", "Edric Thane"],
+        "description": "Zara trains Milo",
+        "beats": [{"description": "Milo signs", "content": "Milo signed."}],
+    }
+    # Edric is in the chapter's cast but not in this scene's plan.
+    checks = pipeline._grade_scene_checks(scene, "", forms)
+    assert "R1" not in checks["caps"] and checks["cast_recall"] == pytest.approx(
+        2 / 3, abs=1e-3
+    )
+    # The plan says the Lich is there; the prose never shows him.
+    scene["beats"].append({"description": "The Lich summons Milo", "content": ""})
+    checks = pipeline._grade_scene_checks(scene, "", forms)
+    assert "Edric Thane" in checks["caps"]["R1"]
+    # A cast with nobody on the page fails whatever the plan says.
+    empty = {**scene, "content": "The office was cold.", "beats": []}
+    empty["description"] = "the office"
+    assert pipeline._grade_scene_checks(empty, "", forms)["caps"]["R1"]
+
+
+async def test_prose_falls_back_to_canonical_beat_two(tmp_path):
+    client = _ProductClient(two_principal_chapter=False)
+    out = await pipeline.step_prose(_cel_ctx(tmp_path, client))
+    assert out["path"] == "fallback" and "two principals" in out["fallback_reason"]
+    (call,) = [c for c in client.calls if c[0] == "generate_scene"]
+    _, gt = pipeline.load_corpus("cel")
+    body = call[2]
+    assert body["scene_description"] == gt["canonical_beats"][1]["title"]
+    assert body["setting"] == "Reconciliations floor, Aeon Holdings, Marrow District"
+    assert "fog" not in json.dumps(body)
+
+
+async def test_prose_reuses_the_memoised_outline_in_its_own_book(tmp_path):
+    client = _ProductClient()
+    ctx = _cel_ctx(tmp_path, client)
+    await pipeline.step_outline(ctx)
+    await pipeline.step_prose(ctx)
+    assert sum(1 for c in client.calls if c[0] == "outline") == 1
+    (put,) = [c for c in client.calls if c[0] == "put_outline"]
+    prose_book = next(c[1] for c in client.calls if c[0] == "promote")
+    assert put[1] == prose_book
+    # The stored outline names its cast (the outline book's ids would 400).
+    assert put[2][1]["characters"] == ["Milo Voss", "Zara Okafor"]
+    assert "character_ids" not in put[2][1]
+
+
+async def test_outline_confirms_the_authors_premise_and_caps_r1(tmp_path):
+    client = _ProductClient(
+        outline_nodes=[
+            {
+                "title": "Elara arrives",
+                "summary": "Elara meets Milo Voss, Zara Okafor and Prava.",
+                "children": [],
+            }
+        ]
+    )
+    judge = _RubricJudge()
+    out = await pipeline.step_outline(_cel_ctx(tmp_path, client, judge))
+    (outline_call,) = [c for c in client.calls if c[0] == "outline"]
+    _, gt = pipeline.load_corpus("cel")
+    assert outline_call[2] == gt["premise_edit"]
+    assert out["premise_edited"] is True
+    # Edric Thane is missing: R1 is capped at 0 whatever the judge said.
+    assert out["missing_principals"] == ["Edric Thane"]
+    assert out["rubrics"]["R1"]["score"] == 0.0 and out["score"] == 0.0
+    # Prava is in the synopsis; Elara is invented.
+    assert out["unknown_canon"] == ["Elara"]
+    assert [rid for rid, _ in judge.seen] == ["R1", "R6", "R3"]
+    assert gt["premise_edit"]["premise_restated"] in judge.seen[0][1]
+    assert "premise_restated" not in judge.seen[0][1]
+
+
+async def test_outline_score_is_r1_times_mean_r6_r3(tmp_path):
+    out = await pipeline.step_outline(_cel_ctx(tmp_path, _ProductClient()))
+    assert out["cast_fidelity"] == 1.0 and out["deterministic_failures"] == {}
+    assert out["score"] == pytest.approx(1.0 * (0.5 + 0.6) / 2)

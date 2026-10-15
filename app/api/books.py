@@ -199,6 +199,20 @@ async def owned_scene(scene_id: UUID, user: UserORM, db: AsyncSession, *options)
     return scene
 
 
+async def lock_scene(db: AsyncSession, scene: SceneORM) -> SceneORM:
+    """Row-lock an owned scene and re-read it, so a write that checks the draft
+    (accepting a revision) and one that snapshots it (a manual save) cannot
+    both read the same draft and overwrite each other."""
+    return (
+        await db.execute(
+            select(SceneORM)
+            .where(SceneORM.id == scene.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+
+
 def _chapter_dict(c: ChapterORM) -> dict:
     return {
         "id": str(c.id),
@@ -1076,9 +1090,10 @@ async def update_scene_content(
     db: AsyncSession = Depends(get_db),
 ):
     """Save an edit to the draft prose, snapshotting the previous state."""
-    scene = await owned_scene(scene_id, current_user, db)
+    scene = await lock_scene(db, await owned_scene(scene_id, current_user, db))
 
-    previous = scene_text(scene)
+    # Raw, as the editor saved it: history restores it byte for byte.
+    previous = scene.content or scene.generated_content or ""
     if previous:
         db.add(
             SceneRevisionORM(
@@ -1119,6 +1134,9 @@ async def list_scene_revisions(
                 "content": r.content,
             }
             for r in scene.revisions
+            # AI proposals (SPEC-19) live behind /proposals with their own
+            # status and stale-draft checks; they are not restorable history.
+            if r.source != "ai_revise"
         ],
     }
 
@@ -1164,18 +1182,35 @@ async def export_book(
     book_id: UUID,
     format: str = "md",
     include_synopsis: bool = False,
+    skip_empty: bool = True,
+    from_chapter: Optional[int] = Query(None, ge=1),
+    to_chapter: Optional[int] = Query(None, ge=1),
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Export the book's current draft state as md | docx | epub.
 
     The synopsis is the author's storyboard, not manuscript prose, so it is left
-    out unless `include_synopsis=true`.
+    out unless `include_synopsis=true`. Chapters without prose are left out
+    unless `skip_empty=false`. `from_chapter`/`to_chapter` pick an inclusive,
+    1-based range of book positions; headings keep the book's numbering, so a
+    range starting at 3 opens on "Chapter 3" (SPEC-21).
     """
+    from app.exports.builder import select_chapters
+
     if format not in CONTENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unknown format '{format}' (md | docx | epub)",
+        )
+    if (
+        from_chapter is not None
+        and to_chapter is not None
+        and from_chapter > to_chapter
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="from_chapter must not be after to_chapter",
         )
     book = await _owned_book(book_id, current_user, db)
     chapters = (
@@ -1195,18 +1230,23 @@ async def export_book(
         title=book.title,
         author=book.author or "",
         synopsis=(book.synopsis or "") if include_synopsis else "",
-        chapters=[
-            ChapterExport(
-                title=c.title,
-                summary=c.summary or "",
-                scenes=[
-                    SceneExport(title=s.title or "", content=scene_text(s))
-                    for s in sorted(c.scenes, key=lambda s: s.position)
-                    if scene_text(s) and s.deleted_at is None
-                ],
-            )
-            for c in chapters
-        ],
+        chapters=select_chapters(
+            [
+                ChapterExport(
+                    title=c.title,
+                    summary=c.summary or "",
+                    scenes=[
+                        SceneExport(title=s.title or "", content=scene_text(s))
+                        for s in sorted(c.scenes, key=lambda s: s.position)
+                        if scene_text(s) and s.deleted_at is None
+                    ],
+                )
+                for c in chapters
+            ],
+            skip_empty=skip_empty,
+            from_chapter=from_chapter,
+            to_chapter=to_chapter,
+        ),
     )
 
     filename_stem = (

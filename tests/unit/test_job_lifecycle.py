@@ -116,6 +116,7 @@ DOMAIN = {
     "extract_canon": _run,
     "continuity_check": _report,
     "index_characters_voice": _none,
+    "revise_scene": _none,
 }
 
 

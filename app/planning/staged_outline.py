@@ -34,6 +34,7 @@ would be worse than paying twice.
 
 from __future__ import annotations
 
+import json
 from typing import Awaitable, Callable, Optional
 from uuid import UUID
 
@@ -42,7 +43,7 @@ from app.core.logging_config import setup_logging
 from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_array, extract_json_object
 from app.planning.canon import Canon
-from app.planning.fidelity import FidelityAudit, audit_outline
+from app.planning.fidelity import FidelityAudit, audit_outline, canon_known_text
 from app.planning.outline import CastIndex, validate_outline_nodes
 
 logger = setup_logging("planning.staged_outline")
@@ -84,6 +85,57 @@ JSON:"""
     return extract_json_object(result.text)
 
 
+def _json(value) -> str:
+    """Structures embedded in a prompt are JSON — the format the model is asked
+    to answer in — never a Python repr (`[{'title': ...}]`) (SPEC-18, B11)."""
+    return json.dumps(value, ensure_ascii=False, indent=1)
+
+
+def _premise_lines(skeleton: dict) -> str:
+    """The premise and central conflict, with the author's confirmation said
+    out loud: a premise the author confirmed (or rewrote) is the ground truth
+    for the rest of the outline (SPEC-10), at every stage that follows."""
+    confirmed = (
+        " (confirmed by the author: treat it as authoritative)"
+        if skeleton.get("confirmed")
+        else ""
+    )
+    return (
+        f"Premise{confirmed}: {skeleton.get('premise_restated', '')}\n"
+        f"Central conflict: {skeleton.get('central_conflict', '')}"
+    )
+
+
+def _acts_for_prompt(skeleton: dict) -> list:
+    """The skeleton's acts, each labelled with its 1-based number and the
+    0-based `act_index` the chapters must carry."""
+    acts = skeleton.get("acts") or []
+    if not isinstance(acts, list):
+        return []
+    return [
+        {"act": i + 1, "act_index": i, **(a if isinstance(a, dict) else {"title": a})}
+        for i, a in enumerate(acts)
+    ]
+
+
+def _act_brief(skeleton: Optional[dict], act_index: int) -> str:
+    """This act's title, goal and turn, numbered from 1 (SPEC-18, B11)."""
+    acts = (skeleton or {}).get("acts") or []
+    number = act_index + 1
+    if not isinstance(acts, list) or not 0 <= act_index < len(acts):
+        return f"This is act {number}."
+    act = acts[act_index] if isinstance(acts[act_index], dict) else {}
+    lines = [f"This is act {number} of {len(acts)}: {act.get('title', '')}".rstrip()]
+    if act.get("goal"):
+        lines.append(f"Act {number} goal: {act['goal']}")
+    if act.get("turn"):
+        lines.append(
+            f"Act {number} turn (the reversal or decision that ends it — the "
+            f"final chapter's beats must land it): {act['turn']}"
+        )
+    return "\n".join(lines)
+
+
 async def _stage_chapters(
     canon: Canon, skeleton: dict, user_id, repair_missing: Optional[list[str]] = None
 ) -> list[dict]:
@@ -98,20 +150,13 @@ async def _stage_chapters(
             "You MUST give each of them a role across the chapters, present in the "
             f"`pov` or `characters` of specific chapters: {', '.join(repair_missing)}"
         )
-    # A premise the author confirmed (or rewrote) is the ground truth for the
-    # rest of the outline, and the model is told so (SPEC-10).
-    confirmed = (
-        " (confirmed by the author: treat it as authoritative)"
-        if skeleton.get("confirmed")
-        else ""
-    )
     prompt = f"""{STORY_MATERIAL_NOTICE}
 
 {canon.full_block()}
 
-Premise{confirmed}: {skeleton.get("premise_restated", "")}
-Central conflict: {skeleton.get("central_conflict", "")}
-Acts: {skeleton.get("acts", [])}
+{_premise_lines(skeleton)}
+Acts, numbered from 1 (each chapter's act_index is its act's 0-based index):
+{_json(_acts_for_prompt(skeleton))}
 
 Break the acts into chapters. Every name you use for a character MUST be one of
 the canon cast: {cast_names}. Do not introduce new principal characters.{repair}
@@ -135,25 +180,44 @@ JSON:"""
 
 
 async def _stage_beats_for_act(
-    canon: Canon, act_index: int, act_chapters: list[dict], user_id
+    canon: Canon,
+    act_index: int,
+    act_chapters: list[dict],
+    user_id,
+    *,
+    skeleton: Optional[dict] = None,
 ) -> list[dict]:
+    """S3 for one act. The beats see the plan they are detailing: the premise
+    (authoritative when the author confirmed it), the central conflict and this
+    act's goal and turn — without them beats drift from the agreed story
+    (SPEC-18, B11). Acts are numbered from 1 in the prompt; the stored
+    `act_index` stays 0-based."""
+    number = act_index + 1
+    plan = f"{_premise_lines(skeleton)}\n\n" if skeleton else ""
+    # Title placeholders below are deliberately unquoted: the template is not
+    # an example the model (or the offline stub) should mistake for a chapter.
     prompt = f"""{STORY_MATERIAL_NOTICE}
 
 {canon.full_block()}
 
-Here are the chapters of act {act_index}, in order:
-{act_chapters}
+{plan}{_act_brief(skeleton, act_index)}
+
+Here are the chapters of act {number}, in order:
+{_json(act_chapters)}
 
 For EACH chapter, write 2-4 scene beats. Keep every character name faithful to
 the canon. Each beat's summary must say what CHANGES, not just what happens.
+The beats must serve the premise and this act's goal, and the act's final
+chapter must end on its turn.
 
 Return ONLY a JSON array mirroring the chapters, each with its beats as
-children. Echo each chapter's act_index, pov, characters and threads unchanged:
+children. Echo each chapter's title, summary, act_index, pov, characters and
+threads unchanged:
 [
-  {{"title": "<chapter title>", "summary": "<chapter summary>",
-    "act_index": <int>, "pov": "<pov>", "characters": ["<names>"],
-    "threads": ["<threads>"],
-    "children": [{{"title": "beat title", "summary": "what changes", "children": []}}]}}
+  {{"title": <chapter title>, "summary": <chapter summary>,
+    "act_index": <int>, "pov": <pov>, "characters": [<names>],
+    "threads": [<threads>],
+    "children": [{{"title": <beat title>, "summary": <what changes>, "children": []}}]}}
 ]
 
 JSON:"""
@@ -204,6 +268,8 @@ async def _stage_beats(
     user_id,
     done: Optional[dict] = None,
     on_act: Optional[Callable[[dict], Awaitable[None]]] = None,
+    *,
+    skeleton: Optional[dict] = None,
 ) -> list[dict]:
     """S3: beats batched by act (~4 calls), reassembled in chapter order.
 
@@ -216,7 +282,7 @@ async def _stage_beats(
         if str(act_index) in done:
             continue
         done[str(act_index)] = await _stage_beats_for_act(
-            canon, act_index, by_act[act_index], user_id
+            canon, act_index, by_act[act_index], user_id, skeleton=skeleton
         )
         if on_act is not None:
             await on_act(done)
@@ -349,7 +415,12 @@ async def generate_staged_outline(
 
         await _emit("beats")
         return await _stage_beats(
-            canon, p["chapters"], user_id, done=p.get("acts"), on_act=_on_act
+            canon,
+            p["chapters"],
+            user_id,
+            done=p.get("acts"),
+            on_act=_on_act,
+            skeleton=ck["skeleton"],
         )
 
     if "skeleton" not in ck:
@@ -363,7 +434,10 @@ async def generate_staged_outline(
 
     await _emit("audit")
     cast = _cast_index(canon)
-    audit: FidelityAudit = audit_outline(nodes, principals, known, cast=cast)
+    canon_text = canon_known_text(canon)
+    audit: FidelityAudit = audit_outline(
+        nodes, principals, known, cast=cast, canon_text=canon_text
+    )
     if not audit.passed:
         logger.warning(
             "Outline failed the principal-cast gate; regenerating once",
@@ -376,6 +450,8 @@ async def generate_staged_outline(
         # Repair at the CHAPTER stage (where cast is chosen) with the missing
         # principals as explicit feedback, then re-derive beats (PR review #5).
         nodes = await _run_pass(1, audit.missing)
-        audit = audit_outline(nodes, principals, known, cast=cast)
+        audit = audit_outline(
+            nodes, principals, known, cast=cast, canon_text=canon_text
+        )
 
     return validate_outline_nodes(nodes, cast=cast), list(audit.warnings)

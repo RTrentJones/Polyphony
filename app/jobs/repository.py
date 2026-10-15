@@ -46,7 +46,34 @@ async def enqueue(
     dedupe_key: str | None = None,
     domain: tuple[str, UUID] | None = None,
 ) -> Job:
-    """Add a queued job to the session (flushed, NOT committed).
+    """Add a queued job to the session (flushed, NOT committed). See
+    `enqueue_reporting`, which also says whether this call inserted it."""
+    job, _ = await enqueue_reporting(
+        session,
+        kind=kind,
+        payload=payload,
+        user_id=user_id,
+        max_attempts=max_attempts,
+        available_at=available_at,
+        dedupe_key=dedupe_key,
+        domain=domain,
+    )
+    return job
+
+
+async def enqueue_reporting(
+    session: AsyncSession,
+    *,
+    kind: str,
+    payload: dict,
+    user_id: UUID,
+    max_attempts: int = 1,
+    available_at: datetime | None = None,
+    dedupe_key: str | None = None,
+    domain: tuple[str, UUID] | None = None,
+) -> tuple[Job, bool]:
+    """Add a queued job to the session (flushed, NOT committed); returns
+    `(job, inserted)`. `inserted` is False when an in-flight job was returned.
 
     With a `dedupe_key`, an in-flight job holding that key is returned instead
     of a new one (SPEC-07): the caller compares `job.domain_id` with its own row
@@ -57,7 +84,7 @@ async def enqueue(
     if dedupe_key is not None:
         existing = await find_active(session, dedupe_key)
         if existing is not None:
-            return existing
+            return existing, False
     job = Job(
         kind=kind,
         payload=payload,
@@ -78,12 +105,12 @@ async def enqueue(
             existing = await find_active(session, dedupe_key)
             if existing is None:
                 raise
-            return existing
+            return existing, False
     else:
         session.add(job)
         await session.flush()
     _notify_on_commit(session)
-    return job
+    return job, True
 
 
 async def enqueue_merging(

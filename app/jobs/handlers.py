@@ -26,6 +26,7 @@ from sqlalchemy import select
 from app.core.database import get_async_session
 from app.core.logging_config import log_business_event, setup_logging
 from app.core.orm_models import ContinuityReport, Scene
+from app.jobs import revise
 from app.jobs.context import current_job
 
 logger = setup_logging("jobs.handlers")
@@ -57,7 +58,7 @@ async def _scene_inputs(scene_id: UUID, payload: dict) -> tuple[str, str]:
     """
     from app.core.orm_models import Chapter
     from app.exports.builder import scene_text
-    from app.orchestration.prose import PREV_TAIL_WORDS
+    from app.orchestration.prose import prose_tail
 
     async with get_async_session() as session:
         scene = await session.get(Scene, scene_id)
@@ -80,7 +81,8 @@ async def _scene_inputs(scene_id: UUID, payload: dict) -> tuple[str, str]:
         ).scalar_one_or_none()
         tail = ""
         if prev is not None:
-            tail = " ".join(scene_text(prev).split()[-PREV_TAIL_WORDS:])
+            # Paragraph breaks kept, never opened mid-sentence (SPEC-18).
+            tail = prose_tail(scene_text(prev))
         return summary, tail
 
 
@@ -694,5 +696,13 @@ HANDLERS: dict[str, Handler] = {
         on_pause=_pause_report,
         on_resume=_resume_report,
         on_cancel=_cancel_report,
+    ),
+    # AI revision of a scene span (SPEC-19): proposes, never writes the draft.
+    revise.KIND: Handler(
+        run=revise.run,
+        on_dead=revise.on_dead,
+        on_pause=revise.on_pause,
+        on_resume=revise.on_resume,
+        on_cancel=revise.on_cancel,
     ),
 }

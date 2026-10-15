@@ -60,6 +60,27 @@ async def test_response_format_passthrough(monkeypatch):
     assert create.call_args.kwargs["response_format"] == {"type": "json_object"}
 
 
+async def test_purpose_rides_a_header(monkeypatch):
+    # Every call names its purpose in X-Polyphony-Purpose, so whoever serves it
+    # (the eval relay) can file it without parsing the prompt; no purpose, no
+    # header.
+    from app.core.config import settings
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(settings, "LLM_TEMPERATURE_OVERRIDE", None)
+    client = LLMClient()
+    create = AsyncMock(return_value=_fake_response())
+    monkeypatch.setattr(client._client.chat.completions, "create", create)
+
+    await client.generate([{"role": "user", "content": "hi"}], purpose="beat_prose")
+    assert create.call_args.kwargs["extra_headers"] == {
+        "X-Polyphony-Purpose": "beat_prose"
+    }
+
+    await client.generate([{"role": "user", "content": "hi"}])
+    assert "extra_headers" not in create.call_args.kwargs
+
+
 async def test_failed_generate_is_one_breaker_failure(monkeypatch):
     # Regression: the breaker wraps the whole retry sequence, so a single
     # generate() that exhausts _MAX_ATTEMPTS retries must count as ONE breaker

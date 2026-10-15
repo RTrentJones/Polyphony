@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronRight,
   History,
+  Layers,
   Pencil,
   Plus,
   Trash2,
@@ -21,7 +22,11 @@ import {
 import Button from '@/components/Button'
 import DeleteChapterModal from '@/components/book/DeleteChapterModal'
 import GenerateSceneModal from '@/components/book/GenerateSceneModal'
-import GeneratePlannedScenesButton from '@/components/book/GeneratePlannedScenesButton'
+import GeneratePlannedScenesButton, {
+  plannedScenesMessage,
+} from '@/components/book/GeneratePlannedScenesButton'
+import { plannedBeats } from '@/components/book/GenerateSceneModal'
+import RowActionsMenu, { type RowAction } from '@/components/book/RowActionsMenu'
 import Card from '@/components/Card'
 import Input from '@/components/Input'
 import Loading from '@/components/Loading'
@@ -34,6 +39,7 @@ import type { BookChapter } from '@/lib/types'
 import { SCENE_STATUS_STYLES } from '@/components/book/styles'
 import JobStatusBadge from '@/components/JobStatusBadge'
 import { isActiveJob } from '@/lib/jobs'
+import { displayChapterTitle } from '@/lib/utils'
 
 export default function ChaptersSection({
   onSceneGenerated,
@@ -50,7 +56,13 @@ export default function ChaptersSection({
     refreshBook,
     refreshChapter: fetchChapter,
   } = useBook()
-  const { chapterDetails, createChapter, moveChapter, moveScene } = useBookStore()
+  const {
+    chapterDetails,
+    createChapter,
+    moveChapter,
+    moveScene,
+    generatePlannedScenes,
+  } = useBookStore()
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [addModalOpen, setAddModalOpen] = useState(false)
@@ -61,6 +73,8 @@ export default function ChaptersSection({
   const [deleteFor, setDeleteFor] = useState<BookChapter | null>(null)
   const [historyFor, setHistoryFor] = useState<BookChapter | null>(null)
   const [busy, setBusy] = useState(false)
+  // "Generate all planned scenes" started from the phone menu, per chapter.
+  const [plannedBusy, setPlannedBusy] = useState<Record<string, boolean>>({})
   // Live job status per scene, from its badge (see ScenesPanel).
   const [liveStatus, setLiveStatus] = useState<Record<string, string>>({})
 
@@ -111,6 +125,66 @@ export default function ChaptersSection({
     }
   }
 
+  const onPlannedDone = (
+    chapter: BookChapter,
+    message: string,
+    kind: 'success' | 'info' | 'error'
+  ) => {
+    addToast(message, kind)
+    if (kind !== 'error') {
+      setExpanded((prev) => ({ ...prev, [chapter.id]: true }))
+    }
+  }
+
+  /** The phone menu's "Generate all planned scenes": the same call and
+   *  messages as GeneratePlannedScenesButton, which the wider row shows. */
+  const handlePlannedFromMenu = async (chapter: BookChapter) => {
+    if (plannedBusy[chapter.id]) return
+    setPlannedBusy((m) => ({ ...m, [chapter.id]: true }))
+    try {
+      const r = await generatePlannedScenes(chapter.id)
+      onPlannedDone(
+        chapter,
+        plannedScenesMessage(r),
+        r.queued > 0 && !r.already_running ? 'success' : 'info'
+      )
+    } catch (err: any) {
+      onPlannedDone(chapter, err?.message || 'Failed to start the planned scenes', 'error')
+    } finally {
+      setPlannedBusy((m) => ({ ...m, [chapter.id]: false }))
+    }
+  }
+
+  /** Secondary row actions, which live in the "⋯" menu below `sm:`. */
+  const menuActions = (chapter: BookChapter): RowAction[] => [
+    ...(plannedBeats(chapter.summary).length > 0
+      ? [
+          {
+            key: 'planned',
+            label: 'Generate all planned scenes',
+            icon: <Layers className="h-4 w-4" />,
+            onSelect: () => {
+              handlePlannedFromMenu(chapter)
+            },
+            disabled: !!plannedBusy[chapter.id],
+          },
+        ]
+      : []),
+    {
+      key: 'history',
+      label: 'History',
+      icon: <History className="h-4 w-4" />,
+      onSelect: () => setHistoryFor(chapter),
+    },
+    {
+      key: 'delete',
+      label: 'Delete chapter',
+      icon: <Trash2 className="h-4 w-4" />,
+      onSelect: () => handleDeleteChapter(chapter),
+      danger: true,
+    },
+  ]
+
   // A chapter with scenes asks where they go (SPEC-04) — see DeleteChapterModal.
   const handleDeleteChapter = (chapter: BookChapter) => setDeleteFor(chapter)
 
@@ -159,36 +233,53 @@ export default function ChaptersSection({
               <div
                 key={chapter.id}
                 data-testid="chapter-row"
-                className="border border-gray-200 rounded-lg overflow-hidden"
+                data-chapter-title={chapter.title}
+                className="border border-gray-200 rounded-lg"
               >
-                <div className="flex items-center gap-2 p-3 bg-gray-50">
-                  <button
-                    onClick={() => toggleExpand(chapter.id)}
-                    className="p-1 text-gray-500 hover:text-primary-600"
-                    aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${chapter.title}`}
-                  >
-                    {isOpen ? (
-                      <ChevronDown className="h-4 w-4" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4" />
-                    )}
-                  </button>
+                {/* Below sm: two lines, the title and then its actions, so a
+                    phone always shows the title (B4). From sm: one line. */}
+                <div
+                  className={`flex flex-col gap-2 p-3 bg-gray-50 sm:flex-row sm:items-center ${
+                    isOpen ? 'rounded-t-lg' : 'rounded-lg'
+                  }`}
+                >
+                  <div className="flex min-w-0 flex-1 items-start gap-2 sm:items-center">
+                    <button
+                      onClick={() => toggleExpand(chapter.id)}
+                      className="shrink-0 p-1 text-gray-500 hover:text-primary-600"
+                      aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${chapter.title}`}
+                      aria-expanded={isOpen}
+                    >
+                      {isOpen ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
+                    </button>
 
-                  <div
-                    className="flex-1 min-w-0 cursor-pointer"
-                    onClick={() => toggleExpand(chapter.id)}
-                  >
-                    <p className="font-medium text-gray-900 truncate">
-                      {chapter.position + 1}. {chapter.title}
-                    </p>
-                    {chapter.summary && (
-                      <p className="text-sm text-gray-500 truncate">
-                        {chapter.summary}
+                    <div
+                      className="flex-1 min-w-0 cursor-pointer"
+                      onClick={() => toggleExpand(chapter.id)}
+                    >
+                      <p
+                        className="font-medium text-gray-900 line-clamp-2 break-words"
+                        data-testid="chapter-title"
+                        title={chapter.title}
+                      >
+                        {chapter.position + 1}. {displayChapterTitle(chapter.title)}
                       </p>
-                    )}
+                      {chapter.summary && (
+                        <p className="text-sm text-gray-500 truncate">
+                          {chapter.summary}
+                        </p>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-1">
+                  <div
+                    className="flex shrink-0 flex-wrap items-center justify-end gap-1"
+                    data-testid="chapter-actions"
+                  >
                     <button
                       onClick={() => handleMoveChapter(chapter, -1)}
                       disabled={chapter.position === 0 || busy}
@@ -213,29 +304,33 @@ export default function ChaptersSection({
                       <Wand2 className="h-4 w-4 mr-1" />
                       Generate scene
                     </Button>
-                    <GeneratePlannedScenesButton
-                      chapter={chapter}
-                      onDone={(message, kind) => {
-                        addToast(message, kind)
-                        if (kind !== 'error') {
-                          setExpanded((prev) => ({ ...prev, [chapter.id]: true }))
-                        }
-                      }}
+                    {/* From sm: the secondary actions sit in the row ... */}
+                    <div className="hidden items-center gap-1 sm:flex">
+                      <GeneratePlannedScenesButton
+                        chapter={chapter}
+                        onDone={(message, kind) => onPlannedDone(chapter, message, kind)}
+                      />
+                      <button
+                        onClick={() => setHistoryFor(chapter)}
+                        className="p-1 text-gray-400 hover:text-primary-600"
+                        aria-label={`History of ${chapter.title}`}
+                      >
+                        <History className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteChapter(chapter)}
+                        className="p-1 text-gray-400 hover:text-red-600"
+                        aria-label={`Delete ${chapter.title}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    {/* ... below sm: they move into the "⋯" menu. */}
+                    <RowActionsMenu
+                      className="sm:hidden"
+                      label={`More actions for ${chapter.title}`}
+                      actions={menuActions(chapter)}
                     />
-                    <button
-                      onClick={() => setHistoryFor(chapter)}
-                      className="p-1 text-gray-400 hover:text-primary-600"
-                      aria-label={`History of ${chapter.title}`}
-                    >
-                      <History className="h-4 w-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteChapter(chapter)}
-                      className="p-1 text-gray-400 hover:text-red-600"
-                      aria-label={`Delete ${chapter.title}`}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
                   </div>
                 </div>
 
@@ -252,7 +347,8 @@ export default function ChaptersSection({
                         {detail.scenes.map((scene) => (
                           <div
                             key={scene.id}
-                            className="flex items-center gap-3 p-2 rounded-lg border border-gray-100 hover:border-primary-200"
+                            data-testid="scene-row"
+                            className="flex flex-wrap items-center gap-x-2 gap-y-1 p-2 rounded-lg border border-gray-100 hover:border-primary-200 sm:flex-nowrap sm:gap-3"
                           >
                             <span className="text-xs text-gray-400 w-6 text-right">
                               {scene.position + 1}
@@ -278,7 +374,7 @@ export default function ChaptersSection({
                                 {scene.status}
                               </span>
                             )}
-                            <p className="flex-1 min-w-0 text-sm text-gray-600 truncate">
+                            <p className="order-last basis-full min-w-0 text-sm text-gray-600 truncate sm:order-none sm:basis-auto sm:flex-1">
                               {scene.preview || (
                                 <span className="italic text-gray-400">
                                   {scene.status === 'paused' ||

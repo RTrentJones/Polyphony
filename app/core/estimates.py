@@ -115,6 +115,34 @@ def scene(
     return est
 
 
+def revise(
+    *,
+    canon_chars: int,
+    cast_context_chars: int,
+    draft_chars: int,
+    target_chars: int,
+) -> Estimate:
+    """An AI revision of a scene span (SPEC-19): one call that reads the whole
+    canon, the scene's cast and the WHOLE draft (the span plus its read-only
+    surroundings) and writes the span again. The answer budget is the revise
+    call's own max_tokens (`revise_max_tokens`)."""
+    tokens_in = (
+        estimate_tokens(canon_chars)
+        + estimate_tokens(cast_context_chars)
+        + estimate_tokens(draft_chars)
+        + 600  # instructions + fences
+    )
+    return Estimate(
+        "revise", "single", 1, tokens_in, revise_max_tokens(target_chars) // 2
+    )
+
+
+def revise_max_tokens(target_chars: int) -> int:
+    """The revise call's answer cap: room to rewrite the span at up to ~3x its
+    length (an instruction may ask to expand it), never below a paragraph."""
+    return max(600, estimate_tokens(target_chars) * 3)
+
+
 def outline(*, canon_chars: int, staged: bool = True) -> Estimate:
     """Staged: skeleton + chapters + ~4 act batches (+ one possible repair of
     chapters and beats). Single: one call."""

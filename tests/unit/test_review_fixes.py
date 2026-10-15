@@ -591,7 +591,9 @@ class TestVoiceIndexingRetryable:
         monkeypatch.setattr(
             pipeline.char_extractor,
             "extract_character_content",
-            lambda t, n: [{"chunk_type": "dialogue", "text": "The dead travel fast."}],
+            lambda t, n, **kw: [
+                {"chunk_type": "dialogue", "text": "The dead travel fast."}
+            ],
         )
         monkeypatch.setattr(
             pipeline.char_extractor,

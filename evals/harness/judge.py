@@ -72,6 +72,14 @@ class Judge:
         self.graded_by: list[str] = []
         self.graded_is_self = False
         self.exhausted = False
+        # A judge at its own URL (EVAL_JUDGE_BASE_URL: a separate relay queue
+        # answered by a separate agent) bypasses the provider registry.
+        self.endpoint = cfg.judge_base_url
+        if self.endpoint:
+            self.provider_id = cfg.judge_label or "relay-judge"
+            self.fell_back = False
+            self.model_override = cfg.judge_model or "judge"
+            return
         # Resolved eagerly so the report records the judge that will ACTUALLY
         # grade (post-fallback), not just the requested one.
         self.provider_id, self.fell_back = self._resolve()
@@ -121,9 +129,35 @@ class Judge:
     @property
     def is_self(self) -> bool:
         """True when the EFFECTIVE judge is the model under test's provider."""
+        if self.endpoint:
+            return self._cfg.judge_is_self
         return self.provider_id == self._cfg.app_provider
 
+    def _endpoint_provider(self):
+        """An OpenAI-compatible provider row for EVAL_JUDGE_BASE_URL. A relay
+        takes any key, so EVAL_JUDGE_API_KEY defaults to a placeholder."""
+        import dataclasses
+        import os
+
+        from app.llm.providers import PROVIDERS
+
+        if not os.getenv("EVAL_JUDGE_API_KEY"):
+            os.environ["EVAL_JUDGE_API_KEY"] = "relay"
+        return dataclasses.replace(
+            PROVIDERS["stub"],
+            id=self.provider_id,
+            label=f"Eval judge ({self.endpoint})",
+            env_key="EVAL_JUDGE_API_KEY",
+            base_url=self.endpoint,
+            default_model=self.model_override,
+            fast_model=self.model_override,
+        )
+
     def _ensure(self):
+        if self._client is None and self.endpoint:
+            from app.llm.client import LLMClient
+
+            self._client = LLMClient(self._endpoint_provider())
         if self._client is None:
             from app.llm.client import LLMClient
             from app.llm.providers import PROVIDERS

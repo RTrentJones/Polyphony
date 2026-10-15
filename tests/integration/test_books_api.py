@@ -112,6 +112,42 @@ class TestDraftEditing:
         assert len(data["revisions"]) == 1
         assert data["revisions"][0]["content"] == "Original prose."
 
+    @pytest.mark.asyncio
+    async def test_saved_edit_survives_reload(
+        self, client, auth_headers, book, chapter, async_session, test_user
+    ):
+        """GET scene and the scene list show the author's saved edit, not the
+        generated draft (reloading the editor used to bring the draft back)."""
+        from uuid import UUID
+
+        from app.core.orm_models import Scene
+
+        scene = Scene(
+            user_id=test_user.id,
+            book_id=UUID(book["id"]),
+            chapter_id=UUID(chapter["id"]),
+            position=0,
+            status="completed",
+            generated_content="Generated draft.",
+        )
+        async_session.add(scene)
+        await async_session.commit()
+        await async_session.refresh(scene)
+
+        r = await client.put(
+            f"/api/v1/books/scenes/{scene.id}/content",
+            json={"content": "The author's edit."},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+
+        got = await client.get(f"/api/v1/scenes/{scene.id}", headers=auth_headers)
+        assert got.status_code == 200
+        assert got.json()["content"] == "The author's edit."
+        listed = await client.get("/api/v1/scenes/", headers=auth_headers)
+        (row,) = [s for s in listed.json()["scenes"] if s["id"] == str(scene.id)]
+        assert row["preview"] == "The author's edit."
+
 
 @pytest.mark.integration
 class TestExportEndpoint:
@@ -138,7 +174,10 @@ class TestExportEndpoint:
         )
         assert r.status_code == 200
         assert "The story unfolds." in r.text
-        assert "Chapter 1: Chapter One" in r.text
+        # "Chapter One" is the title's own number: the heading carries only
+        # the book position, never "Chapter 1: Chapter One" (SPEC-21).
+        assert "## Chapter 1\n" in r.text
+        assert "Chapter One" not in r.text
 
     @pytest.mark.asyncio
     async def test_export_unknown_format(self, client, auth_headers, book):
@@ -146,6 +185,74 @@ class TestExportEndpoint:
             f"/api/v1/books/{book['id']}/export?format=pdf", headers=auth_headers
         )
         assert r.status_code == 400
+
+    async def _manuscript_book(self, client, auth_headers, book, async_session, user):
+        """Five chapters with outline-numbered titles; 2 and 4 have no prose."""
+        from uuid import UUID
+
+        from app.core.orm_models import Scene
+
+        prose = {1: ["Edric reviews.", "Milo closes."], 3: ["Ledger."], 5: ["End."]}
+        for i in range(1, 6):
+            r = await client.post(
+                f"/api/v1/books/{book['id']}/chapters",
+                json={"title": f"Chapter {i}: Part {i}"},
+                headers=auth_headers,
+            )
+            assert r.status_code == 201
+            for pos, text in enumerate(prose.get(i, [])):
+                async_session.add(
+                    Scene(
+                        user_id=user.id,
+                        chapter_id=UUID(r.json()["id"]),
+                        position=pos,
+                        status="completed",
+                        content=text,
+                    )
+                )
+        await async_session.commit()
+
+    @staticmethod
+    def _headings(text: str) -> list[str]:
+        return [line for line in text.splitlines() if line.startswith("## ")]
+
+    @pytest.mark.asyncio
+    async def test_export_is_a_clean_manuscript(
+        self, client, auth_headers, book, async_session, test_user
+    ):
+        await self._manuscript_book(
+            client, auth_headers, book, async_session, test_user
+        )
+        url = f"/api/v1/books/{book['id']}/export?format=md"
+
+        r = await client.get(url, headers=auth_headers)
+        assert r.status_code == 200
+        assert self._headings(r.text) == [
+            "## Chapter 1: Part 1",
+            "## Chapter 3: Part 3",
+            "## Chapter 5: Part 5",
+        ]
+        assert "Edric reviews.\n\n* * *\n\nMilo closes." in r.text
+
+        r = await client.get(f"{url}&skip_empty=false", headers=auth_headers)
+        assert len(self._headings(r.text)) == 5
+
+        r = await client.get(f"{url}&from_chapter=3&to_chapter=4", headers=auth_headers)
+        assert self._headings(r.text) == ["## Chapter 3: Part 3"]
+        assert "Edric reviews." not in r.text
+
+    @pytest.mark.asyncio
+    async def test_export_rejects_an_inverted_range(self, client, auth_headers, book):
+        r = await client.get(
+            f"/api/v1/books/{book['id']}/export?format=md&from_chapter=4&to_chapter=2",
+            headers=auth_headers,
+        )
+        assert r.status_code == 422
+        r = await client.get(
+            f"/api/v1/books/{book['id']}/export?format=md&from_chapter=0",
+            headers=auth_headers,
+        )
+        assert r.status_code == 422
 
 
 @pytest.mark.integration

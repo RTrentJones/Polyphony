@@ -415,6 +415,32 @@ export interface SceneRevisionsResponse {
 /** Book export formats (GET /books/{id}/export?format=...). */
 export type BookExportFormat = 'md' | 'docx' | 'epub'
 
+/** What the export dialog asks for (B9). Chapter numbers are 1-based, inclusive. */
+export interface BookExportOptions {
+  format: BookExportFormat
+  /** Put the synopsis at the front (default off: it is the storyboard, not prose). */
+  includeSynopsis: boolean
+  /** Leave out chapters with no written scene (default on). */
+  skipEmpty: boolean
+  /** First chapter to export by book position; null/undefined = from the start. */
+  fromChapter?: number | null
+  /** Last chapter to export by book position; null/undefined = to the end. */
+  toChapter?: number | null
+}
+
+/**
+ * The query string of GET /books/{id}/export (B9, agreed with the backend):
+ * `?format=&include_synopsis=&skip_empty=&from_chapter=&to_chapter=`. The range
+ * keys are omitted when unset; the server answers 422 when from > to.
+ */
+export interface BookExportQuery {
+  format: BookExportFormat
+  include_synopsis: boolean
+  skip_empty: boolean
+  from_chapter?: number
+  to_chapter?: number
+}
+
 // ---------------------------------------------------------------------------
 // Canon entities (app/api/canon.py) — worldbuilding + style, per book.
 // ---------------------------------------------------------------------------

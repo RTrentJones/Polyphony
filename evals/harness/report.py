@@ -15,6 +15,7 @@ def scorecard(run: dict) -> str:
     lines = [
         f"Polyphony evals — book={run['book']} sha={run.get('app_sha','?')[:12]}",
         f"judge={run['judge']['provider']}/{run['judge'].get('model') or 'default'}"
+        + (f" @ {run['judge']['endpoint']}" if run["judge"].get("endpoint") else "")
         + (
             "  ⚠ self-grading (judge == model under test)"
             if run["judge"]["self"]
@@ -56,6 +57,23 @@ def scorecard(run: dict) -> str:
             extra = f"acc={res['accuracy']} chance={res['chance']}"
         elif name == "continuity":
             extra = f"recall={res['detection_recall']} fpr={res['false_positive_rate']}"
+        elif name == "outline":
+            extra = (
+                f"cast={res.get('cast_fidelity')} "
+                f"unknown={res.get('unknown_rate')}/{res.get('unknown_rate_canon')}"
+            )
+        elif name == "prose":
+            extra = (
+                f"{res.get('path')} scenes={res.get('n_scenes')} "
+                f"seams={res.get('beat_seam_max_overlap')}/"
+                f"{res.get('scene_seam_max_overlap')} {res.get('rubric_means')}"
+            )
+        elif name == "prompt_contract":
+            extra = " ".join(
+                f"{k}={res[k]['rate']}"
+                for k in _CONTRACT_CHECKS
+                if isinstance(res.get(k), dict)
+            )
         std = res.get("score_std")
         if score is None:  # the judge was unavailable: metrics only
             lines.append(
@@ -67,6 +85,16 @@ def scorecard(run: dict) -> str:
         )
         lines.append(f"  {name:14s}  {score_str}   {extra}")
     return "\n".join(lines)
+
+
+_CONTRACT_CHECKS = (
+    "beats_block",
+    "prior_paragraphs",
+    "voice_dialogue",
+    "beats_stage",
+    "outline_no_repr",
+    "style_first",
+)
 
 
 # A step "passes" when its score clears this floor — a coarse boolean so Tracer
@@ -138,7 +166,17 @@ def _case_output(name: str, res: dict) -> str:
     if name == "outline":
         return f"nodes={res.get('n_nodes')} structural_ok={res.get('structural_ok')}"
     if name == "prose":
-        return f"words={res.get('words')}"
+        return (
+            f"words={res.get('words')} path={res.get('path')} "
+            f"rubrics={res.get('rubric_means')} "
+            f"seams={res.get('beat_seam_max_overlap')}/{res.get('scene_seam_max_overlap')}"
+        )
+    if name == "prompt_contract":
+        return " ".join(
+            f"{k}={res[k]['rate']}"
+            for k in _CONTRACT_CHECKS
+            if isinstance(res.get(k), dict)
+        )
     return ""
 
 

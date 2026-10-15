@@ -60,3 +60,17 @@ export function formatFileSize(bytes: number): string {
   const rounded = value >= 10 ? Math.round(value) : Math.round(value * 10) / 10
   return `${rounded} ${units[unitIndex]}`
 }
+
+/**
+ * A chapter title as the author should read it (B4/B9): a leading
+ * "Chapter 2: " (or "Chapter 2." / "Chapter 2 -" / "Chapter 2 –") is dropped,
+ * because the row already shows the chapter's position and an outline title
+ * carries its own, possibly stale, number ("3. Chapter 2: Milo Voss").
+ * Display only — the stored title is cleaned at promote time (W2-B). A title
+ * that is nothing but the prefix is returned unchanged rather than blank.
+ */
+export function displayChapterTitle(title: string | null | undefined): string {
+  const raw = (title ?? '').trim()
+  const stripped = raw.replace(/^chapter\s+\d+\s*[:.\-–—]\s*/i, '').trim()
+  return stripped || raw
+}

@@ -540,6 +540,16 @@ app.include_router(
     responses={401: {"description": "Unauthorized"}},
 )
 
+from app.api import revise as revise_router  # noqa: E402
+
+# AI revision of a scene (SPEC-19): its own module beside the books router.
+app.include_router(
+    revise_router.router,
+    prefix="/api/v1/books",
+    tags=["Scenes"],
+    responses={401: {"description": "Unauthorized"}},
+)
+
 from app.api import estimates as estimates_router  # noqa: E402
 from app.api import trash as trash_router  # noqa: E402
 

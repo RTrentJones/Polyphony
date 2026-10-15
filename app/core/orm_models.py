@@ -486,7 +486,12 @@ class SceneRevision(Base):
     )
     content = Column(Text, nullable=False)
     word_count = Column(Integer, default=0)
-    source = Column(String(20), nullable=False, default="edited")  # generated | edited
+    # generated | edited | ai_revise (a proposal from POST /scenes/{id}/revise)
+    source = Column(String(20), nullable=False, default="edited")
+    # AI revision proposals only (SPEC-19): {instruction, range, beat_index,
+    # job_id, status: proposed|accepted|discarded|failed|cancelled,
+    # base_text_hash, warnings}. NULL for ordinary snapshots.
+    meta = Column(JSON().with_variant(JSONB(), "postgresql"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     scene = relationship("Scene", back_populates="revisions")

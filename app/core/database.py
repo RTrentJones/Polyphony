@@ -24,25 +24,30 @@ except ImportError:
     pass
 
 
+def to_async_url(url: str) -> str:
+    """A Postgres URL as the asyncpg driver takes it: `postgres://` and
+    `postgresql://` become `postgresql+asyncpg://`, and libpq-style
+    sslmode/channel_binding query params are dropped (asyncpg rejects them and
+    negotiates TLS itself; Neon DSNs carry both)."""
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql://", 1)
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if "+asyncpg" in url and "?" in url:
+        base, _, query = url.partition("?")
+        kept = [
+            p
+            for p in query.split("&")
+            if p and not p.startswith(("sslmode=", "channel_binding="))
+        ]
+        url = base + ("?" + "&".join(kept) if kept else "")
+    return url
+
+
 def get_async_db_url() -> str:
     """Async database URL. A full DATABASE_URL (e.g. Neon DSN) wins over components."""
     if settings.DATABASE_URL:
-        url = settings.DATABASE_URL
-        if url.startswith("postgres://"):
-            url = url.replace("postgres://", "postgresql://", 1)
-        if url.startswith("postgresql://"):
-            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
-        # asyncpg rejects libpq-style sslmode/channel_binding query params; it
-        # negotiates TLS itself (Neon DSNs carry both).
-        if "+asyncpg" in url and "?" in url:
-            base, _, query = url.partition("?")
-            kept = [
-                p
-                for p in query.split("&")
-                if p and not p.startswith(("sslmode=", "channel_binding="))
-            ]
-            url = base + ("?" + "&".join(kept) if kept else "")
-        return url
+        return to_async_url(settings.DATABASE_URL)
     return (
         f"postgresql+asyncpg://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}"
         f"@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"

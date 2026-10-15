@@ -226,3 +226,73 @@ def test_a_lone_judged_repeat_is_kept_over_a_later_judgeless_one():
     judgeless = {"outline": {"score": None, "cast_fidelity": 1.0}}
     assert _aggregate([judged, judgeless])["outline"]["score"] == 0.8
     assert _aggregate([judgeless, judgeless])["outline"]["score"] is None
+
+
+# --- Judge separation (EVAL_JUDGE_BASE_URL) ------------------------------------
+
+
+def test_a_judge_at_its_own_url_is_not_self_grading(monkeypatch):
+    """The judge relay is a separate endpoint answered by a separate agent:
+    the run reports self=false and names the endpoint, whatever the app's
+    provider is (here the same stub the model under test uses)."""
+    monkeypatch.setenv("EVAL_JUDGE_BASE_URL", "http://127.0.0.1:8298/v1/")
+    monkeypatch.setenv("EVAL_JUDGE_LABEL", "claude-judge")
+    monkeypatch.setenv("EVAL_JUDGE_PROVIDER", "stub")
+    monkeypatch.setenv("LLM_PROVIDER", "stub")
+    j = Judge(load_config())
+    assert j.endpoint == "http://127.0.0.1:8298/v1"
+    assert j.provider_id == "claude-judge"
+    assert j.is_self is False and j.fell_back is False
+
+
+def test_a_judge_url_equal_to_the_apps_model_url_is_self(monkeypatch):
+    monkeypatch.setenv("EVAL_JUDGE_BASE_URL", "http://127.0.0.1:8299/v1")
+    monkeypatch.setenv("EVAL_APP_LLM_BASE_URL", "http://127.0.0.1:8299/v1")
+    assert Judge(load_config()).is_self is True
+
+
+async def test_the_url_judge_calls_that_url_and_reports_it(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from evals.harness.report import scorecard
+    from tests.unit.test_llm_client import _fake_response
+
+    monkeypatch.delenv("EVAL_JUDGE_LABEL", raising=False)
+    # Unset (empty) key: a relay takes any, so the judge supplies a placeholder.
+    monkeypatch.setenv("EVAL_JUDGE_API_KEY", "")
+    monkeypatch.setenv("EVAL_JUDGE_BASE_URL", "http://127.0.0.1:8298/v1")
+    j = Judge(load_config())
+    client = j._ensure()
+    assert str(client._client.base_url).rstrip("/") == "http://127.0.0.1:8298/v1"
+    response = _fake_response()
+    response.choices[0].message.content = '{"score": 0.6, "explanation": "ok"}'
+    create = AsyncMock(return_value=response)
+    monkeypatch.setattr(client._client.chat.completions, "create", create)
+    judgment = await j.score("rubric", "content")
+    assert judgment.score == 0.6 and judgment.judge_provider == "relay-judge"
+    # The relay files the call under the judge's purpose.
+    headers = create.call_args.kwargs["extra_headers"]
+    assert headers == {"X-Polyphony-Purpose": "eval_judge"}
+
+    run = {
+        "book": "cel",
+        "app_sha": "abc",
+        "judge": {
+            "provider": j.provider_id,
+            "model": j.model_override,
+            "self": j.is_self,
+            "endpoint": j.endpoint,
+        },
+        "steps": {},
+    }
+    card = scorecard(run)
+    assert "@ http://127.0.0.1:8298/v1" in card and "self-grading" not in card
+
+
+async def test_app_sha_falls_back_to_git_head(monkeypatch):
+    """A local stack's /__version reports no sha; the report still names the
+    commit under test (it used to be empty)."""
+    from evals import run as run_mod
+
+    monkeypatch.setattr(run_mod, "_git_sha", lambda: "f" * 40)
+    assert await run_mod._app_sha("http://127.0.0.1:9") == "f" * 40

@@ -7,16 +7,69 @@
 
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Button from './Button'
 import Input from './Input'
 import Modal from './Modal'
 import FileUpload from './FileUpload'
+import apiClient from '@/lib/api-client'
 import { useExtractionStore, useSourceStore } from '@/lib/store'
 import type { ExtractionPreflight } from '@/lib/types'
+import { formatFileSize } from '@/lib/utils'
 
 type AddMode = 'upload' | 'paste'
+
+/**
+ * What the server can parse (B14, SPEC-21). The dialog asks
+ * GET /sources/config; these are the fallback when that fails, and must equal
+ * the server's settings.ALLOWED_EXTENSIONS / MAX_UPLOAD_SIZE
+ * (tests/unit/test_upload_types.py reads this file to check).
+ */
+export const ACCEPTED_EXTENSIONS = ['.txt', '.docx', '.pdf', '.html', '.htm']
+export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+/** Same wording as the server's 415 for a .doc, shown before uploading. */
+export const DOC_UNSUPPORTED_MESSAGE =
+  "Old Word .doc files aren't supported. Save as .docx and upload again."
+
+type UploadConfig = { accepted_extensions: string[]; max_bytes: number }
+
+function extensionOf(name: string): string {
+  const dot = name.lastIndexOf('.')
+  return dot >= 0 ? name.slice(dot).toLowerCase() : ''
+}
+
+export function formatsLabel(extensions: string[]): string {
+  return extensions.map((e) => e.replace(/^\./, '').toUpperCase()).join(', ')
+}
+
+function useUploadConfig(): UploadConfig {
+  const [config, setConfig] = useState<UploadConfig>({
+    accepted_extensions: ACCEPTED_EXTENSIONS,
+    max_bytes: MAX_UPLOAD_BYTES,
+  })
+  useEffect(() => {
+    let alive = true
+    apiClient
+      .get<UploadConfig>('/sources/config')
+      .then(({ data }) => {
+        if (alive && Array.isArray(data?.accepted_extensions) && data.accepted_extensions.length) {
+          setConfig({
+            accepted_extensions: data.accepted_extensions,
+            max_bytes: data.max_bytes || MAX_UPLOAD_BYTES,
+          })
+        }
+      })
+      .catch(() => {
+        // Keep the fallback: it mirrors the server list.
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+  return config
+}
 
 export default function AddSourceModal({
   bookId,
@@ -42,6 +95,20 @@ export default function AddSourceModal({
   const [pasteText, setPasteText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const uploadConfig = useUploadConfig()
+  // A picked file the server is known to refuse, with the fix (B14).
+  const [fileHint, setFileHint] = useState<string | null>(null)
+
+  const inspectPicked = (picked: File | undefined | null) => {
+    if (!picked) return
+    const ext = extensionOf(picked.name)
+    if (ext === '.doc') {
+      setFile(null)
+      setFileHint(DOC_UNSUPPORTED_MESSAGE)
+    } else {
+      setFileHint(null)
+    }
+  }
 
   const submit = async () => {
     if (!title.trim()) {
@@ -158,13 +225,29 @@ export default function AddSourceModal({
         />
 
         {mode === 'upload' ? (
-          <FileUpload
-            label="Source File"
-            accept=".txt,.doc,.docx,.pdf"
-            maxSize={10 * 1024 * 1024} // 10MB
-            onFileSelect={(f) => setFile(f)}
-            helperText="Supported formats: TXT, DOC, DOCX, PDF (max 10MB)"
-          />
+          // Capture-phase listeners see the picked/dropped file before
+          // FileUpload validates it, so a .doc gets the "save as .docx" fix
+          // instead of the generic "not accepted" line.
+          <div
+            onChangeCapture={(e) =>
+              inspectPicked((e.target as HTMLInputElement).files?.[0])
+            }
+            onDropCapture={(e) => inspectPicked(e.dataTransfer?.files?.[0])}
+          >
+            <FileUpload
+              label="Source File"
+              accept={uploadConfig.accepted_extensions.join(',')}
+              maxSize={uploadConfig.max_bytes}
+              onFileSelect={(f) => {
+                setFileHint(null)
+                setFile(f)
+              }}
+              error={fileHint ?? undefined}
+              helperText={`Supported formats: ${formatsLabel(
+                uploadConfig.accepted_extensions
+              )} (max ${formatFileSize(uploadConfig.max_bytes)})`}
+            />
+          </div>
         ) : (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
