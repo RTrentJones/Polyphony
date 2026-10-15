@@ -1,5 +1,5 @@
-"""SPEC-24 (W2-2): named secondary people — the prompt list and the author's
-"Add <name> to cast" suggestions."""
+"""SPEC-24 (W2-2): the author's "Add <name> to cast" suggestions come only
+from people the model declared, classified against today's cast and canon."""
 
 import types
 import uuid
@@ -7,11 +7,7 @@ import uuid
 import pytest
 
 from app.planning.canon import Canon
-from app.planning.secondaries import (
-    SENTENCE_CAP,
-    secondary_candidates,
-    suggested_characters,
-)
+from app.planning.secondaries import SENTENCE_CAP, suggested_characters
 from evals.steps.pipeline import load_corpus
 
 pytestmark = pytest.mark.unit
@@ -50,59 +46,6 @@ def cel():
         ),
     ]
     return Canon(title="Bored to Undeath", synopsis=gt["synopsis"], characters=cast)
-
-
-# --- secondary_candidates -----------------------------------------------------
-
-
-def test_cel_candidates_include_the_synopsis_secondaries(cel):
-    names = secondary_candidates(cel)
-    assert "Prava" in names and "Old Fen" in names
-    # ordered by first appearance in the synopsis
-    assert names.index("Prava") < names.index("Old Fen")
-
-
-def test_cel_candidates_exclude_cast_names_aliases_and_title(cel):
-    names = secondary_candidates(cel)
-    lowered = {n.lower() for n in names}
-    for excluded in (
-        "milo voss",
-        "milo",
-        "zara okafor",
-        "zara",
-        "edric thane",
-        "edric",
-        "chief executive lich",
-        "lich",
-        "cel",
-        "bored to undeath",
-    ):
-        assert excluded not in lowered, excluded
-    # no heading or acronym, no sentence-initial common word
-    assert not any(n.isupper() for n in names)
-    assert "Death" not in names and "Fen" not in names  # Old Fen is listed whole
-
-
-def test_candidates_exclude_canon_entry_names():
-    canon = Canon(
-        title="T",
-        synopsis="Milo Voss visits Aeon Holdings, where Prava works in Marrow District.",
-        characters=[_person("Milo Voss")],
-        canon_entries=[_entry("Aeon Holdings"), _entry("Marrow District", "A place.")],
-    )
-    assert secondary_candidates(canon) == ["Prava"]
-
-
-def test_candidates_skip_bible_labels_and_headings():
-    milo = _person("Milo Voss")
-    milo.description = "Works beside Prava every day."
-    canon = Canon(title="T", synopsis="", characters=[milo])
-    names = secondary_candidates(canon)
-    assert names == ["Prava"]  # not "Description", "Role" or "Characters"
-
-
-def test_candidates_empty_canon():
-    assert secondary_candidates(Canon(title="T")) == []
 
 
 # --- suggested_characters ---------------------------------------------------------
@@ -164,6 +107,14 @@ def test_suggestions_dedupe_case_insensitively_in_outline_order(cel):
         "old fen",
     ]
     assert _suggested_characters("not a list", cel) == []
+
+
+def test_suggestions_come_only_from_declared_people_even_a_place(cel):
+    """§7 risk 2: "Aeon Holdings" is a canon phrase, so if the model declares
+    it a person it is offered; nothing undeclared is ever suggested."""
+    assert suggested_characters([], cel) == []
+    out = suggested_characters(["Aeon Holdings", "Old Fen", "Prava"], cel)
+    assert [s["name"] for s in out] == ["Aeon Holdings", "Old Fen", "Prava"]
 
 
 def test_suggestion_absent_from_synopsis_and_canon_is_never_offered(cel):

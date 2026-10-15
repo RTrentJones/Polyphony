@@ -71,6 +71,7 @@ async def propose(
     user_id,
     *,
     grounding: Optional[list] = None,
+    cast: Optional[list] = None,
 ) -> dict:
     """One character agent's proposal — scoped to its OWN context only.
 
@@ -80,7 +81,7 @@ async def propose(
     # How this character speaks (<voice>) and moves (<physicality>), retrieved
     # separately so dialogue cannot crowd action out (BRD R6.2, SPEC-14).
     context = await build_agent_context(
-        character, name, beat_description, grounding=grounding
+        character, name, beat_description, grounding=grounding, cast=cast
     )
     feedback = ""
     if prior_objections:
@@ -322,6 +323,7 @@ async def run_ensemble(
                     prior_objections,
                     user_id,
                     grounding=round_grounding,
+                    cast=[c for c in characters.values() if c is not None],
                 )
             )
             st["proposals"] = proposals

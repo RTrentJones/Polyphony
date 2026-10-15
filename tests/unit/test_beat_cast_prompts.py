@@ -1,9 +1,8 @@
-"""SPEC-24 (W2-1 prompt half, W2-2): each outline beat carries its own cast,
-setting, tone and named secondaries; the scene planner treats the cast as
-available; blank settings and the "neutral" tone never reach a prompt.
-
-The P1-P4 strings are the contract E6's prompt_contract grader greps for
-(tpm-plan-wave2 §1.3), so they are pinned here verbatim."""
+"""SPEC-24 (W2-1 prompt half, W2-2, §1e): each outline chapter and beat lists
+its `people`, which the server classifies once (cast ids, canon-named
+secondaries, inventions); the scene planner treats the cast as available;
+blank settings and the "neutral" tone never reach a prompt. The prompt wording
+itself is graded by the eval round trip (SPEC-28), not pinned here."""
 
 import json
 import re
@@ -25,10 +24,6 @@ from evals.steps.pipeline import load_corpus
 
 pytestmark = pytest.mark.unit
 
-P1 = re.compile(
-    r"(?m)^SECONDARY PEOPLE \(named in the synopsis or canon, not in the cast; "
-    r"you may name them, never invent others\): (.+)$"
-)
 P3_CAST = re.compile(r"(?m)^Available cast \(not all need appear\): (.+)$")
 P3_ALSO = re.compile(r"(?m)^Also named \(secondary, not in the cast\): (.+)$")
 BLANK_SETTING = re.compile(r"(?m)^\s*Setting:\s*$")
@@ -76,50 +71,32 @@ class FakeLLM:
         )
 
 
-# --- P1 / P2: the outline prompts ------------------------------------------------
+# --- §1e: the outline prompts ask for one `people` list -------------------------
 
 
-async def test_chapters_prompt_lists_secondaries_and_keeps_principals_rule(
+async def test_outline_prompts_ask_for_people_without_a_secondary_list(
     monkeypatch, cel
 ):
-    fake = FakeLLM({"outline:chapters": "[]"})
-    monkeypatch.setattr(so, "get_llm_client", lambda: fake)
-    await so._stage_chapters(cel, {"acts": [{"title": "A"}]}, None)
-    prompt = fake.prompts["outline:chapters"][0]
-    names = [n.strip() for n in P1.search(prompt).group(1).split(",")]
-    assert "Prava" in names and "Old Fen" in names
-    assert "Milo Voss" not in names
-    assert "Every name you use for a character MUST be one of" not in prompt
-    assert "Principal characters MUST be canon cast" in prompt
-    assert '"secondary_names"' in prompt
-
-
-async def test_beats_prompt_has_p1_and_the_p2_child_fields(monkeypatch, cel):
-    fake = FakeLLM({"outline:beats": "[]"})
-    monkeypatch.setattr(so, "get_llm_client", lambda: fake)
-    chapters = [{"title": "Intake", "act_index": 0, "characters": ["Milo Voss"]}]
-    await so._stage_beats_for_act(cel, 0, chapters, None, skeleton={"acts": []})
-    prompt = fake.prompts["outline:beats"][0]
-    assert P1.search(prompt)
-    assert "Every name you use for a character MUST be one of" not in prompt
-    assert "Principal characters MUST be canon cast" in prompt
-    children = prompt[prompt.index('"children": [{') :]
-    for key in ('"characters"', '"secondary_names"', '"setting"', '"tone"'):
-        assert key in children, key
-    # the stub's markers and the grader's purpose marker survive
-    assert "scene beats" in prompt and "mirroring the chapters" in prompt
-    assert "write 2-4 scene beats" in prompt
-    assert "act 1" in prompt  # acts still numbered from 1
-
-
-async def test_p1_says_none_without_secondaries(monkeypatch):
-    canon = Canon(
-        title="T", synopsis="Milo Voss works.", characters=[_person("Milo Voss")]
-    )
     fake = FakeLLM({})
     monkeypatch.setattr(so, "get_llm_client", lambda: fake)
-    await so._stage_chapters(canon, {"acts": []}, None)
-    assert P1.search(fake.prompts["outline:chapters"][0]).group(1) == "(none)"
+    await so._stage_chapters(cel, {"acts": [{"title": "A"}]}, None)
+    chapters = [{"title": "Intake", "act_index": 0, "people": ["Milo Voss"]}]
+    await so._stage_beats_for_act(cel, 0, chapters, None, skeleton={"acts": []})
+    for prompt in (
+        fake.prompts["outline:chapters"][0],
+        fake.prompts["outline:beats"][0],
+    ):
+        assert "SECONDARY PEOPLE" not in prompt
+        assert "Principal characters MUST be canon cast: Milo Voss" in prompt
+        assert "may appear by name; never invent others." in prompt
+        assert '"people"' in prompt
+        assert '"characters"' not in prompt and '"secondary_names"' not in prompt
+    beats = fake.prompts["outline:beats"][0]
+    children = beats[beats.index('"children": [{') :]
+    for key in ('"people"', '"setting"', '"tone"'):
+        assert key in children, key
+    # the stub's routing phrases survive
+    assert "scene beats" in beats and "mirroring the chapters" in beats
 
 
 # --- §1.1: validating the beat children -------------------------------------------
@@ -130,6 +107,8 @@ def _cast():
 
 
 def test_children_resolve_cast_and_keep_setting_tone_secondaries():
+    """Legacy `characters` + `secondary_names` input (stored outlines, old
+    archives) goes through the same classification as `people`."""
     milo, zara = _cast()
     nodes = validate_outline_nodes(
         [
@@ -154,9 +133,9 @@ def test_children_resolve_cast_and_keep_setting_tone_secondaries():
     )
     beat, bare = nodes[0]["children"]
     # names resolve to ids; a secondary that IS cast moves to character_ids;
-    # an unknown name is dropped on the generation path
+    # with no canon text to vet them, unresolved names are secondary
     assert beat["character_ids"] == [str(milo.id), str(zara.id)]
-    assert beat["secondary_names"] == ["Prava"]
+    assert beat["secondary_names"] == ["Ghost", "Prava"]
     assert beat["setting"] == "Intake Atrium"
     assert beat["tone"] == "bureaucratic dread"
     assert "character_ids" not in bare and "setting" not in bare
@@ -165,25 +144,13 @@ def test_children_resolve_cast_and_keep_setting_tone_secondaries():
     assert validate_outline_nodes(nodes, cast=[milo, zara]) == nodes
 
 
-def test_strict_rejects_an_unknown_beat_name_unless_it_is_secondary():
+def test_strict_keeps_unknown_names_secondary_and_rejects_a_dead_id():
     milo, zara = _cast()
-    with pytest.raises(ValueError, match="Ghost"):
-        validate_outline_nodes(
-            [{"title": "Ch", "children": [{"title": "b", "characters": ["Ghost"]}]}],
-            cast=[milo, zara],
-            strict=True,
-        )
     nodes = validate_outline_nodes(
         [
             {
                 "title": "Ch",
-                "children": [
-                    {
-                        "title": "b",
-                        "characters": ["Milo", "Prava"],
-                        "secondary_names": ["Prava"],
-                    }
-                ],
+                "children": [{"title": "b", "people": ["Milo", "Prava", "Elara"]}],
             }
         ],
         cast=[milo, zara],
@@ -191,7 +158,56 @@ def test_strict_rejects_an_unknown_beat_name_unless_it_is_secondary():
     )
     beat = nodes[0]["children"][0]
     assert beat["character_ids"] == [str(milo.id)]
-    assert beat["secondary_names"] == ["Prava"]
+    assert beat["secondary_names"] == ["Prava", "Elara"]
+    gone = str(uuid.uuid4())
+    with pytest.raises(ValueError, match=gone):
+        validate_outline_nodes(
+            [{"title": "Ch", "children": [{"title": "b", "people": [gone]}]}],
+            cast=[milo, zara],
+            strict=True,
+        )
+    with pytest.raises(ValueError, match="Ghost"):
+        validate_outline_nodes(
+            [{"title": "Ch", "pov": "Ghost"}], cast=[milo, zara], strict=True
+        )
+
+
+def test_generation_classifies_people_against_the_canon_text(cel):
+    from app.parsing import names
+    from app.planning.fidelity import canon_known_text
+
+    milo = cel.characters[0]
+    known = names.norm(canon_known_text(cel))
+    people = {
+        "title": "Ch",
+        "pov": "Milo",
+        "people": ["Milo", "Prava", "Elara"],
+        "children": [{"title": "b", "people": ["Milo Voss", "Old Fen", "Elara"]}],
+    }
+    legacy = {
+        "title": "Ch",
+        "pov": "Milo",
+        "characters": ["Milo", "Prava"],
+        "secondary_names": ["Elara"],
+        "children": [
+            {
+                "title": "b",
+                "characters": ["Milo Voss"],
+                "secondary_names": ["Old Fen", "Elara"],
+            }
+        ],
+    }
+    out = []
+    for node in (people, legacy):
+        [top] = validate_outline_nodes([node], cast=cel.characters, known_text=known)
+        assert top["character_ids"] == [str(milo.id)]
+        assert top["secondary_names"] == ["Prava"]  # Elara is dropped
+        assert top["children"][0]["secondary_names"] == ["Old Fen"]
+        out.append({k: v for k, v in top.items() if k != "node_id"})
+        out[-1]["children"] = [
+            {k: v for k, v in c.items() if k != "node_id"} for c in top["children"]
+        ]
+    assert out[0] == out[1]
 
 
 def test_restore_keeps_stored_beat_ids_as_they_are():
@@ -228,46 +244,6 @@ def test_secondary_names_are_capped_and_trimmed():
     assert all(len(n) <= 100 for n in out)
 
 
-def test_top_level_secondaries_are_kept_and_exempt_from_strict():
-    milo, zara = _cast()
-    nodes = validate_outline_nodes(
-        [{"title": "Ch", "characters": ["Prava"], "secondary_names": ["Prava"]}],
-        cast=[milo, zara],
-        strict=True,
-    )
-    assert nodes[0]["secondary_names"] == ["Prava"]
-    assert nodes[0]["character_ids"] == []
-
-
-# --- the generation path filters secondaries against the canon text -----------------
-
-
-def test_generation_drops_invented_secondaries_and_keeps_canon_ones(cel):
-    from app.planning.fidelity import canon_known_text
-    from app.planning.outline import CastIndex
-
-    nodes = so.keep_known_secondaries(
-        [
-            {
-                "title": "Ch",
-                "characters": ["Milo Voss"],
-                "children": [
-                    {
-                        "title": "Intake",
-                        "characters": ["Milo Voss", "Old Fen"],
-                        "secondary_names": ["Prava", "Bartholomew Quince"],
-                    }
-                ],
-            }
-        ],
-        canon_known_text(cel),
-        CastIndex(cel.characters),
-    )
-    beat = nodes[0]["children"][0]
-    assert beat["secondary_names"] == ["Prava", "Old Fen"]
-    assert "secondary_names" not in nodes[0]
-
-
 async def test_staged_outline_saves_beat_fields_and_warns_on_invention(
     monkeypatch, cel
 ):
@@ -282,7 +258,7 @@ async def test_staged_outline_saves_beat_fields_and_warns_on_invention(
             "summary": "Milo Voss arrives; Zara Okafor and Edric Thane watch.",
             "act_index": 0,
             "pov": "Milo Voss",
-            "characters": ["Milo Voss", "Zara Okafor", "Edric Thane"],
+            "people": ["Milo Voss", "Zara Okafor", "Edric Thane"],
         }
     ]
     beats = [
@@ -292,8 +268,7 @@ async def test_staged_outline_saves_beat_fields_and_warns_on_invention(
                 {
                     "title": "Onboarding",
                     "summary": "Milo is processed.",
-                    "characters": ["Milo Voss"],
-                    "secondary_names": ["Prava", "Bartholomew Quince"],
+                    "people": ["Milo Voss", "Prava", "Bartholomew Quince"],
                     "setting": "Intake Atrium",
                     "tone": "wry",
                     "children": [],
@@ -333,11 +308,12 @@ def test_scene_block_omits_blank_setting_and_tone():
     assert "Scene description: Intake: Milo is processed." in block
 
 
-def test_scene_block_never_carries_neutral_and_keeps_real_values():
+def test_scene_block_keeps_an_authors_tone_and_real_values():
+    """Review S7: only a blank tone is omitted; "Neutral" is the author's."""
     block = scene_block(
         {"scene_description": "d", "setting": "   ", "emotional_tone": "Neutral"}
     )
-    assert "neutral" not in block.lower()
+    assert "Emotional tone: Neutral" in block and "Setting:" not in block
     block = scene_block(
         {"scene_description": "d", "setting": "Intake Atrium", "emotional_tone": "wry"}
     )
@@ -393,7 +369,7 @@ def test_parse_structured_beats_keeps_the_subset_rule():
 # --- the offline stub keeps its markers and emits the beat fields ----------------------
 
 
-async def test_stub_beats_carry_cast_setting_tone_and_one_secondary_set(
+async def test_stub_beats_carry_people_setting_tone_and_the_synopsis_people(
     monkeypatch, cel
 ):
     from evals.stub_llm import _answer
@@ -410,24 +386,23 @@ async def test_stub_beats_carry_cast_setting_tone_and_one_secondary_set(
     client = StubClient()
     monkeypatch.setattr(so, "get_llm_client", lambda: client)
     chapters = [
-        {"title": "Chapter 1: Milo Voss", "act_index": 0, "characters": ["Milo Voss"]},
+        {"title": "Chapter 1: Milo Voss", "act_index": 0, "people": ["Milo Voss"]},
         {
             "title": "Chapter 2: Zara Okafor",
             "act_index": 0,
-            "characters": ["Zara Okafor", "Milo Voss"],
+            "people": ["Zara Okafor", "Milo Voss"],
         },
     ]
     act1 = await so._stage_beats_for_act(cel, 0, chapters, None, skeleton={"acts": []})
     act2 = await so._stage_beats_for_act(cel, 1, chapters, None, skeleton={"acts": []})
     first = act1[0]["children"][0]
-    assert first["characters"] == ["Milo Voss"]
+    assert first["people"][0] == "Milo Voss" and "Prava" in first["people"]
     assert first["setting"] == "the intake atrium" and first["tone"] == "wry"
-    assert "Prava" in first["secondary_names"] and "Old Fen" in first["secondary_names"]
-    assert act1[1]["children"][0]["characters"] == ["Zara Okafor", "Milo Voss"]
+    assert act1[1]["children"][0]["people"] == ["Zara Okafor", "Milo Voss"]
     others = [c for n in act1 for c in n["children"]][1:] + [
         c for n in act2 for c in n["children"]
     ]
-    assert others and all("secondary_names" not in c for c in others)
+    assert others and all("Prava" not in c["people"] for c in others)
 
 
 async def test_stub_planner_still_parses_the_new_wording(monkeypatch):

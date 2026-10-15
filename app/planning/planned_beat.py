@@ -42,7 +42,8 @@ class PlannedBeat(BaseModel):
 def beat_scene_description(beat: dict) -> str:
     """The scene_description a planned beat generates with. It is byte-identical
     to the legacy "- title: summary" line without its "- ", so scenes written
-    before the migration still count as written (scene_batch.written_beats)."""
+    before the migration were linked to their beats by migration 0019
+    (scene_request.planned_beat_id)."""
     return f"{beat.get('title', '')}: {beat.get('summary', '')}".strip()
 
 

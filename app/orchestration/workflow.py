@@ -31,12 +31,6 @@ from app.llm.json_utils import extract_json_array
 
 logger = setup_logging("orchestration.workflow")
 
-
-# The tone the old request form defaulted to. It says nothing, and printed
-# into a prompt it overrode the style guide's tone (SPEC-24, W2-1): a blank or
-# "neutral" tone is omitted, so the book's own tone governs.
-_NO_TONE = {"", "neutral"}
-
 ALSO_NAMED_LABEL = "Also named (secondary, not in the cast)"
 
 
@@ -60,9 +54,10 @@ def scene_block(scene_request: dict) -> str:
     """The author's scene brief, fenced. It is first-party, but it is free text
     and can carry pasted material, so it is fenced like everything else.
 
-    A blank setting and a blank (or "neutral") tone are left out rather than
-    printed empty — a bare "Setting:" invites the model to invent one, and a
-    default tone overrides the style guide (SPEC-24). Named secondaries the
+    A blank setting and a blank tone are left out rather than printed empty:
+    a bare "Setting:" invites the model to invent one, and a blank tone leaves
+    the style guide's tone to govern (SPEC-24). A tone the author chose,
+    "neutral" included, is kept (review S7). Named secondaries the
     beat declares are listed so they may appear by name without being cast."""
     parts = [
         f"{SCENE_DESCRIPTION_LABEL}: "
@@ -72,7 +67,7 @@ def scene_block(scene_request: dict) -> str:
     if setting:
         parts.append(f"{SETTING_LABEL}: {setting}")
     tone = _one_line(scene_request.get("emotional_tone"))
-    if tone.lower() not in _NO_TONE:
+    if tone:
         parts.append(f"{EMOTIONAL_TONE_LABEL}: {tone}")
     secondaries = secondary_names(scene_request)
     if secondaries:

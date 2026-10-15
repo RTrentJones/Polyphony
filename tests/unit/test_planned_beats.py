@@ -3,20 +3,18 @@
 Promote writes `chapters.planned_beats` from the outline node's children (their
 node_ids, cast, setting, tone and secondary names); generate-planned writes
 each scene from its own beat; the chapter PATCH edits the beats strictly and
-versions them; a chapter from before the migration still generates from its
-summary text; GET /plans and promote expose `suggested_characters`.
+versions them; a scene counts as written by its beat's id only; restoring a
+chapter version from before SPEC-23 converts its "Planned beats:" block once;
+GET /plans and promote expose `suggested_characters`.
 """
 
 import uuid
-from collections import Counter
 
 import pytest
 from sqlalchemy import select
 
 from app.core.orm_models import BookPlan, Chapter, Character, Job, Scene
-from app.jobs import scene_batch
 from app.planning import secondaries
-from app.planning.planned_beat import beat_scene_description
 from tests.unit.test_outline_handoff import _cast
 
 pytestmark = pytest.mark.unit
@@ -385,79 +383,217 @@ async def test_restoring_beats_drops_characters_no_longer_live(
     assert chapter.planned_beats[0]["character_ids"] == []
 
 
-# --- chapters from before the migration -----------------------------------------------
+# --- beat identity, legacy text, restore ------------------------------------------------
 
 
-async def test_a_summary_only_chapter_still_generates(
+async def test_a_renamed_beat_keeps_its_written_scene(
     client, auth_headers, async_session, test_book
 ):
+    """Review B3: a scene is linked to its beat by id, so renaming the beat
+    after its scene was written never writes a second one."""
+    _, promoted, _ = await _beat_book(client, auth_headers, async_session, test_book)
+    url = f"/api/v1/books/chapters/{promoted['chapter_id']}"
+    beat = (await client.get(url, headers=auth_headers)).json()["planned_beats"][0]
+    r = await client.patch(url, json={"planned_beats": [beat]}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    r = await client.post(
+        _PLANNED.format(promoted["chapter_id"]), json={}, headers=auth_headers
+    )
+    assert (r.json()["total"], r.json()["queued"]) == (1, 1)
+    await async_session.execute(Job.__table__.delete())  # the batch is done
+    await async_session.commit()
+
+    renamed = {**beat, "title": "Renamed", "summary": "something else"}
+    r = await client.patch(url, json={"planned_beats": [renamed]}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    r = await client.post(
+        _PLANNED.format(promoted["chapter_id"]), json={}, headers=auth_headers
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "nothing_to_do"
+    assert (r.json()["total"], r.json()["skipped"]) == (1, 1)
+
+
+async def test_a_typed_block_in_the_summary_plans_nothing(
+    client, auth_headers, async_session, test_book
+):
+    """No runtime fallback (SPEC-23): a chapter's beats are its stored
+    `planned_beats`; "Planned beats:" lines typed into a summary are text."""
     ids = await _cast(async_session, test_book)
     chapter = Chapter(
         book_id=test_book.id,
-        title="Old",
+        title="Hand-made",
         position=0,
         summary="Opening.\n\nPlanned beats:\n- Storm: the moor floods\n- Lunch:",
         character_ids=[ids["Milo Voss"]],
     )
     async_session.add(chapter)
     await async_session.commit()
-    beats = scene_batch.planned_beats(chapter)
-    assert [beat_scene_description(b) for b in beats] == [
-        "Storm: the moor floods",
-        "Lunch:",
-    ]
-    # A scene written under the old format still counts as written.
-    async_session.add(
-        Scene(
-            user_id=test_book.user_id,
-            book_id=test_book.id,
-            chapter_id=chapter.id,
-            position=0,
-            scene_description="Storm: the moor floods",
-            status="completed",
-        )
+    r = await client.post(_PLANNED.format(chapter.id), json={}, headers=auth_headers)
+    assert r.status_code == 422
+    assert "no planned beats" in r.json()["detail"]
+    detail = (
+        await client.get(f"/api/v1/books/chapters/{chapter.id}", headers=auth_headers)
+    ).json()
+    assert detail["planned_beats"] == []
+
+
+async def test_restoring_a_pre_spec23_version_converts_its_block_once(
+    client, auth_headers, async_session, test_book
+):
+    from app.versioning import repository as versions_repo
+
+    chapter = Chapter(book_id=test_book.id, title="Old", position=0, summary="Now.")
+    async_session.add(chapter)
+    await async_session.flush()
+    # A version taken before SPEC-23: no `planned_beats` key, beats in the text.
+    await versions_repo.snapshot(
+        async_session,
+        book_id=test_book.id,
+        entity_type="chapter",
+        entity_id=chapter.id,
+        content={
+            "title": "Old",
+            "summary": "Then.\n\nPlanned beats:\n- Storm: the moor\n  floods\n- Lunch:",
+            "status": "drafting",
+        },
+        reason="created",
     )
     await async_session.commit()
-    r = await client.post(_PLANNED.format(chapter.id), json={}, headers=auth_headers)
+    chapter_id = chapter.id
+    restore = f"/api/v1/books/{test_book.id}/versions/chapter/{chapter_id}/restore/1"
+    seen = []
+    for _ in range(2):  # the second restore must not add the beats again
+        r = await client.post(restore, headers=auth_headers)
+        assert r.status_code == 200, r.text
+        async_session.expire_all()
+        live = await async_session.get(Chapter, chapter_id)
+        assert live.summary == "Then."
+        assert [(b["title"], b["summary"]) for b in live.planned_beats] == [
+            ("Storm", "the moor floods"),
+            ("Lunch", ""),
+        ]
+        seen.append([b["node_id"] for b in live.planned_beats])
+    assert seen[0] == seen[1]
+
+
+# --- the beat's cast (review S8) --------------------------------------------------------
+
+
+async def test_a_trashed_beat_cast_falls_back_but_an_explicit_unknown_422s(
+    client, auth_headers, async_session, test_book
+):
+    from datetime import datetime, timezone
+
+    ids, promoted, _ = await _beat_book(client, auth_headers, async_session, test_book)
+    url = _PLANNED.format(promoted["chapter_id"])
+    bogus = str(uuid.uuid4())
+    r = await client.post(url, json={"character_ids": [bogus]}, headers=auth_headers)
+    assert r.status_code == 422 and r.json()["detail"]["unknown"] == [bogus]
+
+    edric = await async_session.get(Character, uuid.UUID(ids["Edric Thane"]))
+    edric.deleted_at = datetime.now(timezone.utc)  # beat 1's whole own cast
+    await async_session.commit()
+    r = await client.post(url, json={}, headers=auth_headers)
     assert r.status_code == 200, r.text
-    assert (r.json()["total"], r.json()["queued"], r.json()["skipped"]) == (2, 1, 1)
-    (request,) = await _requests(async_session)
-    assert request["scene_description"] == "Lunch:"
-    assert request["character_ids"] == [ids["Milo Voss"]]
-    assert request["emotional_tone"] == ""
+    first = (await _requests(async_session))[0]
+    assert first["character_ids"] == [ids["Milo Voss"], ids["Zara Okafor"]]
 
 
-def test_legacy_lines_parse_into_beats_that_rebuild_the_line():
-    chapter = type(
-        "C",
-        (),
-        {
-            "planned_beats": None,
-            "summary": "s\n\nPlanned beats:\n- Part 1: Intake: forms\n- Bare\n- A: b",
-        },
-    )()
-    beats = scene_batch.planned_beats(chapter)
-    assert [beat_scene_description(b) for b in beats] == [
-        "Part 1: Intake: forms",
-        "Bare:",
-        "A: b",
+# --- a single scene from a beat (review S7) ---------------------------------------------
+
+
+async def test_a_single_scene_from_a_beat_stores_its_id_and_secondaries(
+    client, auth_headers, async_session, test_book
+):
+    ids, promoted, (_, _, b3) = await _beat_book(
+        client, auth_headers, async_session, test_book
+    )
+    url = f"/api/v1/books/chapters/{promoted['chapter_id']}/scenes/generate"
+    body = {
+        "character_ids": [ids["Milo Voss"]],
+        "scene_description": "Caseworker: Prava stamps the form",
+        "setting": "",
+        "emotional_tone": "",
+    }
+    r = await client.post(
+        url, json={**body, "planned_beat_id": b3.upper()}, headers=auth_headers
+    )
+    assert r.status_code == 200, r.text
+    (job,) = (await async_session.execute(select(Job))).scalars().all()
+    assert job.payload["request"]["planned_beat_id"] == b3
+    assert job.payload["request"]["secondary_names"] == ["Prava"]
+    scene = await async_session.get(Scene, uuid.UUID(r.json()["scene_id"]))
+    assert scene.scene_request["planned_beat_id"] == b3
+
+    # A beat the chapter no longer has (a stale modal): stored as None.
+    r = await client.post(
+        url,
+        json={**body, "planned_beat_id": str(uuid.uuid4())},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    scene = await async_session.get(Scene, uuid.UUID(r.json()["scene_id"]))
+    assert scene.scene_request["planned_beat_id"] is None
+    assert "secondary_names" not in scene.scene_request
+
+
+# --- promote: one classification per node --------------------------------------------------
+
+
+async def test_legacy_characters_and_people_lists_promote_the_same_beats(
+    client, auth_headers, async_session, test_book
+):
+    from datetime import datetime, timezone
+
+    ids = await _cast(async_session, test_book)
+    gone = Character(book_id=test_book.id, user_id=test_book.user_id, name="Gone")
+    async_session.add(gone)
+    await async_session.commit()
+    gone.deleted_at = datetime.now(timezone.utc)  # trashed since the outline
+    await async_session.commit()
+    child = {"title": "Stamp", "summary": "the form"}
+    await _outline(
+        async_session,
+        test_book,
+        [
+            {
+                "node_id": str(uuid.uuid4()),
+                "title": "Legacy",
+                "summary": "s",
+                "character_ids": [ids["Zara Okafor"], str(gone.id)],
+                "children": [{**child, "characters": ["Milo Voss", "Prava"]}],
+            },
+            {
+                "node_id": str(uuid.uuid4()),
+                "title": "Current",
+                "summary": "s",
+                "children": [
+                    {
+                        **child,
+                        "character_ids": [ids["Milo Voss"], str(gone.id)],
+                        "secondary_names": ["Prava"],
+                    }
+                ],
+            },
+        ],
+    )
+    r = await client.post(
+        f"/api/v1/books/{test_book.id}/plans/promote-all", headers=auth_headers
+    )
+    assert r.status_code == 200, r.text
+    legacy, current = [
+        await async_session.get(Chapter, uuid.UUID(c["chapter_id"]))
+        for c in r.json()["chapters"]
     ]
-    # "Bare" (a hand-written line with no colon) matches its old scene too.
-    written = Counter({"Bare": 1, "A: b": 1})
-    assert scene_batch.unwritten_beats(beats, written) == [beats[0]]
-    assert scene_batch.summary_without_beats(chapter.summary) == "s"
+    assert legacy.character_ids == [ids["Zara Okafor"]]  # the trashed one dropped
 
+    def shape(beats):
+        return [{k: v for k, v in b.items() if k != "node_id"} for b in beats]
 
-def test_data_beats_win_over_summary_text():
-    chapter = type(
-        "C",
-        (),
-        {
-            "planned_beats": [{"title": "Data", "summary": "beat"}],
-            "summary": "s\n\nPlanned beats:\n- Text: beat",
-        },
-    )()
-    assert [b["title"] for b in scene_batch.planned_beats(chapter)] == ["Data"]
+    assert shape(legacy.planned_beats) == shape(current.planned_beats)
+    assert legacy.planned_beats[0]["character_ids"] == [ids["Milo Voss"]]
+    assert legacy.planned_beats[0]["secondary_names"] == ["Prava"]
 
 
 # --- suggested_characters (§1.2) ------------------------------------------------------
@@ -510,9 +646,9 @@ async def test_suggestions_only_for_a_ready_outline_and_never_fatal(
 ):
     calls = []
 
-    def boom(nodes, canon):
+    def boom(names, canon):
         calls.append(1)
-        raise RuntimeError("bug")
+        raise ValueError("bad canon")
 
     monkeypatch.setattr(secondaries, "suggested_characters", boom)
     async_session.add_all(
@@ -543,3 +679,40 @@ async def test_suggestions_only_for_a_ready_outline_and_never_fatal(
     ).json()["plans"]
     assert all(p["suggested_characters"] == [] for p in plans)  # error -> []
     assert calls == [1]
+
+
+async def test_a_promoted_nodes_suggestions_come_from_its_chapter_beats(
+    client, auth_headers, async_session, test_book, monkeypatch
+):
+    """Review S1: once promoted, the chapter's beats are what generation uses,
+    so their names are suggested, not the outline children's."""
+    seen = []
+    monkeypatch.setattr(
+        secondaries,
+        "suggested_characters",
+        lambda names, canon: seen.append(list(names)) or [],
+    )
+    await _cast(async_session, test_book)
+    node = {
+        "node_id": str(uuid.uuid4()),
+        "title": "One",
+        "summary": "a",
+        "secondary_names": ["Node"],
+        "children": [{"title": "Beat", "secondary_names": ["Fen"]}],
+    }
+    await _outline(async_session, test_book, [node, {**node, "node_id": None}])
+    base = f"/api/v1/books/{test_book.id}/plans"
+    r = await client.post(
+        f"{base}/promote", json={"node_index": 0}, headers=auth_headers
+    )
+    assert r.status_code == 200, r.text
+    plan = (await async_session.execute(select(BookPlan))).scalar_one()
+    plan.content = [
+        {**n, "children": [{"title": "Beat", "secondary_names": ["Other"]}]}
+        for n in plan.content
+    ]
+    await async_session.commit()
+    seen.clear()
+    await client.get(base, headers=auth_headers)
+    # Promoted: the chapter's beats. Unpromoted: the outline children.
+    assert seen == [["Node", "Fen", "Node", "Other"]]

@@ -130,7 +130,7 @@ class TestStagedOrchestration:
                 "outline:skeleton": '{"premise_restated":"Milo Voss vs Edric Thane",'
                 '"central_conflict":"labor","acts":[{"title":"A","goal":"g","turn":"t","chapters_planned":1}]}',
                 "outline:chapters": '[{"title":"Ch1","summary":"s","act_index":0,'
-                '"pov":"Milo Voss","characters":["Milo Voss"],"threads":[]}]',
+                '"pov":"Milo Voss","people":["Milo Voss"],"threads":[]}]',
                 "outline:beats": faithful_beats,
             }
         )
@@ -154,12 +154,12 @@ class TestStagedOrchestration:
         # first chapter result omits the cast, the repair result includes them.
         cast_empty_chapters = (
             '[{"title":"Ch1","summary":"a chapter","act_index":0,'
-            '"pov":"","characters":[],"threads":[]}]'
+            '"pov":"","people":[],"threads":[]}]'
         )
         repaired_chapters = (
             '[{"title":"Ch1","summary":"Milo Voss and Zara Okafor vs Edric Thane",'
             '"act_index":0,"pov":"Milo Voss",'
-            '"characters":["Milo Voss","Zara Okafor","Edric Thane"],"threads":[]}]'
+            '"people":["Milo Voss","Zara Okafor","Edric Thane"],"threads":[]}]'
         )
         missing_beats = (
             '[{"title":"Ch1","summary":"nobody named",'
@@ -211,9 +211,9 @@ class TestBeatsStageSeesThePlan:
     )
     _CHAPTERS = (
         '[{"title":"Ch1","summary":"Milo Voss signs on","act_index":0,'
-        '"pov":"Milo Voss","characters":["Milo Voss","Zara Okafor"],"threads":[]},'
+        '"pov":"Milo Voss","people":["Milo Voss","Zara Okafor"],"threads":[]},'
         '{"title":"Ch2","summary":"Edric Thane yields","act_index":1,'
-        '"pov":"Zara Okafor","characters":["Edric Thane","Zara Okafor"],"threads":[]}]'
+        '"pov":"Zara Okafor","people":["Edric Thane","Zara Okafor"],"threads":[]}]'
     )
     _BEATS = [
         '[{"title":"Ch1","summary":"Milo Voss and Zara Okafor",'
@@ -326,3 +326,44 @@ class TestGenerateEndpointEnqueues:
         )
         assert len(jobs) == 1
         assert jobs[0].payload["plan_id"] == body["plan_id"]
+
+
+async def test_a_canon_named_person_in_people_is_a_secondary_not_an_invention(
+    monkeypatch,
+):
+    """Eval finding 3: Halvard Bell is named by the synopsis, not cast. When the
+    model puts him in a beat's `people` he is stored as a secondary, and the
+    audit does not call him an invention. The chapters prompt carries the §1e
+    sentence and no SECONDARY PEOPLE list."""
+    import uuid
+
+    from app.planning.canon import Canon
+
+    milo = types.SimpleNamespace(
+        id=uuid.uuid4(), name="Milo Voss", aliases=["Milo"], role="protagonist"
+    )
+    canon = Canon(
+        title="Bored to Undeath",
+        synopsis="Milo Voss audits the dead. Halvard Bell signs his overtime.",
+        characters=[milo],
+    )
+    chapters = (
+        '[{"title":"Ch1","summary":"Milo Voss signs on","act_index":0,'
+        '"pov":"Milo Voss","people":["Milo Voss"],"threads":[]}]'
+    )
+    beats = (
+        '[{"title":"Ch1","summary":"Milo Voss signs on","children":[{"title":"b",'
+        '"summary":"Milo Voss meets Halvard Bell",'
+        '"people":["Milo Voss","Halvard Bell"],"children":[]}]}]'
+    )
+    fake = FakeLLM({"outline:chapters": chapters, "outline:beats": beats})
+    monkeypatch.setattr(so, "get_llm_client", lambda: fake)
+    skeleton = {"premise_restated": "Milo Voss", "central_conflict": "c", "acts": []}
+    nodes, warnings = await so.generate_staged_outline(canon, skeleton=skeleton)
+    beat = nodes[0]["children"][0]
+    assert beat["character_ids"] == [str(milo.id)]
+    assert beat["secondary_names"] == ["Halvard Bell"]
+    assert not any("Halvard Bell" in w for w in warnings), warnings
+    prompt = fake.prompts["outline:chapters"][0]
+    assert "People the synopsis or canon name who are not in the cast" in prompt
+    assert "SECONDARY PEOPLE" not in prompt

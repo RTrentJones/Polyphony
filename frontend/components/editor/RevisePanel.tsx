@@ -7,8 +7,9 @@
  * SAVED draft; the job's result is a proposal, shown as a side-by-side word
  * diff with Accept and Discard.
  *
- * - Offsets go to the server as Python code points into the server's draft
- *   (the stripped text), converted from the textarea's UTF-16 selection.
+ * - Offsets go to the server as Python code points into the draft (the raw
+ *   editor text, edge whitespace included), converted from the textarea's
+ *   UTF-16 selection.
  * - Every request carries `base_text_hash` (SHA-256 of the UTF-8 draft) and,
  *   when the client knows it, `selected_text`; a stale view is a 409, shown
  *   with the server's reason.
@@ -28,7 +29,7 @@ import {
   type ReviseRequest,
   type RevisionProposal,
 } from '@/lib/revise-api'
-import { selectionToDraftRange, serverDraft, sha256Hex } from '@/lib/text-offsets'
+import { selectionToDraftRange, sha256Hex } from '@/lib/text-offsets'
 import type { Job } from '@/lib/types'
 import { voiceApi } from '@/lib/voice-api'
 
@@ -177,10 +178,9 @@ export default function RevisePanel({
     setError(null)
     setSubmitting(true)
     try {
-      const draft = serverDraft(content)
       const request: ReviseRequest = {
         instruction: instruction.trim(),
-        base_text_hash: await sha256Hex(draft),
+        base_text_hash: await sha256Hex(content),
       }
       if (target.kind === 'range') {
         request.range = { start: target.start, end: target.end }
@@ -189,7 +189,7 @@ export default function RevisePanel({
         // The server locates the beat's own prose; the hash guards the rest.
         request.beat_index = target.beatIndex
       } else {
-        request.selected_text = draft
+        request.selected_text = content
       }
       const r = await reviseApi.revise(sceneId, request)
       if (r.deduplicated) {

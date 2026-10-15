@@ -19,22 +19,20 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.books import lock_scene, owned_scene
+from app.api.books import lock_scene, owned_scene, snapshot_draft
 from app.core.budget import check_user_budget
 from app.core.database import get_db
 from app.core.orm_models import (
     Scene as SceneORM,
-    SceneBeat as SceneBeatORM,
     SceneRevision as SceneRevisionORM,
     User as UserORM,
 )
 from app.core.security import get_current_active_user
 from app.jobs import repository as jobs_repo
-from app.jobs import revise as revise_job
 from app.orchestration import revise as rv
 
 router = APIRouter()
@@ -43,25 +41,8 @@ router = APIRouter()
 _GENERATING = ("processing", "paused")
 
 
-class CharRange(BaseModel):
-    """Character offsets into the draft as GET /proposals returns it (`draft`),
-    end exclusive. Python string indices, i.e. Unicode code points — not
-    UTF-16 code units, which is what a JS string index counts."""
-
-    start: int = Field(..., ge=0)
-    end: int = Field(..., ge=1)
-
-    @model_validator(mode="after")
-    def _ordered(self):
-        if self.end <= self.start:
-            raise ValueError("range.end must be greater than range.start")
-        return self
-
-
-class ReviseRequest(BaseModel):
+class ReviseRequest(rv.SpanSpec):
     instruction: str = Field(..., min_length=1, max_length=2000)
-    range: Optional[CharRange] = None
-    beat_index: Optional[int] = Field(None, ge=0)
     # Optional guards from the client's view of the draft: a stale view (or an
     # offset counted in the wrong unit) is refused instead of revising the
     # wrong words.
@@ -69,11 +50,9 @@ class ReviseRequest(BaseModel):
     selected_text: Optional[str] = None
 
     @model_validator(mode="after")
-    def _one_span(self):
+    def _instruction(self):
         if not self.instruction.strip():
             raise ValueError("instruction must not be blank")
-        if self.range is not None and self.beat_index is not None:
-            raise ValueError("send range OR beat_index (or neither, for the scene)")
         return self
 
 
@@ -81,20 +60,12 @@ def _conflict(message: str) -> HTTPException:
     return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=message)
 
 
-async def _beat_text(db: AsyncSession, scene_id: UUID, beat_index: int) -> str:
-    beat = (
-        await db.execute(
-            select(SceneBeatORM).where(
-                SceneBeatORM.scene_id == scene_id,
-                SceneBeatORM.beat_number == beat_index,
-            )
-        )
-    ).scalar_one_or_none()
-    if beat is None or not (beat.content or "").strip():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Beat not found"
-        )
-    return beat.content
+async def request_span(db: AsyncSession, scene: SceneORM, spec: rv.SpanSpec):
+    """`rv.resolve_scene_span`, its SpanError answered as HTTP."""
+    try:
+        return await rv.resolve_scene_span(db, scene, spec)
+    except rv.SpanError as e:
+        raise HTTPException(status_code=e.status, detail=str(e)) from e
 
 
 async def revise_estimate(db: AsyncSession, scene: SceneORM, span: rv.Span) -> tuple:
@@ -105,28 +76,14 @@ async def revise_estimate(db: AsyncSession, scene: SceneORM, span: rv.Span) -> t
     from app.planning.canon import build_canon, render_character
 
     canon = await build_canon(db, scene.book_id)
-    cast = scene_cast(canon, revise_job.cast_request(scene))
-    draft = revise_job.draft_of(scene)
+    cast = scene_cast(canon, rv.cast_request(scene))
     est = estimates.revise(
         canon_chars=len(canon.full_block()),
         cast_context_chars=sum(len(render_character(c)) + 1500 for c in cast),
-        draft_chars=len(draft),
+        draft_chars=len(scene.draft),
         target_chars=span.end - span.start,
     )
     return est, canon
-
-
-def resolve_request_span(
-    draft: str, payload_range, beat_text: Optional[str] = None
-) -> rv.Span:
-    try:
-        return rv.resolve_span(
-            draft,
-            range_=(payload_range.start, payload_range.end) if payload_range else None,
-            beat_text=beat_text,
-        )
-    except rv.SpanError as e:
-        raise HTTPException(status_code=e.status, detail=str(e)) from e
 
 
 def _proposal_view(row: SceneRevisionORM, draft_hash: str) -> dict:
@@ -173,14 +130,11 @@ async def revise_scene(
     if scene.status in _GENERATING:
         raise _conflict("The scene is still being generated; revise it once done.")
 
-    draft = revise_job.draft_of(scene)
+    draft = scene.draft
     draft_hash = rv.text_hash(draft)
     if payload.base_text_hash is not None and payload.base_text_hash != draft_hash:
         raise _conflict("The draft changed since you loaded it; reload and retry.")
-    beat_text = None
-    if payload.beat_index is not None:
-        beat_text = await _beat_text(db, scene.id, payload.beat_index)
-    span = resolve_request_span(draft, payload.range, beat_text)
+    span = await request_span(db, scene, payload)
     if payload.selected_text is not None and (
         draft[span.start : span.end] != payload.selected_text
     ):
@@ -207,11 +161,12 @@ async def revise_scene(
         "instruction": payload.instruction,
         "range": [span.start, span.end],
         "beat_index": payload.beat_index,
+        "beat_description": span.beat,
         "base_text_hash": draft_hash,
     }
     job, inserted = await jobs_repo.enqueue_reporting(
         db,
-        kind=revise_job.KIND,
+        kind=rv.JOB_KIND,
         payload=job_payload,
         user_id=current_user.id,
         max_attempts=1,  # a retry re-spends; the author can ask again
@@ -242,7 +197,7 @@ async def list_proposals(
     """The scene's AI revision proposals, newest first, with the current draft
     and its hash (what a range is counted against)."""
     scene = await owned_scene(scene_id, current_user, db)
-    draft = revise_job.draft_of(scene)
+    draft = scene.draft
     draft_hash = rv.text_hash(draft)
     rows = (
         (
@@ -305,23 +260,12 @@ async def accept_proposal(
     scene = await lock_scene(db, await owned_scene(scene_id, current_user, db))
     row = await _owned_proposal(db, scene, revision_id)
     meta = row.meta or {}
-    previous = revise_job.draft_of(scene)
-    if rv.text_hash(previous) != meta.get("base_text_hash"):
+    if rv.text_hash(scene.draft) != meta.get("base_text_hash"):
         raise _conflict(
             "The draft changed after this revision was written; ask for a new "
             "revision of the current text."
         )
-
-    # Same snapshot rule as update_scene_content (app/api/books.py).
-    if previous:
-        db.add(
-            SceneRevisionORM(
-                scene_id=scene.id,
-                content=previous,
-                word_count=len(previous.split()),
-                source="edited" if scene.content else "generated",
-            )
-        )
+    snapshot_draft(db, scene)
     now = datetime.now(timezone.utc)
     scene.content = row.content
     scene.word_count = len(row.content.split())

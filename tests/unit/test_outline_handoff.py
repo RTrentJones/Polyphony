@@ -70,9 +70,9 @@ _SKELETON = (
 )
 _CHAPTERS = (
     '[{"title":"Onboarding","summary":"Milo arrives","act_index":0,'
-    '"pov":"Milo","characters":["Milo Voss","Zara"],"threads":["the audit"]},'
+    '"pov":"Milo","people":["Milo Voss","Zara"],"threads":["the audit"]},'
     '{"title":"The Lich","summary":"Edric Thane rules","act_index":0,'
-    '"pov":"the CEL","characters":["Edric Thane","Bob Nobody"],"threads":[]}]'
+    '"pov":"the CEL","people":["Edric Thane","Bob Nobody"],"threads":[]}]'
 )
 # The beat stage does NOT echo the structural fields: the handler's merge has to.
 _BEATS = (
@@ -269,9 +269,11 @@ def test_validator_resolves_names_through_aliases_and_assigns_ids():
     # Re-validation (an edit, a version, a restore) keeps everything, ids too.
     assert validate_outline_nodes(nodes) == nodes
     assert validate_outline_nodes(nodes, cast=[milo, edric]) == nodes
-    with pytest.raises(ValueError, match="Ghost"):
+    # Under strict an unknown name is a secondary; only a dead id is rejected.
+    gone = str(uuid.uuid4())
+    with pytest.raises(ValueError, match=gone):
         validate_outline_nodes(
-            [{"title": "x", "characters": ["Ghost"]}], cast=[milo], strict=True
+            [{"title": "x", "character_ids": [gone]}], cast=[milo], strict=True
         )
 
 
@@ -423,11 +425,11 @@ async def test_promote_unknown_node_id_is_404(
 
 
 def test_merge_fills_only_what_the_beat_stage_left_out():
-    chapters = [{"pov": "Milo", "characters": ["Milo"], "act_index": 1}]
-    nodes = [{"title": "t", "pov": "Zara", "characters": []}]
+    chapters = [{"pov": "Milo", "people": ["Milo"], "act_index": 1}]
+    nodes = [{"title": "t", "pov": "Zara", "people": []}]
     merged = so.merge_structural(chapters, nodes)
     assert merged[0]["pov"] == "Zara"  # the echo wins
-    assert merged[0]["characters"] == ["Milo"] and merged[0]["act_index"] == 1
+    assert merged[0]["people"] == ["Milo"] and merged[0]["act_index"] == 1
 
 
 def test_audit_counts_character_ids_as_presence_and_flags_strangers():

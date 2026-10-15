@@ -2,18 +2,25 @@
 
 * `chapters.planned_beats` is JSONB after upgrade, gone after a downgrade to the
   revision before it.
-* The backfill: a chapter promoted from a node still in the outline takes that
-  node's children (node_ids and new fields kept); any other chapter has its
-  "- title: summary" lines parsed. The summary keeps only its own text.
+* The backfill parses the summary's promote-format "Planned beats:" lines only:
+  the author's edited text is kept, the outline is never read, a summary that
+  merely mentions the phrase is skipped, a block may open the summary, text
+  after the block stays, and a beat's continuation line stays in that beat.
+* Each converted chapter's pre-SPEC-23 scenes are linked to their beats once
+  (`scene_request.planned_beat_id`), so generate-planned skips them (viii).
 * Promoted titles lose a leading "Chapter N:", unless that empties them.
 * upgrade -> downgrade -> upgrade leaves the same summaries and beats.
+* The migration's inline parser equals `planned_beat.split_legacy_summary`.
 
 Skipped unless RUN_PG_TESTS is set (CI provides a pgvector service).
 """
 
 import asyncio
+import importlib.util
+import logging
 import os
 import uuid
+from pathlib import Path
 
 import pytest
 from sqlalchemy import text
@@ -28,6 +35,7 @@ pytestmark = [
 ]
 
 REVISION = "w2_planned_beats"
+_MIGRATION = Path(__file__).parents[2] / "alembic/versions/0019_w2_planned_beats.py"
 
 
 def _alembic():
@@ -77,25 +85,112 @@ def _shape(beats):
     return [(b["title"], b["summary"]) for b in beats or []]
 
 
-async def test_migration_backfills_strips_titles_and_round_trips():
+class _Lines(logging.Handler):
+    def __init__(self):
+        super().__init__(logging.INFO)
+        self.lines = []
+
+    def emit(self, record):
+        self.lines.append(record.getMessage())
+
+
+def _migration_module():
+    spec = importlib.util.spec_from_file_location("m0019", _MIGRATION)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_FIXTURES = [
+    "Milo arrives\n\nPlanned beats:\n- Badge photo: he is dead\n- Lunch:",
+    "Planned beats:\n- Storm: the moor floods",
+    "Head\n\nPlanned beats:\n- A: one\n  more of one\n- B: two\n\nAfter the block.",
+    "Planned beats: TBD. Then the storm.",
+    "Notes\n\nPlanned beats:\nTBD",
+    "x\n\nPlanned beats:\n- :\n- : orphan summary\n- Bare\n- " + "T" * 600 + ": s",
+    "No marker at all.",
+]
+
+
+def test_the_inline_parser_matches_the_app():
+    """(vii) Parity: the migration's copies equal the app's functions."""
+    from app.planning.planned_beat import (
+        beat_from_line,
+        normalize_planned_beats,
+        split_legacy_summary,
+    )
+
+    m = _migration_module()
+    for summary in _FIXTURES:
+        app_split = split_legacy_summary(summary)
+        ours = m._split(summary)
+        if app_split is None:
+            assert ours is None, summary
+            continue
+        assert ours == (app_split.text, [(x.head, x.text) for x in app_split.lines])
+        app_beats = normalize_planned_beats(
+            [beat_from_line(x.text) for x in app_split.lines]
+        )
+        mig_beats = [b for b in (m._beat(line) for _, line in ours[1]) if b]
+        assert [{**b, "node_id": ""} for b in mig_beats] == [
+            {**b, "node_id": ""} for b in app_beats
+        ]
+        assert all(uuid.UUID(b["node_id"]).version == 4 for b in mig_beats)
+
+
+async def _insert(conn, table, **row):
+    cols = ", ".join(row)
+    await conn.execute(
+        text(
+            f"INSERT INTO {table} ({cols}) VALUES ({', '.join(':' + c for c in row)})"
+        ),
+        row,
+    )
+
+
+async def test_migration_converts_links_strips_titles_and_round_trips(monkeypatch):
+    import logging.config
+
+    import httpx
+
+    import app.core.database as db_mod
+    from app.core import estimates
     from app.core.database import get_async_db_url
-    from app.core.orm_models import Book, BookPlan, User
+    from app.core.orm_models import Book, BookPlan, Character, Job, User
+    from app.core.security import create_access_token
+    from app.main import app
+
+    # env.py's fileConfig would drop this test's handler from the logger.
+    monkeypatch.setattr(logging.config, "fileConfig", lambda *a, **k: None)
+    log = _Lines()
+    migration_logger = logging.getLogger("alembic.runtime.migration")
+    migration_logger.addHandler(log)
+    monkeypatch.setattr(migration_logger, "level", logging.INFO)
 
     cfg, before = _alembic()
     await _alembic_cmd("upgrade", cfg, "head")
     engine = create_async_engine(get_async_db_url())
     Session = async_sessionmaker(engine, expire_on_commit=False)
-    node_id, gone_node, c1, c2 = (uuid.uuid4() for _ in range(4))
-    zara = str(uuid.uuid4())
+    monkeypatch.setattr(db_mod, "get_session_factory", lambda: Session)
+
+    async def _none():
+        return None
+
+    monkeypatch.setattr(estimates, "requests_left_today", _none)
+    node_id = uuid.uuid4()
     try:
         assert await _column_type(engine) == "jsonb"
         async with Session() as s:
             user = User(email=f"beats-{uuid.uuid4()}@ex.com", hashed_password="x")
             s.add(user)
             await s.flush()
-            book = Book(user_id=user.id, title="B", synopsis="s")
+            book = Book(user_id=user.id, title="B", synopsis="Milo.")
             s.add(book)
             await s.flush()
+            milo = Character(book_id=book.id, user_id=user.id, name="Milo Voss")
+            s.add(milo)
+            # The outline's child no longer matches the author's edited line.
+            child = {"node_id": str(uuid.uuid4()), "title": "Badge photo"}
             s.add(
                 BookPlan(
                     book_id=book.id,
@@ -104,122 +199,188 @@ async def test_migration_backfills_strips_titles_and_round_trips():
                         {
                             "node_id": str(node_id),
                             "title": "Chapter 2: Milo Voss",
-                            "summary": "Milo arrives",
-                            "children": [
-                                {
-                                    "node_id": str(c1),
-                                    "title": "Badge photo",
-                                    "summary": "he is dead",
-                                    "setting": "Intake Atrium",
-                                    "tone": "dread",
-                                    "character_ids": [zara],
-                                    "secondary_names": ["Prava"],
-                                    "children": [],
-                                },
-                                {
-                                    "node_id": str(c2),
-                                    "title": "Lunch",
-                                    "summary": "",
-                                    "children": [],
-                                },
-                            ],
+                            "children": [{**child, "summary": "the outline's"}],
                         }
                     ],
                 )
             )
             await s.commit()
-            book_id = book.id
+            user_id, book_id, milo_id = user.id, book.id, str(milo.id)
 
         await _alembic_cmd("downgrade", cfg, before)
         assert await _column_type(engine) is None
 
-        # Chapters as the pre-SPEC-23 promote wrote them.
-        promoted, loose, orphan = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        # Chapters as the pre-SPEC-23 promote (or an author) wrote them.
+        edited, at_start, tail, stray, loose, wrapped = (uuid.uuid4() for _ in "123456")
         rows = [
+            # (i) the author edited the promoted line
             (
-                promoted,
-                0,
+                edited,
                 "Chapter 2: Milo Voss",
                 "Milo arrives\n\nPlanned beats:\n- Badge photo: he is dead\n- Lunch:",
                 node_id,
             ),
+            # (iv) an empty node summary put the block at offset 0
+            (at_start, "Chapter 4:", "Planned beats:\n- Memo: a decree", uuid.uuid4()),
+            # (v) the author typed below the block
+            (tail, "T", "Head\n\nPlanned beats:\n- A: one\n- B: two\n\nAfter.", None),
+            # (iii) a hand-written mention, not a block
+            (stray, "Stray", "Planned beats: TBD. Then the storm.", None),
             (
                 loose,
-                1,
                 "Chapter 3: Hand-made",  # no plan_node_id: title kept
                 "Loose\n\nPlanned beats:\n- Part 1: Storm: floods\n- Bare",
                 None,
             ),
+            # (ix) a child summary with a newline continues its beat
             (
-                orphan,
-                2,
-                "Chapter 4:",  # stripping would empty it: kept
-                "Gone\n\nPlanned beats:\n- Memo: a decree",
-                gone_node,  # its node is no longer in the outline
+                wrapped,
+                "Wrapped",
+                "W\n\nPlanned beats:\n- Storm: the moor\nfloods at night\n- Shelter: barn",
+                None,
             ),
         ]
         async with engine.begin() as c:
-            for cid, pos, title, summary, plan_node in rows:
-                await c.execute(
-                    text(
-                        "INSERT INTO chapters (id, book_id, position, title, "
-                        "summary, status, plan_node_id) VALUES (:id, :b, :p, :t, "
-                        ":s, 'drafting', :n)"
-                    ),
-                    {
-                        "id": cid,
-                        "b": book_id,
-                        "p": pos,
-                        "t": title,
-                        "s": summary,
-                        "n": plan_node,
-                    },
+            for pos, (cid, title, summary, plan_node) in enumerate(rows):
+                await _insert(
+                    c,
+                    "chapters",
+                    id=cid,
+                    book_id=book_id,
+                    position=pos,
+                    title=title,
+                    summary=summary,
+                    status="drafting",
+                    plan_node_id=plan_node,
+                )
+            await c.execute(
+                text("UPDATE chapters SET character_ids = CAST(:c AS json)"),
+                {"c": f'["{milo_id}"]'},
+            )
+            # Pre-SPEC-23 scenes, written from the "- " lines (no beat id).
+            scenes = [
+                (edited, 0, "Badge photo: he is dead", "completed"),
+                (edited, 1, "Lunch:", "failed"),  # failed: never linked
+                (wrapped, 0, "Storm: the moor", "completed"),
+                (tail, 0, "Something else", "completed"),
+            ]
+            for chapter_id, pos, description, status in scenes:
+                await _insert(
+                    c,
+                    "scenes",
+                    id=uuid.uuid4(),
+                    user_id=user_id,
+                    book_id=book_id,
+                    chapter_id=chapter_id,
+                    position=pos,
+                    scene_description=description,
+                    status=status,
                 )
 
+        log.lines.clear()
         await _alembic_cmd("upgrade", cfg, "head")
         assert await _column_type(engine) == "jsonb"
-        got = await _chapters(engine, [promoted, loose, orphan])
+        (line,) = [x for x in log.lines if x.startswith("0019 planned beats: ")]
+        # At least this test's rows (other tests' chapters may share the DB).
+        counts = dict(kv.split("=") for kv in line.split(": ")[1].split())
+        assert int(counts["converted"]) >= 5 and int(counts["skipped"]) >= 1
+        assert int(counts["scenes_linked"]) >= 2 and int(counts["beats"]) >= 9
+        ids = [r[0] for r in rows]
+        got = await _chapters(engine, ids)
+        expected = {
+            edited: (
+                "Milo Voss",
+                "Milo arrives",
+                [("Badge photo", "he is dead"), ("Lunch", "")],
+            ),
+            at_start: ("Chapter 4:", "", [("Memo", "a decree")]),  # would empty it
+            tail: ("T", "Head\n\nAfter.", [("A", "one"), ("B", "two")]),
+            stray: ("Stray", "Planned beats: TBD. Then the storm.", []),
+            loose: (
+                "Chapter 3: Hand-made",
+                "Loose",
+                [("Part 1", "Storm: floods"), ("Bare", "")],
+            ),
+            wrapped: (
+                "Wrapped",
+                "W",
+                [("Storm", "the moor floods at night"), ("Shelter", "barn")],
+            ),
+        }
+        for cid, (title, summary, beats) in expected.items():
+            assert (got[cid][1], got[cid][2], _shape(got[cid][3])) == (
+                title,
+                summary,
+                beats,
+            )
+        assert got[stray][3] is None
+        beats = got[edited][3]
+        assert all(uuid.UUID(b["node_id"]).version == 4 for b in beats)
+        assert beats[0]["character_ids"] == [] and beats[0]["tone"] == ""
 
-        _, title, summary, beats = got[promoted]
-        assert title == "Milo Voss"
-        assert summary == "Milo arrives"
-        assert [b["node_id"] for b in beats] == [str(c1), str(c2)]  # from the plan
-        assert beats[0]["setting"] == "Intake Atrium" and beats[0]["tone"] == "dread"
-        assert beats[0]["character_ids"] == [zara]
-        assert beats[0]["secondary_names"] == ["Prava"]
+        # The scenes: linked once, by occurrence, to the beat of their line.
+        async with engine.connect() as c:
+            linked = {
+                (r[0], r[1]): r[2]
+                for r in await c.execute(
+                    text(
+                        "SELECT chapter_id, position, "
+                        "scene_request->>'planned_beat_id' FROM scenes "
+                        "WHERE chapter_id = ANY(:ids)"
+                    ),
+                    {"ids": ids},
+                )
+            }
+        assert linked == {
+            (edited, 0): beats[0]["node_id"],
+            (edited, 1): None,
+            (wrapped, 0): got[wrapped][3][0]["node_id"],
+            (tail, 0): None,
+        }
 
-        _, title, summary, beats = got[loose]
-        assert title == "Chapter 3: Hand-made"
-        assert summary == "Loose"
-        assert _shape(beats) == [("Part 1", "Storm: floods"), ("Bare", "")]
-        assert all(uuid.UUID(b["node_id"]) for b in beats)
+        # (viii) generate-planned skips the beat already written before SPEC-23.
+        token = create_access_token(data={"sub": str(user_id)})
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            r = await client.post(
+                f"/api/v1/books/chapters/{edited}/scenes/generate-planned",
+                json={},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert r.status_code == 200, r.text
+        assert (r.json()["total"], r.json()["queued"], r.json()["skipped"]) == (2, 1, 1)
+        async with Session() as s:
+            job = await s.get(Job, uuid.UUID(r.json()["job_id"]))
+            assert job.payload["request"]["planned_beat_id"] == beats[1]["node_id"]
+            assert job.payload["batch"]["remaining"] == []
 
-        _, title, summary, beats = got[orphan]
-        assert title == "Chapter 4:"
-        assert summary == "Gone"
-        assert _shape(beats) == [("Memo", "a decree")]
-
-        # Round trip: the beats go back into the summary and come out again.
+        # (vi) Round trip: the beats go back into the summary and come out again.
         await _alembic_cmd("downgrade", cfg, before)
         async with engine.connect() as c:
             restored = (
                 await c.execute(
-                    text("SELECT summary FROM chapters WHERE id = :id"),
-                    {"id": loose},
+                    text("SELECT summary FROM chapters WHERE id = :id"), {"id": loose}
                 )
             ).scalar()
         assert restored == ("Loose\n\nPlanned beats:\n- Part 1: Storm: floods\n- Bare:")
         await _alembic_cmd("upgrade", cfg, "head")
-        again = await _chapters(engine, [promoted, loose, orphan])
-        for cid in (promoted, loose, orphan):
+        again = await _chapters(engine, ids)
+        for cid in ids:
             assert again[cid][1] == got[cid][1]  # title
-            assert again[cid][2] == got[cid][2]  # summary
             assert _shape(again[cid][3]) == _shape(got[cid][3])
-        assert [b["node_id"] for b in again[promoted][3]] == [str(c1), str(c2)]
+            if cid != tail:  # trailing text ends up before the block (SPEC-23)
+                assert again[cid][2] == got[cid][2]
         await _alembic_cmd("upgrade", cfg, "head")  # idempotent
     finally:
+        migration_logger.removeHandler(log)
         await _alembic_cmd("upgrade", cfg, "head")
         async with engine.begin() as c:
+            await c.execute(
+                text(
+                    "DELETE FROM jobs WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'beats-%@ex.com')"
+                )
+            )
             await c.execute(text("DELETE FROM users WHERE email LIKE 'beats-%@ex.com'"))
         await engine.dispose()
 

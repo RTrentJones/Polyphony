@@ -347,21 +347,6 @@ async def test_recreating_a_purged_chapter_keeps_its_node_only_if_free(
 # --- generate all planned scenes (SPEC-10 follow-up) -----------------------------
 
 
-def test_planned_beat_lines_mirror_the_modal():
-    summary = (
-        "Milo arrives\n\nPlanned beats:\n- Badge photo: he is dead\n"
-        "- Lunch: \n  - Exit: Zara leaves\nnot a beat"
-    )
-    assert scene_batch.planned_beat_lines(summary) == [
-        "Badge photo: he is dead",
-        "Lunch:",  # a titled beat with no summary still counts, as in the modal
-        "Exit: Zara leaves",
-    ]
-    assert scene_batch.planned_beat_lines("Planned beats:\n- :\n- \n") == []
-    assert scene_batch.planned_beat_lines("no beats here") == []
-    assert scene_batch.planned_beat_lines(None) == []
-
-
 async def _two_beat_chapter(client, auth_headers, async_session, test_book):
     ids = await _cast(async_session, test_book)
     outline = [
@@ -424,26 +409,6 @@ async def test_generate_planned_enqueues_the_first_scene_of_a_chain(
     assert len((await async_session.execute(select(Job))).scalars().all()) == 1
 
 
-def test_unwritten_beats_count_repeated_beats_by_occurrence():
-    from collections import Counter
-
-    milo = {"node_id": "a", "title": "Milo", "summary": "waits"}
-    zara = {"node_id": "b", "title": "Zara", "summary": "speaks"}
-    beats = [milo, zara, {**milo, "node_id": "c"}]
-    # One "Milo: waits" scene is written: the second occurrence is still owed.
-    assert scene_batch.unwritten_beats(beats, Counter({"Milo: waits": 1})) == [
-        zara,
-        beats[2],
-    ]
-    assert (
-        scene_batch.unwritten_beats(
-            beats, Counter({"Milo: waits": 2, "Zara: speaks": 1})
-        )
-        == []
-    )
-    assert scene_batch.unwritten_beats(beats, Counter()) == beats
-
-
 async def test_generate_planned_retries_a_position_clash_raised_at_flush(
     client, auth_headers, async_session, test_book, monkeypatch
 ):
@@ -490,6 +455,7 @@ async def test_an_in_flight_batch_reports_the_chapter_total(
             chapter_id=chapter.id,
             position=0,
             scene_description="Badge photo: Milo learns he is dead",
+            scene_request={"planned_beat_id": chapter.planned_beats[0]["node_id"]},
             status="completed",
         )
     )

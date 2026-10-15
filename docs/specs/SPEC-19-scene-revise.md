@@ -35,8 +35,20 @@ is W2-A.
 | `POST /scenes/{id}/revisions/{rid}/discard` | `meta.status = "discarded"`. Nothing else changes. |
 | `POST /estimate` `{action: "revise", scene_id, range? \| beat_index?}` | The same estimate the revise endpoint enforces. |
 
-- **The draft** is `scene_text(scene)`: edited content, else the generation, stripped. This is the
-  text `PUT /content` snapshots and the export prints. **Offsets** are Python string indices
+- **The draft** is `Scene.draft` (`app/core/orm_models.py`): edited content, else the
+  generation, else `""`, **raw** (edge whitespace kept). It is the one definition: the editor
+  loads it (`GET /scenes/{id}` `content`), `PUT /content` and accept snapshot it, the job splices
+  it, and the export prints it trimmed (`scene_text` = `scene.draft.strip()`).
+- **Snapshots** are one function, `books.snapshot_draft(db, scene)`: a manual save and an accept
+  both call it, so the rule (`edited` once the author has saved over the generation, else
+  `generated`) cannot diverge.
+- **The span** is one model and one resolver: `SpanSpec` (`range` + `beat_index` + the one-of
+  rule, in `app/orchestration/revise.py`) is the base of both `ReviseRequest` and the estimate's
+  `EstimateRequest`, and `resolve_scene_span(db, scene, spec) -> Span` resolves it for both
+  endpoints. A beat span carries its `SceneBeat.description`.
+- **Layering:** API → orchestration ← job. `app/api/*` never imports `app.jobs.revise`; the job
+  kind (`JOB_KIND`), `cast_request`, `SpanSpec` and `resolve_scene_span` live in
+  `app/orchestration/revise.py`. **Offsets** are Python string indices
   (Unicode code points) into `draft` as `GET /proposals` returns it, end exclusive. A JS string
   index counts UTF-16 code units, so W2-A converts a selection with
   `Array.from(text.slice(0, i)).length`. W2-A should also send `selected_text` and
@@ -56,7 +68,7 @@ is W2-A.
 ### Job (`app/jobs/revise.py`, kind `revise_scene`, `domain = ("scene", id)`, `max_attempts=1`)
 
 Payload `{scene_id, user_id, book_id, instruction, range: [start, end], beat_index,
-base_text_hash}`. The span is resolved at the API, so the job always works on a range.
+beat_description, base_text_hash}`. The span is resolved at the API, so the job always works on a range.
 
 1. Re-read the scene, the chapter summary and the canon. If the draft's hash differs from
    `base_text_hash`, fail with "The draft was edited after this revision was requested…". The
@@ -80,16 +92,20 @@ The prompt opens with "Revise the TARGET passage…" (the stub's marker). Then c
 `STORY_MATERIAL_NOTICE`, with one stated exception for the `<instruction>` block (the author's
 request), the whole `Canon.full_block()`, the chapter summary `<chapter>`, and the scene's cast
 via `build_cast_context` (bible and voice samples, retrieved for instruction + target). Next is
-the POV (the request's, else the style guide's), the text before the span as read-only `<prior>`,
+the POV line, `Point of view: <Pov.label>` (`prose.resolve_pov`, SPEC-24), and, for a beat
+revise, `Beat <beat_index + 1> of this scene's plan: <SceneBeat.description>` right after it, so
+"redo beat 2" tells the model what beat 2 was for (eval finding 6). A range or whole-scene revise
+has no plan line. Then the text before the span as read-only `<prior>`,
 the `<target>`, the text after as read-only `<after>`, and the `<instruction>`. Everything is
 fenced with `as_quoted_block`, and nothing is truncated: prior + target + after is the whole draft.
 
 ### Cast fidelity (warn only, canon invariant 4)
 
-`unknown_proper_nouns` (the outline audit's check) runs on the revised span against canon terms
-plus proper nouns already in the draft. For prose there are two cuts. A word the text also uses in
-lower case is not a name. A lone capitalised word counts only if it is capitalised mid-sentence,
-so a sentence-initial "Silence" is not a name, while "Bartholomew Quince" always is. Findings go
+`new_names` is one call, `unknown_proper_nouns(revised, canon_terms, canon_text=draft)` (the
+outline audit's check, W1-S7): the draft's capitalised phrases count as known and the words it
+uses in lowercase as common words, so "Bartholomew Quince" is reported and "Outside" (capitalised
+in the draft) or "Numbers" (lowercase in the draft) is not. The revise path has no rules of its
+own. Findings go
 to `meta.warnings` / `meta.unknown_names`, and the proposal is never failed.
 
 ### Schema
@@ -114,9 +130,26 @@ guarded. Downgrade drops the column, and proposals stay as plain revisions.
 | `QuotaExhaustedError` pauses, then resumes (through the worker) | `…::test_quota_exhaustion_pauses_then_resumes_without_touching_the_draft` |
 | Cancel marks the proposal cancelled; cancel mid-call stores nothing | `…::test_cancel_and_dead_hooks_mark_this_jobs_proposal_only`, `…::test_cancel_during_the_call_stores_nothing` |
 | No new named character (deterministic warning) | `…::test_an_invented_name_is_a_warning_not_a_failure`, `…::test_new_names_warns_on_an_invented_name_only` |
+| One draft (raw), trimmed only by the export | `…::test_scene_draft_is_raw_and_the_export_trims_it` |
+| Save and accept snapshot by one rule | `…::test_save_and_accept_snapshot_the_draft_by_one_rule` |
+| `SpanSpec` refuses range + beat for revise and estimate | `…::test_span_spec_takes_a_range_or_a_beat_never_both` |
+| Beat revise names the beat from the plan; a range revise does not | `…::test_a_beat_revise_prompt_names_the_beat_from_the_plan`, `…::test_prompt_carries_canon_cast_and_read_only_surroundings` |
+| `GET /scenes/{id}` returns `beats` | `tests/unit/test_book_scenes.py::…::test_get_scene_returns_its_beats_in_order` |
 | Migration upgrade/downgrade on PG | `tests/integration/test_pg_scene_revise.py::test_migration_upgrade_downgrade_round_trip` |
 | Revise → accept through the worker on PG | `…::test_revise_accept_round_trip_through_the_worker` |
 | Judge: instruction adherence ≥ 0.8, R5 continuity ≥ 0.8 | after-eval §3.4 (orchestrator) |
+
+### Scene read (`GET /api/v1/scenes/{id}`, W1-S9)
+
+The response adds the beats the scene was written in, loaded with the scene (no per-beat query):
+
+```text
+"beats": [{"beat_number": int, "description": str | null, "content": str | null}, ...]
+```
+
+ordered by `beat_number`; `[]` when the scene has no `SceneBeat` rows. `content` is the raw
+`Scene.draft` (null when empty). The eval harness reads beat prose from here, never from the
+database.
 
 ## Docs (delta for the orchestrator to apply)
 

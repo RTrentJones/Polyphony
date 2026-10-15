@@ -44,14 +44,8 @@ export function codePointToUtf16(text: string, cpIndex: number): number {
   return i
 }
 
-/** The server's revise draft is the raw editable text (app/jobs/revise.py
- *  draft_of), edge whitespace included, so it is the editor text as is. */
-export function serverDraft(text: string): string {
-  return text || ''
-}
-
 export interface DraftSelection {
-  /** Code-point offsets into the server draft, end exclusive. */
+  /** Code-point offsets into the draft, end exclusive. */
   start: number
   end: number
   /** The selected text, exactly as the server will slice it. */
@@ -59,16 +53,16 @@ export interface DraftSelection {
 }
 
 /**
- * A textarea selection (UTF-16, over the editor text) as a range into the
- * server draft (code points). Null when nothing, or only whitespace, is
+ * A textarea selection (UTF-16) as a range into the draft (code points).
+ * The server's draft is the raw editor text, edge whitespace included, so the
+ * editor text is the draft as is. Null when nothing, or only whitespace, is
  * selected.
  */
 export function selectionToDraftRange(
-  editorText: string,
+  draft: string,
   selectionStart: number,
   selectionEnd: number
 ): DraftSelection | null {
-  const draft = serverDraft(editorText)
   const from = Math.max(0, Math.min(selectionStart, selectionEnd))
   const to = Math.min(draft.length, Math.max(selectionStart, selectionEnd))
   if (to <= from) return null

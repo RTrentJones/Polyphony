@@ -44,15 +44,9 @@ from app.core.prompt_markers import ACT_CHAPTERS_HEADER, CONFIRMED_PREMISE_NOTE
 from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_array, extract_json_object
 from app.planning.canon import Canon
-from app.planning.fidelity import (
-    FidelityAudit,
-    _norm,
-    _present,
-    audit_outline,
-    canon_known_text,
-)
+from app.parsing import names
+from app.planning.fidelity import FidelityAudit, audit_outline, canon_known_text
 from app.planning.outline import CastIndex, validate_outline_nodes
-from app.planning.secondaries import secondary_candidates
 
 logger = setup_logging("planning.staged_outline")
 
@@ -93,24 +87,20 @@ JSON:"""
     return extract_json_object(result.text)
 
 
-SECONDARY_PEOPLE_LABEL = (
-    "SECONDARY PEOPLE (named in the synopsis or canon, not in the cast; "
-    "you may name them, never invent others)"
-)
-
-
 def _cast_rules(canon: Canon) -> str:
-    """Who the outline may name (SPEC-24, W2-2). Principals are the canon cast
-    and only the canon cast; the people the synopsis or canon entries name
-    beyond it are allowed by name (the author wrote them), listed on ONE line;
-    anyone else is an invention."""
+    """Who the outline may name (SPEC-24 §1e). Principals are the canon cast
+    and only the canon cast; people the synopsis or canon name beyond it may
+    appear by name (the author wrote them); anyone else is an invention. The
+    model lists everyone in one `people` list and the server classifies it
+    (outline.classify_people), so the prompt never guesses who is a person."""
     cast_names = ", ".join(c.name for c in canon.characters) or "(none named)"
-    secondaries = ", ".join(secondary_candidates(canon)) or "(none)"
     return (
-        f"Principal characters MUST be canon cast: {cast_names}. Do not introduce\n"
-        "new principal characters. `pov` and `characters` name canon cast only; a\n"
-        "secondary person who appears goes in `secondary_names` instead.\n"
-        f"{SECONDARY_PEOPLE_LABEL}: {secondaries}"
+        f"Principal characters MUST be canon cast: {cast_names}. "
+        "Do not introduce new principal characters.\n"
+        "People the synopsis or canon name who are not in the cast may appear "
+        "by name; never invent others.\n"
+        "`pov` names one canon cast member; `people` lists everyone named in "
+        "that chapter or beat: canon cast, or people the synopsis or canon name."
     )
 
 
@@ -172,7 +162,7 @@ async def _stage_chapters(
         repair = (
             "\n\nThe previous attempt OMITTED these principal characters entirely. "
             "You MUST give each of them a role across the chapters, present in the "
-            f"`pov` or `characters` of specific chapters: {', '.join(repair_missing)}"
+            f"`pov` or `people` of specific chapters: {', '.join(repair_missing)}"
         )
     prompt = f"""{STORY_MATERIAL_NOTICE}
 
@@ -189,8 +179,7 @@ Return ONLY a JSON array of chapters:
 [
   {{"title": "chapter title", "summary": "1-2 sentences of what CHANGES",
     "act_index": <int, 0-based>, "pov": "canon character name or ''",
-    "characters": ["canon names present"],
-    "secondary_names": ["secondary people from the list above who appear"],
+    "people": ["everyone named in this chapter"],
     "threads": ["optional plot threads"]}}
 ]
 
@@ -237,22 +226,20 @@ the canon.
 
 Each beat's summary must say what CHANGES, not just what happens. The beats
 must serve the premise and this act's goal, and the act's final chapter must
-end on its turn. Give each beat its own cast: `characters` is the canon cast
-actually present in THAT beat (not the whole chapter's), `secondary_names` the
-secondary people from the list above who appear in it, `setting` where it
-happens, and `tone` its emotional tone. A functional figure the canon does not
-name (a clerk, a guard) stays unnamed.
+end on its turn. Give each beat its own `people`: everyone named in THAT beat
+(not the whole chapter's), plus `setting` where it happens and `tone` its
+emotional tone. A functional figure the canon does not name (a clerk, a guard)
+stays unnamed.
 
 Return ONLY a JSON array mirroring the chapters, each with its beats as
-children. Echo each chapter's title, summary, act_index, pov, characters,
-secondary_names and threads unchanged:
+children. Echo each chapter's title, summary, act_index, pov, people and
+threads unchanged:
 [
   {{"title": <chapter title>, "summary": <chapter summary>,
-    "act_index": <int>, "pov": <pov>, "characters": [<names>],
-    "secondary_names": [<names>], "threads": [<threads>],
+    "act_index": <int>, "pov": <pov>, "people": [<names>],
+    "threads": [<threads>],
     "children": [{{"title": <beat title>, "summary": <what changes>,
-      "characters": [<canon cast in this beat>],
-      "secondary_names": [<secondary people in this beat>],
+      "people": [<everyone named in this beat>],
       "setting": <where it happens>, "tone": <its emotional tone>,
       "children": []}}]}}
 ]
@@ -268,7 +255,7 @@ JSON:"""
     return extract_json_array(result.text)
 
 
-_STRUCTURAL = ("act_index", "pov", "characters", "threads", "secondary_names")
+_STRUCTURAL = ("act_index", "pov", "people", "threads")
 _EMPTY = (None, "", [])
 
 
@@ -472,6 +459,7 @@ async def generate_staged_outline(
     await _emit("audit")
     cast = _cast_index(canon)
     canon_text = canon_known_text(canon)
+    known_text = names.norm(canon_text)
     audit: FidelityAudit = audit_outline(
         nodes, principals, known, cast=cast, canon_text=canon_text
     )
@@ -491,55 +479,7 @@ async def generate_staged_outline(
             nodes, principals, known, cast=cast, canon_text=canon_text
         )
 
-    nodes = keep_known_secondaries(nodes, canon_text, cast)
-    return validate_outline_nodes(nodes, cast=cast), list(audit.warnings)
-
-
-def keep_known_secondaries(
-    nodes: list, canon_text: str, cast: Optional[CastIndex]
-) -> list:
-    """The generation path's secondary filter (SPEC-24 §1.1), applied to every
-    node and child before validation:
-
-    - a `secondary_names` entry the canon text never names is dropped (the
-      audit has already warned about it as a possible invention);
-    - a `characters` entry that is not cast but IS named in the canon text
-      (the model cast Prava in `characters`) becomes a secondary rather than
-      being lost, so the author can still be offered "Add Prava to cast".
-    """
-    hay = _norm(canon_text)
-
-    def known(name: str) -> bool:
-        return bool(hay) and _present(name, hay)
-
-    out = []
-    for node in nodes if isinstance(nodes, list) else []:
-        if not isinstance(node, dict):
-            out.append(node)
-            continue
-        node = dict(node)
-        raw = node.get("secondary_names")
-        names = [
-            str(n).strip()
-            for n in (raw if isinstance(raw, list) else [])
-            if isinstance(n, str) and n.strip() and known(n)
-        ]
-        refs = node.get("characters")
-        if cast is not None and not isinstance(node.get("character_ids"), list):
-            for ref in refs if isinstance(refs, list) else []:
-                ref = str(ref).strip()
-                if (
-                    ref
-                    and cast.resolve(ref) is None
-                    and known(ref)
-                    and ref.lower() not in {n.lower() for n in names}
-                ):
-                    names.append(ref)
-        if isinstance(raw, list) or names:
-            node["secondary_names"] = names
-        if isinstance(node.get("children"), list):
-            node["children"] = keep_known_secondaries(
-                node["children"], canon_text, cast
-            )
-        out.append(node)
-    return out
+    return (
+        validate_outline_nodes(nodes, cast=cast, known_text=known_text),
+        list(audit.warnings),
+    )

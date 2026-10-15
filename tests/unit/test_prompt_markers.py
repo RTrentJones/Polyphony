@@ -117,12 +117,12 @@ def test_labelled_line():
 
 def test_pov_line_re_mode_and_who():
     """S5: a POV character may contain a period ("Dr. Ada Vance")."""
-    from app.orchestration.prose import pov_instruction
+    from app.orchestration.prose import Pov, pov_instruction
 
-    m = POV_LINE_RE.search(pov_instruction("first person, Dr. Ada Vance"))
+    m = POV_LINE_RE.search(pov_instruction(Pov("first person", "Dr. Ada Vance")))
     assert m.group("mode") == "first person"
     assert m.group("who") == "Dr. Ada Vance"
-    m = POV_LINE_RE.search(pov_instruction("third person limited"))
+    m = POV_LINE_RE.search(pov_instruction(Pov("third person limited")))
     assert m.group("mode") == "third person limited"
     assert m.group("who") is None
     assert POV_LINE_RE.search("Point of view: first person, Milo.") is None
@@ -144,9 +144,9 @@ def test_scene_block_markers():
         "Milo meets Prava at the desk."
     )
     assert pc.check_no_blank_setting(block) == []
-    blank = scene_block({"scene_description": "x", "emotional_tone": "neutral"})
+    blank = scene_block({"scene_description": "x", "emotional_tone": ""})
     assert labelled_line(pm.SETTING_LABEL).search(blank) is None
-    assert pc.check_no_neutral_tone(blank) == []
+    assert labelled_line(pm.EMOTIONAL_TONE_LABEL).search(blank) is None
 
 
 async def test_plan_scene_beats_prompt_markers(monkeypatch):
@@ -350,6 +350,7 @@ def test_reduce_prompt_markers():
 
 
 def test_revise_prompt_pov_line():
+    from app.orchestration.prose import Pov
     from app.orchestration.revise import build_revise_prompt
 
     prompt = build_revise_prompt(
@@ -360,7 +361,7 @@ def test_revise_prompt_pov_line():
         target="Target.",
         after="",
         instruction="Tighten.",
-        pov="first person, Milo Voss",
+        pov=Pov("first person", "Milo Voss"),
     )
     assert labelled_line(pm.POV_LABEL).search(prompt).group(1) == (
         "first person, Milo Voss"

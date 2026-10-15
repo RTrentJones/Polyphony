@@ -35,14 +35,18 @@ class TestListBooksProgress:
             book_id=test_book.id,
             title="One",
             position=0,
-            summary="Opening.\n\nPlanned beats:\n- Intake: Milo arrives\n- Lunch:",
+            summary="Opening.",
+            planned_beats=[
+                {"title": "Intake", "summary": "Milo arrives"},
+                {"title": "Lunch"},
+            ],
         )
         empty = Chapter(book_id=test_book.id, title="Two", position=1)
         trashed = Chapter(
             book_id=test_book.id,
             title="Gone",
             position=2,
-            summary="Planned beats:\n- Ghost: never counted",
+            planned_beats=[{"title": "Ghost", "summary": "never counted"}],
             deleted_at=now,
         )
         async_session.add_all([planned, empty, trashed])
@@ -124,27 +128,36 @@ class TestListBooksProgress:
         assert last["chapter_title"] == "One"
         assert last["updated_at"]
 
-    async def test_planned_beats_field_wins_over_summary(
+    async def test_planned_count_reads_the_beats_only(
         self, client, auth_headers, async_session, test_book
     ):
-        """After SPEC-23's migration the beats are data; the count reads them."""
-        from app.api import books
+        """The count is the stored beats (SPEC-23); a "Planned beats:" block
+        typed into a summary is text and plans nothing."""
         from app.core.orm_models import Chapter
 
-        chapter = Chapter(book_id=test_book.id, title="One", position=0)
-        chapter.planned_beats = [
-            {"title": "A"},
-            {"title": "B", "summary": "b"},
-            {"title": ""},  # untitled: dropped by normalize_planned_beats
-        ]
-        assert books._planned_scene_count(chapter) == 2
-        legacy = Chapter(
-            book_id=test_book.id,
-            title="Two",
-            position=1,
-            summary="Planned beats:\n- A: a\n- :\nnot a beat",
+        async_session.add_all(
+            [
+                Chapter(
+                    book_id=test_book.id,
+                    title="One",
+                    position=0,
+                    planned_beats=[
+                        {"title": "A"},
+                        {"title": "B", "summary": "b"},
+                        {"title": ""},  # untitled: dropped by normalize_planned_beats
+                    ],
+                ),
+                Chapter(
+                    book_id=test_book.id,
+                    title="Two",
+                    position=1,
+                    summary="Notes.\n\nPlanned beats:\n- A: a\n- B: b",
+                ),
+            ]
         )
-        assert books._planned_scene_count(legacy) == 1
+        await async_session.commit()
+        book = (await _list(client, auth_headers))[str(test_book.id)]
+        assert book["scenes_planned"] == 2
 
     async def test_books_are_isolated_per_book_and_user(
         self, client, auth_headers, async_session, test_book, test_user

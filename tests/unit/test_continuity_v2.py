@@ -3,6 +3,7 @@ unchecked section as clean."""
 
 import json
 import types
+from pathlib import Path
 
 import pytest
 
@@ -69,7 +70,7 @@ async def test_fact_sheet_indents_planned_beats_under_their_chapter(
     async_session, test_book
 ):
     """SPEC-23: a chapter heading, its summary, then its beats indented; no
-    "- Ch" line inside a beat list, for data beats and legacy summary text."""
+    "- Ch" line inside a beat list."""
     async_session.add_all(
         [
             Chapter(
@@ -86,7 +87,8 @@ async def test_fact_sheet_indents_planned_beats_under_their_chapter(
                 book_id=test_book.id,
                 title="Overtime",
                 position=1,
-                summary="Zara stays late.\n\nPlanned beats:\n- Memo: a decree",
+                summary="Zara stays late.",
+                planned_beats=[{"title": "Memo", "summary": "a decree"}],
             ),
         ]
     )
@@ -104,6 +106,12 @@ async def test_fact_sheet_indents_planned_beats_under_their_chapter(
     assert lines[at + 1 : at + 3] == ["  Zara stays late.", "  - Memo: a decree"]
     assert "Planned beats:" not in plot
     assert not any(line.lstrip().startswith("- Ch") for line in lines)
+
+
+def test_planning_never_imports_jobs():
+    """Layering: app/planning sits below app/jobs (review S1)."""
+    planning = Path(cont.__file__).parent
+    assert not [p.name for p in planning.glob("*.py") if "app.jobs" in p.read_text()]
 
 
 async def test_prompt_is_fenced_and_uncut(monkeypatch):

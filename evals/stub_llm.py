@@ -133,7 +133,7 @@ def _narrators(prompt: str) -> list[str]:
     return out
 
 
-_SECONDARY_LINE = re.compile(r"^SECONDARY PEOPLE \([^)\n]*\): (.+)$", re.M)
+_APPOSITIVE = re.compile(r"\b([A-Z][a-z]+), the ")
 _ACT_BEFORE, _ACT_AFTER = ACT_CHAPTERS_HEADER.split("{number}")
 _ACT_CHAPTERS = re.compile(
     rf"{re.escape(_ACT_BEFORE)}(\d+){re.escape(_ACT_AFTER)}\n(.*?)\n\nFor EACH chapter",
@@ -141,12 +141,16 @@ _ACT_CHAPTERS = re.compile(
 )
 
 
-def _secondaries(prompt: str) -> list[str]:
-    """The names on the outline prompt's SECONDARY PEOPLE line (SPEC-24)."""
-    m = _SECONDARY_LINE.search(prompt)
-    if not m or m.group(1).strip() == "(none)":
-        return []
-    return [n.strip() for n in m.group(1).split(",") if n.strip()]
+def _named_people(prompt: str, cast: list[str]) -> list[str]:
+    """People the <synopsis> introduces by apposition ("Prava, the intake
+    caseworker") who are not cast: what a model would put in a beat's
+    `people` (SPEC-24 §1e). The server, not the stub, decides who is secondary."""
+    tokens = {t for c in cast for t in c.split()}
+    out: list[str] = []
+    for name in _APPOSITIVE.findall(_blocks(prompt).get("synopsis", "")):
+        if name not in tokens and name not in out:
+            out.append(name)
+    return out
 
 
 def _act_chapters(prompt: str) -> tuple[int, list[dict]]:
@@ -207,38 +211,36 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
                     "summary": f"{who} changes course.",
                     "act_index": i // 2,
                     "pov": who,
-                    "characters": cast[:3],
+                    "people": cast[:3],
                     "threads": [],
                 }
             )
         return json.dumps(chapters)
     if "scene beats" in prompt and "mirroring the chapters" in prompt:
-        # Each beat carries its own cast (the chapter's), setting and tone; the
-        # first chapter's first beat declares every SECONDARY PEOPLE name, so
-        # the outline offers "Add <name> to cast" (SPEC-24).
+        # Each beat carries its own people (the chapter's), setting and tone;
+        # the first chapter's first beat also names the synopsis' non-cast
+        # people, so the outline offers "Add <name> to cast" (SPEC-24).
         act, chapters = _act_chapters(prompt)
         titles = [str(c.get("title") or "") for c in chapters if c.get("title")]
         if not titles:
             titles = re.findall(r"'title':\s*'([^']*)'", prompt) or re.findall(
                 r'"title":\s*"([^"]*)"', prompt
             )
-        secondaries = _secondaries(prompt)
+        named = _named_people(prompt, cast)
         nodes = []
         for i, t in enumerate(titles):
             who = next((c for c in cast if c in t), lead)
             chapter = chapters[i] if i < len(chapters) else {}
-            present = chapter.get("characters")
+            present = chapter.get("people")
             present = present if isinstance(present, list) else cast[:3]
             beat = {"setting": "the intake atrium", "tone": "wry"}
             first = {
                 "title": f"{who} decides",
                 "summary": "a choice",
-                "characters": present,
+                "people": present + (named if act == 1 and i == 0 else []),
                 **beat,
                 "children": [],
             }
-            if act == 1 and i == 0 and secondaries:
-                first["secondary_names"] = secondaries
             nodes.append(
                 {
                     "title": t,
@@ -248,7 +250,7 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
                         {
                             "title": f"{second} answers",
                             "summary": "a cost",
-                            "characters": present,
+                            "people": present,
                             **beat,
                             "children": [],
                         },

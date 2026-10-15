@@ -19,8 +19,10 @@ menu entry and the modal's beat chips would all disappear.
   - Discard leaves the editor text byte-identical.
   - Accept makes the proposal the draft. The previous draft becomes one more entry in Revisions,
     and the editor is not dirty afterwards, because the server saved the text.
-- Chapters keep their planned-beat button and chips whether the beats arrive as data or, for
-  chapters promoted before the migration, as legacy summary lines.
+- Chapters keep their planned-beat button and chips, read from `chapter.planned_beats` (the
+  server's only source after migration 0019; wave 2.5 removed the legacy summary parser).
+- A single scene generated from a planned beat uses the beat's tone and cast and is linked to the
+  beat by `planned_beat_id`, so "Generate all planned scenes" skips it (wave 2.5, review S7).
 
 ## Design
 
@@ -29,23 +31,27 @@ menu entry and the modal's beat chips would all disappear.
 - **Target.**
   - *Selection.* The textarea's `selectionStart/End` at the moment the author clicks.
   - *Beat.* The buttons are built from `GET /books/scenes/{id}/grounding` → `beats[].beat_index`
-    and labelled 1-based. The server locates the beat's own prose.
+    and labelled 1-based. The server locates the beat's own prose. `/grounding` lists every stored
+    `SceneBeat` (beats without a recorded grounding come back with no characters), so any scene
+    with stored beats offers "Redo beat"; `GET /scenes/{id}` also returns `beats`.
   - *Whole scene.*
 - **Offsets** (`lib/text-offsets.ts`).
-  - The server's draft is `scene_text(scene)`: the stripped text.
-  - The selection is shifted past the editor text's leading whitespace, clamped to the stripped
-    draft, and converted from UTF-16 code units to **Python code points**. An emoji counts 2 in JS
-    and 1 in Python.
+  - The server's draft is the raw editable text, edge whitespace included (since `be0bc9d`), so
+    the editor text **is** the draft; there is no client-side transform (wave 2.5 deleted the
+    identity `serverDraft`).
+  - The selection is clamped to the draft and converted from UTF-16 code units to **Python code
+    points**. An emoji counts 2 in JS and 1 in Python.
   - `selected_text` is the draft sliced at those code points, so it is exactly what the server's
     `draft[start:end]` returns.
 - **Guards.**
-  - Every request sends `base_text_hash` (the SHA-256 hex of the UTF-8 stripped draft, via
+  - Every request sends `base_text_hash` (the SHA-256 hex of the UTF-8 draft, via
     `crypto.subtle`; equal to `revise.text_hash`).
   - Selection and whole-scene requests also send `selected_text`. A beat request does not: the
     client has no beat prose (`/grounding` gives only the description), so the hash guards it.
   - A 409 shows the server's message plus "The scene changed; reselect and try again." The 409s
-    that already say what to do (a beat edited since generation, a scene still generating, a
-    decided proposal) are shown without the suffix.
+    that already say what to do are shown without the suffix (`SELF_EXPLAINED_409` in
+    `lib/revise-api.ts`): "select the text instead" (a beat edited since generation), "still being
+    generated", and "already accepted/discarded".
 - **Only the saved draft is revised.** With unsaved edits, the buttons are disabled and the panel
   says "Save your edits first". While the scene is `processing` or `paused` they are also disabled,
   because the server refuses it.
@@ -86,17 +92,24 @@ file ownership.
 
 ### Planned beats as data (`GenerateSceneModal.tsx`)
 
-- `plannedBeats(chapter): PlannedBeat[]` returns `chapter.planned_beats` when it is non-empty.
-  Otherwise it parses the legacy "Planned beats:" lines into the same shape:
-  - split on the first `": "`;
-  - a line without `": "` is a title with an empty summary;
-  - `node_id` is `legacy-<i>`, and the other fields are empty.
+- The frontend reads `chapter.planned_beats` and nothing else. A chapter whose `planned_beats` is
+  empty shows no button, no menu entry and no chips, whatever its summary says (SPEC-23: the
+  server normalises the column, and migration 0019 moved every legacy block into it).
 - `beatDescription(beat)` is `` `${title}: ${summary}`.trim() ``, byte-identical to the server's
   `beat_scene_description`.
 - Call sites: the modal's chips, `GeneratePlannedScenesButton`, and the chapter row's ⋯ menu
-  (`ChaptersSection`). All three now pass the chapter, not its summary.
-- The modal shows each beat's setting and tone (read-only) under its chip. Picking a beat fills the
-  description, and fills the setting too when that field is still empty. Editing beats is W2-7.
+  (`ChaptersSection`).
+- The modal shows each beat's setting and tone (read-only) under its chip. **Picking a beat**:
+  - fills the description, and the setting when the beat has one;
+  - sets the tone to the beat's tone (a free-text tone not in the list is added as an option);
+  - preselects the beat's `character_ids` that are still in the book, when there are any (an empty
+    list means the chapter's cast, which stays selected); a POV no longer in the selection is
+    cleared;
+  - sends `planned_beat_id` with the request, so the scene is linked to the beat by id (SPEC-23
+    §beat identity). Changing the target chapter clears the link.
+- **Tone.** The default is `''`, shown as "Book's tone": the canon's style decides. `'neutral'` is
+  no longer offered; the backend treats only `""` as no tone.
+- Editing beats is W2-7.
 
 ## Tests
 
@@ -117,11 +130,16 @@ file ownership.
   - Redo beat N sends `beat_index`;
   - an empty selection and unsaved edits are refused;
   - a pending proposal is offered again after a reload.
-- `GeneratePlannedScenesButton.test.tsx`: `plannedBeats` reads the field, falls back to the
-  summary, and returns `[]` when there is neither. The button renders for a chapter with
-  `planned_beats` and an empty summary.
-- `GenerateSceneModal.test.tsx`: chips come from `planned_beats`, show the setting and tone, and
-  fill the setting.
+- `GeneratePlannedScenesButton.test.tsx`: the button renders for a chapter with `planned_beats`
+  and an empty summary, and renders nothing without `planned_beats` (even when the summary still
+  holds a "Planned beats:" block).
+- `GenerateSceneModal.test.tsx`: chips come from `planned_beats` and show the setting and tone;
+  none show without them; the default tone is `''` with no `'neutral'`; picking a beat sets the
+  description, setting, tone and cast and sends `planned_beat_id`; a beat with no cast keeps the
+  chapter's cast; no beat picked sends no id.
+- Browser journey (`scripts/e2e_browser.py`): after "generate all planned scenes", the modal
+  picks beat 1, shows its tone and cast, and the generated scene's `scene_request.planned_beat_id`
+  is the beat's `node_id`; "Redo beat 2" on a planned scene opens a proposal.
 - `ChaptersSection.phone.test.tsx`: the promoted fixture is now post-migration (beats as data,
   plain summary), and the menu entry still appears.
 
@@ -132,4 +150,5 @@ file ownership.
   previous draft is kept as a revision (R4.x).
 - **feature-set delta:** under the scene editor, add "Revise with AI (selection / beat / whole
   scene) → side-by-side word diff → Accept / Discard". Under chapters, note that planned beats are
-  read from `planned_beats`, with the legacy summary as fallback.
+  read from `planned_beats` only, and that a single scene from a planned beat takes its tone and
+  cast and is linked to it (wave 2.5).
