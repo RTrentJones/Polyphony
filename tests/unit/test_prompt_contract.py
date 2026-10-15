@@ -215,12 +215,14 @@ def test_corpus_inputs_take_the_pov_from_the_ground_truth():
     assert len(kw["principals"]) == 3 and len(kw["descriptions"]) == 3
 
 
-def test_movement_counts_the_scene_and_reports_coverage(tmp_path):
+@pytest.mark.parametrize("brief", ["Zara audits.", "Zara audits Halvard Bell."])
+def test_movement_counts_the_scene_and_reports_coverage(tmp_path, brief):
     """SPEC-30: a secondary on the Also-named line, or a principal the scene
-    names, may appear; Bell may not. Coverage counts principal blocks with a
-    movement line (B-2: an emptied block must not score 1.0 unseen)."""
+    names, may appear; Bell may not, even when the brief names him (NB-2).
+    Coverage counts principal blocks with a movement line (B-2: an emptied
+    block must not score 1.0 unseen)."""
     prompt = (
-        f"<scene>\nScene description: Zara audits.\n{ALSO_NAMED_LABEL}: Prava\n"
+        f"<scene>\nScene description: {brief}\n{ALSO_NAMED_LABEL}: Prava\n"
         "</scene>\nCHARACTERS IN THIS BEAT\n"
         f"### Milo Voss\n{MOVEMENT_LABEL}\n- Milo nodded at Zara and Prava.\n"
         f"- Milo closed the Halvard Bell file.\n### Zara Okafor\n{MOVEMENT_LABEL}\n"

@@ -59,9 +59,11 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from itertools import takewhile
 from pathlib import Path
 
 from app.core.prompt_markers import (
+    ALSO_NAMED_LABEL,
     AVAILABLE_CAST_LABEL,
     BEAT_TO_WRITE_LABEL,
     BEATS_FENCE,
@@ -71,6 +73,7 @@ from app.core.prompt_markers import (
     CURRENT_BEAT_MARK,
     EMOTIONAL_TONE_LABEL,
     INTRODUCED_LABEL,
+    MOVEMENT_LABEL,
     NAME_HEADING,
     POV_LIMIT_CLOSE,
     POV_LIMIT_OPEN,
@@ -82,8 +85,6 @@ from app.core.prompt_markers import (
     STOP_AT_NEXT_BEAT,
     STORY_POSITION_RE,
     labelled_line,
-    ALSO_NAMED_LABEL,
-    MOVEMENT_LABEL,
 )
 from app.orchestration.pov import Pov
 from app.parsing.names import NON_NAME_TOKENS, mentions, norm
@@ -629,17 +630,12 @@ class _Tally:
         }
 
 
-_ALSO_NAMED = labelled_line(ALSO_NAMED_LABEL)
-
-
 def movement_blocks(section: str) -> list[tuple[str, list[str]]]:
     """(owner, [movement line]) for each ``### owner`` block, in order."""
     out = []
-    for chunk in re.split(rf"(?m)^{re.escape(NAME_HEADING)}", section)[1:]:
-        owner, _, body = chunk.partition("\n")
-        run = body.partition(f"{MOVEMENT_LABEL}\n")[2]
-        lines = re.match(r"(?:- [^\n]*(?:\n|$))*", run)[0].splitlines()
-        out.append((owner.strip(), [ln[2:] for ln in lines]))
+    for owner, lines in candidate_sections(section).items():
+        run = lines[lines.index(MOVEMENT_LABEL) + 1 :] if MOVEMENT_LABEL in lines else []
+        out.append((owner, [ln[2:] for ln in takewhile(lambda x: x[:2] == "- ", run)]))
     return out
 
 
@@ -657,7 +653,8 @@ def check_movement_in_scene(
 ) -> tuple[list[str], list[tuple[str, int]]]:
     """SPEC-30, S7: (reasons, [(owner, movement lines)]). A line may name only
     people (ground truth) in the scene: a ``### `` block, the Also-named line,
-    or named by the scene brief or beat plan."""
+    or a principal (an `aliases` value) the scene brief or beat plan names. A
+    secondary is in the scene only through the Also-named line (NB-2)."""
 
     def who(name: str) -> str:  # canonical, as cased in the corpus
         return aliases.get(" ".join(name.split()).lower(), name)
@@ -668,7 +665,8 @@ def check_movement_in_scene(
     m = _ALSO_NAMED.search(prompt)
     present = {o for o, _ in blocks} | {who(n) for n in _names(m.group(1) if m else "")}
     brief = f"{block(prompt, 'scene') or ''}\n{block(prompt, BEATS_FENCE) or ''}"
-    present |= {p["name"] for p in people if _named(brief, p)}
+    principals = set(aliases.values())
+    present |= {p["name"] for p in people if p["name"] in principals and _named(brief, p)}
     reasons = [
         f"{owner}: names {p['name']}: {line!r}"
         for owner, lines in blocks
