@@ -58,9 +58,8 @@ A truly invented `Elara Moonwhisper` is still flagged. It remains a warning, nev
 R1.6). Known limitation: a single-word invented name that only ever opens a sentence and ends in
 `-ing/-ed/-ly` is not reported.
 
-**Wiring (orchestrator).** `app/planning/staged_outline.py` (W1-C's file this wave) must pass
-`canon_text=canon_known_text(canon)` at its two `audit_outline` calls for the synopsis-name part
-to take effect in the app; until then the other fixes apply. The eval's own grader
+**Wiring (done).** `app/planning/staged_outline.py` passes `canon_text=canon_known_text(canon)`
+at both `audit_outline` calls, so synopsis names are known in the app as well as in the gate. The eval's own grader
 (`evals/graders/fidelity.py`) is unchanged; W0-H reports `unknown_rate` over canon + synopsis.
 
 **Tests**: `tests/unit/test_fidelity_gate.py` (verbatim baseline beats: none of the five words

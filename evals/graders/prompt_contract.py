@@ -98,8 +98,14 @@ def purpose(rec: dict) -> str:
 
 
 def block(text: str, label: str) -> str | None:
-    """The content of the first ``<label>...</label>`` fence, or None."""
-    m = re.search(rf"<{label}>\n?(.*?)\n?</{label}>", text, re.DOTALL)
+    """The content of the first ``<label>...</label>`` fence, or None.
+
+    A fence's tags sit on their own lines. The prose instructions also name
+    the tag in running text ("everything in <prior>, begin with ..."), and
+    matching from that mention graded the instruction, not the block."""
+    m = re.search(
+        rf"(?m)^<{label}>[ \t]*\n(.*?)\n?^</{label}>", text, re.DOTALL
+    ) or re.search(rf"<{label}>\n?(.*?)\n?</{label}>", text, re.DOTALL)
     return m.group(1) if m else None
 
 
@@ -116,6 +122,15 @@ def _squash(text: str) -> str:
 # --- checks --------------------------------------------------------------------
 
 
+def _is_last_beat(beats: str | None) -> bool:
+    """The marked current beat (``→ N.``) is the final item: there is no beat
+    N+1 to stop at, so the prompt rightly omits that instruction."""
+    if not beats:
+        return False
+    items = re.findall(r"(?m)^\s*(→)?\s*\d+[.)]", beats)
+    return bool(items) and items[-1] == "→"
+
+
 def check_beats_block(prompt: str) -> list[str]:
     """B5: the whole scene's beats, numbered, and where to stop."""
     reasons = []
@@ -124,7 +139,9 @@ def check_beats_block(prompt: str) -> list[str]:
         reasons.append("no <beats> block")
     elif not re.search(r"(?m)^\s*\d+[.)]", beats):
         reasons.append("<beats> is not a numbered list")
-    if not re.search(r"stop where beat\s+(\d+|n\s*\+\s*1)", prompt, re.IGNORECASE):
+    if not re.search(
+        r"stop where beat\s+(\d+|n\s*\+\s*1)", prompt, re.IGNORECASE
+    ) and not _is_last_beat(beats):
         reasons.append('no "stop where beat N+1 begins" instruction')
     return reasons
 

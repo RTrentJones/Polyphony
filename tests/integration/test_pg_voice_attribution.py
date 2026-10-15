@@ -122,7 +122,7 @@ async def test_e2e_source_voice_is_attributed_to_its_speaker(pg):
     for chunk in await _chunks(pg, ids["Milo Voss"]):
         assert "Don't thank her" not in chunk
         assert "You've been retained" not in chunk
-    assert await _chunks(pg, ids["Zara Okafor"], "dialogue") == ["Don't thank her,"]
+    assert await _chunks(pg, ids["Zara Okafor"], "dialogue") == ["Don't thank her."]
     assert await _chunks(pg, ids["Edric Thane"], "dialogue") == []
 
 
@@ -157,7 +157,7 @@ async def test_reindex_voice_replaces_old_attributor_chunks(pg):
     assert await _reindex_voice(bid) == 1
 
     assert await _chunks(pg, milo, "dialogue") == ["I keep my own counsel."]
-    assert await _chunks(pg, ids["Zara Okafor"], "dialogue") == ["Don't thank her,"]
+    assert await _chunks(pg, ids["Zara Okafor"], "dialogue") == ["Don't thank her."]
     # Idempotent: a second run leaves the same chunks.
     before = sorted(await _chunks(pg, milo))
     assert await _reindex_voice(bid) == 1

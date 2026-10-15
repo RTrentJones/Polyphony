@@ -48,6 +48,22 @@ def test_a_beat_prompt_with_numbered_beats_and_a_stop_passes():
     assert pc.check_beats_block(_beat_prompt()) == []
 
 
+def test_the_last_beat_needs_no_stop_instruction():
+    """The final beat has no N+1; omitting the stop line there is correct."""
+    prompt = "<beats>\n1. He arrives.\n→ 2. She leaves.\n</beats>\nWrite beat 2."
+    assert pc.check_beats_block(prompt) == []
+    middle = "<beats>\n→ 1. He arrives.\n2. She leaves.\n</beats>\nWrite beat 1."
+    assert any("stop where beat" in r for r in pc.check_beats_block(middle))
+
+
+def test_a_block_is_read_from_its_fence_not_a_mention_in_the_instructions():
+    prompt = (
+        "Continue from everything in <prior>, begin with what happens next):\n"
+        "<prior>\nIt was a Tuesday.\n</prior>\n"
+    )
+    assert pc.block(prompt, "prior") == "It was a Tuesday."
+
+
 def test_a_prior_that_lost_its_paragraphs_is_flagged():
     stream = pc.ProseStream()
     stream.add("First paragraph ends here.\n\nSecond paragraph starts. It goes on.")

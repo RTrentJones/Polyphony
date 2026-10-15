@@ -117,7 +117,7 @@ books keep their bad chunks until this runs.** The orchestrator runs it on the e
 
 | Criterion | Test |
 |---|---|
-| e2e `SOURCE`: Milo has 0 dialogue chunks, Zara exactly `"Don't thank her,"`, the caseworker's line is no canon character's | `tests/unit/test_dialogue_attribution.py::TestE2ESource` |
+| e2e `SOURCE`: Milo has 0 dialogue chunks, Zara exactly `Don't thank her.`, the caseworker's line is no canon character's | `tests/unit/test_dialogue_attribution.py::TestE2ESource` |
 | Never crosses a paragraph or another quotation | `TestAttributionRules::test_never_crosses_*` |
 | 20 hand-labelled lines, 3 speakers (inversions, beats, multi-paragraph exchange), precision ≥ 0.95, gates CI | `tests/fixtures/dialogue_attribution.json` + `test_attribution_precision_gate` (precision 1.00, recall 0.89; recall also has a 0.5 floor so the gate cannot pass vacuously) |
 | Only dialogue under "Voice samples"; action under "How they move"; non-centred narration excluded | `TestCharacterContext`, `test_centres` |
@@ -125,17 +125,18 @@ books keep their bad chunks until this runs.** The orchestrator runs it on the e
 | Browser: Milo's Voice panel has no `Don't thank her` / `You've been retained` | step for the orchestrator to add to `scripts/e2e_browser.py` (below) |
 | Judge R2 ≥ 0.7 | measured in the after-eval (TPM plan §3); not blocking |
 
-## Integration notes (for the orchestrator)
+## Integration (done)
 
-- **Browser step**, to add after "the cast is in the canon": open Milo Voss's Voice panel, then
-  assert that no sample text contains `Don't thank her` or `You've been retained`. Optionally,
-  assert that Zara Okafor's panel lists `Don't thank her,`.
-- **Optional pipeline diff** (`app/parsing/pipeline.py`, not owned by W1-B): pass the cast so an
-  ambiguous tag ("Ward" with two Wards) is credited to nobody, and so aliases count as tags:
-  `char_extractor.extract_character_content(source_text, name, aliases=aliases, cast=cast)`.
-  The monkeypatched lambdas in `tests/integration/test_pg_pipeline.py:360` and
-  `tests/unit/test_review_fixes.py:593` would need `**kw`.
-- Run `reindex-voice` on the eval DB before the after-eval.
+- **Browser step**: after "the cast is in the canon", the journey opens Milo Voss's Voice panel
+  and asserts no sample text contains `Don't thank her` or `You've been retained`.
+- **Pipeline**: `index_characters_voice` passes `aliases=` and `cast=`, so aliases count as tags
+  and an ambiguous tag ("Ward" with two Wards) is credited to nobody.
+- **Quote halves**: one speaker's spans in a paragraph join into one line, and the tag's comma
+  closes to a full stop when the next half starts a sentence (`"Don't thank her," she said.
+  "Read the appendices first."` → `Don't thank her. Read the appendices first.`). A line that
+  ends on the tag's comma ends on a full stop, so Zara's e2e sample is `Don't thank her.`
+- Books indexed before this change keep their old chunks until `reindex-voice` runs; a fresh
+  eval book needs nothing.
 
 ## BRD / feature-set delta (applied by the orchestrator)
 

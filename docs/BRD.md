@@ -223,10 +223,12 @@ silently cuts a string mid-sentence.
 ### 5.1 Fidelity (G1)
 
 - **R1.1** The complete synopsis, character canon, canon entries, and style guide reach the model on every generation — outline (staged and single-call), scene beat planning and prose (both modes), continuity, and the ensemble's narrator and editor. No truncation. No escaping. No pattern filtering. A scene's cast is a set of characters of the book, validated at the API; an unknown name is rejected, never generated voice-blind.
+- **R1.1a** A beat is written as that beat. The prose prompt carries the scene's whole beat plan with the current beat marked, and tells the model to stop where the next beat begins. Prior text (the scene so far, and the previous scene's tail) keeps its paragraph breaks and never opens mid-sentence. The book's sample prose is the primary style reference. Generic house style is used only when the style guide has neither tone nor sample prose. A beat's opening sentence that exactly repeats the end of the prior text is trimmed (deterministic, never empties a beat). *(SPEC-18)*
 - **R1.2** Outline generation is staged — skeleton → chapters → beats — with the whole canon in context at each stage.
+- **R1.2a** Each outline stage sees the plan it details. The beats stage receives the premise (authoritative when the author confirmed or edited it), the central conflict, and its act's title, goal and turn. Acts are numbered from 1 in prompt text. Structures embedded in a prompt are JSON, never a language-specific repr. *(SPEC-18)*
 - **R1.3** The skeleton stage must **restate the premise in its own words** before structuring. This surfaces a misreading (e.g. "the CEL is Corporeal Energy Logistics") at stage one, for the price of one call, instead of after twelve chapters are built on top of it, and is shown to the author for confirmation before the chapters stage (on the free tier by default; an edited premise is authoritative for the stages after it).
 - **R1.4** **Hard gate — principal-cast recall.** Every character whose role is protagonist / antagonist / main must appear in the outline. Exact match on names and aliases (a character's recorded `aliases` count — "the CEL" is Edric Thane): deterministic, free, no false positives. Below 1.0 → regenerate once → then warn. *"Elara" was a recall failure — the real protagonist was absent — and recall is the reliable signal.*
-- **R1.5** **Soft warning — unknown proper nouns.** A good outline legitimately invents an innkeeper, so unknown names **warn, never block**. Structural cast fields are strict; names in prose summaries are advisory.
+- **R1.5** **Soft warning — unknown proper nouns.** A good outline legitimately invents an innkeeper, so unknown names **warn, never block**. Structural cast fields are strict; names in prose summaries are advisory. The warning reads only non-title outline text and treats every capitalised phrase in the canon's synopsis, cast, entries and style as known (SPEC-21).
 - **R1.6** Never hard-fail an expensive job on a heuristic. Always save the artifact with warnings attached.
 
 ### 5.2 Text handling (G1)
@@ -272,6 +274,7 @@ be re-examined, not inherited.**
 - **R4.6** A character a source contributed to stays **reachable from that source** even when it was merged into an existing (differently-sourced or manually-created) character. Source→character provenance is a **many-to-many association written at reviewed commit**, not the single-valued `Character.source_id` (which records only the first source and goes NULL when that file is deleted). The source-scoped cast query and the generation picker both resolve through the association. *(Deleting a source still never deletes the cast — R3-consistent — the association row simply cascades away.)*
 - **R4.7** An extraction whose proposals were not yet committed is **resumable from its source**: the source exposes its latest extraction run and status, and navigating away from the review never strands the run or forces a duplicate extraction.
 - **R4.8** **Commit is exactly-once.** The extraction run is locked for the transaction and only a `ready` run is accepted; a double-submit or a retry after a lost response is rejected (conflict) rather than appending duplicate versions or re-spending embedding budget. The review UI treats an already-committed run as done — it resumes to the book, not a dead form.
+- **R4.9** **AI revision proposes; the author decides** (SPEC-19). `POST /books/scenes/{id}/revise` revises a range, a beat, or the whole scene as a job. The job is preflighted and estimated, deduped per scene, pauses on quota and can be cancelled. Its result is a proposal (`SceneRevision(source="ai_revise")`) spliced server-side, so text outside the range is byte-identical. The draft changes only on accept, which snapshots the previous draft first and is refused if the draft changed since the proposal was written. Discard changes nothing. The revise prompt carries the whole canon, the scene's cast samples, and the rest of the draft as read-only `<prior>`/`<after>`. A name the revision introduces that is outside the canon and the scene is a warning, never a failure.
 
 ### 5.5 Visibility and control (G4)
 
@@ -279,12 +282,14 @@ be re-examined, not inherited.**
 - **R5.2** Voice chunks and their metadata are listable, editable, and deletable, with re-embedding on edit. *(Today the store is write-only: the only fix for one bad sample is deleting the whole character.)*
 - **R5.3** Retrieval is inspectable — which chunks grounded a generation, and at what similarity. *(The score is already computed and discarded.)*
 - **R5.4** Structured character fields (`personality_traits`, `voice_characteristics`, `relationships`) are editable. *(Today they have no UI at all.)*
+- **R5.5** The scene editor never loses unsaved work. Leaving with unsaved changes (in-app link, Back, tab close) asks first. The text autosaves locally every ≤5 s without creating server revisions and is offered back on reopen ("Restore unsaved draft from HH:MM"). Saving clears the draft. *(SPEC-16)*
 
 ### 5.6 Characters act (G5)
 
 - **R6.1** A character's contribution to a scene is `{intent, actions, lines, interiority}` with **`actions` required and non-empty**. A character may say nothing and still be present.
-- **R6.2** Action grounding is retrieved **separately** from dialogue grounding, so dialogue cannot crowd it out. *(Each agent gets a `<voice>` block of dialogue samples and a `<physicality>` block of action/description samples; a type with fewer than two hits falls back to untyped retrieval, never repeating the voice samples — `app/characters/context.py::build_agent_context`.)*
+- **R6.2** Action grounding is retrieved **separately** from dialogue grounding, so dialogue cannot crowd it out. *(Each agent gets a `<voice>` block of their own words and a `<physicality>` block of action/description samples. Since SPEC-17 `<voice>` never falls back; `<physicality>` falls back to untyped retrieval when it has fewer than two typed hits, never repeating dialogue or the voice samples — `app/characters/context.py::_voice_and_movement`, shared by `build_agent_context` and the prose prompt.)*
 - **R6.3** The story editor verifies every present character acted.
+- **R6.4** **Voice samples are the character's own words** (SPEC-17). Dialogue is attributed only from a tag adjacent to the quote in the same paragraph (or an unambiguous action beat or exchange); a paragraph carrying anyone else's speech is not indexed for the character. Precision is ≥ 0.95 on a hand-labelled fixture, which gates CI. The prose prompt separates "Voice samples (their own words)" (dialogue, plus the character's own first-person narration) from "How they move" (action, description, thought centred on the character). Existing books are re-indexed with `python -m app.cli reindex-voice --book <id>`.
 
 *Today `_generate_action` derives action **from** dialogue after the fact — exactly the wrong
 dependency. Action must be first-class in the request, not a garnish on the reply.*
@@ -351,6 +356,12 @@ Supporting gates:
 | Regeneration is non-destructive | Generate twice; v1 is listed and restorable |
 | Quota never loses work | Force a 429 mid-job; the job re-queues and completes on resume with no lost work and no repeated model call (see R7.2) |
 | Paid graduation | Flip the tier; caps lift with no code change |
+
+**Evaluation (SPEC-22).** The `cel` eval runs the author path — outline → premise confirmation →
+promote → planned scenes — in a book with real cast entries, a style guide and a voice-bearing
+source, and grades each artifact on the R1–R6 rubrics with a judge that is not the model under
+test. Deterministic prompt-contract and seam checks over the relay archive (what the app actually
+sent the model) are the primary before/after signal, because they do not depend on model variance.
 
 ---
 
