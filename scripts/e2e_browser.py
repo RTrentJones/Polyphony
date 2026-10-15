@@ -1112,7 +1112,8 @@ async def journey(page: Page) -> None:
         )
         await shot(page, "dashboard-progress")
         await card.get_by_role("button", name=re.compile("^Resume:")).click()
-        await page.wait_for_url(re.compile(r"/books/editor\?scene="))
+        await page.wait_for_url(re.compile(r"/books/editor/?\?scene="))
+        await expect(page.get_by_role("heading", name="Scene Editor")).to_be_visible()
 
     await step("sign in", sign_in())
     await step("create a book", create_book())
