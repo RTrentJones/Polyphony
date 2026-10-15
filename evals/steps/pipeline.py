@@ -32,8 +32,6 @@ from evals.steps.base import StepContext, step
 
 CORPORA = Path(__file__).resolve().parent.parent / "corpora"
 
-_KNOCK = "Say a few sentences reacting to an unexpected knock at the door, at night."
-
 # The fallback scene when the promoted outline gives no chapter to generate
 # from: the corpus' second canonical beat, set where the corpus says it happens.
 _FALLBACK_SETTINGS = {"cel": "Reconciliations floor, Aeon Holdings, Marrow District"}
@@ -289,15 +287,21 @@ def strip_tags(text: str, names: list[str]) -> list[str]:
     return lines
 
 
+def known_names(gt: dict) -> set[str]:
+    """The corpus' known terms and its secondary cast (SPEC-33)."""
+    known = set((gt.get("fidelity") or {}).get("known") or [])
+    return known | set(gt.get("secondary_cast") or [])
+
+
 def _unknown_canon(text: str, gt: dict, context: str = "") -> tuple[float, list[str]]:
     """Name invention measured as the product warns about it (W1-S7):
     `fidelity.unknown_proper_nouns` with the corpus' known terms and cast as
     `known` and the synopsis (plus any `context`, e.g. a revised scene's
-    draft) as `canon_text`, so a synopsis minor like Prava is not invented.
+    draft) as `canon_text`, so a minor like Halvard Bell is not invented.
     Returns (unknown / distinct proper nouns, unknown)."""
     from app.planning.fidelity import proper_nouns, unknown_proper_nouns
 
-    known = set((gt.get("fidelity") or {}).get("known") or [])
+    known = known_names(gt)
     for forms in _forms(gt).values():
         known.update(forms)
     known.update(gt.get("cast") or [])
@@ -326,11 +330,12 @@ async def step_extraction(ctx: StepContext) -> dict:
     proposals = run.get("proposals") or {}
     chars = proposed_characters(run)
     predicted = [c["name"] for c in chars]
-    score = extraction.grade_extraction(predicted, ctx.ground_truth["cast"])
+    gold, secondary = ctx.ground_truth["cast"], ctx.ground_truth.get("secondary_cast")
+    score = extraction.grade_extraction(predicted, gold, secondary or [])
     # The review's default selection (SPEC-09: one-window names pre-deselected,
     # eval-plan E5) — what an author who accepts the defaults commits.
     selected = [c["name"] for c in chars if c.get("selected", True)]
-    sel = extraction.grade_extraction(selected, ctx.ground_truth["cast"])
+    sel = extraction.grade_extraction(selected, gold, secondary or [])
     await ctx.client.commit_extraction(
         up["book_id"], up["extraction_run_id"], proposals
     )
@@ -372,12 +377,12 @@ def _proposal_for(chars: list[dict], forms: list[str]) -> dict | None:
 
 def extraction_depth(chars: list[dict], forms: dict[str, list[str]]) -> dict:
     """§5.2 extraction checks (F1): every principal's proposal has a
-    description, goals and voice; and mentions rank them in the corpus'
-    principal order (cel: Milo >= Zara >= Edric).
+    description, goals and voice; and `principal_mentions_min`, the fewest
+    name mentions of any principal (target >= 10; a principal with no
+    proposal has none). Pronouns are not counted (SPEC-33).
 
     `principal_fields` is "filled/principals"; a principal with no proposal
-    counts as unfilled. `mention_order_ok` is None when a principal is
-    missing (nothing to order)."""
+    counts as unfilled."""
     filled, missing_fields, mentions = 0, {}, {}
     for name, fs in forms.items():
         c = _proposal_for(chars, fs)
@@ -390,10 +395,6 @@ def extraction_depth(chars: list[dict], forms: dict[str, list[str]]) -> dict:
         else:
             filled += 1
         mentions[name] = int(c.get("mentions") or 0)
-    order = list(forms)
-    ok = None
-    if len(mentions) == len(order):
-        ok = all(mentions[a] >= mentions[b] for a, b in zip(order, order[1:]))
     # Finding 4: a principal with a title alias ("Chief Executive Lich") is
     # proposed under their name, not the title. Reported, not gated.
     titled = [n for n, fs in forms.items() if any(not match(f, n) for f in fs[1:])]
@@ -408,7 +409,7 @@ def extraction_depth(chars: list[dict], forms: dict[str, list[str]]) -> dict:
         "principal_fields_rate": round(filled / len(forms), 4) if forms else None,
         "principal_fields_missing": missing_fields,
         "principal_mentions": mentions,
-        "mention_order_ok": ok,
+        "principal_mentions_min": min((mentions.get(n, 0) for n in forms), default=0),
     }
 
 
@@ -502,15 +503,16 @@ async def step_attribution(ctx: StepContext) -> dict:
         )
         char_ids[char] = created["id"]
 
+    probe = ctx.ground_truth["voice_probe"]  # in-world (SPEC-33)
     results = []
     empty = 0
     for char in gold:
 
         async def gen(_char=char):
-            r = await ctx.client.test_dialogue(char_ids[_char], _KNOCK)
+            r = await ctx.client.test_dialogue(char_ids[_char], probe)
             return r.get("dialogue") or r.get("action") or ""
 
-        line = await ctx.cache.memo("attribution", f"{char}|{_KNOCK}", gen)
+        line = await ctx.cache.memo("attribution", f"{char}|{probe}", gen)
         if not line:
             empty += 1
             continue
@@ -656,7 +658,7 @@ async def step_outline(ctx: StepContext) -> dict:
     caps: dict[str, str] = {}
     fid = gt.get("fidelity")
     if fid:
-        fs = grade_fidelity(nodes, fid["principals"], set(fid["known"]))
+        fs = grade_fidelity(nodes, fid["principals"], known_names(gt))
         result["cast_fidelity"] = fs.principal_recall
         result["unknown_rate"] = fs.unknown_rate
         result["missing_principals"] = fs.missing
@@ -668,7 +670,10 @@ async def step_outline(ctx: StepContext) -> dict:
     rate, unknown = _unknown_canon("  ".join(flatten_outline(nodes)[1]), gt)
     result["unknown_rate_canon"] = rate
     result["unknown_canon"] = unknown
-    result.update(outline_secondaries(nodes, (fid or {}).get("secondaries") or []))
+    synopsis_people = [
+        s for s in gt.get("secondary_cast") or [] if named_in(gt["synopsis"], [s])
+    ]
+    result.update(outline_secondaries(nodes, synopsis_people))
 
     canon = await _canon_block(ctx, book["id"])
     body = (
@@ -707,9 +712,9 @@ _CONTINUITY_WINDOW = 12000
 
 
 def _finding_quote(finding: dict) -> str:
-    """The text a finding quotes: an explicit `quote`, else `refs` with any
-    surrounding quotation marks stripped."""
-    q = finding.get("quote") or finding.get("refs") or ""
+    """The text a finding quotes (SPEC-31's `quote`), with any surrounding
+    quotation marks stripped."""
+    q = finding.get("quote") or ""
     return str(q).strip().strip("\"'“”‘’").strip()
 
 
@@ -739,10 +744,11 @@ async def step_continuity(ctx: StepContext) -> dict:
     )
 
     async def run_on(prose: str, tag: str) -> list[dict]:
-        book = await ctx.client.create_book(
-            title=f"eval-cont-{tag}", synopsis="continuity eval"
+        # The canon an author would have; the excerpt is beat 1 (SPEC-33).
+        book = await _book_with_cast(ctx, f"eval-cont-{tag}")
+        chapter = await ctx.client.create_chapter(
+            book["id"], "Chapter", summary=gt["canonical_beats"][0]["title"]
         )
-        chapter = await ctx.client.create_chapter(book["id"], "Chapter", summary="eval")
         # Scaffold the scene with our injected/control prose directly — no
         # generation. Generating a placeholder scene only to overwrite it burned
         # ~4-6 LLM calls PER continuity run (x2 for injected+control) against the

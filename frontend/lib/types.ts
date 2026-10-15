@@ -323,6 +323,8 @@ export interface PlannedBeat {
   secondary_names: string[]
   setting: string
   tone: string
+  /** The live cast the server writes this beat with (SPEC-32). */
+  readonly cast_ids: string[]
 }
 
 /** A person the outline names who is in the synopsis/canon but not the cast (SPEC-24). */
@@ -340,6 +342,7 @@ export interface BookDetail {
   genre?: string | null
   status: BookStatus | string
   chapters: BookChapter[]
+  character_count: number // live characters (SPEC-32)
 }
 
 /** POST /books/{id}/chapters body */

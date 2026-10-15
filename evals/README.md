@@ -106,8 +106,12 @@ so an archive from before the F8 fixture edit still grades.
 **Deterministic step checks.**
 
 - `extraction`: `principal_fields` ("k/3": description, goals and voice_characteristics all
-  non-empty), `principal_fields_missing`, `principal_mentions`, and `mention_order_ok` (Milo ≥
-  Zara ≥ Edric on cel; `None` when a principal is not proposed).
+  non-empty), `principal_fields_missing`, `principal_mentions`, and `principal_mentions_min`
+  (the fewest name mentions of any principal, target ≥ 10; pronouns are not counted). Precision
+  counts the corpus' `secondary_cast` as hits and lists them as `secondary_found`; recall stays
+  over the principals (SPEC-33).
+- `attribution`: per line `gap` (top-1 minus top-2 score) and `mean_gap`; `margin` is kept for
+  misses. The probe is the corpus' in-world `voice_probe`.
 - `outline`: `outline_names_synopsis_secondaries` ("k/2", from the outline text and any
   `secondary_names`) and `outline_secondaries_named`. `extraction` also reports
   `canonical_names_ok` ("k/n" over the principals with a title alias, such as Edric's "Chief

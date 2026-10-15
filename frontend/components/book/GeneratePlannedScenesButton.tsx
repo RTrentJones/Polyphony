@@ -16,6 +16,7 @@ import { useState } from 'react'
 import { Layers } from 'lucide-react'
 
 import Button from '@/components/Button'
+import { GENERATE_BLOCKER_ID } from '@/components/book/GenerateSceneModal'
 import { useBookStore } from '@/lib/books-store'
 import type { BookChapter, PlannedScenesResponse } from '@/lib/types'
 
@@ -34,9 +35,12 @@ export function plannedScenesMessage(r: PlannedScenesResponse): string {
 
 export default function GeneratePlannedScenesButton({
   chapter,
+  blocker,
   onDone,
 }: {
   chapter: BookChapter
+  /** generateBlocker's reason: disables the button and describes it. */
+  blocker: string | null
   /** Told the outcome (or the error) as a message, and its kind. */
   onDone: (message: string, kind: 'success' | 'info' | 'error') => void
 }) {
@@ -67,6 +71,8 @@ export default function GeneratePlannedScenesButton({
       size="sm"
       onClick={run}
       isLoading={busy}
+      disabled={!!blocker}
+      aria-describedby={blocker ? GENERATE_BLOCKER_ID : undefined}
       title={`One scene per planned beat (${beats.length}), written in order`}
     >
       <Layers className="h-4 w-4 mr-1" />

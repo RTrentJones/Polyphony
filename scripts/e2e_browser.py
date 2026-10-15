@@ -107,10 +107,10 @@ async def step(name: str, coro) -> None:
     print(f"   ok ({time.monotonic() - t:.1f}s)", flush=True)
 
 
-def chapter_row(page: Page, title: str):
-    """The chapter row whose STORED title is `title` (the visible title drops a
-    stale "Chapter N:" prefix, SPEC-20; `data-chapter-title` keeps it)."""
-    return page.locator(f'[data-testid=chapter-row][data-chapter-title="{title}"]')
+def chapter_row(page: Page, chapter_id: str):
+    """The chapter row of `chapter_id`: rows are located by id or position,
+    never by title, which two chapters may share (SPEC-32)."""
+    return page.locator(f'[data-testid=chapter-row][data-chapter-id="{chapter_id}"]')
 
 
 def assert_clean_headings(markdown: str) -> list[str]:
@@ -263,7 +263,9 @@ async def journey(page: Page) -> None:
             "Milo's first day in Reconciliations."
         )
         await page.get_by_role("button", name="Add Chapter").last.click()
-        await expect(chapter_row(page, "Onboarding")).to_be_visible()
+        row = page.get_by_test_id("chapter-row").first
+        await expect(row).to_contain_text("Onboarding")
+        STATE["onboarding"] = await row.get_attribute("data-chapter-id")
         await shot(page, "chapter")
 
     async def generate_scene():
@@ -440,8 +442,8 @@ async def journey(page: Page) -> None:
 
     async def edit_scene_and_load_revision():
         await tab("Chapters")
-        await page.get_by_role("button", name="Expand Onboarding").click()
-        row = chapter_row(page, "Onboarding")
+        row = chapter_row(page, STATE["onboarding"])
+        await row.get_by_role("button", name=re.compile("^Expand chapter")).click()
         await row.get_by_role("button", name="Edit", exact=True).first.click()
         await page.wait_for_url(re.compile(r"/books/editor"))
         STATE["editor_url"] = page.url
@@ -550,19 +552,19 @@ async def journey(page: Page) -> None:
     async def reorder_delete_and_restore_chapter():
         await tab("Chapters")
         rows = page.get_by_test_id("chapter-row")
-
-        async def title(row) -> str:
-            # The stored title: the row shows it without a stale "Chapter N:"
-            # prefix (B4), while its buttons and the Trash use it as stored.
-            return await row.get_attribute("data-chapter-title")
-
-        first = await title(rows.first)
-        await page.get_by_role("button", name=f"Move {first} down").click()
-        await expect(rows.nth(1)).to_have_attribute("data-chapter-title", first)
+        first = await rows.first.get_attribute("data-chapter-id")
+        await rows.first.get_by_role(
+            "button", name=re.compile(r"^Move chapter 1, .* down$")
+        ).click()
+        await expect(rows.nth(1)).to_have_attribute("data-chapter-id", first)
         # Delete the last chapter (a promoted one, no scenes) and restore it.
         count = await rows.count()
-        last = await title(rows.last)
-        await page.get_by_role("button", name=f"Delete {last}").click()
+        last_id = await rows.last.get_attribute("data-chapter-id")
+        # The Trash names it by its stored title (the row's title attribute).
+        last = await rows.last.get_by_test_id("chapter-title").get_attribute("title")
+        await page.get_by_role(
+            "button", name=re.compile(rf"^Delete chapter {count}, ")
+        ).click()
         await page.get_by_role("dialog").get_by_role(
             "button", name="Delete chapter", exact=True
         ).click()
@@ -572,9 +574,7 @@ async def journey(page: Page) -> None:
         await toast(f'Restored "{last}"')
         await tab("Chapters")
         await expect(rows).to_have_count(count)
-        await expect(
-            page.locator(f'[data-testid=chapter-row][data-chapter-title="{last}"]')
-        ).to_have_count(1)
+        await expect(chapter_row(page, last_id)).to_have_count(1)
         await shot(page, "chapters")
 
     async def generate_all_planned_scenes():
@@ -598,7 +598,7 @@ async def journey(page: Page) -> None:
         await expect(edits).to_have_count(2)
         book = await (await api_get(f"/books/{STATE['book_id']}")).json()
         chapter = next(
-            c for c in book["chapters"] if c["title"] == STATE["planned_chapter"]
+            c for c in book["chapters"] if c["id"] == STATE["planned_chapter"]
         )
         detail = await (await api_get(f"/books/chapters/{chapter['id']}")).json()
         linked = []
@@ -618,8 +618,8 @@ async def journey(page: Page) -> None:
         """SPEC-21a over the API: clean headings numbered by book position, a
         scene break between a chapter's scenes, and a chapter range."""
         book = await (await api_get(f"/books/{STATE['book_id']}")).json()
-        titles = [c["title"] for c in book["chapters"]]
-        n = titles.index(STATE["planned_chapter"]) + 1  # 1-based book position
+        ids = [c["id"] for c in book["chapters"]]
+        n = ids.index(STATE["planned_chapter"]) + 1  # 1-based book position
         text = await export_markdown()
         headings = assert_clean_headings(text)
         assert len(headings) >= 2, f"expected the written chapters: {headings}"
@@ -810,7 +810,9 @@ async def journey(page: Page) -> None:
             await expect(p3.get_by_text("Bored to Undeath").first).to_be_visible()
             # The tab strip says it scrolls (B4).
             await expect(p3.get_by_test_id("tabs-more-right")).to_be_visible()
-            await p3.get_by_role("button", name="Expand Onboarding").click()
+            await chapter_row(p3, STATE["onboarding"]).get_by_role(
+                "button", name=re.compile("^Expand chapter")
+            ).click()
             await expect(p3.get_by_test_id("scene-row").first).to_be_visible()
             await shot(p3, "phone-chapters")
             problems = await p3.evaluate(PHONE_CHAPTER_CHECK)
@@ -886,7 +888,7 @@ async def journey(page: Page) -> None:
         to "neutral"."""
         book = await (await api_get(f"/books/{STATE['book_id']}")).json()
         chapter = next(
-            c for c in book["chapters"] if c["title"] == STATE["planned_chapter"]
+            c for c in book["chapters"] if c["id"] == STATE["planned_chapter"]
         )
         beats = {b["node_id"]: b for b in chapter.get("planned_beats") or []}
         assert beats, f"chapter {chapter['title']!r} has no planned_beats"
@@ -939,10 +941,10 @@ async def journey(page: Page) -> None:
         planned = rows.filter(
             has=page.get_by_role("button", name="Generate all planned scenes")
         ).first
-        STATE["planned_chapter"] = await planned.get_attribute("data-chapter-title")
+        STATE["planned_chapter"] = await planned.get_attribute("data-chapter-id")
         book = await (await api_get(f"/books/{STATE['book_id']}")).json()
         chapter = next(
-            c for c in book["chapters"] if c["title"] == STATE["planned_chapter"]
+            c for c in book["chapters"] if c["id"] == STATE["planned_chapter"]
         )
         assert len(chapter["planned_beats"]) == 2, chapter["planned_beats"]
         beat = chapter["planned_beats"][0]
@@ -950,14 +952,10 @@ async def journey(page: Page) -> None:
             "characters"
         ]
         names = {c["id"]: c["name"] for c in cast}
-        # The server casts the beat (review W-1), as the batch does: its ids
-        # plus named people since added to the book, else the chapter's; + POV.
-        named = {n.casefold() for n in beat.get("secondary_names") or []}
-        own = [i for i in beat.get("character_ids") or [] if i in names]
-        want = own + [i for i, n in names.items() if n.casefold() in named]
-        want = want or [i for i in chapter.get("character_ids") or [] if i in names]
-        if chapter.get("pov_character_id") in names:
-            want.append(chapter["pov_character_id"])
+        # The server publishes the beat's cast (SPEC-32): the modal shows it
+        # and sends exactly it.
+        want = beat["cast_ids"]
+        assert want and set(want) <= set(names), (want, names)
         detail = await (await api_get(f"/books/chapters/{chapter['id']}")).json()
         before = {s["id"] for s in detail["scenes"]}
 
@@ -971,8 +969,7 @@ async def journey(page: Page) -> None:
         assert await tone.input_value() == (
             beat.get("tone") or ""
         ), f"tone {await tone.input_value()!r} is not beat 1's {beat.get('tone')!r}"
-        # The picker previews the beat's own cast; the modal sends no cast.
-        for i in own:
+        for i in want:
             await expect(
                 picker.get_by_role("button", name=re.compile(re.escape(names[i])))
             ).to_have_attribute("aria-pressed", "true")
@@ -1001,14 +998,14 @@ async def journey(page: Page) -> None:
         ), f"scene request {req} is not linked to beat {beat['node_id']}"
         if beat.get("tone"):
             assert req.get("emotional_tone") == beat["tone"], req
-        assert set(req.get("character_ids") or []) == set(want), req
+        assert req.get("character_ids") == want, (req, want)
 
     async def redo_a_planned_beat():
         """SPEC-25 / review eval finding 7: "Redo beat 2" on a planned scene
         asks for a revision of that beat and opens a proposal."""
         book = await (await api_get(f"/books/{STATE['book_id']}")).json()
         chapter = next(
-            c for c in book["chapters"] if c["title"] == STATE["planned_chapter"]
+            c for c in book["chapters"] if c["id"] == STATE["planned_chapter"]
         )
         detail = await (await api_get(f"/books/chapters/{chapter['id']}")).json()
         scene_id = None
@@ -1211,7 +1208,7 @@ async def journey(page: Page) -> None:
         )
         await page.get_by_role("button", name="Create Book").click()
         await page.wait_for_url(re.compile(r"/books/detail"))
-        url = page.url
+        url = STATE["empty_url"] = page.url
         checklist = page.get_by_test_id("getting-started")
         progress = page.get_by_test_id("getting-started-progress")
         await expect(progress).to_have_text("0/4 done")
@@ -1231,6 +1228,35 @@ async def journey(page: Page) -> None:
             checklist.get_by_role("button", name="Add your first source")
         ).to_have_count(0)
         await shot(page, "getting-started-1")
+
+    async def empty_book_rows_and_generate():
+        """SPEC-32: Generate is disabled with its reason until the book has a
+        chapter and characters; two same-title chapters have distinct labels,
+        so the second is deleted by its own."""
+        await page.goto(STATE["empty_url"])
+        await tab("Scenes")
+        generate = page.get_by_role("button", name="Generate scene")
+        await expect(generate).to_be_disabled()
+        await expect(page.get_by_text("Add a chapter first")).to_be_visible()
+        await tab("Chapters")
+        for _ in range(2):
+            await page.get_by_role("button", name="Add Chapter").first.click()
+            await page.get_by_placeholder("Chapter title").fill("Paperwork")
+            await page.get_by_role("button", name="Add Chapter").last.click()
+        rows = page.get_by_test_id("chapter-row")
+        await expect(rows).to_have_count(2)
+        await expect(page.get_by_text("Add characters to cast a scene")).to_be_visible()
+        await expect(
+            rows.first.get_by_role("button", name="Generate scene")
+        ).to_be_disabled()
+        first = await rows.first.get_attribute("data-chapter-id")
+        await page.get_by_role("button", name="Delete chapter 2, Paperwork").click()
+        await page.get_by_role("dialog").get_by_role(
+            "button", name="Delete chapter", exact=True
+        ).click()
+        await expect(rows).to_have_count(1)
+        await expect(rows.first).to_have_attribute("data-chapter-id", first)
+        await shot(page, "empty-book-rows")
 
     async def dashboard_progress_and_resume():
         """B12: the dashboard card shows the book's progress and resumes the
@@ -1316,6 +1342,10 @@ async def journey(page: Page) -> None:
     await step("a second author cannot see the book", second_author_is_isolated())
     await step("the book at phone width", book_page_at_phone_width())
     await step("a new book's getting-started checklist", new_book_checklist())
+    await step(
+        "an empty book: Generate disabled, same-title rows",
+        empty_book_rows_and_generate(),
+    )
     await step("dashboard: progress and resume", dashboard_progress_and_resume())
 
 
@@ -1331,7 +1361,7 @@ PHONE_CHAPTER_CHECK = """
     r.left >= o.left - 1 && r.right <= o.right + 1 &&
     r.top >= o.top - 1 && r.bottom <= o.bottom + 1
   document.querySelectorAll('[data-testid=chapter-row]').forEach((row, i) => {
-    const name = row.getAttribute('data-chapter-title') || `row ${i + 1}`
+    const name = `row ${i + 1}`
     const card = row.getBoundingClientRect()
     const title = row.querySelector('[data-testid=chapter-title]')
     if (!title) { problems.push(`${name}: no title element`); return }

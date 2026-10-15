@@ -53,14 +53,14 @@ def scorecard(run: dict) -> str:
             extra = (
                 f"F1={res['f1']} P={res['precision']} R={res['recall']} "
                 f"fields={res.get('principal_fields')} "
-                f"order_ok={res.get('mention_order_ok')}"
+                f"name_mentions_min={res.get('principal_mentions_min')}"
             )
         elif name == "ingestion":
             extra = f"grounded={res.get('grounded')}/{res.get('n_characters')} avg_chunks={res.get('avg_chunks')}"
         elif name == "retrieval":
             extra = f"p@k={res['precision_at_k']} mrr={res['mrr']}"
         elif name == "attribution":
-            extra = f"acc={res['accuracy']} chance={res['chance']}"
+            extra = f"acc={res['accuracy']} chance={res['chance']} gap={res.get('mean_gap')}"
         elif name == "continuity":
             extra = f"recall={res['detection_recall']} fpr={res['false_positive_rate']}"
         elif name == "outline":

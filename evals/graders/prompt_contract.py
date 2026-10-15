@@ -229,8 +229,10 @@ def classify_sample(
     owner: str, sample: str, gold: dict[str, list[str]], other: dict[str, list[str]]
 ) -> str:
     """'own' (a line the owner speaks), 'misattributed' (someone else's line)
-    or 'not_dialogue' (narration, or a quoted term that nobody says)."""
-    if any(_line_matches(sample, ln) for ln in gold.get(owner, [])):
+    or 'not_dialogue' (narration, or a quoted term that nobody says). A
+    secondary's own lines are in `other` (SPEC-29)."""
+    own = [*gold.get(owner, []), *other.get(owner, [])]
+    if any(_line_matches(sample, ln) for ln in own):
         return "own"
     for who, lines in {**gold, **other}.items():
         if who != owner and any(_line_matches(sample, ln) for ln in lines):

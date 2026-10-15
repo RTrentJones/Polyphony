@@ -8,7 +8,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Film, Trash2, Wand2 } from 'lucide-react'
 import Button from '@/components/Button'
-import GenerateSceneModal from '@/components/book/GenerateSceneModal'
+import GenerateSceneModal, {
+  GENERATE_BLOCKER_ID,
+  useGenerateBlocker,
+} from '@/components/book/GenerateSceneModal'
 import Card from '@/components/Card'
 import Loading from '@/components/Loading'
 import SceneGrounding from '@/components/SceneGrounding'
@@ -34,6 +37,7 @@ export default function ScenesPanel({
   // pause should read as a pause as soon as it happens.
   const [liveStatus, setLiveStatus] = useState<Record<string, string>>({})
   const [genOpen, setGenOpen] = useState(false)
+  const blocker = useGenerateBlocker()
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async () => {
@@ -95,19 +99,17 @@ export default function ScenesPanel({
           <p className="text-sm text-gray-500">
             Every scene in this book — each drafted into a chapter.
           </p>
+          {blocker && (
+            <p id={GENERATE_BLOCKER_ID} className="text-sm text-gray-600">
+              {blocker}
+            </p>
+          )}
         </div>
         <Button
           size="sm"
-          onClick={() => {
-            if (chapters.length === 0) {
-              addToast(
-                'Create a chapter first (Chapters tab) — scenes are written into chapters.',
-                'info'
-              )
-              return
-            }
-            setGenOpen(true)
-          }}
+          onClick={() => setGenOpen(true)}
+          disabled={!!blocker}
+          aria-describedby={blocker ? GENERATE_BLOCKER_ID : undefined}
         >
           <Wand2 className="h-4 w-4 mr-1" />
           Generate scene
