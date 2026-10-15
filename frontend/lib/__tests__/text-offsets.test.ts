@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import {
   codePointToUtf16,
-  findQuote,
   selectionToDraftRange,
   sha256Hex,
   utf16ToCodePoint,
@@ -62,20 +61,5 @@ describe('sha256Hex: the draft fingerprint (revise.text_hash)', () => {
     expect(await sha256Hex('')).toBe(
       'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
     )
-  })
-})
-
-describe('findQuote: a continuity quote in the draft (SPEC-31)', () => {
-  const draft = 'Ada 😀 left.\n\nZara\'s eyes were green\n  as the ledger lamp.'
-
-  it('matches across a line break, outer quotation marks stripped, in UTF-16', () => {
-    const at = findQuote(draft, '“eyes were green as the ledger lamp.”')
-    expect(at).toEqual([draft.indexOf('eyes'), draft.length])
-    expect(draft.slice(...at!)).toBe('eyes were green\n  as the ledger lamp.')
-  })
-
-  it('misses cleanly', () => {
-    expect(findQuote(draft, 'Zara has green eyes')).toBeNull()
-    expect(findQuote(draft, ' "" ')).toBeNull()
   })
 })

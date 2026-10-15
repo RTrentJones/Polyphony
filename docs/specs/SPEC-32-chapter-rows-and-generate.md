@@ -33,8 +33,9 @@ Every row and button says exactly what it will do, and the modal sends exactly t
 
 - `generateBlocker(book)` (in `GenerateSceneModal.tsx`): "Add a chapter first" when the book has
   no chapters, "Add characters to cast a scene" when `book.character_count === 0`, else null.
-- `useGenerateBlocker()` reads the loaded book. Characters are added in other tabs without a book
-  refetch, so a zero count is rechecked once when the panel mounts.
+- The panels call `generateBlocker(book)` on the loaded book. The paths that change the cast count
+  call `refreshBook()`: Canon's character add, edit and delete, and Outline's "add a suggested
+  character"; an extraction commit returns to the book page, which loads the book afresh.
 - The reason is visible text (`id="generate-blocker"`), and every blocked control is `disabled`
   with `aria-describedby` pointing at it: the Scenes tab's Generate, each row's Generate, "Generate
   all planned scenes" in the row and in the phone menu.
@@ -73,7 +74,8 @@ Every row and button says exactly what it will do, and the modal sends exactly t
 
 `test_planned_beats.py`: Prava's beat `cast_ids` after she joins the cast (stored ids unchanged)
 and `character_count`; a single scene and a batch with the same explicit ids get the same cast,
-POV first. Vitest: distinct labels for two "Paperwork" rows; Generate disabled with each reason;
+POV first. Vitest: distinct labels for two "Paperwork" rows; Generate disabled with each reason, and
+enabled once the first character is added in Canon (`refreshBook`);
 a picked beat's `cast_ids` are the chips, the estimate and the request; the POV chip cannot be
 removed and is sent (R-2). Journey: an empty book shows Generate disabled with its reason; two
 same-title chapters, delete the second by its label, the first remains.

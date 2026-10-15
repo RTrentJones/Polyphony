@@ -134,7 +134,7 @@ describe('ContinuityPanel report status', () => {
     expect(screen.getByText(/eyes were green & gold/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Open in editor' })).toHaveAttribute(
       'href',
-      '/books/editor?book=book-1&scene=s-2&q=eyes%20were%20green%20%26%20gold'
+      '/books/editor?book=book-1&scene=s-2'
     )
     expect(screen.getByText('could not locate')).toBeInTheDocument()
   })

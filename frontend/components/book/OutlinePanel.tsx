@@ -320,6 +320,7 @@ export default function OutlinePanel({
     await Promise.all([
       fetchPlans(bookId).catch(() => []),
       refreshCharacters().catch(() => []),
+      refreshBook().catch(() => undefined),
     ])
     addToast(`${s.name} added — now castable`, 'success')
   }

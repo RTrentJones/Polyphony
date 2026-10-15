@@ -23,7 +23,7 @@ import Button from '@/components/Button'
 import DeleteChapterModal from '@/components/book/DeleteChapterModal'
 import GenerateSceneModal, {
   GENERATE_BLOCKER_ID,
-  useGenerateBlocker,
+  generateBlocker,
 } from '@/components/book/GenerateSceneModal'
 import GeneratePlannedScenesButton, {
   plannedScenesMessage,
@@ -84,7 +84,7 @@ export default function ChaptersSection({
   const [plannedBusy, setPlannedBusy] = useState<Record<string, boolean>>({})
   // Live job status per scene, from its badge (see ScenesPanel).
   const [liveStatus, setLiveStatus] = useState<Record<string, string>>({})
-  const blocker = useGenerateBlocker()
+  const blocker = generateBlocker(currentBook)
   const describedBy = blocker ? GENERATE_BLOCKER_ID : undefined
 
   const toggleExpand = async (chapterId: string) => {

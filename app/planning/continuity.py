@@ -153,7 +153,7 @@ def _found(quote: str, text: str) -> bool:
 
 def _normal(text: str) -> str:
     """Whitespace-normalised, outer quotation marks stripped: how a quote is
-    matched against the prose (`findQuote` in the editor does the same)."""
+    matched against the prose."""
     return " ".join(text.split()).strip("\"'“”‘’").strip()
 
 
