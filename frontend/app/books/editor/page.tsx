@@ -2,12 +2,16 @@
  * Scene Editor Page — edit a scene's draft prose with revision history.
  *
  * /books/editor?scene=<sceneId>&book=<bookId>
+ *
+ * Safety net (SPEC-16): leaving with unsaved changes asks first
+ * (useUnsavedChangesGuard), and the text autosaves to a local draft that is
+ * offered back on reopen. Autosave never calls the API.
  */
 
 'use client'
 
-import { useCallback, useEffect, useState, Suspense } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useCallback, useEffect, useRef, useState, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { ArrowLeft, FileText, History, RotateCcw, Save } from 'lucide-react'
 import Button from '@/components/Button'
 import Card from '@/components/Card'
@@ -15,6 +19,14 @@ import Loading from '@/components/Loading'
 import SceneGrounding from '@/components/SceneGrounding'
 import { ToastContainer, type ToastType } from '@/components/Toast'
 import { booksApi } from '@/lib/books-store'
+import {
+  clearDraft,
+  hashText,
+  readDraft,
+  useDraftAutosave,
+  type SceneDraft,
+} from '@/lib/draft-store'
+import { useUnsavedChangesGuard } from '@/lib/useUnsavedChangesGuard'
 import type { Scene, SceneRevision } from '@/lib/types'
 import { formatRelativeTime } from '@/lib/utils'
 
@@ -29,8 +41,70 @@ function countWords(text: string): number {
   return trimmed ? trimmed.split(/\s+/).length : 0
 }
 
+/** Local wall-clock "HH:MM" for the draft banner. */
+function formatClock(iso: string): string {
+  const d = new Date(iso)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+/**
+ * Modal focus handling (B13): focus moves into the dialog when it opens, Tab
+ * and Shift+Tab cycle inside it, Escape closes it, and focus returns to the
+ * element that opened it.
+ */
+function useModalDialog(open: boolean, onClose: () => void) {
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const returnFocusRef = useRef<HTMLElement | null>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
+  useEffect(() => {
+    if (!open) return
+    // The trigger is recorded before the dialog opens; restore to it on close.
+    const trigger = returnFocusRef.current
+    const dialog = dialogRef.current
+    const focusables = () =>
+      dialog ? Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE)) : []
+    ;(focusables()[0] ?? dialog)?.focus()
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onCloseRef.current()
+        return
+      }
+      if (event.key !== 'Tab' || !dialog) return
+      const items = focusables()
+      if (items.length === 0) {
+        event.preventDefault()
+        dialog.focus()
+        return
+      }
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement
+      if (event.shiftKey && (active === first || !dialog.contains(active))) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      if (trigger && trigger.isConnected) trigger.focus()
+    }
+  }, [open])
+
+  return { dialogRef, returnFocusRef }
+}
+
 function SceneEditorContent() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const sceneId = searchParams.get('scene') || ''
   const bookId = searchParams.get('book') || ''
@@ -45,6 +119,8 @@ function SceneEditorContent() {
   const [saving, setSaving] = useState(false)
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
   const [toasts, setToasts] = useState<ToastItem[]>([])
+  /** An older local draft that differs from the server text, awaiting Restore/Discard. */
+  const [pendingDraft, setPendingDraft] = useState<SceneDraft | null>(null)
 
   const addToast = useCallback((message: string, type: ToastType) => {
     setToasts((prev) => [
@@ -78,8 +154,15 @@ function SceneEditorContent() {
       try {
         const data = await booksApi.getScene(sceneId)
         setScene(data)
-        setContent(data.content || '')
-        setSavedContent(data.content || '')
+        const serverText = data.content || ''
+        setContent(serverText)
+        setSavedContent(serverText)
+        const draft = readDraft(sceneId)
+        if (draft && draft.text !== serverText) {
+          setPendingDraft(draft)
+        } else if (draft) {
+          clearDraft(sceneId)
+        }
         await loadRevisions()
       } catch (err: any) {
         setError(err.message || 'Failed to load scene')
@@ -93,6 +176,38 @@ function SceneEditorContent() {
   const isDirty = content !== savedContent
   const wordCount = countWords(content)
 
+  const { guardedPush } = useUnsavedChangesGuard(isDirty)
+  useDraftAutosave({
+    sceneId,
+    text: content,
+    baseText: savedContent,
+    baseUpdatedAt: lastSavedAt,
+    // Hold autosave until the author decides on an older draft, so it is not
+    // overwritten before they choose.
+    enabled: !isLoading && !pendingDraft,
+  })
+
+  const closeRevision = useCallback(() => setViewedRevision(null), [])
+  const { dialogRef, returnFocusRef } = useModalDialog(!!viewedRevision, closeRevision)
+
+  const openRevision = (revision: SceneRevision, trigger: HTMLElement) => {
+    returnFocusRef.current = trigger
+    setViewedRevision(revision)
+  }
+
+  const handleRestoreDraft = () => {
+    if (!pendingDraft) return
+    // Restored text is unsaved: the guard and autosave take over from here.
+    setContent(pendingDraft.text)
+    setPendingDraft(null)
+    addToast('Draft restored — save to keep it', 'info')
+  }
+
+  const handleDiscardDraft = () => {
+    clearDraft(sceneId)
+    setPendingDraft(null)
+  }
+
   const handleSave = async () => {
     if (!content.trim()) {
       addToast('Cannot save empty content', 'warning')
@@ -103,6 +218,8 @@ function SceneEditorContent() {
       const result = await booksApi.saveSceneContent(sceneId, content)
       setSavedContent(content)
       setLastSavedAt(result.updated_at)
+      clearDraft(sceneId)
+      setPendingDraft(null)
       addToast('Scene saved', 'success')
       await loadRevisions()
     } catch (err: any) {
@@ -113,6 +230,12 @@ function SceneEditorContent() {
   }
 
   const handleRestore = (revision: SceneRevision) => {
+    if (
+      isDirty &&
+      !window.confirm('Replace your unsaved changes in the editor with this revision?')
+    ) {
+      return
+    }
     setContent(revision.content)
     setViewedRevision(null)
     addToast('Revision loaded into editor — save to keep it', 'info')
@@ -137,7 +260,7 @@ function SceneEditorContent() {
             Error Loading Scene
           </h3>
           <p className="text-gray-600 mb-6">{error || 'Scene not found'}</p>
-          <Button onClick={() => router.push(backHref)}>
+          <Button onClick={() => guardedPush(backHref)}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to book
           </Button>
@@ -156,7 +279,7 @@ function SceneEditorContent() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => router.push(backHref)}
+            onClick={() => guardedPush(backHref)}
             className="mb-2"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
@@ -184,11 +307,37 @@ function SceneEditorContent() {
         </Button>
       </div>
 
+      {pendingDraft && (
+        <div
+          role="status"
+          className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-900"
+        >
+          <p>
+            <span className="font-medium">
+              Restore unsaved draft from {formatClock(pendingDraft.savedAt)}?
+            </span>{' '}
+            {countWords(pendingDraft.text).toLocaleString()} words, kept on this device.
+            {pendingDraft.baseHash && pendingDraft.baseHash !== hashText(savedContent) && (
+              <> The saved scene has changed since this draft was written.</>
+            )}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={handleRestoreDraft}>
+              Restore draft
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleDiscardDraft}>
+              Discard draft
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Editor */}
         <div className="lg:col-span-3">
           <Card padding="sm">
             <textarea
+              aria-label="Scene text"
               value={content}
               onChange={(e) => setContent(e.target.value)}
               placeholder="Write your scene..."
@@ -222,7 +371,7 @@ function SceneEditorContent() {
                 {revisions.map((revision, index) => (
                   <button
                     key={revision.id}
-                    onClick={() => setViewedRevision(revision)}
+                    onClick={(e) => openRevision(revision, e.currentTarget)}
                     className="w-full text-left p-3 rounded-lg border border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-colors"
                   >
                     <p className="text-sm font-medium text-gray-900">
@@ -249,14 +398,24 @@ function SceneEditorContent() {
         <div className="fixed inset-0 z-50">
           <div
             className="absolute inset-0 bg-black bg-opacity-50"
-            onClick={() => setViewedRevision(null)}
+            aria-hidden="true"
+            onClick={closeRevision}
           />
           <div className="absolute inset-0 overflow-y-auto pointer-events-none">
             <div className="flex min-h-full items-center justify-center p-4">
-              <div className="relative w-full max-w-3xl bg-white rounded-lg shadow-xl pointer-events-auto">
+              <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="revision-preview-title"
+                tabIndex={-1}
+                className="relative w-full max-w-3xl bg-white rounded-lg shadow-xl pointer-events-auto focus:outline-none"
+              >
                 <div className="flex items-center justify-between p-4 border-b border-gray-200">
                   <div>
-                    <h3 className="font-semibold text-gray-900">Revision preview</h3>
+                    <h3 id="revision-preview-title" className="font-semibold text-gray-900">
+                      Revision preview
+                    </h3>
                     <p className="text-xs text-gray-500">
                       {viewedRevision.word_count?.toLocaleString() ?? '?'} words
                       {viewedRevision.created_at &&
@@ -272,7 +431,7 @@ function SceneEditorContent() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setViewedRevision(null)}
+                      onClick={closeRevision}
                     >
                       Close
                     </Button>
