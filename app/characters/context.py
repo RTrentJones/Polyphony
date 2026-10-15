@@ -1,8 +1,9 @@
 """Per-character voice-context assembly for scene generation.
 
 Prose mode writes a whole beat in ONE LLM call, so each involved character's
-voice grounding (bible fields + retrieved voice samples) is assembled into a
-compact context block instead of driving per-turn calls.
+voice grounding (retrieved voice samples; the bible itself rides in the canon
+block, SPEC-26) is assembled into a compact context block instead of driving
+per-turn calls.
 
 The cast arrives as Character ROWS, already resolved and validated against the
 book at the API (SPEC-01). It used to arrive as free-text names, and a name that
@@ -111,10 +112,17 @@ async def build_character_context(
     chunk_types: Optional[Iterable[str]] = None,
     grounding: Optional[list] = None,
     cast: Optional[Iterable] = None,
+    bible: bool = False,
 ) -> str:
-    """One character's context block: bible summary, then their own words
+    """One character's context block: their name, then their own words
     ("Voice samples") and how they move ("How they move"), retrieved separately
     (SPEC-17).
+
+    `bible=True` also renders the bible summary (role, description, goals, arc,
+    voice) under the name. Beat prose and revise leave it off: their prompts
+    already carry the whole canon (`canon.full_block()`, BRD R1.1), so a second
+    copy per beat character only spent tokens (SPEC-26 P8). The ensemble agent
+    has no canon block and asks for it.
 
     `grounding`, when given, collects the retrieved chunks (id, score and a
     bounded text excerpt) so the caller can record which samples grounded this
@@ -126,25 +134,8 @@ async def build_character_context(
     lines = [f"### {name}"]
     if character is None:
         return "\n".join(lines)
-    # The bible arrives whole. These fields used to be sliced to 300/200/200
-    # chars — the same silent-truncation habit that cut the synopsis to 6.5%
-    # (docs/BRD.md §1). A full cast entry is ~500 tokens against a 1M window.
-    for attr, label in (
-        ("role", "Role"),
-        ("description", "Description"),
-        ("goals", "Goals"),
-        ("arc", "Arc"),
-    ):
-        value = getattr(character, attr, None)
-        if value:
-            lines.append(f"{label}: {clean_for_llm(value)}")
-    voice = getattr(character, "voice_characteristics", None)
-    if voice:
-        from app.planning.canon import _render_json_field
-
-        rendered = _render_json_field(voice)
-        if rendered:
-            lines.append(f"Voice: {rendered}")
+    if bible:
+        lines.extend(_bible_lines(character))
     if max_samples <= 0:
         return "\n".join(lines)
     words, movement = await _voice_and_movement(
@@ -167,6 +158,33 @@ async def build_character_context(
         lines.append(MOVEMENT_LABEL)
         lines.extend(f"- {clean_for_llm(s['text'])}" for s in movement)
     return "\n".join(lines)
+
+
+def _bible_lines(character: Character) -> list[str]:
+    """Role / Description / Goals / Arc / Voice lines, whole.
+
+    The bible arrives whole. These fields used to be sliced to 300/200/200
+    chars — the same silent-truncation habit that cut the synopsis to 6.5%
+    (docs/BRD.md §1). A full cast entry is ~500 tokens against a 1M window.
+    """
+    lines: list[str] = []
+    for attr, label in (
+        ("role", "Role"),
+        ("description", "Description"),
+        ("goals", "Goals"),
+        ("arc", "Arc"),
+    ):
+        value = getattr(character, attr, None)
+        if value:
+            lines.append(f"{label}: {clean_for_llm(value)}")
+    voice = getattr(character, "voice_characteristics", None)
+    if voice:
+        from app.planning.canon import _render_json_field
+
+        rendered = _render_json_field(voice, "Voice")
+        if rendered:
+            lines.append(f"Voice: {rendered}")
+    return lines
 
 
 # The prompt labels (SPEC-17). Only the character's own words sit under the
@@ -355,8 +373,11 @@ async def build_cast_context(
     beat_description: str,
     *,
     grounding: Optional[list] = None,
+    bible: bool = False,
 ) -> str:
-    """Fenced context blocks for every character in a beat.
+    """Fenced context blocks for every character in a beat: name, voice samples,
+    movement. No bible fields by default — beat prose and revise send the whole
+    canon alongside this, and it already holds them (SPEC-26 P8).
 
     Each block is story material (bible text and voice samples can originate in
     an uploaded file), so it is fenced with `as_quoted_block`
@@ -370,6 +391,7 @@ async def build_cast_context(
             beat_description,
             grounding=grounding,
             cast=characters,
+            bible=bible,
         )
         blocks.append(as_quoted_block(block, "character"))
     return "\n\n".join(b for b in blocks if b)
@@ -386,7 +408,10 @@ async def build_agent_context(
     """A character agent's fenced context: bible, then <voice> (their own words)
     and <physicality> (action/description) samples retrieved separately
     (SPEC-14, SPEC-17). <voice> never falls back to narration."""
-    bio = await build_character_context(character, name, beat_description, 0)
+    # The ensemble prompt has no canon block, so the agent keeps its bible.
+    bio = await build_character_context(
+        character, name, beat_description, 0, bible=True
+    )
     blocks = [as_quoted_block(bio, "character")]
     if character is None:
         return "\n\n".join(b for b in blocks if b)
