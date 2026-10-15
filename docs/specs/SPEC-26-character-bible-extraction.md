@@ -47,6 +47,10 @@ cel: Milo 13 (≥ the 10 literal "Milo"), Zara 8, Edric 4 → Milo ≥ Zara ≥ 
   distinct lines, those of ≥ 4 words first, kept in source order (`_pick_quotes`).
 - A **single-window source** adds one `as_quoted_block(window_text, "source")` block before the
   candidates. Multi-window sources do not (the window is the map's job).
+  - **Token note** (wave 2.5, review Could 8): the block is sent in **every** reduce batch
+    (`_reduce_batch(..., single_source)`), so a one-window source with more than 10 candidates
+    pays for the window ⌈N/10⌉ times. That is fine for cel (one batch); a long single-window
+    source with a large cast is the case to watch.
 - The instruction now asks the model to read what each one does and says (description = who
   they are, goals = what they want or are trying to do, voice = how their quoted lines sound) and
   to leave a field empty only when nothing bears on it. The no-invention rule stays.
@@ -71,26 +75,59 @@ Edric 3 + 2), plus the `<source>` block.
 ## 26e — No doubled labels (P9, F7)
 
 `app/planning/canon.py`: `_render_json_field(value, label=None)`. With a label, a dict key equal
-to it (case-insensitive) is dropped and its value kept, and a leading `label:` on a string value
-(or list item, or that key's value) is stripped: `{"voice": "dry"}` under `Voice` renders
+to it (case-insensitive) is dropped and its value kept: `{"voice": "dry"}` under `Voice` renders
 `Voice: dry`, not `Voice: voice: dry`. `render_character` and `context._bible_lines` pass their
 labels. Without a label the output is unchanged.
+
+Wave 2.5 (review Could 3) removed `_strip_label`, which also stripped a leading `label:` from
+string values and list items: the root cause (the eval writing `{"voice": "voice: …"}`) is fixed
+in the eval pipeline, so the dict-key drop alone keeps P9.
+
+## 26f — Canonical names, voice samples and movement (wave 2.5)
+
+- **A title is not the name** (eval finding 4). `_fold_group`'s rank puts first a form the source
+  does **not** mostly use after a determiner (`the|a|an|this|that`): `_used_as_title(form, text)`
+  is one regex per form, true when more than half its occurrences follow one. On cel, "the Chief
+  Executive Lich" (2 of 3 in the synopsis) ranks below "Edric Thane", which becomes the name, with
+  the title as an alias. "Count Vasska" keeps its honorific (never after a determiner), and a
+  form that never occurs in the text is not a title. `merge_characters` passes the source text.
+- **Voice samples carry voice** (eval finding 5). A dialogue chunk needs at least
+  `_SPEECH_MIN_WORDS` (3) words (`character_extractor._paragraph_indexer`, the one place
+  fragments enter; landed with the wave-1 fixes): "Zara," and "So!" are not indexed. On cel the
+  shortest principal sample is 3 words and Milo's long lines remain.
+- **"How they move" keeps named places** (wave-1 review S2). `context._centres` decides whether a
+  narration paragraph centres a character: when its first sentence opens with them, or with
+  another cast member, that subject decides; otherwise it is theirs unless it names another cast
+  member. The generic capitalised-word loop is gone, so "Milo walked the Marrow District at dusk"
+  is Milo's. `build_agent_context` (ensemble) takes the scene's `cast` too; without one, only the
+  lead subject can claim a passage.
+- **Wave-3 note:** a "How they move" sample can be a one-off plot event ("Milo locked the ledger
+  in his desk drawer that night…"), which invites the writer to repeat it. No rule separates a
+  mannerism from an event without a heuristic, so it is left for wave 3.
 
 ## Tests
 
 - `tests/unit/test_extraction_bible.py`: cel mention order and the exact count; shared surname;
   word and honorific tokens; pronouns/lowercase; evidence as list and string (and a pre-SPEC-26
   checkpoint string) merge; one line per quote; cap spread across windows; the cel reduce prompt
-  has ≥ 3 evidence/quote lines per principal, own words only, and a `<source>` block; a fake LLM
-  that writes fields only from the material it was given yields non-empty description, goals and
-  voice_characteristics for the three principals; no `<source>` for a multi-window source; quote
+  has ≥ 3 evidence/quote lines per principal, own words only, and a `<source>` block; no
+  `<source>` for a multi-window source; quote
   picking; an ambiguous speaker's line is nobody's; the P10 render format.
 - `tests/unit/test_prompt_hygiene.py`: `_render_json_field` label dropping (dict key, string and
   list prefixes, case-insensitive, unchanged without a label); `build_cast_context` has no bible
   lines, `bible=True` restores them; `build_agent_context` keeps Description/Goals/Voice; a full
   `write_beat_prose` prompt with `canon.full_block()` has no bible lines under `CHARACTERS IN THIS BEAT`,
   each Description and Goals exactly once, and no `voice: voice:`.
-- Existing `test_extraction*.py` and `test_dialogue_attribution.py` pass unchanged.
+- `tests/unit/test_extraction_scale.py` (26f): on the cel synopsis, Edric Thane is the name and
+  "Chief Executive Lich" an alias; "Count Vasska" keeps its title; `_used_as_title` counts most
+  uses.
+- `tests/unit/test_dialogue_attribution.py` (26f): `_centres` keeps "Milo walked the Marrow
+  District at dusk" for Milo, refuses "Zara crossed the floor" for him, and follows the lead
+  subject of a passage that later names another; `build_agent_context` filters by its cast. The
+  3-word minimum is `test_a_voice_sample_is_at_least_three_words`.
+- Wave 2.5 deleted `test_cel_principals_get_a_bible` (review S10): it asserted fields its own
+  echo fake filled from the prompt, so it could not fail independently of
+  `test_cel_reduce_has_depth_and_source`.
 
 ## Docs (BRD / feature-set delta for the orchestrator)
 
@@ -104,3 +141,7 @@ labels. Without a label the output is unchanged.
   mentions (given name / surname counted when unambiguous; pronouns not counted) (SPEC-26)".
 - `docs/feature-set.md`, scene generation row: append "the bible is sent once per beat prompt
   (canon block); per-character blocks carry voice samples and movement (SPEC-26)".
+- Wave 2.5, `docs/BRD.md` R4.4, append: "A form the source mostly uses after 'the' is a title,
+  not the name; voice samples are at least three words (SPEC-26 26f)."
+- Wave 2.5, `docs/feature-set.md`, extraction review row: append "a title ('the Chief Executive
+  Lich') becomes an alias of the real name".

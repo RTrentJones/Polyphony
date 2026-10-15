@@ -513,6 +513,19 @@ class TestCharacterContext:
         milo, zara = out.split("### Zara Okafor")
         assert "read the appendices" in milo and "read the appendices" not in zara
 
+    async def test_agent_context_filters_by_the_cast(self, monkeypatch):
+        import app.characters.context as ctx
+
+        store = TypedStore([_s("a1", "Milo Voss filed the form.", "action")])
+        monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
+        cast = [_char("Milo Voss"), _char("Zara Okafor")]
+        out = await ctx.build_agent_context(
+            cast[1], "Zara Okafor", "the desk", cast=cast
+        )
+        assert "filed the form" not in out
+        out = await ctx.build_agent_context(cast[0], "Milo Voss", "the desk", cast=cast)
+        assert "filed the form" in out
+
 
 def test_centres():
     from app.characters.context import _centres
@@ -524,8 +537,19 @@ def test_centres():
     assert _centres("Then Zara left the room.", "Zara Okafor", cast)
     assert _centres("He hummed while filing.", "Zara Okafor", cast)  # names nobody
     assert not _centres("The ledger was Milo's.", "Zara Okafor", cast)
-    # No cast given: another proper name still disqualifies it.
-    assert not _centres(text, "Zara Okafor")
+    # Wave-1 review S2: a named place is not someone else.
+    milo = "Milo walked the Marrow District at dusk."
+    assert _centres(milo, "Milo Voss", cast, ["Milo"])
+    assert _centres("At dusk he walked the Marrow District.", "Milo Voss", cast)
+    # Another cast member's passage is not his, lead or not.
+    assert not _centres("Zara crossed the floor.", "Milo Voss", cast, ["Milo"])
+    assert not _centres("At dusk, Zara crossed the floor.", "Milo Voss", cast)
+    # The lead subject decides, even when the passage later names another.
+    lead = "Milo stamped the form. Zara watched from the Aeon Holdings door."
+    assert _centres(lead, "Milo Voss", cast, ["Milo"])
+    assert not _centres(lead, "Zara Okafor", cast, ["Zara"])
+    # No cast: nobody else is known, so only the lead can claim it.
+    assert _centres(milo, "Milo Voss")
 
 
 # --- reindex-voice ----------------------------------------------------------------

@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest'
 import {
   codePointToUtf16,
   selectionToDraftRange,
-  serverDraft,
   sha256Hex,
   utf16ToCodePoint,
 } from '@/lib/text-offsets'
@@ -34,7 +33,7 @@ describe('UTF-16 <-> code point offsets (SPEC-25)', () => {
     const sel = selectionToDraftRange(editor, from, to)
     expect(sel).toEqual({ start: 11, end: 20, text: 'then Bram' })
     // What Python's draft[start:end] would slice:
-    expect(Array.from(serverDraft(editor)).slice(sel!.start, sel!.end).join('')).toBe(
+    expect(Array.from(editor).slice(sel!.start, sel!.end).join('')).toBe(
       'then Bram'
     )
   })

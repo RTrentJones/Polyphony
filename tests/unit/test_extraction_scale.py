@@ -291,6 +291,42 @@ class TestMerge:
         assert merged["Elias Ward"]["aliases"] == ["Dr. Ward"]
         assert merged["Edric Thane"]["aliases"] in (["the CEL"], ["The CEL"])
 
+    def test_a_title_the_source_uses_with_the_is_an_alias(self):
+        # Eval finding 4: on cel the reducer headed Edric Thane as "Chief
+        # Executive Lich" (three significant tokens beat two). The synopsis
+        # says "the Chief Executive Lich" in most of its uses: a title.
+        from pathlib import Path
+
+        cel = Path(__file__).resolve().parents[2] / "evals" / "corpora" / "cel"
+        text = (cel / "synopsis.txt").read_text(encoding="utf-8")
+        answers = [
+            (0, {"characters": [_cand("Chief Executive Lich", ["Edric Thane"])]}),
+            (1, {"characters": [_cand("Edric Thane", ["the CEL"])]}),
+            (2, {"characters": [_cand("Chief Executive Lich")]}),
+            (3, {"characters": [_cand("Count Vasska", ["Vasska"])]}),
+        ]
+        merged = {g["name"]: g for g in ce.merge_characters(answers, text)}
+        assert set(merged) == {"Edric Thane", "Count Vasska"}
+        assert "Chief Executive Lich" in merged["Edric Thane"]["aliases"]
+        # A title the text never puts after a determiner stays the name.
+        text += " The mysterious Count Vasska bowed. Count Vasska smiled."
+        merged = {g["name"]: g for g in ce.merge_characters(answers, text)}
+        assert "Count Vasska" in merged
+
+    def test_used_as_title_counts_most_uses(self):
+        assert (
+            ce._used_as_title(
+                "Chief Lich", "the Chief\nLich met Chief Lich, Chief Lich"
+            )
+            is False
+        )
+        assert ce._used_as_title("Chief Lich", "the Chief\nLich met a Chief Lich.")
+        assert ce._used_as_title(
+            "Chief Lich", "The Chief Lich; the Chief Lich; Chief Lich"
+        )
+        assert ce._used_as_title("Edric Thane", "") is False
+        assert ce._used_as_title("Edric Thane", "Lathe Edric Thane") is False
+
     def test_bare_honorific_is_not_an_alias(self):
         out = ce._normalize_window(
             {"characters": [{"name": "Count Vasska", "aliases": ["Count", "Vasska"]}]}

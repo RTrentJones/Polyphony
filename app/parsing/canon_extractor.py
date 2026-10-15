@@ -607,7 +607,9 @@ def merge_characters(window_answers: list[tuple[int, dict]], text: str = "") -> 
     for host, root in joins:
         uf.union(host, root)
 
-    merged = [_fold_group([cands[i] for i in members]) for members in groups().values()]
+    merged = [
+        _fold_group([cands[i] for i in members], text) for members in groups().values()
+    ]
     _count_group_mentions(merged, text)
     merged.sort(key=lambda g: (-len(g["windows"]), -g["mentions"], g["name"]))
     return merged
@@ -659,9 +661,20 @@ def _count_group_mentions(groups: list[dict], text: str) -> None:
             )
 
 
-def _fold_group(members: list[dict]) -> dict:
+def _used_as_title(form: str, text: str) -> bool:
+    """Does the source use `form` after a determiner in most of its
+    occurrences? "the Chief Executive Lich" is a title, not a name (SPEC-26)."""
+    if not text or not form.strip():
+        return False
+    pattern = r"\s+".join(map(re.escape, form.split()))
+    hits = re.findall(rf"(?<!\w)((?i:the|a|an|this|that)\s+)?{pattern}(?!\w)", text)
+    return sum(1 for det in hits if det) * 2 > len(hits)
+
+
+def _fold_group(members: list[dict], text: str = "") -> dict:
     """One merged candidate: best name, the rest as aliases, windows, and its
-    appearances as the mention floor (`_count_group_mentions` counts the text)."""
+    appearances as the mention floor (`_count_group_mentions` counts the text).
+    A form the source mostly uses as a title ranks below every other form."""
     primary_counts = Counter(norm(m["name"]) for m in members)
     surfaces: dict[str, Counter] = defaultdict(Counter)
     for m in members:
@@ -671,12 +684,18 @@ def _fold_group(members: list[dict]) -> dict:
             surfaces[norm(a)][a] += 1
 
     def rank(key: str):
-        # Most significant tokens, then most often used as the name. A one-token
-        # name keeps its title ("Count Vasska" over "Vasska"); a full name drops
-        # it ("Nora Vance" over "Miss Nora Vance").
+        # Not a title, then most significant tokens, then most often used as
+        # the name. A one-token name keeps its honorific ("Count Vasska" over
+        # "Vasska"); a full name drops it ("Nora Vance" over "Miss Nora Vance").
         sig = len(significant(key))
         n_tok = len(tokens(key))
-        return (sig, primary_counts.get(key, 0), n_tok if sig == 1 else -n_tok)
+        title = _used_as_title(surfaces[key].most_common(1)[0][0], text)
+        return (
+            not title,
+            sig,
+            primary_counts.get(key, 0),
+            n_tok if sig == 1 else -n_tok,
+        )
 
     best_key = max(sorted(surfaces), key=rank)
     name = surfaces[best_key].most_common(1)[0][0]

@@ -40,7 +40,7 @@ const sceneGrounding = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/voice-api', () => ({ voiceApi: { sceneGrounding } }))
 
 // An emoji (2 UTF-16 units, 1 code point) and an em dash before the selection;
-// the editor text also has trailing whitespace the server's draft strips.
+// the editor text also has a trailing newline, which is part of the raw draft.
 const DRAFT = 'Ada 😀 — Zara smiled warmly at him. Then she left.'
 const EDITOR_TEXT = `${DRAFT}\n`
 const REVISED = 'Ada 😀 — Zara stared coldly at him. Then she left.\n'
