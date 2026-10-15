@@ -61,9 +61,10 @@ recover it on reopen.
 
 **Draft store.** Every `localStorage` access is in try/catch. With blocked, full or missing
 storage there is simply no draft, and the guard still works. A malformed stored value reads as no
-draft. The record is `{text, savedAt, baseUpdatedAt, baseHash}`. `baseHash` is an FNV-1a
+draft. The record is `{text, savedAt, baseHash}`. `baseHash` is an FNV-1a
 fingerprint of the server text the draft was edited from, used for the "changed since" note.
-`baseUpdatedAt` is the last save time the editor knew (`GET /scenes/{id}` has no `updated_at`).
+The editor is keyed by scene, so a `?scene=` switch remounts it: the old scene's unsaved text is
+flushed under its own key on unmount, and nothing carries over to the new scene.
 
 **Autosave hold.** While the Restore/Discard banner is showing, autosave is held so the older
 draft is not overwritten before the author chooses. The guard still covers typing in that window.
