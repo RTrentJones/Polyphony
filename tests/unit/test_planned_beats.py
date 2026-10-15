@@ -462,13 +462,16 @@ async def test_restoring_a_pre_spec23_version_converts_its_block_once(
     await async_session.commit()
     chapter_id = chapter.id
     restore = f"/api/v1/books/{test_book.id}/versions/chapter/{chapter_id}/restore/1"
+    old = "Then.\n\nPlanned beats:\n- Storm: the moor\n  floods\n- Lunch:"
     seen = []
-    for _ in range(2):  # the second restore must not add the beats again
+    # The first restore converts the block; the second meets live beats, so
+    # the block stays as text in the summary and the beats are untouched.
+    for summary in ("Then.", old):
         r = await client.post(restore, headers=auth_headers)
         assert r.status_code == 200, r.text
         async_session.expire_all()
         live = await async_session.get(Chapter, chapter_id)
-        assert live.summary == "Then."
+        assert live.summary == summary
         assert [(b["title"], b["summary"]) for b in live.planned_beats] == [
             ("Storm", "the moor floods"),
             ("Lunch", ""),

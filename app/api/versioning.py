@@ -298,19 +298,19 @@ async def restore_entity_version(
 def _legacy_beats_to_data(chapter) -> None:
     """A chapter version from before SPEC-23 restores a "Planned beats:" block
     into the summary: convert it at this write, as migration 0019 did. The
-    block leaves the summary; its lines become the planned beats only when the
-    chapter has none, so restoring the same version twice adds nothing. A
-    block that would lose author text (more than 12 lines, a "- : x" line, a
-    cut) stays in the summary as text (review NB-2)."""
+    block leaves the summary only when its lines become the planned beats: the
+    chapter has none and converting loses no author text. Otherwise (live
+    beats already there, more than 12 lines, a "- : x" line, a cut) the block
+    stays in the summary as text, so no author text leaves a live field
+    (review NB-2)."""
     legacy = split_legacy_summary(chapter.summary)
-    if legacy is None:
+    if legacy is None or normalize_planned_beats(chapter.planned_beats):
         return
     beats = normalize_planned_beats([beat_from_line(ln.text) for ln in legacy.lines])
     if not keeps_every_word(chapter.summary, legacy.text, beats):
         return
     chapter.summary = legacy.text
-    if not normalize_planned_beats(chapter.planned_beats):
-        chapter.planned_beats = beats
+    chapter.planned_beats = beats
 
 
 def _words(text: str) -> list[str]:
