@@ -1092,7 +1092,8 @@ async def update_scene_content(
     """Save an edit to the draft prose, snapshotting the previous state."""
     scene = await lock_scene(db, await owned_scene(scene_id, current_user, db))
 
-    previous = scene_text(scene)
+    # Raw, as the editor saved it: history restores it byte for byte.
+    previous = scene.content or scene.generated_content or ""
     if previous:
         db.add(
             SceneRevisionORM(

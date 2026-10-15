@@ -524,6 +524,36 @@ async def test_revise_then_accept_keeps_outside_text_and_snapshots_once(
     assert again.status_code == 409
 
 
+async def test_accept_keeps_edge_whitespace_outside_the_span(
+    client, auth_headers, async_session, story, monkeypatch
+):
+    """Codex on #38: the draft is the raw editable text, so an interior
+    revision keeps a trailing newline and the snapshot restores it exactly."""
+    raw = DRAFT + "\n"
+    story.scene.content = raw
+    await async_session.commit()
+    _bind(monkeypatch, async_session, FakeLLM(["Zara said nothing."]))
+    job = await _run_job(
+        client, auth_headers, async_session, story.scene, range=_p2_range()
+    )
+    assert job.status == "succeeded", job.error
+    [proposal] = (await _proposals(client, auth_headers, story.scene))["proposals"]
+    assert proposal["content"].endswith("\n")
+    before = await _revisions(async_session, story.scene)
+    r = await client.post(
+        _url(story.scene, f"revisions/{proposal['id']}/accept"), headers=auth_headers
+    )
+    assert r.status_code == 200, r.text
+    await async_session.refresh(story.scene)
+    assert story.scene.content.endswith(DRAFT[_p2_range()["end"] :] + "\n")
+    added = [
+        a
+        for a in await _revisions(async_session, story.scene)
+        if a.id not in {b.id for b in before}
+    ]
+    assert [a.content for a in added] == [raw]
+
+
 async def test_discard_leaves_the_draft_byte_identical(
     client, auth_headers, async_session, story, monkeypatch
 ):

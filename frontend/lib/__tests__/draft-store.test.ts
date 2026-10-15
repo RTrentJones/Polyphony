@@ -120,6 +120,27 @@ describe('useDraftAutosave (SPEC-16)', () => {
     expect(readDraft('s1')?.text).toBe('older draft')
   })
 
+  it('keeps each scene\'s text under its own key when only the scene changes', () => {
+    writeDraft('s2', { ...draft, text: 's2 older draft' })
+    const { rerender } = renderHook((props: DraftAutosaveOptions) => useDraftAutosave(props), {
+      initialProps: base,
+    })
+    rerender({ ...base, text: 's1 typing' })
+    // The page is reused for ?scene=s2; s1's text is still in the editor.
+    rerender({ ...base, sceneId: 's2', text: 's1 typing' })
+    expect(readDraft('s1')?.text).toBe('s1 typing')
+    vi.advanceTimersByTime(AUTOSAVE_INTERVAL_MS * 2)
+    expect(readDraft('s2')?.text).toBe('s2 older draft')
+    // s2 loads: its text and base arrive together; nothing is written or wiped.
+    rerender({ ...base, sceneId: 's2', text: 's2 saved', baseText: 's2 saved', enabled: false })
+    expect(readDraft('s2')?.text).toBe('s2 older draft')
+    // Typing in s2 autosaves under s2.
+    rerender({ ...base, sceneId: 's2', text: 's2 typing', baseText: 's2 saved' })
+    vi.advanceTimersByTime(AUTOSAVE_INTERVAL_MS)
+    expect(readDraft('s2')?.text).toBe('s2 typing')
+    expect(readDraft('s1')?.text).toBe('s1 typing')
+  })
+
   it('flushes pending text on unmount and on pagehide', () => {
     const { rerender, unmount } = renderHook(
       (props: DraftAutosaveOptions) => useDraftAutosave(props),
