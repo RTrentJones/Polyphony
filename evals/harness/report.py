@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 
+from evals.graders.prompt_contract import CHECKS as _CONTRACT_CHECKS
+
 
 def scorecard(run: dict) -> str:
     lines = [
@@ -48,7 +50,11 @@ def scorecard(run: dict) -> str:
         score = res.get("score")
         extra = ""
         if name == "extraction":
-            extra = f"F1={res['f1']} P={res['precision']} R={res['recall']}"
+            extra = (
+                f"F1={res['f1']} P={res['precision']} R={res['recall']} "
+                f"fields={res.get('principal_fields')} "
+                f"order_ok={res.get('mention_order_ok')}"
+            )
         elif name == "ingestion":
             extra = f"grounded={res.get('grounded')}/{res.get('n_characters')} avg_chunks={res.get('avg_chunks')}"
         elif name == "retrieval":
@@ -60,13 +66,21 @@ def scorecard(run: dict) -> str:
         elif name == "outline":
             extra = (
                 f"cast={res.get('cast_fidelity')} "
-                f"unknown={res.get('unknown_rate')}/{res.get('unknown_rate_canon')}"
+                f"unknown={res.get('unknown_rate')}/{res.get('unknown_rate_canon')} "
+                f"secondaries={res.get('outline_names_synopsis_secondaries')}"
             )
         elif name == "prose":
             extra = (
                 f"{res.get('path')} scenes={res.get('n_scenes')} "
                 f"seams={res.get('beat_seam_max_overlap')}/"
-                f"{res.get('scene_seam_max_overlap')} {res.get('rubric_means')}"
+                f"{res.get('scene_seam_max_overlap')} "
+                f"r1_capped={res.get('r1_capped_scenes')} "
+                f"cast_from_beat={res.get('cast_from_beat')} {res.get('rubric_means')}"
+            )
+        elif name == "revise":
+            extra = (
+                f"outside_identical={res.get('outside_identical')} "
+                f"new_names={res.get('new_names')} {res.get('rubric_means')}"
             )
         elif name == "prompt_contract":
             extra = " ".join(
@@ -85,16 +99,6 @@ def scorecard(run: dict) -> str:
         )
         lines.append(f"  {name:14s}  {score_str}   {extra}")
     return "\n".join(lines)
-
-
-_CONTRACT_CHECKS = (
-    "beats_block",
-    "prior_paragraphs",
-    "voice_dialogue",
-    "beats_stage",
-    "outline_no_repr",
-    "style_first",
-)
 
 
 # A step "passes" when its score clears this floor — a coarse boolean so Tracer

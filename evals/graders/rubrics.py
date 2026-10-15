@@ -1,5 +1,6 @@
-"""The R1–R6 judge rubrics (cycle 2026-10 PM backlog §3), verbatim, plus the
-arithmetic that folds per-rubric scores into an artifact score.
+"""The R1–R6 judge rubrics (cycle 2026-10 PM backlog §3), verbatim, the RA
+revise rubric (SPEC-28), plus the arithmetic that folds per-rubric scores into
+an artifact score.
 
 The judge is shown one rubric at a time with the book's canon, the style
 guide, the plan (beats) and the text, and answers {"score", "explanation"}.
@@ -9,6 +10,12 @@ first: a deterministic failure caps its rubric at 0 whatever the judge says
 
     outline score = R1 x mean(R6, R3)
     scene score   = R1 x mean(R2, R3, R4, R5)
+    revise score  = mean(RA, R5)
+
+The scene R1 cap (SPEC-28, H1) fires only when a principal the scene's plan
+names is neither named nor the attributed speaker of a quoted line, or when
+none of the cast is on the page; a principal who speaks unnamed is a recorded
+warning and the judge's R1 stands (evals/steps/pipeline.py).
 """
 
 from __future__ import annotations
@@ -84,11 +91,24 @@ RUBRICS: dict[str, str] = {
         "- **0.4**: Generic structure, loosely tied to the premise, or several static chapters.\n"
         "- **0.0**: A well-shaped outline for a different book, or no discernible arc."
     ),
+    "RA": (
+        "### RA. Revision instruction adherence (a revised passage)\n"
+        "Given the author's instruction and the passage before and after, did the revision do what was\n"
+        "asked, and only that?\n"
+        "- **1.0**: The instruction is carried out fully (tightened, colder, redone) and nothing else about\n"
+        "  the passage changes: same events, same people, same facts, same POV and tense.\n"
+        "- **0.7**: The instruction is carried out, with one unrequested change, or only partly.\n"
+        "- **0.4**: The instruction is barely visible, or the passage drifts (new events, a new person).\n"
+        "- **0.0**: The instruction is ignored or contradicted, or the passage is a different scene."
+    ),
 }
 
 # Which rubrics grade which artifact.
 SCENE_RUBRICS = ("R1", "R2", "R3", "R4", "R5")
 OUTLINE_RUBRICS = ("R1", "R6", "R3")
+# A revision: instruction adherence, and the span's continuity with its
+# surroundings (tpm-plan §3.4).
+REVISE_RUBRICS = ("RA", "R5")
 
 _INSTRUCTIONS = (
     "Score this artifact against the rubric above on 0.0-1.0. The anchors are "
@@ -100,7 +120,7 @@ _INSTRUCTIONS = (
 
 
 def rubric(rid: str) -> str:
-    """The rubric text the judge receives for `rid` (R1..R6)."""
+    """The rubric text the judge receives for `rid` (R1..R6, RA)."""
     if rid not in RUBRICS:
         raise KeyError(f"unknown rubric {rid!r} (known: {sorted(RUBRICS)})")
     return f"{RUBRICS[rid]}\n\n{_INSTRUCTIONS}"
@@ -139,3 +159,12 @@ def outline_score(scores: dict[str, float | None]) -> float | None:
     if r1 is None or rest is None:
         return None
     return round(r1 * rest, 4)
+
+
+def revise_score(scores: dict[str, float | None]) -> float | None:
+    """mean(RA, R5); None when neither is scored."""
+    return _round(_mean([scores.get(r) for r in REVISE_RUBRICS]))
+
+
+def _round(v: float | None) -> float | None:
+    return None if v is None else round(v, 4)
