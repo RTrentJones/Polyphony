@@ -313,6 +313,22 @@ class TestMerge:
         merged = {g["name"]: g for g in ce.merge_characters(answers, text)}
         assert "Count Vasska" in merged
 
+    def test_a_surface_is_checked_as_a_title_once_per_source(self, monkeypatch):
+        # W-5: one source scan per distinct surface; a one-form group has
+        # nothing to rank and is never scanned.
+        seen: list[str] = []
+        real = ce._used_as_title
+        monkeypatch.setattr(
+            ce, "_used_as_title", lambda f, t: seen.append(f) or real(f, t)
+        )
+        answers = [
+            (0, {"characters": [_cand("Edric Thane", ["the CEL"])]}),
+            (1, {"characters": [_cand("Edric Thane", ["the CEL"])]}),
+            (2, {"characters": [_cand("Milo Voss")]}),
+        ]
+        ce.merge_characters(answers, "Edric Thane runs the CEL. Milo Voss.")
+        assert sorted(seen) == ["Edric Thane", "the CEL"]
+
     def test_bare_honorific_is_not_an_alias(self):
         out = ce._normalize_window(
             {"characters": [{"name": "Count Vasska", "aliases": ["Count", "Vasska"]}]}

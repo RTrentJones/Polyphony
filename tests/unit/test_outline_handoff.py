@@ -269,12 +269,20 @@ def test_validator_resolves_names_through_aliases_and_assigns_ids():
     # Re-validation (an edit, a version, a restore) keeps everything, ids too.
     assert validate_outline_nodes(nodes) == nodes
     assert validate_outline_nodes(nodes, cast=[milo, edric]) == nodes
-    # Under strict an unknown name is a secondary; only a dead id is rejected.
+    # Under strict an unknown name in `people` / `secondary_names` is a
+    # secondary; a dead id, or a name in `character_ids` (W-2), is rejected.
     gone = str(uuid.uuid4())
-    with pytest.raises(ValueError, match=gone):
-        validate_outline_nodes(
-            [{"title": "x", "character_ids": [gone]}], cast=[milo], strict=True
-        )
+    for bad, msg in (([gone], gone), (["Milo", "Prava"], "Prava")):
+        with pytest.raises(ValueError, match=msg):
+            validate_outline_nodes(
+                [{"title": "x", "character_ids": bad}], cast=[milo], strict=True
+            )
+    kept = validate_outline_nodes(
+        [{"title": "x", "people": ["Prava"], "secondary_names": ["Old Fen"]}],
+        cast=[milo],
+        strict=True,
+    )
+    assert kept[0]["secondary_names"] == ["Prava", "Old Fen"]
 
 
 async def test_ac2_structured_outline_round_trips_through_a_restore(

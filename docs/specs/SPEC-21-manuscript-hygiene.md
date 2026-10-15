@@ -48,15 +48,17 @@ fixes:
 |---|---|
 | The capitalised-run regex joined runs across `flatten_outline`'s two-space field separator (`Debt` ending a title + `In` opening the summary) | Runs are joined by a single space only; they never span a field, comma or line break. |
 | Chapter/beat titles are title case | Titles still count toward principal recall, but the invented-names check reads only non-title fields: a phrase that appears only in a title is skipped. |
-| Sentence openers (`At the all-hands`, `Under Zara's…`) | Leading/trailing function words are trimmed (`_STOP_CAPS` + `_CONNECTIVES`); a single sentence-opening word ending in `-ing/-ed/-ly` is dropped. |
+| Sentence openers (`At the all-hands`, `Under Zara's…`) | Leading/trailing function words are trimmed (`_STOP_CAPS` + `_CONNECTIVES`); a single word that only ever opens a sentence or field (never seen mid-sentence in the checked text or `canon_text`) is dropped: `Silence fell.`, `Nobody answered.` (wave 2.5, NB-1; it replaced an `-ing/-ed/-ly` suffix rule). |
 | Title-case fragments | A phrase that still contains a function word (`That`, `Have`, `Been`, `At`…) is a fragment, not a name. |
 | Common nouns capitalised (`Desk`, `Lanyard`) | A phrase whose every word is also used in lowercase in the outline or canon text is a common word. |
 | Synopsis names (`Aeon Holdings`, `CEL`, `Marrow District`) | New `canon_text` keyword on `audit_outline` / `unknown_proper_nouns`: every capitalised phrase in the canon's authored text (`canon_known_text(canon)` = synopsis + rendered bible: cast, canon entries, style) is known; so is a phrase whose every word is a known token. Calendar words are never names. |
 
 On the baseline outline, without `canon_text`: 27 → 9 flagged, all synopsis names; with it: 0.
 A truly invented `Elara Moonwhisper` is still flagged. It remains a warning, never a gate (R1.5,
-R1.6). Known limitation: a single-word invented name that only ever opens a sentence and ends in
-`-ing/-ed/-ly` is not reported.
+R1.6). Known limitation: a single-word invented name that only ever opens a sentence is not
+reported (`Prava arrives.` alone stays quiet; `nodded to Prava` is reported). The eval's
+outline grader and `_unknown_canon` run these same functions (`flatten_outline`,
+`principal_recall`, `proper_nouns`, `unknown_proper_nouns`); they keep no rules of their own.
 
 **Wiring (done).** `app/planning/staged_outline.py` passes `canon_text=canon_known_text(canon)`
 at both `audit_outline` calls, so synopsis names are known in the app as well as in the gate. The eval's own grader

@@ -28,6 +28,7 @@ from app.core.orm_models import Scene, SceneBeat
 from app.core.prompt_markers import POV_LABEL
 from app.llm.client import get_llm_client
 from app.orchestration.prose import Pov
+from app.planning.fidelity import unknown_proper_nouns
 
 # The stub LLM (evals/stub_llm.py) recognises the revise family by this line.
 OPENING = "Revise the TARGET passage of a scene in THIS book, as the author asks."
@@ -295,6 +296,4 @@ def new_names(revised: str, draft: str, known: set[str]) -> list[str]:
     in the draft: a possible invented character. Warn-only (canon invariant 4),
     using the outline audit's check with the draft as known text, so the
     draft's names are known and its lowercase words are common words."""
-    from app.planning.fidelity import unknown_proper_nouns
-
     return unknown_proper_nouns(revised, set(known), canon_text=draft)

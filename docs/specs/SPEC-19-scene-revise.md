@@ -104,8 +104,9 @@ fenced with `as_quoted_block`, and nothing is truncated: prior + target + after 
 `new_names` is one call, `unknown_proper_nouns(revised, canon_terms, canon_text=draft)` (the
 outline audit's check, W1-S7): the draft's capitalised phrases count as known and the words it
 uses in lowercase as common words, so "Bartholomew Quince" is reported and "Outside" (capitalised
-in the draft) or "Numbers" (lowercase in the draft) is not. The revise path has no rules of its
-own. Findings go
+in the draft) or "Numbers" (lowercase in the draft) is not. A one-word capital that only opens
+sentences ("Silence fell.", "Nobody answered.", "Fine," she said) is not reported either
+(wave 2.5, NB-1). The revise path has no rules of its own. Findings go
 to `meta.warnings` / `meta.unknown_names`, and the proposal is never failed.
 
 ### Schema
@@ -129,7 +130,7 @@ guarded. Downgrade drops the column, and proposals stay as plain revisions.
 | Prompt has full canon, cast context, `<prior>`, `<after>` | `…::test_prompt_carries_canon_cast_and_read_only_surroundings` |
 | `QuotaExhaustedError` pauses, then resumes (through the worker) | `…::test_quota_exhaustion_pauses_then_resumes_without_touching_the_draft` |
 | Cancel marks the proposal cancelled; cancel mid-call stores nothing | `…::test_cancel_and_dead_hooks_mark_this_jobs_proposal_only`, `…::test_cancel_during_the_call_stores_nothing` |
-| No new named character (deterministic warning) | `…::test_an_invented_name_is_a_warning_not_a_failure`, `…::test_new_names_warns_on_an_invented_name_only` |
+| No new named character (deterministic warning) | `…::test_an_invented_name_is_a_warning_not_a_failure`, `…::test_new_names_warns_on_an_invented_name_only`, `…::test_new_names_ignores_ordinary_sentence_openers` |
 | One draft (raw), trimmed only by the export | `…::test_scene_draft_is_raw_and_the_export_trims_it` |
 | Save and accept snapshot by one rule | `…::test_save_and_accept_snapshot_the_draft_by_one_rule` |
 | `SpanSpec` refuses range + beat for revise and estimate | `…::test_span_spec_takes_a_range_or_a_beat_never_both` |

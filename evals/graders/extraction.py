@@ -9,16 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.parsing.names import HONORIFICS as _HONORIFICS  # noqa: F401 - re-export
-from app.parsing.names import match  # noqa: F401 - the shared rule (SPEC-09)
-
-
-def _norm(name: str) -> str:
-    return " ".join(name.lower().replace(".", " ").split())
-
-
-def _tokens(name: str) -> set[str]:
-    return set(_norm(name).split())
+from app.parsing.names import match  # the shared rule (SPEC-09)
 
 
 @dataclass

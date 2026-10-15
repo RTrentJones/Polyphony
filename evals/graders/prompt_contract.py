@@ -72,6 +72,7 @@ from app.core.prompt_markers import (
     STOP_AT_NEXT_BEAT,
     labelled_line,
 )
+from app.parsing.names import norm
 
 # The house-style paragraph the beat prompt hard-codes today; it must not
 # appear when the author's style guide supplies sample prose.
@@ -126,12 +127,6 @@ def block(text: str, label: str) -> str | None:
         rf"(?m)^<{label}>[ \t]*\n(.*?)\n?^</{label}>", text, re.DOTALL
     ) or re.search(rf"<{label}>\n?(.*?)\n?</{label}>", text, re.DOTALL)
     return m.group(1) if m else None
-
-
-def _norm(text: str) -> str:
-    t = (text or "").lower().replace("’", "'").replace("‘", "'")
-    t = re.sub(r"[^a-z0-9' ]+", " ", t)
-    return " ".join(t.split())
 
 
 def _squash(text: str) -> str:
@@ -223,7 +218,7 @@ def voice_samples(prompt: str) -> dict[str, list[str]]:
 
 
 def _line_matches(sample: str, line: str) -> bool:
-    s, g = _norm(sample), _norm(line)
+    s, g = norm(sample), norm(line)
     if not s or not g:
         return False
     # The sample is (part of) the line, or holds a whole line of >= 4 words.

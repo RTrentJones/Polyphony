@@ -19,7 +19,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.jobs import latest_jobs
 from app.characters.cast import resolve_cast
+from app.core import estimates
 from app.core.budget import check_user_budget
 from app.core.database import get_db
 from app.core.orm_models import (
@@ -38,6 +40,7 @@ from app.exports.builder import (
     ChapterExport,
     SceneExport,
     scene_text,
+    select_chapters,
     to_docx,
     to_epub,
     to_markdown,
@@ -45,6 +48,8 @@ from app.exports.builder import (
 from app.jobs import repository as jobs_repo
 from app.jobs import scene_batch
 from app.llm.tier import get_tier
+from app.planning.canon import build_canon, render_character
+from app.planning.outline import CastIndex, classify_people
 from app.planning.planned_beat import (
     MAX_PLANNED_BEATS,
     PlannedBeat,
@@ -589,8 +594,6 @@ async def get_chapter(
         .scalars()
         .all()
     )
-    from app.api.jobs import latest_jobs
-
     jobs = await latest_jobs(db, "scene", [s.id for s in scenes])
     return {
         **_chapter_dict(chapter),
@@ -807,8 +810,6 @@ async def list_book_scenes(
         ).all()
         titles = {cid: title for cid, title in rows}
 
-    from app.api.jobs import latest_jobs
-
     jobs = await latest_jobs(db, "scene", [s.id for s in scenes])
     return {
         "scenes": [
@@ -895,9 +896,6 @@ async def generate_scene_into_chapter(
 
     # Preflight with the same estimator the modal shows (SPEC-12/14, BRD R7.3):
     # refuse with the estimate rather than start a scene that cannot finish.
-    from app.core import estimates
-    from app.planning.canon import build_canon, render_character
-
     canon = await build_canon(db, chapter.book_id)
     est = estimates.scene(
         canon_chars=len(canon.full_block()),
@@ -926,8 +924,6 @@ async def generate_scene_into_chapter(
     # A scene written from a planned beat carries the beat's id and its
     # still-uncast named people; an id the chapter no longer has (a stale
     # modal) is stored as None.
-    from app.planning.outline import CastIndex, classify_people
-
     wanted = (payload.planned_beat_id or "").strip().lower()
     beats = normalize_planned_beats(chapter.planned_beats)
     beat = next((b for b in beats if b["node_id"] == wanted), None)
@@ -1411,8 +1407,6 @@ async def export_book(
     1-based range of book positions; headings keep the book's numbering, so a
     range starting at 3 opens on "Chapter 3" (SPEC-21).
     """
-    from app.exports.builder import select_chapters
-
     if format not in CONTENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

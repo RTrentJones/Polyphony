@@ -160,12 +160,17 @@ def _people_fields(
     a cast (a restore, which must not depend on today's cast) stored ids are
     kept as they are and names stay secondary. An invented ref is dropped
     (generation; the fidelity audit warns) or, with `strict`, rejected. `pov`
-    must resolve to the cast; it is never a secondary."""
+    must resolve to the cast; it is never a secondary. Under `strict` a name
+    in `character_ids` is rejected too: that key holds ids."""
     people = classify_people(people_refs(node), cast, None if strict else known_text)
     ids, unknown = people.ids, list(people.invented)
     if cast is None:
         ids = list(dict.fromkeys(_uuid_str(r) for r in people.invented))
         unknown = []
+    elif strict and isinstance(node.get("character_ids"), list):
+        # `character_ids` promises ids: an author's name there is a typo, not
+        # a secondary (only `people` / `secondary_names` carry names).
+        unknown += classify_people(node["character_ids"], cast, "").invented
     out: dict = {}
     pov = node.get("pov") if top else None
     if isinstance(pov, str) and pov.strip():
@@ -210,8 +215,9 @@ def validate_outline_nodes(
 
     - generation (`cast`, `known_text` = names.norm(canon_known_text(canon))):
       cast ids, canon-named secondaries, inventions dropped (the audit warns);
-    - the author's own edit (`strict`): every unresolved name is a secondary,
-      and only a dead or foreign id (or an unknown `pov`) is rejected;
+    - the author's own edit (`strict`): an unresolved name in `people` /
+      `secondary_names` is a secondary; a dead or foreign id, a name in
+      `character_ids`, or an unknown `pov` is rejected;
     - a restore (no `cast`): stored values are kept as they are.
     """
     index = cast if cast is None or isinstance(cast, CastIndex) else CastIndex(cast)

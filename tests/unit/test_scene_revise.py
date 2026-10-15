@@ -246,6 +246,16 @@ def test_new_names_warns_on_an_invented_name_only():
     ]
 
 
+def test_new_names_ignores_ordinary_sentence_openers():
+    """NB-1: the reviewer's probe, through the revise path."""
+    from tests.unit.test_fidelity_gate import PROBE_DRAFT, PROBE_FLAGGED, PROBE_QUIET
+
+    for text in PROBE_QUIET:
+        assert rv.new_names(text, PROBE_DRAFT, {"Milo"}) == [], text
+    for text, flagged in PROBE_FLAGGED.items():
+        assert rv.new_names(text, PROBE_DRAFT, {"Milo"}) == flagged
+
+
 def test_scene_draft_is_raw_and_the_export_trims_it():
     from app.exports.builder import scene_text
 

@@ -295,8 +295,7 @@ def _unknown_canon(text: str, gt: dict, context: str = "") -> tuple[float, list[
     `known` and the synopsis (plus any `context`, e.g. a revised scene's
     draft) as `canon_text`, so a synopsis minor like Prava is not invented.
     Returns (unknown / distinct proper nouns, unknown)."""
-    from app.planning.fidelity import unknown_proper_nouns
-    from evals.graders.fidelity import _PROPER
+    from app.planning.fidelity import proper_nouns, unknown_proper_nouns
 
     known = set((gt.get("fidelity") or {}).get("known") or [])
     for forms in _forms(gt).values():
@@ -304,7 +303,7 @@ def _unknown_canon(text: str, gt: dict, context: str = "") -> tuple[float, list[
     known.update(gt.get("cast") or [])
     canon_text = f"{gt.get('synopsis') or ''}\n{context}"
     unknown = unknown_proper_nouns(text or "", known, canon_text=canon_text)
-    found = {m.group(0) for m in _PROPER.finditer(text or "")}
+    found = proper_nouns(text or "")
     return (round(len(unknown) / len(found), 4) if found else 0.0), unknown
 
 
@@ -596,16 +595,10 @@ def outline_secondaries(nodes: list, secondaries: list[str]) -> dict:
     """§5.2 `outline_names_synopsis_secondaries` (F5): which of the corpus'
     synopsis-only people the outline names, in its text or in any node's
     `secondary_names`. Target: all of them; the floor is one."""
-    from evals.graders.fidelity import flatten_outline
+    from app.planning.fidelity import flatten_outline
 
-    parts = [flatten_outline(nodes)]
-    stack = list(nodes or [])
-    while stack:
-        n = stack.pop()
-        if isinstance(n, dict):
-            parts.extend(str(x) for x in n.get("secondary_names") or [])
-            stack.extend(n.get("children") or [])
-    hay = "\n".join(parts)
+    titles, body = flatten_outline(nodes or [])
+    hay = "\n".join([*titles, *body])
     named = [s for s in secondaries if named_in(hay, [s])]
     return {
         "outline_names_synopsis_secondaries": (
@@ -636,7 +629,8 @@ def portable_outline(nodes: list, character_ids: dict[str, str]) -> list:
 
 @step("outline", needs_api=True)
 async def step_outline(ctx: StepContext) -> dict:
-    from evals.graders.fidelity import flatten_outline, grade_fidelity
+    from app.planning.fidelity import flatten_outline
+    from evals.graders.fidelity import grade_fidelity
 
     gt = ctx.ground_truth
     book = await _book_with_cast(ctx, f"eval-{gt['book']}", genre="")
@@ -669,8 +663,9 @@ async def step_outline(ctx: StepContext) -> dict:
         if fs.principal_recall < 1.0:
             caps["R1"] = f"principal(s) missing: {', '.join(fs.missing)}"
     # Name invention against canon + synopsis: what the app's warning list
-    # should be measured by (a synopsis minor is not an invention).
-    rate, unknown = _unknown_canon(flatten_outline(nodes), gt)
+    # should be measured by (a synopsis minor is not an invention). Titles
+    # are left out, as the app audit leaves them out.
+    rate, unknown = _unknown_canon("  ".join(flatten_outline(nodes)[1]), gt)
     result["unknown_rate_canon"] = rate
     result["unknown_canon"] = unknown
     result.update(outline_secondaries(nodes, (fid or {}).get("secondaries") or []))

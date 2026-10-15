@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from app.parsing.names import mentions, norm
+from app.planning.outline import classify_people, people_refs
 
 _STOP_CAPS = {
     "the",
@@ -233,6 +234,12 @@ def _candidates(text: str):
             yield words, initial
 
 
+def proper_nouns(text: str) -> set[str]:
+    """The distinct capitalised phrases in `text` (normalised): the
+    denominator of the evals' unknown-name rate."""
+    return {norm(" ".join(words)) for words, _ in _candidates(text)} - {""}
+
+
 def unknown_proper_nouns(
     outline_text: str, known: set[str], *, canon_text: str = ""
 ) -> list[str]:
@@ -246,7 +253,8 @@ def unknown_proper_nouns(
       lowercase in prose ("Meeting That Could Have Been");
     - every word in it is also used in lowercase somewhere in the outline or
       the canon (a common word capitalised by a heading or a sentence: "Desk");
-    - it is one sentence-opening word with a common-word ending ("Following").
+    - it is one word that only ever opens a sentence or field, never seen
+      mid-sentence in the text or the canon ("Silence fell.", "Nobody came").
     `audit_outline` passes outline text WITHOUT chapter/beat titles, so a
     phrase that only ever appears inside a title is skipped too.
     """
@@ -257,6 +265,12 @@ def unknown_proper_nouns(
     lower_words = {
         w for w in _WORD.findall(f"{outline_text}\n{canon_text}") if w.islower()
     }
+    mid = {
+        norm(" ".join(words))
+        for text in (outline_text, canon_text)
+        for words, initial in _candidates(text)
+        if not initial
+    }
 
     found: dict[str, str] = {}
     for words, initial in _candidates(outline_text):
@@ -265,9 +279,9 @@ def unknown_proper_nouns(
             continue  # title-case fragment
         if all(w in lower_words for w in lowered):
             continue  # common words, capitalised
-        if initial and len(words) == 1 and lowered[0].endswith(("ing", "ed", "ly")):
-            continue
         key = norm(" ".join(words))
+        if initial and len(words) == 1 and key not in mid:
+            continue  # only ever opens a sentence ("Silence fell.")
         if key:
             found.setdefault(key, " ".join(words))
     unknown = [
@@ -313,8 +327,6 @@ def _structural_cast(
     classify_people call, the rule validation applies (R1.5, SPEC-24): its
     `invented` entries, plus a `pov` that does not resolve, are reported per
     chapter, never left to the advisory proper-noun heuristic."""
-    from app.planning.outline import classify_people, people_refs
-
     names: list[str] = []
     bad: list[str] = []
     for node in nodes:
