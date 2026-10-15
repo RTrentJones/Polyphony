@@ -809,6 +809,15 @@ def test_revision_checks_outside_bytes_and_new_names():
     leaked = good.replace("Milo initialled", "Milo signed")
     checks, caps = pipeline.revision_checks(REVISE_DRAFT, leaked, start, end, gt)
     assert checks["outside_identical"] is False and "RA" in caps
+    # A span that ends at the draft's end (last paragraph, whole scene) has no
+    # tail; a valid proposal for it is not capped.
+    last = REVISE_DRAFT.rindex("\n\n") + 2
+    tail_ok = REVISE_DRAFT[:last] + "Zara did not look up."
+    checks, caps = pipeline.revision_checks(
+        REVISE_DRAFT, tail_ok, last, len(REVISE_DRAFT), gt
+    )
+    assert checks["outside_identical"] and caps == {}
+    assert checks["revised"] == "Zara did not look up."
 
 
 class _ReviseClient(_ProductClient):

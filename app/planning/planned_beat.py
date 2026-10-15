@@ -57,9 +57,10 @@ def normalize_planned_beats(value: Any) -> list[dict]:
         if not isinstance(item, dict) or not str(item.get("title") or "").strip():
             continue
         node_id = _uuid_str(item.get("node_id")) or str(uuid4())
-        if node_id in seen:
+        while node_id in seen:
             # Identity is the id (written scenes track it): a repeated id gets
-            # its own, stable on every read (derived from the id and position).
+            # its own, stable on every read (derived from the id and position,
+            # again until it is unused).
             node_id = str(uuid5(UUID(node_id), str(len(out))))
         seen.add(node_id)
         out.append(

@@ -150,3 +150,13 @@ def test_a_repeated_node_id_gets_its_own_stable_id():
     assert first[1]["node_id"] not in (same, "")
     assert normalize_planned_beats(beats) == first
     assert normalize_planned_beats(first) == first
+    # A derived id that is already present is derived again (Codex on #39:
+    # A, uuid5(A, "2"), A).
+    taken = str(uuid.uuid5(uuid.UUID(same), "2"))
+    trio = normalize_planned_beats(
+        [
+            {"title": t, "node_id": n}
+            for t, n in (("A", same), ("B", taken), ("C", same))
+        ]
+    )
+    assert len({b["node_id"] for b in trio}) == 3

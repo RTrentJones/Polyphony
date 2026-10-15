@@ -212,6 +212,17 @@ describe('GenerateSceneModal defaults from a promoted chapter (SPEC-10)', () => 
     expect(request.pov_character).toBe('Bram')
   })
 
+  it('picking a beat with no setting clears the previous beat\'s setting', async () => {
+    listCharacters.mockResolvedValue(cast)
+    renderModal({ chapter: promoted })
+    const beats = await screen.findByTestId('planned-beats')
+    const [first, second] = Array.from(beats.querySelectorAll('button'))
+    fireEvent.click(first)
+    expect(screen.getByPlaceholderText(/dimly lit tavern/)).toHaveValue('The north gate')
+    fireEvent.click(second)
+    expect(screen.getByPlaceholderText(/dimly lit tavern/)).toHaveValue('')
+  })
+
   it("sends the author's own cast once they change the beat's", async () => {
     listCharacters.mockResolvedValue(cast)
     generateScene.mockResolvedValue({ scene_id: 's-1' })

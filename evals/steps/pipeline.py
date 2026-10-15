@@ -1235,12 +1235,14 @@ def revision_checks(
 ) -> tuple[dict, dict[str, str]]:
     """{outside_identical, new_names, revised}, and the caps they imply."""
     tail = len(draft) - end
+    # A span ending at the draft's end has no tail ([len - 0:] would be all).
+    cut = len(proposal) - tail
     outside = (
-        len(proposal) >= start + tail
+        cut >= start
         and proposal[:start] == draft[:start]
-        and proposal[len(proposal) - tail :] == draft[end:]
+        and proposal[cut:] == draft[end:]
     )
-    revised = proposal[start : len(proposal) - tail] if outside else proposal
+    revised = proposal[start:cut] if outside else proposal
     _, unknown = _unknown_canon(revised, gt, draft)
     caps: dict[str, str] = {}
     if not outside:

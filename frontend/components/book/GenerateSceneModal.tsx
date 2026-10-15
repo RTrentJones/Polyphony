@@ -142,7 +142,7 @@ export default function GenerateSceneModal({
   // ids; once the author toggles someone, their pick is sent instead.
   const pickBeat = (beat: PlannedBeat) => {
     setDescription(beatDescription(beat))
-    if (beat.setting) setSetting(beat.setting)
+    setSetting(beat.setting ?? '')
     setTone(beat.tone ?? '')
     const own = beat.character_ids.filter((id) => byId.has(id))
     if (own.length > 0) setSelected(povId && !own.includes(povId) ? [povId, ...own] : own)
