@@ -308,11 +308,12 @@ def test_scene_block_omits_blank_setting_and_tone():
     assert "Scene description: Intake: Milo is processed." in block
 
 
-def test_scene_block_never_carries_neutral_and_keeps_real_values():
+def test_scene_block_keeps_an_authors_tone_and_real_values():
+    """Review S7: only a blank tone is omitted; "Neutral" is the author's."""
     block = scene_block(
         {"scene_description": "d", "setting": "   ", "emotional_tone": "Neutral"}
     )
-    assert "neutral" not in block.lower()
+    assert "Emotional tone: Neutral" in block and "Setting:" not in block
     block = scene_block(
         {"scene_description": "d", "setting": "Intake Atrium", "emotional_tone": "wry"}
     )

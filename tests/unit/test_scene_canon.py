@@ -376,9 +376,10 @@ async def test_workflow_sends_the_plan_paragraphs_and_the_authors_style(
     assert "Milo came in from the rain.\n\nThe lobby smelled" in second
     # the author's sample prose is the primary reference; no house style
     for prompt in (first, second, third):
-        assert "Match this sample's voice and rhythm" in prompt
+        assert "primary style reference. Match its voice and rhythm" in prompt
         assert "PUNCTUATES" not in prompt
-        assert prompt.index("<sample_prose>") < prompt.index("Write approximately")
+        assert prompt.count(style.sample_prose) == 1  # in the canon only (W1-S3)
+        assert "<sample_prose>" not in prompt
 
     beats = (
         (

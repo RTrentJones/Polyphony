@@ -101,9 +101,8 @@ S9, PR-S2, eval finding 3, W1-S7).
 `app/orchestration/workflow.py`.
 
 - `scene_block` (**P4**) omits the `Setting:` line when the setting is blank and the
-  `Emotional tone:` line when the tone is blank **or** the literal `neutral` (the old request
-  default; it carries no information and overrode the style guide's tone, so the guide now
-  governs). When the request carries `secondary_names`, it adds one line
+  `Emotional tone:` line when the tone is blank only (§24e: an author's `neutral` is a choice
+  and is printed; a blank tone lets the style guide govern). When the request carries `secondary_names`, it adds one line
   `Also named (secondary, not in the cast): A, B`.
 - `plan_scene_beats` (**P3**) offers `Available cast (not all need appear): A, B`, says a beat
   need not use all of them, allows the "Also named" people by name (never in a beat's
@@ -195,7 +194,7 @@ Routing stays a single text-sniffing path. The planner branch still parses `plan
 
 > - **R1.1c** A beat's scene is planned from its own cast: the planner sees the cast as
 >   *available* (not all need appear; unnamed functional figures allowed), and a blank setting
->   or a blank/"neutral" tone is omitted from the prompt so the style guide governs. The prose
+>   or a blank tone is omitted from the prompt so the style guide governs. The prose
 >   prompt states the POV mode and character and narrates only what that character perceives
 >   or knows; the last beat ends inside the moment, with no summary of what follows.
 >   *(SPEC-24)*
