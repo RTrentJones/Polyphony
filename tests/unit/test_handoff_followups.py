@@ -347,19 +347,19 @@ async def test_recreating_a_purged_chapter_keeps_its_node_only_if_free(
 # --- generate all planned scenes (SPEC-10 follow-up) -----------------------------
 
 
-def test_planned_beats_mirror_the_modal():
+def test_planned_beat_lines_mirror_the_modal():
     summary = (
         "Milo arrives\n\nPlanned beats:\n- Badge photo: he is dead\n"
         "- Lunch: \n  - Exit: Zara leaves\nnot a beat"
     )
-    assert scene_batch.planned_beats(summary) == [
+    assert scene_batch.planned_beat_lines(summary) == [
         "Badge photo: he is dead",
         "Lunch:",  # a titled beat with no summary still counts, as in the modal
         "Exit: Zara leaves",
     ]
-    assert scene_batch.planned_beats("Planned beats:\n- :\n- \n") == []
-    assert scene_batch.planned_beats("no beats here") == []
-    assert scene_batch.planned_beats(None) == []
+    assert scene_batch.planned_beat_lines("Planned beats:\n- :\n- \n") == []
+    assert scene_batch.planned_beat_lines("no beats here") == []
+    assert scene_batch.planned_beat_lines(None) == []
 
 
 async def _two_beat_chapter(client, auth_headers, async_session, test_book):
@@ -427,11 +427,13 @@ async def test_generate_planned_enqueues_the_first_scene_of_a_chain(
 def test_unwritten_beats_count_repeated_beats_by_occurrence():
     from collections import Counter
 
-    beats = ["Milo: waits", "Zara: speaks", "Milo: waits"]
+    milo = {"node_id": "a", "title": "Milo", "summary": "waits"}
+    zara = {"node_id": "b", "title": "Zara", "summary": "speaks"}
+    beats = [milo, zara, {**milo, "node_id": "c"}]
     # One "Milo: waits" scene is written: the second occurrence is still owed.
     assert scene_batch.unwritten_beats(beats, Counter({"Milo: waits": 1})) == [
-        "Zara: speaks",
-        "Milo: waits",
+        zara,
+        beats[2],
     ]
     assert (
         scene_batch.unwritten_beats(

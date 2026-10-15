@@ -282,10 +282,21 @@ class TestPlansAPI:
         assert promote.status_code == 200
         assert promote.json()["title"] == "The Call"
 
+        assert promote.json()["suggested_characters"] == []
+
         detail = await client.get(f"/api/v1/books/{book['id']}", headers=auth_headers)
         chapters = detail.json()["chapters"]
         assert len(chapters) == 1
-        assert "phone rings" in chapters[0]["summary"]
+        # The beats are data now (SPEC-23), not lines in the summary.
+        assert chapters[0]["summary"] == "Hero gets the call."
+        assert [b["title"] for b in chapters[0]["planned_beats"]] == ["phone rings"]
+        node_id = r.json()["content"][0]["children"][0]["node_id"]
+        assert chapters[0]["planned_beats"][0]["node_id"] == node_id
+
+        plans = await client.get(
+            f"/api/v1/books/{book['id']}/plans", headers=auth_headers
+        )
+        assert plans.json()["plans"][0]["suggested_characters"] == []
 
     @pytest.mark.asyncio
     async def test_threads_crud(self, client, auth_headers, book):

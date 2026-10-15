@@ -13,6 +13,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.planning.planned_beat import normalize_planned_beats
 from app.versioning import repository as versions_repo
 
 # What a version carries, and (for the restore endpoint) what it writes back.
@@ -24,6 +25,8 @@ SOURCE_FIELDS = ("title", "kind", "content_text", "content_hash")
 # characters no longer live in the book. `plan_node_id` is recorded too; it never
 # changes on a live chapter, so only recreating a purged chapter writes it back
 # (and only while no live chapter holds that node — see the restore endpoint).
+# `planned_beats` (SPEC-23) is recorded and restored through
+# `apply_chapter_cast` too: normalized, with dead character ids dropped.
 CHAPTER_FIELDS = (
     "title",
     "summary",
@@ -32,6 +35,7 @@ CHAPTER_FIELDS = (
     "plan_node_id",
     "pov_character_id",
     "character_ids",
+    "planned_beats",
 )
 CHAPTER_RESTORE_FIELDS = ("title", "summary", "status")
 CHAPTER_CAST_FIELDS = ("pov_character_id", "character_ids")
@@ -51,6 +55,7 @@ def chapter_content(chapter) -> dict:
     content["plan_node_id"] = _id_str(content["plan_node_id"])
     content["pov_character_id"] = _id_str(content["pov_character_id"])
     content["character_ids"] = [str(c) for c in (content["character_ids"] or [])]
+    content["planned_beats"] = normalize_planned_beats(content["planned_beats"])
     return content
 
 
@@ -59,10 +64,11 @@ async def apply_chapter_cast(db: AsyncSession, chapter, content: dict) -> None:
 
     A character trashed or purged since the version was taken is dropped rather
     than dangled (the same rule promote applies, SPEC-10). A version taken before
-    the cast was versioned has neither key and leaves the live cast alone.
+    the cast was versioned has neither key and leaves the live cast alone; one
+    taken before SPEC-23 has no `planned_beats` and leaves the live beats alone.
     Does NOT commit.
     """
-    if not any(f in content for f in CHAPTER_CAST_FIELDS):
+    if not any(f in content for f in (*CHAPTER_CAST_FIELDS, "planned_beats")):
         return
     from sqlalchemy import select
 
@@ -86,6 +92,11 @@ async def apply_chapter_cast(db: AsyncSession, chapter, content: dict) -> None:
             if str(cid) in live_ids and str(cid) not in ids:
                 ids.append(str(cid))
         chapter.character_ids = ids
+    if "planned_beats" in content:
+        beats = normalize_planned_beats(content.get("planned_beats"))
+        for beat in beats:
+            beat["character_ids"] = [c for c in beat["character_ids"] if c in live_ids]
+        chapter.planned_beats = beats
     if "pov_character_id" in content:
         pov = content.get("pov_character_id")
         chapter.pov_character_id = (
