@@ -50,6 +50,7 @@ import re
 import sys
 import time
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from playwright.async_api import Page, async_playwright, expect
 
@@ -325,12 +326,24 @@ async def journey(page: Page) -> None:
         assert any(c.get("planned_beats") for c in promoted), "no planned_beats"
 
     async def continuity():
+        """SPEC-31: the stub quotes the first sentence of the first scene;
+        "Open in editor" selects exactly that quote."""
         await page.get_by_role("button", name="Continuity").click()
         await page.get_by_role("button", name="Run Check").click()
-        await expect(
-            page.get_by_text(re.compile("No contradictions|Checked \\d+ of"))
-        ).to_be_visible(timeout=TIMEOUT)
+        link = page.get_by_role("link", name="Open in editor").first
+        await expect(link).to_be_visible(timeout=TIMEOUT)
         await shot(page, "continuity")
+        quote = parse_qs(urlsplit(await link.get_attribute("href")).query)["q"][0]
+        await link.click()
+        await page.wait_for_url(re.compile(r"/books/editor/?\?book=.*&q="))
+        editor = page.get_by_label("Scene text")
+        await expect(editor).to_be_focused()
+        selected = await editor.evaluate(
+            "e => e.value.slice(e.selectionStart, e.selectionEnd)"
+        )
+        assert selected.split() == quote.split(), (selected, quote)
+        await shot(page, "continuity-quote")
+        await page.goto(STATE["book_url"])
 
     async def export_md(name: str, include_synopsis: bool = False) -> str:
         """Export through the dialog (B9) and return the Markdown."""
@@ -1284,7 +1297,7 @@ async def journey(page: Page) -> None:
     await step("generate a scene from the cast", generate_scene())
     await step("generate a staged outline", generate_outline())
     await step("add a suggested character to the cast", add_suggested_character())
-    await step("run a continuity check", continuity())
+    await step("run a continuity check, open a finding in the editor", continuity())
     await step("export the book", export())
     await step("trash a character and restore it", trash_and_restore_character())
     await step("restore an earlier synopsis", restore_earlier_synopsis())

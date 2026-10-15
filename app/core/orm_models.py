@@ -648,7 +648,7 @@ class ContinuityReport(Base):
     status = Column(String(20), nullable=False, default="processing")
     # {"chunks_checked", "chunks_total", "unchecked": [labels]}
     coverage = Column(JSON)
-    # [{"type": "timeline|character|object|thread", "severity", "detail", "refs"}]
+    # [{"type", "severity", "detail", "quote", "scene_id"}] (SPEC-31); pre-SPEC-31 rows carry "refs"
     findings = Column(JSON)
     model = Column(String(100))
     tokens_used = Column(Integer, default=0)
