@@ -199,7 +199,7 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
             who = cast[i % len(cast)] if cast else lead
             chapters.append(
                 {
-                    "title": f"Chapter {i + 1}: {who}",
+                    "title": f"Chapter {i + 1}: {who}, part {i + 1}",
                     "summary": f"{who} changes course.",
                     "act_index": i // 2,
                     "pov": who,
