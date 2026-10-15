@@ -1065,8 +1065,16 @@ async def journey(page: Page) -> None:
     async def new_book_checklist():
         """B12: a new book shows the getting-started checklist, ticked from
         real data: 0/4, then 1/4 once it has a source."""
+        # The phone step's copied session rotated the refresh cookie, so this
+        # page may have been signed out: sign in again if asked.
         await page.goto(f"{BASE}/books/")
-        await page.get_by_role("button", name="New Book").first.click()
+        new_book = page.get_by_role("button", name="New Book").first
+        sign_in_button = page.get_by_role("button", name="Sign In")
+        await expect(new_book.or_(sign_in_button)).to_be_visible()
+        if await sign_in_button.is_visible():
+            await sign_in()
+            await page.goto(f"{BASE}/books/")
+        await new_book.click()
         await page.get_by_placeholder("The working title of your book").fill(
             "Empty Shelf"
         )
