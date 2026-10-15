@@ -475,6 +475,47 @@ class PolyphonyClient:
                 return beats, "grounding"
         return [], "none"
 
+    async def scene_grounding(self, scene_id: str) -> dict:
+        """GET /books/scenes/{id}/grounding: per inner beat, every character
+        it was written with (and their samples). {} when unavailable."""
+        r = await self._get(f"/api/v1/books/scenes/{scene_id}/grounding")
+        return r.json() if r.status_code == 200 else {}
+
+    async def revise(self, scene_id: str, body: dict, timeout: float = 900) -> dict:
+        """POST /books/scenes/{id}/revise (SPEC-19), wait for the job, and
+        return {job, proposal, draft}: the proposal this job wrote (None when
+        the job failed before writing one) and the draft it was written
+        against."""
+        r = await self._post(f"/api/v1/books/scenes/{scene_id}/revise", json=body)
+        if r.status_code != 200:
+            raise EvalClientError(f"revise failed ({r.status_code}): {r.text[:400]}")
+        job_id = r.json()["job_id"]
+        job = await self.poll(
+            f"/api/v1/jobs/{job_id}",
+            # A job ends "succeeded" (jobs table), "failed" (dead) or "cancelled".
+            lambda j: j.get("status")
+            in ("succeeded", "completed", "failed", "cancelled"),
+            timeout=timeout,
+        )
+        listed = await self._get(f"/api/v1/books/scenes/{scene_id}/proposals")
+        listed.raise_for_status()
+        body = listed.json()
+        proposal = next(
+            (p for p in body.get("proposals") or [] if p.get("job_id") == job_id),
+            None,
+        )
+        return {"job": job, "proposal": proposal, "draft": body.get("draft") or ""}
+
+    async def revise_draft(self, scene_id: str) -> str:
+        """The draft revise ranges are counted against (GET .../proposals)."""
+        r = await self._get(f"/api/v1/books/scenes/{scene_id}/proposals")
+        return (r.json().get("draft") or "") if r.status_code == 200 else ""
+
+    async def discard_proposal(self, scene_id: str, revision_id: str) -> None:
+        await self._post(
+            f"/api/v1/books/scenes/{scene_id}/revisions/{revision_id}/discard"
+        )
+
     async def create_chapter(self, book_id: str, title: str, summary: str = "") -> dict:
         r = await self._post(
             f"/api/v1/books/{book_id}/chapters",
