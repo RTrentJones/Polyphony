@@ -100,13 +100,17 @@ persists the beats and passes the per-beat request), SPEC-27 (E5 renders the chi
 
 `app/orchestration/prose.py`.
 
-- `resolve_pov(request, canon)` returns `"<mode>, <character>"` or `"<mode>"`:
-  - mode: the request's `pov_mode`, else a mode in the request's `pov_character`, else a
-    `(first|second|third)[ -]person( limited| omniscient| objective)?` match in `style.pov`,
-    else `third person limited`;
-  - character: the request's `pov_character`; else a name in `style.pov` that resolves to the
-    cast ("third person limited, on Milo Voss" → Milo Voss; free text is never promoted).
-- `write_beat_prose` renders it with `pov_instruction` (**P5**), one paragraph:
+- POV is a typed value (wave 2.5, review S6): `Pov(mode: str, who: str | None)`, a NamedTuple;
+  `Pov.label` is `"<mode>, <who>"` or `"<mode>"`. Nothing joins it into a string and re-splits it
+  (`split_pov` and the unread `scene_request["pov_mode"]` are gone).
+- `resolve_pov(request, canon) -> Pov`:
+  - mode: a `(first|second|third)[ -]person( limited| omniscient| objective)?` match in
+    `style.pov`, else `third person limited`. A character name is never searched for a mode;
+  - who: the request's `pov_character` (the API writes the chapter POV's cast name); else the
+    first capitalised run in `style.pov` (outside the mode) that `CastIndex.resolve` maps to the
+    cast, dropping leading words until it does ("on Dr. Ada Vance" → Ada Vance, "first person,
+    Milo" → Milo Voss). Free text is never promoted.
+- `write_beat_prose(..., pov: Pov)` renders it with `pov_instruction(pov)` (**P5**), one paragraph:
   `Point of view: third person limited, Milo Voss. Narrate only what Milo Voss perceives or
   knows: no aftermath, no foreshadowing, no naming people Milo Voss has not learned. …`
   With no character: `Point of view: <mode>. Narrate only what the point-of-view character …`.
@@ -114,8 +118,16 @@ persists the beats and passes the per-beat request), SPEC-27 (E5 renders the chi
   in POV; no summary of what follows.`
 - **P7** markers are unchanged: `CHARACTERS IN THIS BEAT`, `BEAT TO WRITE`, `<beats>`, `<prior>`,
   `Stop where beat N+1 begins`. The `build_cast_context` call is unchanged (E4 owns the callee).
-- `app/orchestration/revise.py` calls `resolve_pov` through `scene_pov`, so its
-  `Point of view:` line now reads `<mode>, <character>` too (no change to revise.py).
+- The revise job calls `resolve_pov` directly (`revise.scene_pov` is gone) and the revise
+  prompt renders `Point of view: <pov.label>` (SPEC-19).
+- **Tone (wave 2.5, review S7).** `scene_block` omits `Emotional tone:` only when the tone is
+  blank. A tone the author chose, `neutral` included, is printed: the modal no longer defaults to
+  `neutral` (SPEC-25), so a `neutral` that reaches the backend is a deliberate choice.
+- **Style section (wave 2.5, W1-S3).** `_style_section` no longer embeds the sample prose in a
+  `<sample_prose>` fence or repeats the tone: both are in the canon block's style guide
+  (`render_style`). With sample prose it says the sample "(the canon's style guide, above) is your
+  primary style reference"; with a tone alone it says to follow that tone; the generic craft text
+  still appears only when the book has neither. A beat prompt carries the sample exactly once.
 - Ensemble mode builds its own prompts and is not covered (tpm-plan-wave2 §6 risk 4).
 
 ### 24f — The offline stub

@@ -13,7 +13,7 @@ scene set in Aeon Holdings knew nothing about Aeon Holdings.
 
 import re
 from datetime import datetime, timezone
-from typing import Optional
+from typing import NamedTuple, Optional
 from uuid import UUID
 
 from app.characters.context import build_cast_context
@@ -100,73 +100,69 @@ def pov_mode(text) -> Optional[str]:
     return " ".join(w for w in (m.group(1), "person", m.group(2)) if w).lower()
 
 
-def split_pov(pov) -> tuple[str, Optional[str]]:
-    """(mode, POV character) from a resolved POV string ("third person
-    limited, Milo Voss"). A string without a mode is a character, written in
-    the default mode."""
-    text = " ".join(clean_for_llm(str(pov or "")).split())
-    m = _POV_MODE.search(text)
-    mode = pov_mode(text) or DEFAULT_POV_MODE
-    who = (text[: m.start()] + " " + text[m.end() :]) if m else text
-    who = " ".join(who.split()).strip(" ,;:.-–—")
-    return mode, (who or None)
+class Pov(NamedTuple):
+    """A scene's point of view: the narrative mode, and whose head the scene
+    stays in (a cast member's name), if anyone's."""
+
+    mode: str
+    who: Optional[str] = None
+
+    @property
+    def label(self) -> str:
+        """ "<mode>, <who>" (or the mode alone): the text after "Point of view: "."""
+        return f"{self.mode}, {self.who}" if self.who else self.mode
 
 
-def resolve_pov(scene_request: dict, canon) -> str:
-    """The scene's point of view as "<mode>, <character>" (or just "<mode>").
+DEFAULT_POV = Pov(DEFAULT_POV_MODE)
+# The run of capitalised words a style-guide POV names its character with
+# ("on Dr. Ada Vance").
+_CAPITALISED_RUN = re.compile(r"[A-Z][\w'’-]*\.?(?:\s+[A-Z][\w'’-]*\.?)*")
 
-    The character is the request's POV character. The mode is the one the
-    request names, else the one the book's style guide names (style.pov is
-    free text: "third person limited, on Milo Voss"), else third person
-    limited (SPEC-24, W2-4). The mode and the character are both stated, so
-    the model knows whose head the scene stays in."""
-    raw = scene_request.get("pov_character")
-    style = getattr(canon, "style", None)
-    mode = (
-        pov_mode(scene_request.get("pov_mode"))
-        or pov_mode(raw)
-        or pov_mode(getattr(style, "pov", None) if style is not None else None)
-        or DEFAULT_POV_MODE
-    )
-    _, who = split_pov(raw) if raw else (None, None)
-    if not who and style is not None:
-        who = _style_pov_character(getattr(style, "pov", None), canon)
-    return f"{mode}, {who}" if who else mode
+
+def resolve_pov(scene_request: dict, canon) -> Pov:
+    """The scene's point of view (SPEC-24, W2-4).
+
+    The character is the request's POV character (a cast name, as the API
+    writes it), else the cast member the book's style guide names. The mode is
+    the one the style guide names (style.pov is free text: "third person
+    limited, on Milo Voss"), else third person limited. Both are stated, so the
+    model knows whose head the scene stays in."""
+    style_pov = getattr(getattr(canon, "style", None), "pov", None)
+    mode = pov_mode(style_pov) or DEFAULT_POV_MODE
+    who = " ".join(clean_for_llm(str(scene_request.get("pov_character") or "")).split())
+    return Pov(mode, who or _style_pov_character(style_pov, canon))
 
 
 def _style_pov_character(style_pov, canon) -> Optional[str]:
-    """The cast member a style-guide POV names ("third person limited, on Milo
-    Voss" -> "Milo Voss"), or None. Only a name that resolves to the cast is
-    used: free text is never promoted to a character."""
+    """The cast member a style-guide POV names ("third person limited, on Dr.
+    Ada Vance" -> "Ada Vance"), or None: the first capitalised run outside the
+    mode that resolves to the cast, dropping leading words ("Dr.") until it
+    does. Free text is never promoted to a character."""
     from app.planning.outline import CastIndex
 
-    _, rest = split_pov(style_pov)
-    if not rest:
-        return None
     cast = CastIndex(getattr(canon, "characters", None) or [])
-    words = rest.split()
-    # Drop leading lowercase connectives ("on", "close on", "following").
-    while words and words[0].islower():
-        words.pop(0)
-    for candidate in (rest, " ".join(words)):
-        cid = cast.resolve(candidate) if candidate else None
-        if cid is not None:
-            return cast.names[cid]
+    rest = _POV_MODE.sub(" ", clean_for_llm(str(style_pov or "")))
+    for run in _CAPITALISED_RUN.finditer(rest):
+        words = run.group(0).rstrip(".").split()
+        for i in range(len(words)):
+            cid = cast.resolve(" ".join(words[i:]))
+            if cid is not None:
+                return cast.names[cid]
     return None
 
 
-def pov_instruction(pov) -> str:
+def pov_instruction(pov: Pov) -> str:
     """The beat prompt's POV paragraph (SPEC-24, W2-4): mode and character on
     one line, then what staying in that head means."""
-    mode, who = split_pov(pov)
-    if not who:
+    if not pov.who:
         return (
-            f"{POV_LABEL}: {mode}. {POV_LIMIT_OPEN} the point-of-view character "
+            f"{POV_LABEL}: {pov.label}. {POV_LIMIT_OPEN} the point-of-view character "
             f"{POV_LIMIT_CLOSE}: no aftermath, no foreshadowing, no naming people "
             "they have not learned."
         )
+    who = pov.who
     return (
-        f"{POV_LABEL}: {mode}, {who}. {POV_LIMIT_OPEN} {who} {POV_LIMIT_CLOSE}: "
+        f"{POV_LABEL}: {pov.label}. {POV_LIMIT_OPEN} {who} {POV_LIMIT_CLOSE}: "
         f"no aftermath, no foreshadowing, no naming people {who} has not "
         "learned. Stay in their head from the first line to the last."
     )
@@ -271,23 +267,19 @@ def _style_section(style) -> str:
 
     Sample prose is the primary reference whenever it exists; a style-guide
     tone alone replaces the house style; the generic craft text appears only
-    when the book gives neither."""
-    sample = clean_for_llm(getattr(style, "sample_prose", None)) if style else ""
-    tone = clean_for_llm(getattr(style, "tone", None)) if style else ""
-    if sample:
-        out = (
-            "STYLE — the author's sample prose is your primary style reference. "
-            "Match this sample's voice and rhythm: its sentence length, its "
-            "balance of dialogue and narration, its diction.\n"
-            + as_quoted_block(sample, "sample_prose")
-        )
-        if tone:
-            out += f"\nTone: {tone}"
-        return out
-    if tone:
+    when the book gives neither. The sample and the tone themselves are in the
+    canon block's style guide (`render_style`), so they are referred to here,
+    never repeated (W1-S3)."""
+    if style is not None and clean_for_llm(getattr(style, "sample_prose", None)):
         return (
-            f"STYLE — follow the book's style guide. Tone: {tone}. Let it decide "
-            "how much the scene leans on dialogue or on description."
+            "STYLE — the author's sample prose (the canon's style guide, above) "
+            "is your primary style reference. Match its voice and rhythm: its "
+            "sentence length, its balance of dialogue and narration, its diction."
+        )
+    if style is not None and clean_for_llm(getattr(style, "tone", None)):
+        return (
+            "STYLE — follow the tone in the canon's style guide, above. Let it "
+            "decide how much the scene leans on dialogue or on description."
         )
     return GENERIC_CRAFT_GUIDANCE
 
@@ -302,7 +294,7 @@ async def write_beat_prose(
     target_words: int = 300,
     *,
     canon_block: str = "",
-    pov: str = DEFAULT_POV_MODE,
+    pov: Pov = DEFAULT_POV,
     all_beats: Optional[list[dict]] = None,
     beat_index: Optional[int] = None,
     style=None,
@@ -315,7 +307,7 @@ async def write_beat_prose(
     then style). `all_beats`/`beat_index` give the model the whole plan with
     this beat marked, so it stops where the next begins; `style` is the book's
     style guide, whose sample prose leads the style guidance (SPEC-18).
-    `pov` is `resolve_pov`'s "<mode>, <character>"; the prompt states both and
+    `pov` is `resolve_pov`'s; the prompt states its mode and character and
     keeps the narration in that character's head (SPEC-24).
     """
     style_notes = scene_request.get("style_notes") or ""

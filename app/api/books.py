@@ -226,6 +226,22 @@ async def lock_scene(db: AsyncSession, scene: SceneORM) -> SceneORM:
     ).scalar_one()
 
 
+def snapshot_draft(db: AsyncSession, scene: SceneORM) -> None:
+    """Keep the current draft as restorable history before it is replaced (a
+    manual save, an accepted revision): raw, so history restores it byte for
+    byte, and "edited" once the author has saved over the generation."""
+    previous = scene.draft
+    if previous:
+        db.add(
+            SceneRevisionORM(
+                scene_id=scene.id,
+                content=previous,
+                word_count=len(previous.split()),
+                source="edited" if scene.content else "generated",
+            )
+        )
+
+
 def _chapter_dict(c: ChapterORM) -> dict:
     return {
         "id": str(c.id),
@@ -1305,18 +1321,7 @@ async def update_scene_content(
 ):
     """Save an edit to the draft prose, snapshotting the previous state."""
     scene = await lock_scene(db, await owned_scene(scene_id, current_user, db))
-
-    # Raw, as the editor saved it: history restores it byte for byte.
-    previous = scene.content or scene.generated_content or ""
-    if previous:
-        db.add(
-            SceneRevisionORM(
-                scene_id=scene.id,
-                content=previous,
-                word_count=len(previous.split()),
-                source="edited" if scene.content else "generated",
-            )
-        )
+    snapshot_draft(db, scene)
     scene.content = payload.content
     scene.word_count = len(payload.content.split())
     scene.updated_at = datetime.now(timezone.utc)

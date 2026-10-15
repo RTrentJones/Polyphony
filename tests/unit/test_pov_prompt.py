@@ -11,12 +11,13 @@ import uuid
 
 import pytest
 
+from app.core.prompt_markers import POV_LINE_RE
 from app.orchestration import prose as prose_module
 from app.orchestration.prose import (
+    Pov,
     pov_instruction,
     pov_mode,
     resolve_pov,
-    split_pov,
     write_beat_prose,
 )
 
@@ -29,9 +30,14 @@ P5 = re.compile(
 P6 = "end the scene inside the moment, in POV; no summary of what follows"
 
 
-def _canon(style_pov=None, cast=("Milo Voss", "Zara Okafor")):
+def _canon(style_pov=None, cast=("Milo Voss", "Zara Okafor"), aliases=None):
     style = types.SimpleNamespace(pov=style_pov) if style_pov is not None else None
-    chars = [types.SimpleNamespace(id=uuid.uuid4(), name=n, aliases=[]) for n in cast]
+    chars = [
+        types.SimpleNamespace(
+            id=uuid.uuid4(), name=n, aliases=list((aliases or {}).get(n, []))
+        )
+        for n in cast
+    ]
     return types.SimpleNamespace(style=style, characters=chars)
 
 
@@ -65,60 +71,82 @@ def test_request_character_with_the_style_guide_mode():
     pov = resolve_pov(
         {"pov_character": "Milo Voss"}, _canon("third person limited, on Milo Voss")
     )
-    assert pov == "third person limited, Milo Voss"
+    assert pov == Pov("third person limited", "Milo Voss")
+    assert pov.label == "third person limited, Milo Voss"
 
 
 def test_no_style_falls_back_to_third_person_limited():
     assert resolve_pov({"pov_character": "Milo Voss"}, _canon()) == (
-        "third person limited, Milo Voss"
+        Pov("third person limited", "Milo Voss")
     )
-    assert resolve_pov({}, _canon()) == "third person limited"
+    assert resolve_pov({}, _canon()) == Pov("third person limited", None)
+    assert Pov("third person limited").label == "third person limited"
 
 
-def test_mode_order_request_then_style_then_default():
+def test_mode_comes_from_the_style_guide_never_from_the_name():
     canon = _canon("First-person, present tense")
     assert resolve_pov({"pov_character": "Zara Okafor"}, canon) == (
-        "first person, Zara Okafor"
+        Pov("first person", "Zara Okafor")
     )
+    # the retired request key is not read
     assert resolve_pov(
         {"pov_character": "Zara Okafor", "pov_mode": "second person"}, canon
-    ) == ("second person, Zara Okafor")
+    ) == Pov("first person", "Zara Okafor")
     # a style guide that names no mode ("third") does not invent one
     assert resolve_pov({"pov_character": "Zara Okafor"}, _canon("third")) == (
-        "third person limited, Zara Okafor"
+        Pov("third person limited", "Zara Okafor")
     )
 
 
 def test_style_guide_character_is_used_only_when_it_is_cast():
     assert resolve_pov({}, _canon("third person limited, on Milo Voss")) == (
-        "third person limited, Milo Voss"
+        Pov("third person limited", "Milo Voss")
     )
-    assert resolve_pov({}, _canon("first person, Milo")) == "first person, Milo Voss"
+    assert resolve_pov({}, _canon("first person, Milo")) == (
+        Pov("first person", "Milo Voss")
+    )
+    assert resolve_pov({}, _canon("Close third, on Zara")) == (
+        Pov("third person limited", "Zara Okafor")
+    )
     assert resolve_pov({}, _canon("third person omniscient, wry")) == (
-        "third person omniscient"
+        Pov("third person omniscient", None)
+    )
+    assert resolve_pov({}, _canon("first person, Bartholomew Quince")) == (
+        Pov("first person", None)
     )
 
 
-def test_pov_mode_and_split():
+def test_a_titled_style_character_resolves_through_the_cast():
+    """Review S6: "Dr. Ada Vance" is not a cast form, but its capitalised run
+    resolves once the title is dropped."""
+    canon = _canon(
+        "third person limited, on Dr. Ada Vance",
+        cast=("Ada Vance", "Milo Voss"),
+        aliases={"Ada Vance": ["Dr. Vance"]},
+    )
+    pov = resolve_pov({}, canon)
+    assert pov == Pov("third person limited", "Ada Vance")
+    m = POV_LINE_RE.search(pov_instruction(pov))
+    assert m.group("mode") == "third person limited"
+    assert m.group("who") == "Ada Vance"
+
+
+def test_pov_mode():
     assert pov_mode("Third-Person Limited, on Milo") == "third person limited"
     assert pov_mode("close third") is None
-    assert split_pov("third person limited, Milo Voss") == (
-        "third person limited",
-        "Milo Voss",
-    )
-    assert split_pov("Milo Voss") == ("third person limited", "Milo Voss")
-    assert split_pov("first person") == ("first person", None)
 
 
 def test_pov_instruction_matches_p5():
-    text = pov_instruction("third person limited, Milo Voss")
+    text = pov_instruction(Pov("third person limited", "Milo Voss"))
     m = P5.search(text)
     assert m and m.group("mode") == "third person limited"
     assert m.group("who") == "Milo Voss"
     assert text.startswith("Point of view: third person limited, Milo Voss.")
     assert "Narrate only what Milo Voss perceives or knows" in text
     assert "\n" not in text  # one paragraph
-    assert pov_instruction("first person").startswith("Point of view: first person.")
+    text = pov_instruction(Pov("first person"))
+    assert text.startswith("Point of view: first person.")
+    assert POV_LINE_RE.search(text).group("who") is None
 
 
 # --- the beat prompt ------------------------------------------------------------------
@@ -158,7 +186,7 @@ async def test_last_beat_ends_inside_the_moment(fake):
         {"scene_description": "d"},
         "cast",
         "Before.",
-        pov="third person limited, Milo Voss",
+        pov=Pov("third person limited", "Milo Voss"),
         all_beats=_BEATS,
         beat_index=2,
     )

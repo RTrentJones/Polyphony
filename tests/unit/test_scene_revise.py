@@ -32,6 +32,7 @@ from app.jobs.handlers import Handler
 from app.jobs.worker import JobWorker
 from app.llm.errors import QuotaExhaustedError
 from app.orchestration import revise as rv
+from app.orchestration.prose import Pov
 
 pytestmark = pytest.mark.unit
 
@@ -235,11 +236,64 @@ def test_resolve_span_modes():
 
 
 def test_new_names_warns_on_an_invented_name_only():
+    """W1-S7: one unknown_proper_nouns call, the draft as known text."""
     known = {"Milo Voss", "Milo", "Voss", "Zara Okafor", "Zara", "Okafor"}
-    assert rv.new_names("Zara said nothing. Silence held.", DRAFT, known) == []
+    # "Outside" is capitalised in the draft; "Numbers" the draft uses in
+    # lowercase ("The numbers would not add up").
+    assert rv.new_names("Outside, Zara said nothing. Numbers held.", DRAFT, known) == []
     assert rv.new_names("Bartholomew Quince walked in.", DRAFT, known) == [
         "Bartholomew Quince"
     ]
+
+
+def test_scene_draft_is_raw_and_the_export_trims_it():
+    from app.exports.builder import scene_text
+
+    scene = Scene(content="  Edited.\n", generated_content="Generated.")
+    assert scene.draft == "  Edited.\n" and scene_text(scene) == "Edited."
+    assert Scene(generated_content="Generated.\n").draft == "Generated.\n"
+    assert Scene().draft == "" and scene_text(Scene()) == ""
+
+
+def test_span_spec_takes_a_range_or_a_beat_never_both():
+    from pydantic import ValidationError
+
+    from app.api.estimates import EstimateRequest
+    from app.api.revise import ReviseRequest
+
+    both = {"range": {"start": 0, "end": 5}, "beat_index": 0}
+    for model, extra in (
+        (ReviseRequest, {"instruction": "x"}),
+        (EstimateRequest, {"action": "revise"}),
+    ):
+        assert issubclass(model, rv.SpanSpec)
+        with pytest.raises(ValidationError, match="range OR beat_index"):
+            model(**both, **extra)
+        assert model(beat_index=1, **extra).beat_index == 1
+
+
+def test_revise_prompt_states_the_redone_beat_and_the_pov():
+    common = dict(
+        canon_block="Title: T",
+        chapter_summary="",
+        cast_context="",
+        prior=P1,
+        target=P2,
+        after=P3,
+        instruction="redo",
+    )
+    prompt = rv.build_revise_prompt(
+        **common,
+        pov=Pov("third person limited", "Milo Voss"),
+        beat=(1, "Zara finds the missing line."),
+    )
+    assert (
+        "Point of view: third person limited, Milo Voss\n"
+        "Beat 2 of this scene's plan: Zara finds the missing line.\n"
+    ) in prompt
+    prompt = rv.build_revise_prompt(**common, pov=Pov("first person"))
+    assert "Point of view: first person\n" in prompt
+    assert "of this scene's plan" not in prompt
 
 
 def test_stub_llm_revise_family_derives_the_answer_from_the_target():
@@ -253,7 +307,7 @@ def test_stub_llm_revise_family_derives_the_answer_from_the_target():
         target=P2,
         after=P3,
         instruction="tighten",
-        pov="third",
+        pov=Pov("third person limited"),
     )
     out = _answer(prompt)
     assert out == P2.split(". ", 1)[1]
@@ -384,9 +438,10 @@ async def test_beat_mode_locates_the_beat_and_refuses_an_edited_one(
     r = await _revise(client, auth_headers, story.scene, beat_index=1)
     assert r.status_code == 200, r.text
     assert r.json()["range"] == [_p2_range()["start"], _p2_range()["end"]]
+    job = await async_session.get(Job, UUID(r.json()["job_id"]))
+    assert job.payload["beat_index"] == 1 and job.payload["beat_description"] == "b1"
 
     # The author rewrote that paragraph since the beat was generated.
-    job = await async_session.get(Job, UUID(r.json()["job_id"]))
     await jobs_repo.mark_cancelled(async_session, job)
     story.scene.content = DRAFT.replace("You missed a line", "Wrong column")
     await async_session.commit()
@@ -431,6 +486,39 @@ async def test_estimate_endpoint_prices_a_revision(
     assert both.status_code == 422
 
 
+async def test_save_and_accept_snapshot_the_draft_by_one_rule(
+    client, auth_headers, async_session, story, monkeypatch
+):
+    """W1-S6: a manual save and an accepted revision each keep the draft they
+    replace, raw, as "generated" until the author has saved over it and
+    "edited" after."""
+    story.scene.content = None
+    story.scene.generated_content = DRAFT + "\n"
+    await async_session.commit()
+    _bind(monkeypatch, async_session, FakeLLM(["Zara said nothing."]))
+    await _run_job(client, auth_headers, async_session, story.scene, range=_p2_range())
+    [proposal] = (await _proposals(client, auth_headers, story.scene))["proposals"]
+    before = {r.id for r in await _revisions(async_session, story.scene)}
+    r = await client.post(
+        _url(story.scene, f"revisions/{proposal['id']}/accept"), headers=auth_headers
+    )
+    assert r.status_code == 200, r.text
+    r = await client.put(
+        f"/api/v1/books/scenes/{story.scene.id}/content",
+        json={"content": "Rewritten by hand."},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    added = [
+        (a.source, a.content)
+        for a in await _revisions(async_session, story.scene)
+        if a.id not in before and a.source != "ai_revise"
+    ]
+    assert sorted(added) == sorted(
+        [("generated", DRAFT + "\n"), ("edited", proposal["content"])]
+    )
+
+
 # --- the job through the worker -------------------------------------------------------
 
 
@@ -466,6 +554,18 @@ async def test_prompt_carries_canon_cast_and_read_only_surroundings(
     assert f"<target>\n{P2}\n</target>" in prompt
     assert f"<after>\n{P3}\n</after>" in prompt
     assert "<instruction>\nMake Zara colder.\n</instruction>" in prompt
+    assert "of this scene's plan" not in prompt  # a range, not a beat
+
+
+async def test_a_beat_revise_prompt_names_the_beat_from_the_plan(
+    client, auth_headers, async_session, story, monkeypatch
+):
+    """Eval finding 6: "redo beat 2" tells the model what beat 2 was."""
+    fake = FakeLLM(["Zara leaned in."])
+    _bind(monkeypatch, async_session, fake)
+    job = await _run_job(client, auth_headers, async_session, story.scene, beat_index=1)
+    assert job.status == "succeeded", job.error
+    assert "Beat 2 of this scene's plan: b1\n" in fake.prompts[0]
 
 
 async def test_whole_scene_revise_has_no_surroundings(
