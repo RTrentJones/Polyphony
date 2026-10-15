@@ -131,6 +131,32 @@ def _narrators(prompt: str) -> list[str]:
     return out
 
 
+_SECONDARY_LINE = re.compile(r"^SECONDARY PEOPLE \([^)\n]*\): (.+)$", re.M)
+_ACT_CHAPTERS = re.compile(
+    r"Here are the chapters of act (\d+), in order:\n(.*?)\n\nFor EACH chapter", re.S
+)
+
+
+def _secondaries(prompt: str) -> list[str]:
+    """The names on the outline prompt's SECONDARY PEOPLE line (SPEC-24)."""
+    m = _SECONDARY_LINE.search(prompt)
+    if not m or m.group(1).strip() == "(none)":
+        return []
+    return [n.strip() for n in m.group(1).split(",") if n.strip()]
+
+
+def _act_chapters(prompt: str) -> tuple[int, list[dict]]:
+    """(act number, the act's chapters) as the beats prompt carries them."""
+    m = _ACT_CHAPTERS.search(prompt)
+    if not m:
+        return 0, []
+    try:
+        chapters = json.loads(m.group(2))
+    except ValueError:
+        return int(m.group(1)), []
+    return int(m.group(1)), [c for c in chapters if isinstance(c, dict)]
+
+
 def _revise(prompt: str) -> str:
     """The revise family (SPEC-19): the <target> passage with its first
     sentence dropped (its last word, if it is one sentence). Derived only from
@@ -183,25 +209,43 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
             )
         return json.dumps(chapters)
     if "scene beats" in prompt and "mirroring the chapters" in prompt:
-        titles = re.findall(r"'title':\s*'([^']*)'", prompt) or re.findall(
-            r'"title":\s*"([^"]*)"', prompt
-        )
+        # Each beat carries its own cast (the chapter's), setting and tone; the
+        # first chapter's first beat declares every SECONDARY PEOPLE name, so
+        # the outline offers "Add <name> to cast" (SPEC-24).
+        act, chapters = _act_chapters(prompt)
+        titles = [str(c.get("title") or "") for c in chapters if c.get("title")]
+        if not titles:
+            titles = re.findall(r"'title':\s*'([^']*)'", prompt) or re.findall(
+                r'"title":\s*"([^"]*)"', prompt
+            )
+        secondaries = _secondaries(prompt)
         nodes = []
-        for t in titles:
+        for i, t in enumerate(titles):
             who = next((c for c in cast if c in t), lead)
+            chapter = chapters[i] if i < len(chapters) else {}
+            present = chapter.get("characters")
+            present = present if isinstance(present, list) else cast[:3]
+            beat = {"setting": "the intake atrium", "tone": "wry"}
+            first = {
+                "title": f"{who} decides",
+                "summary": "a choice",
+                "characters": present,
+                **beat,
+                "children": [],
+            }
+            if act == 1 and i == 0 and secondaries:
+                first["secondary_names"] = secondaries
             nodes.append(
                 {
                     "title": t,
                     "summary": f"{who} acts.",
                     "children": [
-                        {
-                            "title": f"{who} decides",
-                            "summary": "a choice",
-                            "children": [],
-                        },
+                        first,
                         {
                             "title": f"{second} answers",
                             "summary": "a cost",
+                            "characters": present,
+                            **beat,
                             "children": [],
                         },
                     ],

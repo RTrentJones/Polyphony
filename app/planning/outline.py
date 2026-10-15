@@ -3,6 +3,9 @@
 An outline is a JSON list of nodes: {"node_id", "title", "summary", "children"}.
 Top-level nodes map naturally onto chapters ("promote" endpoint) and carry the
 chapter's structural cast: pov, character_ids, act_index, threads (SPEC-10).
+Children are the chapter's planned beats, each with its own character_ids,
+secondary_names, setting and tone (SPEC-24); promote stores them as
+`chapters.planned_beats` (SPEC-23).
 """
 
 from typing import Any, Iterable, Optional
@@ -17,6 +20,7 @@ from app.core.llm_text import (
 from app.core.logging_config import setup_logging
 from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_array
+from app.planning.planned_beat import MAX_SECONDARY_NAMES
 
 logger = setup_logging("planning.outline")
 
@@ -68,25 +72,76 @@ def _uuid_str(value: Any) -> Optional[str]:
         return None
 
 
-def _structural_fields(node: dict, cast: Optional[CastIndex], strict: bool) -> dict:
-    """pov / character_ids / act_index / threads of a top-level node.
+def _secondary_names(
+    node: dict, cast: Optional[CastIndex]
+) -> tuple[Optional[list[str]], list[str]]:
+    """(the node's `secondary_names`, ids of those that ARE in the cast).
 
-    `character_ids` may arrive as ids or, from the model's `characters`, as
-    names; with a cast both resolve to ids of THIS book. Without one (a restore,
-    which must not depend on today's cast) stored ids are kept as they are.
-    """
-    out: dict = {}
-    unknown: list[str] = []
+    Trimmed, deduped case-insensitively, at most 12 of at most 100 chars. With
+    a cast, a name that resolves to it is cast, not secondary: its id is
+    returned to join `character_ids` instead (SPEC-24). None when the node
+    carries no list."""
+    raw = node.get("secondary_names")
+    if not isinstance(raw, list):
+        return None, []
+    names: list[str] = []
+    moved: list[str] = []
+    for item in raw:
+        if not isinstance(item, (str, int, float)) or isinstance(item, bool):
+            continue
+        name = str(item).strip()[:100]
+        if not name:
+            continue
+        cid = cast.resolve(name) if cast is not None else None
+        if cid is not None:
+            if cid not in moved:
+                moved.append(cid)
+        elif name.lower() not in {n.lower() for n in names}:
+            names.append(name)
+    return names[:MAX_SECONDARY_NAMES], moved
+
+
+def _cast_ids(
+    node: dict,
+    cast: Optional[CastIndex],
+    secondary: Optional[list[str]],
+    unknown: list[str],
+) -> tuple[Optional[list], list[str]]:
+    """(the refs the node gave, their resolved ids). `character_ids` may arrive
+    as ids or, from the model's `characters`, as names; with a cast both
+    resolve to ids of THIS book. Without one (a restore, which must not depend
+    on today's cast) stored ids are kept as they are. A name that resolves to
+    nobody is appended to `unknown`, unless the node lists it as secondary."""
     refs = node.get("character_ids")
     if not isinstance(refs, list):
         refs = node.get("characters")
+    allowed = {n.lower() for n in secondary or []}
     ids: list[str] = []
     for ref in refs if isinstance(refs, list) else []:
         cid = cast.resolve(ref) if cast is not None else _uuid_str(ref)
         if cid is None:
-            unknown.append(str(ref))
+            if str(ref).strip().lower() not in allowed:
+                unknown.append(str(ref))
         elif cid not in ids:
             ids.append(cid)
+    return (refs if isinstance(refs, list) else None), ids
+
+
+def _raise_unknown(strict: bool, unknown: list[str]) -> None:
+    if strict and unknown:
+        raise ValueError(
+            "Not in this book's cast: " + ", ".join(dict.fromkeys(unknown))
+        )
+
+
+def _structural_fields(node: dict, cast: Optional[CastIndex], strict: bool) -> dict:
+    """pov / character_ids / act_index / threads / secondary_names of a
+    top-level node (SPEC-10, SPEC-24). An unknown cast entry is dropped, or
+    rejected with `strict`, unless the node lists it in `secondary_names`."""
+    out: dict = {}
+    unknown: list[str] = []
+    secondary, moved = _secondary_names(node, cast)
+    refs, ids = _cast_ids(node, cast, secondary, unknown)
     pov = node.get("pov")
     if isinstance(pov, str) and pov.strip():
         pov = pov.strip()[:255]
@@ -102,7 +157,8 @@ def _structural_fields(node: dict, cast: Optional[CastIndex], strict: bool) -> d
                     ids.insert(0, pid)
         if pov:
             out["pov"] = pov
-    if ids or isinstance(refs, list):
+    ids.extend(cid for cid in moved if cid not in ids)
+    if ids or refs is not None:
         out["character_ids"] = ids
     act = node.get("act_index")
     if isinstance(act, int) and not isinstance(act, bool) and act >= 0:
@@ -110,10 +166,30 @@ def _structural_fields(node: dict, cast: Optional[CastIndex], strict: bool) -> d
     threads = node.get("threads")
     if isinstance(threads, list):
         out["threads"] = [str(t).strip()[:255] for t in threads if str(t).strip()]
-    if strict and unknown:
-        raise ValueError(
-            "Not in this book's cast: " + ", ".join(dict.fromkeys(unknown))
-        )
+    if secondary is not None:
+        out["secondary_names"] = secondary
+    _raise_unknown(strict, unknown)
+    return out
+
+
+def _beat_fields(node: dict, cast: Optional[CastIndex], strict: bool) -> dict:
+    """A child beat's own cast, secondaries, setting and tone (SPEC-24 §1.1).
+
+    `character_ids` resolves exactly like a chapter's and is absent when the
+    model gave no cast; a secondary that is in the cast moves into it."""
+    out: dict = {}
+    unknown: list[str] = []
+    secondary, moved = _secondary_names(node, cast)
+    refs, ids = _cast_ids(node, cast, secondary, unknown)
+    ids.extend(cid for cid in moved if cid not in ids)
+    if ids or refs is not None:
+        out["character_ids"] = ids
+    if secondary is not None:
+        out["secondary_names"] = secondary
+    for key, cap in (("setting", 500), ("tone", 200)):
+        if isinstance(node.get(key), str):
+            out[key] = node[key].strip()[:cap]
+    _raise_unknown(strict, unknown)
     return out
 
 
@@ -121,14 +197,19 @@ def validate_outline_nodes(
     nodes, *, cast: Optional[Iterable[Any]] = None, strict: bool = False
 ) -> list[dict]:
     """Normalize/validate outline JSON into [{node_id, title, summary, children,
-    pov?, character_ids?, act_index?, threads?}].
+    pov?, character_ids?, act_index?, threads?, secondary_names?}].
 
     Every node gets a stable `node_id`, kept when it already has a valid one, so
     edits, versions and restores preserve the link a promoted chapter holds.
     Top-level nodes keep their structural cast (SPEC-10): with `cast`, names
     resolve through aliases to this book's character ids, and an unknown is
     dropped (generation; the fidelity audit warns) or, with `strict`, rejected
-    (the author's own edit).
+    (the author's own edit) — unless the node lists it in `secondary_names`.
+
+    Children are beats (SPEC-24): each may carry its own `character_ids`
+    (from ids or `characters` names, resolved the same way), `secondary_names`,
+    `setting` and `tone`. A secondary that resolves to the cast moves into
+    `character_ids`. Without `cast` (a restore) stored values are kept as-is.
     """
     index = cast if cast is None or isinstance(cast, CastIndex) else CastIndex(cast)
     return _validate(nodes, index, strict, top=True)
@@ -147,8 +228,7 @@ def _validate(nodes, cast: Optional[CastIndex], strict: bool, top: bool) -> list
             "summary": str(node.get("summary", "")).strip()[:2000],
             "children": _validate(node.get("children", []) or [], cast, strict, False),
         }
-        if top:
-            out.update(_structural_fields(node, cast, strict))
+        out.update((_structural_fields if top else _beat_fields)(node, cast, strict))
         normalized.append(out)
     return normalized
 
