@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import secrets
+import os
 import time
 
 import httpx
@@ -100,7 +101,11 @@ class PolyphonyClient:
         return await self._http.put(path, headers=self._auth(), **kw)
 
     async def poll(self, path: str, done, *, timeout: float = 300, interval: float = 3):
-        """Poll GET `path` until `done(json)` is truthy; returns that json."""
+        """Poll GET `path` until `done(json)` is truthy; returns that json.
+
+        EVAL_POLL_SCALE stretches every wait, for a relay run where an agent
+        answers each model call (evals/relay_llm.py) far slower than a vendor."""
+        timeout *= float(os.getenv("EVAL_POLL_SCALE", "1"))
         deadline = time.monotonic() + timeout
         last = None
         while time.monotonic() < deadline:
