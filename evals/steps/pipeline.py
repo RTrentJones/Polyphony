@@ -144,7 +144,7 @@ async def _index_voice(ctx: StepContext, book_id: str, names: list[str]) -> dict
 def load_corpus(book: str) -> tuple[str, dict]:
     """The manuscript an author would upload, plus the ground truth.
 
-    A corpus whose prose lives mostly in `synopsis.txt` (cel: a 389-char
+    A corpus whose prose lives mostly in `synopsis.txt` (cel: a ~4.7k-char
     excerpt, with the cast in the 17k synopsis) uploads synopsis + excerpt.
     Uploading the excerpt alone graded extraction against a cast the text
     never names (Edric Thane is not in it), so the score was 0 whatever the
