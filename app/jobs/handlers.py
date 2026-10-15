@@ -26,6 +26,7 @@ from sqlalchemy import select
 from app.core.database import get_async_session
 from app.core.logging_config import log_business_event, setup_logging
 from app.core.orm_models import ContinuityReport, Scene
+from app.jobs import revise
 from app.jobs.context import current_job
 
 logger = setup_logging("jobs.handlers")
@@ -695,5 +696,13 @@ HANDLERS: dict[str, Handler] = {
         on_pause=_pause_report,
         on_resume=_resume_report,
         on_cancel=_cancel_report,
+    ),
+    # AI revision of a scene span (SPEC-19): proposes, never writes the draft.
+    revise.KIND: Handler(
+        run=revise.run,
+        on_dead=revise.on_dead,
+        on_pause=revise.on_pause,
+        on_resume=revise.on_resume,
+        on_cancel=revise.on_cancel,
     ),
 }
