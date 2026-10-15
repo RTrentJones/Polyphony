@@ -39,6 +39,10 @@ Wave 2 (SPEC-28; the strings are tpm-plan-wave2 §1.3 P1-P10):
 * ``reduce_evidence_depth``  extraction_reduce: >= 3 evidence/quote lines per
                        principal (F1).
 
+Wave 3: ``movement_names_in_scene``  beat_prose: no "How they move" line names
+a principal or ``secondary_cast`` member outside the scene (SPEC-30); reports
+``movement_coverage``, the share of principal blocks that move (B-2).
+
 Each check reports ``{n, passed, rate, failures}``; a check with nothing to
 check (no such call in the archive) reports ``n == 0`` and ``rate = None``, so
 an archive from before a contract existed still grades.
@@ -71,8 +75,10 @@ from app.core.prompt_markers import (
     SETTING_LABEL,
     STOP_AT_NEXT_BEAT,
     labelled_line,
+    ALSO_NAMED_LABEL,
+    MOVEMENT_LABEL,
 )
-from app.parsing.names import norm
+from app.parsing.names import NON_NAME_TOKENS, mentions, norm
 
 # The house-style paragraph the beat prompt hard-codes today; it must not
 # appear when the author's style guide supplies sample prose.
@@ -595,6 +601,56 @@ class _Tally:
         }
 
 
+_ALSO_NAMED = labelled_line(ALSO_NAMED_LABEL)
+
+
+def movement_blocks(section: str) -> list[tuple[str, list[str]]]:
+    """(owner, [movement line]) for each ``### owner`` block, in order."""
+    out = []
+    for chunk in re.split(rf"(?m)^{re.escape(NAME_HEADING)}", section)[1:]:
+        owner, _, body = chunk.partition("\n")
+        run = body.partition(f"{MOVEMENT_LABEL}\n")[2]
+        lines = re.match(r"(?:- [^\n]*(?:\n|$))*", run)[0].splitlines()
+        out.append((owner.strip(), [ln[2:] for ln in lines]))
+    return out
+
+
+def _named(text: str, person: dict) -> bool:
+    """By a whole form, or a capitalised name token ("the Bell account")."""
+    forms = [person["name"], *person.get("aliases", [])]
+    tokens = [t for t in person["name"].split() if t.lower() not in NON_NAME_TOKENS]
+    return any(mentions(norm(text), f) for f in forms) or any(
+        re.search(rf"(?<!\w){re.escape(t)}(?!\w)", text) for t in tokens
+    )
+
+
+def check_movement_in_scene(
+    prompt: str, people: list[dict], aliases: dict[str, str]
+) -> tuple[list[str], list[tuple[str, int]]]:
+    """SPEC-30, S7: (reasons, [(owner, movement lines)]). A line may name only
+    people (ground truth) in the scene: a ``### `` block, the Also-named line,
+    or named by the scene brief or beat plan."""
+
+    def who(name: str) -> str:  # canonical, as cased in the corpus
+        return aliases.get(" ".join(name.split()).lower(), name)
+
+    blocks = [
+        (who(o), ls) for o, ls in movement_blocks(characters_section(prompt) or "")
+    ]
+    m = _ALSO_NAMED.search(prompt)
+    present = {o for o, _ in blocks} | {who(n) for n in _names(m.group(1) if m else "")}
+    brief = f"{block(prompt, 'scene') or ''}\n{block(prompt, BEATS_FENCE) or ''}"
+    present |= {p["name"] for p in people if _named(brief, p)}
+    reasons = [
+        f"{owner}: names {p['name']}: {line!r}"
+        for owner, lines in blocks
+        for line in lines
+        for p in people
+        if p["name"] not in present and _named(line, p)
+    ]
+    return reasons, [(o, len(ls)) for o, ls in blocks]
+
+
 def _json_object(text: str) -> dict:
     t = (text or "").strip().replace("```json", "").replace("```", "")
     start, end = t.find("{"), t.rfind("}")
@@ -623,6 +679,8 @@ CHECKS = (
     "no_duplicate_bible",
     "no_doubled_voice_label",
     "reduce_evidence_depth",
+    # wave 3
+    "movement_names_in_scene",
 )
 
 
@@ -645,6 +703,7 @@ def grade(
     style_tone: str = "",
     pov: str | None = None,
     descriptions: list[str] | None = None,
+    secondary_cast: list | None = None,
 ) -> dict:
     """Run every check over an archive (see the module docstring).
 
@@ -654,7 +713,9 @@ def grade(
     `principals` (fidelity.principals, {name, aliases}), the style guide's
     `style_tone`, the corpus POV character `pov` (the default when a prompt's
     chapter is not in the outline answers), and
-    the canon `descriptions` that must appear exactly once per beat prompt."""
+    the canon `descriptions` that must appear exactly once per beat prompt.
+    `secondary_cast` (names, or {name, aliases}) joins the principals as the
+    people a movement sample may not name outside its scene (wave 3)."""
     gold = {
         who: [*(v.get("train") or []), *(v.get("test") or [])]
         for who, v in (gold_lines or {}).items()
@@ -665,6 +726,11 @@ def grade(
         for form in [p["name"], *(p.get("aliases") or [])]:
             aliases[" ".join(form.split()).lower()] = p["name"]
     principal_names = [p["name"] for p in principals or []]
+    people = [*(principals or [])] + [
+        s if isinstance(s, dict) else {"name": s} for s in secondary_cast or []
+    ]
+    movement = {n: 0 for n in principal_names}
+    moving_blocks: list[bool] = []
     tallies = {k: _Tally() for k in CHECKS}
     voice_counts = dict.fromkeys(
         ("samples", "own", "misattributed", "not_dialogue", "short"), 0
@@ -711,6 +777,12 @@ def grade(
             tallies["no_duplicate_bible"].add(
                 rec, check_no_duplicate_bible(prompt, descriptions or [])
             )
+            reasons, blocks = check_movement_in_scene(prompt, people, aliases)
+            tallies["movement_names_in_scene"].add(rec, reasons)
+            for owner, n in blocks:
+                if owner in movement:
+                    movement[owner] += n
+                    moving_blocks.append(n > 0)
         if pur == "extraction_reduce" and principal_names:
             reasons, checked = check_reduce_evidence(prompt, principal_names, aliases)
             if checked:
@@ -757,6 +829,11 @@ def grade(
     # Reported, not gated (§6.3): voice samples too short to carry a voice.
     out["voice_dialogue"]["short_samples"] = short
     out["plan_cast_from_beat"]["unmatched"] = plan_unmatched
+    # Reported; gated >= 0.8 by the eval (B-2): principal blocks that move.
+    out["movement_names_in_scene"]["movement_coverage"] = (
+        round(sum(moving_blocks) / len(moving_blocks), 4) if moving_blocks else None
+    )
+    out["movement_names_in_scene"]["movement_lines"] = movement
     # Reported, not gated (§5.1): the beat prompt's size after the bible dedupe.
     out["beat_prose_prompt_chars_median"] = _median(beat_prompt_chars)
     out["n_calls"] = len(records)
@@ -783,6 +860,7 @@ def corpus_inputs(gt: dict, style: dict | None) -> dict:
         "descriptions": [
             c["description"] for c in gt.get("characters") or [] if c.get("description")
         ],
+        "secondary_cast": list(gt.get("secondary_cast") or []),
     }
 
 

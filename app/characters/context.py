@@ -22,6 +22,7 @@ from app.core.database import get_async_session
 from app.core.llm_text import as_quoted_block, clean_for_llm
 from app.core.orm_models import Character
 from app.core.prompt_markers import MOVEMENT_LABEL, NAME_HEADING, VOICE_SAMPLES_LABEL
+from app.parsing.character_extractor import _SPEECH_MIN_WORDS
 from app.rag.store import get_chunk_store
 
 # A grounding record keeps a bounded excerpt of each sample's text as it was at
@@ -157,23 +158,30 @@ async def build_character_context(
     of them rather than this character is left out (SPEC-30). `chunk_types`,
     when given, limits both blocks to those types.
     """
-    lines = [f"{NAME_HEADING}{name}"]
+    heading = f"{NAME_HEADING}{name}"
     if character is None:
-        return "\n".join(lines)
-    if bible:
-        lines.extend(_bible_lines(character))
-    if max_samples <= 0:
-        return "\n".join(lines)
-    words, movement = await _voice_and_movement(
-        character,
-        beat_description,
-        max_samples,
-        min(_MOVEMENT_SAMPLES, max_samples),
-        scope=scope,
-        chunk_types=chunk_types,
-    )
-    if grounding is not None:
-        grounding.extend(grounding_entries(character, [*words, *movement]))
+        return heading
+    bio = _bible_lines(character) if bible else []
+    words, movement = [], []
+    if max_samples > 0:
+        words, movement = await character_samples(
+            character,
+            beat_description,
+            max_samples,
+            scope=scope,
+            chunk_types=chunk_types,
+        )
+        if grounding is not None:
+            grounding.extend(grounding_entries(character, [*words, *movement]))
+    _, _, samples = render_character(name, words, movement).partition("\n")
+    return "\n".join([heading, *bio, *([samples] if samples else [])])
+
+
+def render_character(name: str, words: list[dict], movement: list[dict]) -> str:
+    """The one character-block renderer (SPEC-17): `### name`, their own words
+    under VOICE_SAMPLES_LABEL, how they move under MOVEMENT_LABEL. Beat prose,
+    revise and the voice probe all print a character through it."""
+    lines = [f"{NAME_HEADING}{name}"]
     if words:
         lines.append(VOICE_SAMPLES_LABEL)
         # These samples ARE the voice grounding — the product's whole premise.
@@ -235,8 +243,10 @@ def _own_narration(sample: dict) -> bool:
 
 def _forms(member) -> list[str]:
     """A cast member's name forms — full name, aliases, and each significant
-    name token (a book calls "Zara Okafor" "Zara")."""
-    from app.parsing.names import significant
+    name token (a book calls "Zara Okafor" "Zara"). Words that are not names
+    ("the", "old", "van") are never a form on their own: "the" is not "the
+    Lich" (wave-3 review B-2)."""
+    from app.parsing.names import NON_NAME_TOKENS, significant
 
     if isinstance(member, dict):
         name, aliases = member.get("name") or "", member.get("aliases") or []
@@ -244,18 +254,44 @@ def _forms(member) -> list[str]:
         name = getattr(member, "name", "") or ""
         aliases = getattr(member, "aliases", None) or []
     forms = [name, *aliases]
-    forms += [t for f in list(forms) for t in significant(f) if len(t) > 2]
+    forms += [
+        t for f in list(forms) for t in significant(f) - NON_NAME_TOKENS if len(t) > 2
+    ]
     return [f for f in forms if f and f.strip()]
 
 
 def _names_in(text: str, form: str) -> bool:
-    return bool(
-        re.search(
-            r"(?<!\w)" + r"\s+".join(map(re.escape, form.split())) + r"(?!\w)",
-            text,
-            re.IGNORECASE,
-        )
-    )
+    """Does `text` name `form`? A multi-word form matches in any case and
+    spacing; a one-word form only where the text capitalises it, so "the chief
+    reason" does not name the Chief Executive Lich. Residual: a sentence-initial
+    "Will" still names a Will."""
+    words = form.split()
+    pattern = r"(?<!\w)" + r"\s+".join(map(re.escape, words)) + r"(?!\w)"
+    hits = re.finditer(pattern, text, re.IGNORECASE)
+    return any(len(words) > 1 or m.group(0)[0].isupper() for m in hits)
+
+
+def names_outside_scene(text: str, character, scope: SceneScope) -> list[str]:
+    """The people `text` names who are not in this scene (SPEC-30): the ONE
+    "this sample is about someone else's story" rule. A person is in the scene
+    when they are `character`, in `scope.cast` or in `scope.secondary_names`.
+    Outside it are (a) any other member of the book's cast, and (b) any
+    capitalised name the canon does not know ("the Bell account", chapters
+    later). A canon-known non-cast name (Prava, in the synopsis) is not caught."""
+    from app.planning.fidelity import unknown_proper_nouns
+
+    inside = [character, *scope.cast]
+    names = {getattr(c, "name", None) for c in inside}
+    own = [f for c in inside for f in _forms(c)]
+    own_low = {f.lower() for f in own}
+    outside = [
+        m.name
+        for m in scope.book_cast
+        if m.name not in names
+        and any(_names_in(text, f) for f in _forms(m) if f.lower() not in own_low)
+    ]
+    known = {*scope.known, *own, *scope.secondary_names}
+    return outside + unknown_proper_nouns(text, known, canon_text=scope.known_text)
 
 
 _LEAD_NAME = re.compile(
@@ -272,7 +308,7 @@ def _centres(
     them." centres Milo, not Zara. Otherwise it centres them unless it names
     another cast member. Places and other proper names never disqualify it:
     "Milo walked the Marrow District at dusk" is Milo's (wave-1 review S2)."""
-    from app.parsing.names import match
+    from app.parsing.names import NON_NAME_TOKENS, match, norm
 
     own = _forms({"name": name, "aliases": aliases or []})
     own_low = {f.lower() for f in own}
@@ -289,28 +325,34 @@ def _centres(
         words = lead.group(1).split()
         # "Then Milo …": try the name with leading words dropped as well.
         tails = [" ".join(words[i:]) for i in range(len(words))]
+        # "The chief reason …" opens with no one: "The" is not "the Lich".
+        tails = [t for t in tails if set(norm(t).split()) - NON_NAME_TOKENS]
         for forms, centred in ((own, True), (others, False)):
             if any(match(t, f) for t in tails for f in forms):
                 return centred
     return not any(_names_in(text, f) for f in others)
 
 
-async def _voice_and_movement(
+async def character_samples(
     character: Character,
     query: str,
-    k_voice: int,
-    k_move: int,
+    k: int,
     *,
     scope: SceneScope,
     chunk_types: Optional[Iterable[str]] = None,
 ) -> tuple[list[dict], list[dict]]:
-    """(their own words, how they move) for one character, retrieved separately.
+    """(their own words, how they move) for one character, retrieved separately:
+    up to `k` words and min(k, 3) movement samples. The one voice retrieval
+    (SPEC-17): scenes, revise, the ensemble and the voice probe all use it.
 
-    Voice is dialogue chunks plus first-person narration of their own section;
-    it never falls back to untyped retrieval. Movement is action / description /
-    thought, falling back to untyped retrieval (minus dialogue) when the
-    classifier under-labelled, and keeps only narration that centres them.
+    Voice is dialogue chunks plus first-person narration of their own section,
+    lines of 3+ words only; it never falls back to untyped retrieval. Movement
+    is action / description / thought, falling back to untyped retrieval (minus
+    dialogue) when the classifier under-labelled. It keeps only narration that
+    centres them and names no one outside the scene (`names_outside_scene`),
+    with no refill: a filtered block shows what is left (SPEC-30).
     """
+    k_voice, k_move = k, min(_MOVEMENT_SAMPLES, k)
     allowed = set(chunk_types) if chunk_types else None
     voice_types = [_DIALOGUE] if allowed is None or _DIALOGUE in allowed else []
     move_types = [t for t in _ACTION_TYPES if allowed is None or t in allowed]
@@ -318,9 +360,11 @@ async def _voice_and_movement(
     words = (
         [
             s
-            for s in await _retrieve(character, query, k_voice, voice_types)
+            for s in await _retrieve(character, query, 2 * k_voice, voice_types)
             if (s.get("chunk_type") or _DIALOGUE) == _DIALOGUE
-        ]
+            # "So!" and "Zara," carry no voice (W3-5): the speech minimum.
+            and len((s.get("text") or "").split()) >= _SPEECH_MIN_WORDS
+        ][:k_voice]
         if voice_types
         else []
     )
@@ -356,6 +400,7 @@ async def _voice_and_movement(
             not str(s.get("source") or "").startswith("paragraph_")
             or _centres(s.get("text") or "", name, scope.cast, aliases)
         )
+        and not names_outside_scene(s.get("text") or "", character, scope)
     ][:k_move]
     return words, body
 
@@ -439,9 +484,7 @@ async def build_agent_context(
     if character is None:
         return "\n\n".join(b for b in blocks if b)
 
-    voice, body = await _voice_and_movement(
-        character, beat_description, k, k, scope=scope
-    )
+    voice, body = await character_samples(character, beat_description, k, scope=scope)
     if grounding is not None:
         grounding.extend(grounding_entries(character, [*voice, *body]))
     if voice:

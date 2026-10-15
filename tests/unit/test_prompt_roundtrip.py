@@ -181,6 +181,19 @@ async def test_the_apps_prompts_pass_every_contract_check(
     # 4. Extraction over the cel excerpt, for the reduce prompt.
     await extract_canon(pipeline.load_corpus("cel")[0])
 
+    # 5. The voice probe, on the scene path's samples (SPEC-17, W3-5).
+    from app.characters.context import SceneScope
+    from app.characters.dialogue import generate_dialogue
+
+    milo = cast["Milo Voss"]
+    await generate_dialogue(
+        character=milo,
+        prompt=gt["canonical_beats"][0]["title"],
+        context="",
+        scope=SceneScope.of(canon, [milo], ()),
+    )
+    assert any(r["purpose"] == "dialogue" for r in fake.records)
+
     for rec in fake.records:
         (tmp_path / f"{rec['id']}.json").write_text(json.dumps(rec))
     out = pc.grade(
@@ -193,3 +206,4 @@ async def test_the_apps_prompts_pass_every_contract_check(
     assert not failing, json.dumps(failing, indent=1)[:4000]
     assert set(ran) == set(pc.CHECKS)
     assert out["plan_cast_from_beat"]["unmatched"] == []
+    assert out["voice_dialogue"]["short_samples"] == 0

@@ -71,25 +71,6 @@ class SceneGenerationState(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
-# Character agent models
-class DialogueRequest(BaseModel):
-    character_name: str
-    scene_context: Dict[str, Any]
-    emotional_state: str
-    other_characters: List[str]
-    beat_description: str
-    previous_dialogue: List[Dict[str, str]] = Field(default_factory=list)
-
-
-class DialogueResponse(BaseModel):
-    character: str
-    dialogue: str
-    action: Optional[str] = None
-    internal_thought: Optional[str] = None
-    confidence_score: float = Field(ge=0.0, le=1.0)
-    retrieved_examples: List[str] = Field(default_factory=list)
-
-
 # Evaluation models
 class EvaluationMetrics(BaseModel):
     voice_consistency: float = Field(ge=0.0, le=1.0)

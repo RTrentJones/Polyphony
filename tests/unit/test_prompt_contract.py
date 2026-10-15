@@ -8,6 +8,7 @@ import json
 
 import pytest
 
+from app.core.prompt_markers import ALSO_NAMED_LABEL, MOVEMENT_LABEL
 from evals.graders import prompt_contract as pc
 
 pytestmark = pytest.mark.unit
@@ -74,6 +75,12 @@ FAILING = [
         "### Milo Voss\nEvidence:\n- (part 1) one line\n</characters>",
         "",
     ),
+    (
+        "beat_prose",
+        f"CHARACTERS IN THIS BEAT\n### Milo Voss\n{MOVEMENT_LABEL}\n"
+        "- Milo carried the memo up to Edric.\nBEAT TO WRITE: x",
+        "",
+    ),
 ]
 
 REASONS = {
@@ -93,6 +100,8 @@ REASONS = {
     "no_duplicate_bible": "bible fields in CHARACTERS IN THIS BEAT: Description",
     "no_doubled_voice_label": 'doubled label "Voice: voice:"',
     "reduce_evidence_depth": "Milo Voss: 1 evidence/quote line(s) (< 3)",
+    "movement_names_in_scene": "Milo Voss: names Edric Thane: "
+    "'Milo carried the memo up to Edric.'",
 }
 
 
@@ -196,3 +205,27 @@ def test_corpus_inputs_take_the_pov_from_the_ground_truth():
     kw = pc.corpus_inputs(gt, pipeline.load_style("cel"))
     assert kw["pov"] == "Milo Voss" and kw["style_tone"].startswith("Dry, deadpan")
     assert len(kw["principals"]) == 3 and len(kw["descriptions"]) == 3
+
+
+def test_movement_counts_the_scene_and_reports_coverage(tmp_path):
+    """SPEC-30: a secondary on the Also-named line, or a principal the scene
+    names, may appear; Bell may not. Coverage counts principal blocks with a
+    movement line (B-2: an emptied block must not score 1.0 unseen)."""
+    prompt = (
+        f"<scene>\nScene description: Zara audits.\n{ALSO_NAMED_LABEL}: Prava\n"
+        "</scene>\nCHARACTERS IN THIS BEAT\n"
+        f"### Milo Voss\n{MOVEMENT_LABEL}\n- Milo nodded at Zara and Prava.\n"
+        f"- Milo closed the Halvard Bell file.\n### Zara Okafor\n{MOVEMENT_LABEL}\n"
+        "### Edric Thane\nBEAT TO WRITE: x"
+    )
+    _write(tmp_path, _rec("1", "beat_prose", prompt))
+    out = pc.grade(
+        pc.load_archive(tmp_path),
+        principals=PRINCIPALS,
+        secondary_cast=["Prava", "Old Fen", "Halvard Bell"],
+    )["movement_names_in_scene"]
+    assert [r for f in out["failures"] for r in f["reasons"]] == [
+        "Milo Voss: names Halvard Bell: 'Milo closed the Halvard Bell file.'"
+    ]
+    assert out["movement_coverage"] == round(1 / 3, 4)
+    assert out["movement_lines"] == {"Milo Voss": 2, "Zara Okafor": 0, "Edric Thane": 0}

@@ -110,10 +110,52 @@ the shared `_voice_and_movement`. `build_agent_context` (ensemble) uses the same
   `_centres(text, name, cast, aliases)` holds. That is true when the character is the subject of
   the first sentence. Otherwise it is true only when the passage names no other cast member (by
   full name, alias or a significant name token) and no other proper name after a sentence's first
-  word. Manual, dialogue and narration chunks are not filtered. `build_cast_context` passes the
-  beat's cast.
+  word. Manual, dialogue and narration chunks are not filtered. Wave 3: the cast is the scene's
+  (`SceneScope.cast`), and the movement filter of SPEC-30 applies to every movement sample (§3a).
 - The grounding record (SPEC-11) lists every voice and movement chunk used, deduplicated by id.
   `_retrieve` deduplicates a chunk that a store returns under several types.
+
+### 3a. Wave-3 amendment: one retrieval, one renderer, and the voice probe (W3-5)
+
+- **One retrieval.** `context.character_samples(character, query, k, *, scope)` returns
+  `(words, movement)`: up to `k` own-words samples and up to `min(k, 3)` movement samples. It is
+  the only voice retrieval. Beat prose and revise (through `build_character_context`), the
+  ensemble (`build_agent_context`) and the voice workbench's "Test dialogue" all use it.
+- **The speech minimum.** A dialogue sample shows only with 3+ words (`_SPEECH_MIN_WORDS`, the
+  same minimum the indexer uses). Retrieval fetches `2k` dialogue hits so that short lines
+  ("So!", "Zara,") indexed before that rule, or added by hand, do not take the slots.
+- **One renderer.** `context.render_character(name, words, movement)` prints `### name`, then
+  `VOICE_SAMPLES_LABEL` with the words, then `MOVEMENT_LABEL` with the movement.
+  `build_character_context` composes `character_samples` and `render_character`, and adds the
+  bible lines under the heading when asked.
+- **Movement.** The label is now "How they move (gesture and habit only; do not reuse these
+  events, objects or names):", and a movement sample must name no one outside the scene
+  (SPEC-30, "Movement samples"). `_centres` judges a sample against the **scene's** cast
+  (`SceneScope.cast`), not the beat's.
+- **Name forms.** `_forms` never treats a word that is not a name (`NON_NAME_TOKENS`: "the",
+  "old", "van" …) as a name form. `_names_in` matches a one-word form only where the text
+  capitalises it, and a multi-word form in any case or spacing. A first sentence that opens with
+  "The" opens with no one. Before this change, "the" named "the Lich", so every sample containing
+  "the" was dropped as Edric's in Edric's scenes (wave-3 review B-2). The residual risk: a
+  sentence-initial "Will" or "Rose" still names a character of that name.
+- **The voice probe** (`app/characters/dialogue.generate_dialogue(*, character, prompt,
+  context, scope, user_id)`, one caller: `POST /characters/{id}/test-dialogue`):
+  - the scope is a scene of one, `SceneScope.of(build_canon(book), [character], [])`;
+  - the prompt holds the fenced `render_character` block, the author's context line (left out
+    when blank) and the prompt line. There is no `Setting:` line, no emotional state, no other
+    characters and no previous dialogue;
+  - `_generate_action` gets the same block, so there is one retrieval and two calls;
+  - `confidence_score` is the mean similarity to the **full** texts of the own-words samples,
+    not to the grounding excerpts and not to movement;
+  - `grounding` is `grounding_entries(character, words + movement)`, the same rows a scene
+    records. The workbench shows each row's score and `excerpt`, or its `reason` when no sample
+    grounded the line;
+  - deleted: the second `retrieve_similar` path, `retrieved_examples`, the TTL dialogue cache
+    (`CACHE_DIALOGUE`) and the unused `DialogueRequest` / `DialogueResponse` models. The cache
+    ignored the context, so a new context returned the old line.
+- **Grading.** The dialogue prompt carries `### name` + `VOICE_SAMPLES_LABEL`, so prompt_contract
+  `voice_dialogue` (and its `short_samples` count) grades `purpose="dialogue"` too. The round
+  trip runs one probe for Milo and asserts `short_samples == 0`.
 
 ### 4. Re-indexing existing books (`app/cli.py`)
 
@@ -135,6 +177,8 @@ books keep their bad chunks until this runs.** The orchestrator runs it on the e
 | `"…," said the auditor to Milo` credits nobody in the cast; a pronoun tag credits nobody; `X shrugged. "…"` still credits X | `TestAttributionRules::test_said_x_to_y_is_xs_line`, `test_speaker_must_lie_within_the_name`, `test_pronoun_tag_credits_nobody`, `test_action_beat_needs_a_lone_subject` |
 | A voice sample is at least 3 words (`"Zara,"`, `"So!"` are not indexed) | `TestChunking::test_a_voice_sample_is_at_least_three_words` |
 | Only dialogue under "Voice samples"; action under "How they move"; non-centred narration excluded | `TestCharacterContext`, `test_centres` |
+| Wave 3: "the" and "chief" are not Edric; Bell, an outside-scene Edric and an unnamed Old Fen are dropped, with no refill (cel cast) | `TestMovementInScene` |
+| Wave 3: the probe shows `### name` + own words of 3+ words only, no `Setting:` or "neutral"; scored on full texts; grounding rows with `excerpt` | `tests/unit/test_dialogue_probe.py`, `test_voice_workbench.py::test_test_dialogue_returns_grounding_entries`, `VoicePanel.test.tsx` |
 | PG: paste `SOURCE`, index voice, Milo has no dialogue chunk | `tests/integration/test_pg_voice_attribution.py` (+ the B1/B2/vocative source through the real pipeline; `reindex-voice` replaces stale chunks, keeps manual ones, idempotent) |
 | Browser: Milo's Voice panel has no `Don't thank her` / `You've been retained` | step for the orchestrator to add to `scripts/e2e_browser.py` (below) |
 | Judge R2 ≥ 0.7 | measured in the after-eval (TPM plan §3); not blocking |
@@ -162,6 +206,15 @@ books keep their bad chunks until this runs.** The orchestrator runs it on the e
   (SPEC-17) and a row for the "`reindex-voice --book <id>` admin command". Update the prose-prompt
   row to "voice samples (dialogue + own first-person narration) and movement (action /
   description / thought, centred on the character) as separate blocks".
+
+## Docs delta, wave 3 (applied by the orchestrator)
+
+- **BRD R5 (voice):** "Test dialogue" grounds on the same samples, with the same renderer, as
+  scene prose (one retrieval path), and shows the grounding rows it used. Voice samples are 3+
+  words.
+- **Feature set §6 (voice):** update the "Test dialogue" row: "scene-path samples (own words, 3+
+  words, movement filtered to the probe's character); shows its grounding excerpts". Remove the
+  dialogue cache from any settings list.
 
 ## Known limits
 

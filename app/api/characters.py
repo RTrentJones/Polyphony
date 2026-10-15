@@ -11,6 +11,7 @@ from typing import Optional
 from uuid import UUID
 from datetime import datetime, timezone
 
+from app.characters.context import SceneScope
 from app.characters.dialogue import generate_dialogue
 from app.characters.serialize import character_snapshot as _character_content
 from app.core.budget import check_user_budget
@@ -23,6 +24,7 @@ from app.core.orm_models import (
     User as UserORM,
 )
 from app.core.security import get_current_active_user
+from app.planning.canon import build_canon
 from app.rag.store import get_chunk_store
 from app.versioning import repository as versions_repo
 from app.versioning import trash
@@ -361,15 +363,15 @@ async def test_dialogue(
 
     character = await _owned_character(character_id, current_user, db)
     await check_user_budget(db, current_user.id)
+    # A probe is a scene of one: the samples it may show name no one else.
+    canon = await build_canon(db, character.book_id)
     try:
         response = await asyncio.wait_for(
             generate_dialogue(
-                character_id=str(character.id),
-                character_name=character.name,
-                beat_description=payload.prompt,
-                scene_context={"description": payload.context or payload.prompt},
-                emotional_state="neutral",
-                other_characters=[],
+                character=character,
+                prompt=payload.prompt,
+                context=payload.context or "",
+                scope=SceneScope.of(canon, [character], []),
                 user_id=current_user.id,
             ),
             timeout=TEST_DIALOGUE_BUDGET_SECONDS,

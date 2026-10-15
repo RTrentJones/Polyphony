@@ -577,6 +577,79 @@ def test_centres():
     assert _centres(milo, "Milo Voss")
 
 
+# --- SPEC-30: movement samples name no one outside the scene (cel cast) --------
+
+
+def _cel(synopsis=True):
+    """The real cel cast (Edric with "the CEL", "Chief Executive Lich", "the
+    Lich") and its canon, by first name."""
+    from app.planning.canon import Canon
+    from evals.steps import pipeline
+
+    _, gt = pipeline.load_corpus("cel")
+    cast = [_char(p["name"], p["aliases"]) for p in pipeline._cast_with_roles(gt)]
+    syn = gt["synopsis"] if synopsis else ""
+    canon = Canon(title="Cel", synopsis=syn, characters=cast)
+    return canon, {c.name.split()[0]: c for c in cast}
+
+
+async def _milo_moves(monkeypatch, texts, scene, secondaries=(), synopsis=True):
+    """Milo's movement lines in a scene of Milo + `scene` (first names)."""
+    import app.characters.context as ctx
+
+    canon, by = _cel(synopsis)
+    store = TypedStore([_s(f"a{i}", t, "action") for i, t in enumerate(texts)])
+    monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
+    cast = [by["Milo"], *(by[n] for n in scene)]
+    scope = ctx.SceneScope.of(canon, cast, secondaries)
+    out = await ctx.build_character_context(by["Milo"], "Milo Voss", "x", scope=scope)
+    return [ln[2:] for ln in _blocks(out)[1].splitlines() if ln.startswith("- ")]
+
+
+class TestMovementInScene:
+    WALK = "Milo walked the Marrow District at dusk."
+    DUSK = "At dusk he walked the Marrow District."
+    BELL = "On Tuesday the Bell account came across Milo's queue."
+    EDRIC = "Milo carried the memo up to Edric's floor."
+    FEN = "Milo fetched tea for Old Fen."
+
+    async def test_a_common_word_is_not_a_name(self, monkeypatch):
+        """B-2: "the" and "chief" are not Edric, in his scene or out of it."""
+        from app.characters.context import SceneScope, _centres, names_outside_scene
+
+        assert await _milo_moves(monkeypatch, [self.WALK], ["Zara"]) == [self.WALK]
+        assert await _milo_moves(monkeypatch, [self.DUSK], ["Edric"]) == [self.DUSK]
+        canon, by = _cel()
+        chief = "The chief reason was the form."
+        assert _centres(chief, "Milo Voss", [by["Milo"], by["Edric"]], ["Milo"])
+        scope = SceneScope.of(canon, [by["Milo"], by["Zara"]], ())
+        assert names_outside_scene(chief, by["Milo"], scope) == []
+        # Edric is still seen by any of his forms, capitalised.
+        lich = "Milo bowed to the Lich."
+        assert names_outside_scene(lich, by["Milo"], scope) == ["Edric Thane"]
+
+    async def test_a_later_story_is_dropped(self, monkeypatch):
+        """W3-2: the Bell account happens chapters later; Bell is no one here."""
+        moves = await _milo_moves(monkeypatch, [self.BELL, self.WALK], ["Zara"])
+        assert moves == [self.WALK]
+
+    async def test_a_cast_member_counts_only_outside_the_scene(self, monkeypatch):
+        assert await _milo_moves(monkeypatch, [self.EDRIC], ["Zara"]) == []
+        assert await _milo_moves(monkeypatch, [self.EDRIC], ["Edric"]) == [self.EDRIC]
+
+    async def test_a_named_secondary_belongs_to_the_scene(self, monkeypatch):
+        # Without the synopsis, nothing else makes Old Fen known.
+        fen = await _milo_moves(monkeypatch, [self.FEN], [], synopsis=False)
+        assert fen == []
+        fen = await _milo_moves(monkeypatch, [self.FEN], [], ["Old Fen"], False)
+        assert fen == [self.FEN]
+
+    async def test_no_refill_after_the_filter(self, monkeypatch):
+        """3 retrieved, 2 dropped: the block shows the 1 left (W3-2)."""
+        texts = [self.BELL, self.WALK, self.EDRIC]
+        assert await _milo_moves(monkeypatch, texts, ["Zara"]) == [self.WALK]
+
+
 # --- reindex-voice ----------------------------------------------------------------
 
 

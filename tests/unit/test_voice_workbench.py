@@ -28,13 +28,14 @@ class _Ctx:
 
 
 class PerCharacterStore:
-    """Retrieval stub: one scored chunk per character, id derived from the id."""
+    """Retrieval stub: one scored chunk per character, id derived from the id
+    (3+ words: the speech minimum, SPEC-17)."""
 
     async def retrieve_similar(self, *, character_id, **kw):
         return [
             {
                 "id": f"chunk-{character_id}",
-                "text": "sample",
+                "text": "a sample line",
                 "score": 0.5,
                 "chunk_type": "dialogue",
             }
@@ -466,4 +467,27 @@ async def test_grounding_endpoint_lists_stored_beats_without_a_record(
     assert r.json()["beats"] == [
         {"beat_index": 1, "description": "He arrives.", "characters": []},
         {"beat_index": 2, "description": "She leaves.", "characters": []},
+    ]
+
+
+async def test_test_dialogue_returns_grounding_entries(
+    client, auth_headers, test_character, monkeypatch
+):
+    """SPEC-17 (W3-5): the probe records its samples like a scene does."""
+    import app.characters.context as ctx
+    import app.llm.client as llm_client
+
+    llm = _LLM({"dialogue": "Fine."})
+    monkeypatch.setattr(ctx, "get_chunk_store", lambda: PerCharacterStore())
+    monkeypatch.setattr(llm_client, "_client", llm)
+    r = await client.post(
+        f"/api/v1/characters/{test_character.id}/test-dialogue",
+        json={"prompt": "Say hello"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    cid = str(test_character.id)
+    assert r.json()["grounding"] == [
+        {"character_id": cid, "chunk_id": f"chunk-{cid}", "score": 0.5}
+        | {"excerpt": "a sample line"}
     ]

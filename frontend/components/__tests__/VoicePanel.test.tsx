@@ -155,7 +155,9 @@ describe('VoicePanel', () => {
       dialogue: 'Not today.',
       action: 'He folds his arms.',
       confidence_score: 0.81,
-      grounding: [{ chunk_id: 'c-1', score: 0.66, text: 'I will not be hurried.' }],
+      grounding: [
+        { character_id: 'char-1', chunk_id: 'c-1', score: 0.66, excerpt: 'I will not be hurried.' },
+      ],
     })
     renderPanel()
     await screen.findAllByTestId('voice-chunk')
