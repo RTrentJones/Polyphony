@@ -8,11 +8,15 @@ deterministic stub LLM (evals/stub_llm.py), the way an author would:
   -> generate a scene from the cast picker -> read the scene -> generate an
   outline (staged job), confirm its premise, promote it to chapters -> run a continuity check -> export the book.
 
-Then the rest of the surface: trash and restore a character, restore an earlier
+Then the rest of the surface: each character's Voice holds only their own
+words (SPEC-17), trash and restore a character, restore an earlier
 synopsis, regenerate the outline with an EDITED premise (and prove the edit
 reached the model), plot threads, edit a scene and load an earlier revision,
+the editor's unsaved-changes guard, local draft and revision dialog (SPEC-16),
 reorder and delete a chapter and restore it from the Trash, generate all of a
-promoted chapter's planned scenes in order, an ensemble request
+promoted chapter's planned scenes in order, a clean Markdown manuscript with
+scene breaks and a chapter range, Add Source's accepted types and its .doc
+refusal (SPEC-21), an ensemble request
 the free tier runs as prose (and says so), a scene paused by forced 429s that
 shows on the Usage page and is cancelled, the legacy pages' redirects, the
 dashboard, a second author who registers with an invite and cannot see the
@@ -46,11 +50,14 @@ SHOTS = Path(os.getenv("E2E_SHOTS", "e2e-shots"))
 STUB = os.getenv("STUB_URL", "http://127.0.0.1:8099").rstrip("/")
 TIMEOUT = 90_000
 STATE: dict = {}
-# KNOWN_AFTER_MERGE (W1-E/W1-F, B9): the clean-heading assertion in the export
-# step needs W1-F's builder. It is on by default (the merged tree must pass
-# it); a worktree without W1-F runs with E2E_KNOWN_AFTER_MERGE=0. The
-# orchestrator removes this switch once both packages are merged.
-KNOWN_AFTER_MERGE = os.getenv("E2E_KNOWN_AFTER_MERGE", "1") != "0"
+# Native dialogs (confirm, beforeunload) are accepted, like an author clicking
+# OK, unless a step switches to dismissing them; every one is recorded.
+DIALOGS: dict = {"accept": True, "seen": []}
+# The server's 415 for an old Word file, which the Add Source dialog also shows
+# before uploading (SPEC-21c).
+DOC_UNSUPPORTED = (
+    "Old Word .doc files aren't supported. Save as .docx and upload again."
+)
 
 SYNOPSIS = (
     "Bored to Undeath. Milo Voss, a lich systems analyst, is retained by Aeon "
@@ -86,8 +93,52 @@ async def step(name: str, coro) -> None:
     print(f"   ok ({time.monotonic() - t:.1f}s)", flush=True)
 
 
+def chapter_row(page: Page, title: str):
+    """The chapter row whose STORED title is `title` (the visible title drops a
+    stale "Chapter N:" prefix, SPEC-20; `data-chapter-title` keeps it)."""
+    return page.locator(f'[data-testid=chapter-row][data-chapter-title="{title}"]')
+
+
+def assert_clean_headings(markdown: str) -> list[str]:
+    """No chapter heading repeats "Chapter" ("## Chapter 2: Chapter 1: Edric
+    Thane" was B9); returns the chapter headings."""
+    headings = [line for line in markdown.splitlines() if line.startswith("## ")]
+    doubled = [h for h in headings if len(re.findall(r"\bChapter\b", h)) > 1]
+    assert not doubled, f"headings repeat 'Chapter': {doubled}"
+    bad = [h for h in headings if not re.match(r"^## Chapter \d+(: \S.*)?$", h)]
+    assert not bad, f"headings are not 'Chapter N: Title': {bad}"
+    return headings
+
+
+class dismissing_dialogs:
+    """Within the block, native dialogs are dismissed (an author clicking Cancel)."""
+
+    def __enter__(self):
+        DIALOGS["accept"] = False
+
+    def __exit__(self, *exc):
+        DIALOGS["accept"] = True
+
+
 async def journey(page: Page) -> None:
     page.set_default_timeout(TIMEOUT)
+
+    async def api_headers() -> dict:
+        """A bearer token for the admin author, for the API-level checks."""
+        if "token" not in STATE:
+            login = await page.request.post(
+                f"{BASE}/api/v1/auth/login",
+                form={"username": EMAIL, "password": PASSWORD},
+            )
+            assert login.ok, f"API login failed: {login.status}"
+            STATE["token"] = (await login.json())["access_token"]
+        return {"Authorization": f"Bearer {STATE['token']}"}
+
+    async def api_get(path: str, **params):
+        r = await page.request.get(
+            f"{BASE}/api/v1{path}", params=params, headers=await api_headers()
+        )
+        return r
 
     async def sign_in():
         await page.goto(f"{BASE}/auth/login/")
@@ -143,6 +194,53 @@ async def journey(page: Page) -> None:
             await expect(page.get_by_text(name).first).to_be_visible()
         await shot(page, "canon")
 
+    async def open_voice(name: str):
+        """Open `name`'s Voice section on the Canon tab; returns its panel."""
+        # The Voice toggle sits beside the character's named History button.
+        actions = page.get_by_role("button", name=f"History of {name}", exact=True)
+        await actions.locator("xpath=..").get_by_role(
+            "button", name="Voice", exact=True
+        ).click()
+        # The panel opens inside that character's own row (one at a time).
+        panel = actions.locator("xpath=../..").get_by_test_id("voice-panel")
+        await expect(panel).to_have_count(1)
+        await expect(page.get_by_test_id("voice-panel")).to_have_count(1)
+        await expect(panel.get_by_text("Loading samples…")).to_have_count(0)
+        await expect(
+            panel.get_by_role("heading", name=re.compile(r"^Voice samples \(\d+\)$"))
+        ).to_be_visible()
+        return panel
+
+    async def open_voice_with(name: str, has_text: str = ""):
+        """Open `name`'s Voice once the background voice indexing (a job that
+        runs after the commit) has given them a sample containing `has_text`.
+        The panel loads on open, so it is closed and reopened until then."""
+        deadline = time.monotonic() + TIMEOUT / 1000
+        while True:
+            panel = await open_voice(name)
+            chunks = panel.get_by_test_id("voice-chunk").filter(has_text=has_text)
+            if await chunks.count() or time.monotonic() > deadline:
+                await expect(chunks).not_to_have_count(0)
+                return panel
+            await page.locator("button[aria-expanded=true]", has_text="Voice").click()
+            await page.wait_for_timeout(1000)
+
+    async def voice_is_their_own_words():
+        # SPEC-17: a quote is credited only from a tag beside it. Zara's own
+        # line is hers...
+        await open_voice_with("Zara Okafor", "Don't thank her")
+        await shot(page, "voice-zara")
+        # ...and neither her line nor the caseworker's is Milo's (who has
+        # samples of his own, so this is not vacuous).
+        milo = await open_voice_with("Milo Voss")
+        samples = await milo.get_by_test_id("voice-chunk").all_inner_texts()
+        for line in ("Don't thank her", "You've been retained"):
+            wrong = [s for s in samples if line in s]
+            assert not wrong, f"Milo Voss's voice has {line!r}: {wrong}"
+        await shot(page, "voice-milo")
+        await page.locator("button[aria-expanded=true]", has_text="Voice").click()
+        await expect(page.get_by_test_id("voice-panel")).to_have_count(0)
+
     async def add_chapter():
         await page.get_by_role("button", name="Chapters").click()
         await page.get_by_role("button", name="Add Chapter").first.click()
@@ -151,7 +249,7 @@ async def journey(page: Page) -> None:
             "Milo's first day in Reconciliations."
         )
         await page.get_by_role("button", name="Add Chapter").last.click()
-        await expect(page.get_by_text("Onboarding").first).to_be_visible()
+        await expect(chapter_row(page, "Onboarding")).to_be_visible()
         await shot(page, "chapter")
 
     async def generate_scene():
@@ -236,14 +334,7 @@ async def journey(page: Page) -> None:
         text = await export_md("default")
         assert "Onboarding" in text, "export is missing the chapter"
         assert "a lich systems analyst" not in text, "synopsis exported by default"
-        if KNOWN_AFTER_MERGE:
-            # "## Chapter 2: Chapter 1: Edric Thane" is the bug (B9).
-            doubled = [
-                line
-                for line in text.splitlines()
-                if line.startswith("#") and len(re.findall(r"\bChapter\b", line)) > 1
-            ]
-            assert not doubled, f"headings repeat 'Chapter': {doubled}"
+        assert_clean_headings(text)
         text = await export_md("with-synopsis", include_synopsis=True)
         assert "a lich systems analyst" in text, "synopsis missing when asked for"
 
@@ -327,9 +418,11 @@ async def journey(page: Page) -> None:
     async def edit_scene_and_load_revision():
         await tab("Chapters")
         await page.get_by_role("button", name="Expand Onboarding").click()
-        row = page.get_by_test_id("chapter-row").filter(has_text="Onboarding")
+        row = chapter_row(page, "Onboarding")
         await row.get_by_role("button", name="Edit", exact=True).first.click()
         await page.wait_for_url(re.compile(r"/books/editor"))
+        STATE["editor_url"] = page.url
+        STATE["scene_id"] = re.search(r"scene=([0-9a-f-]+)", page.url).group(1)
         editor = page.get_by_placeholder("Write your scene...")
         await expect(editor).not_to_be_empty()
         original = await editor.input_value()
@@ -342,6 +435,94 @@ async def journey(page: Page) -> None:
         await shot(page, "editor")
         await page.get_by_role("button", name="Back to book").click()
         await page.wait_for_url(re.compile(r"/books/detail"))
+
+    async def revision_count() -> int:
+        r = await api_get(f"/books/scenes/{STATE['scene_id']}/revisions")
+        assert r.ok, f"revisions: {r.status}"
+        return len((await r.json())["revisions"])
+
+    async def open_editor():
+        await page.goto(STATE["editor_url"])
+        await page.wait_for_load_state("networkidle")
+        editor = page.get_by_label("Scene text")
+        await expect(editor).not_to_be_empty()
+        return editor
+
+    async def asks_and_stays(leave, editor, text: str):
+        """`leave` raises the unsaved-changes confirm; Cancel keeps the editor."""
+        seen = len(DIALOGS["seen"])
+        with dismissing_dialogs():
+            async with page.expect_event("dialog"):
+                await leave()
+            await page.wait_for_load_state("networkidle")
+        kind, message = DIALOGS["seen"][seen]
+        assert "unsaved changes" in message, f"unexpected {kind} dialog: {message!r}"
+        assert "/books/editor" in page.url, f"left the editor: {page.url}"
+        await expect(page.get_by_role("heading", name="Scene Editor")).to_be_visible()
+        await expect(editor).to_have_value(text)
+
+    async def editor_safety_net():
+        """SPEC-16: unsaved text is guarded, kept as a local draft, offered back."""
+        banner = page.get_by_text(re.compile(r"Restore unsaved draft from \d\d:\d\d\?"))
+        editor = await open_editor()
+        # The last step left with the loaded revision unsaved (and said OK):
+        # that text is offered back. Discarding it leaves the saved text.
+        await expect(banner).to_be_visible()
+        saved = await editor.input_value()
+        await page.get_by_role("button", name="Discard draft", exact=True).click()
+        await expect(banner).to_have_count(0)
+        await expect(editor).to_have_value(saved)
+
+        typed = "Milo reread the appendices twice. The second time, they read him."
+        await editor.click()  # a real gesture: Back must stop at the guard's entry
+        await editor.fill("")
+        await editor.press_sequentially(typed)
+        await expect(page.get_by_text("• unsaved changes")).to_be_visible()
+        back = page.get_by_role("button", name="Back to book")
+        await asks_and_stays(back.click, editor, typed)
+        await asks_and_stays(page.go_back, editor, typed)
+        await shot(page, "editor-guard")
+
+        # OK leaves, and keeps the draft on this device.
+        await back.click()
+        await page.wait_for_url(re.compile(r"/books/detail"))
+        editor = await open_editor()
+        await page.reload()
+        await page.wait_for_load_state("networkidle")
+        await expect(banner).to_be_visible()
+        await expect(editor).to_have_value(saved)  # nothing restored unasked
+        await shot(page, "editor-draft-banner")
+        await page.get_by_role("button", name="Restore draft", exact=True).click()
+        await expect(banner).to_have_count(0)
+        await expect(editor).to_have_value(typed)
+
+        # Saving makes exactly one revision, persists, and drops the draft.
+        before = await revision_count()
+        await page.get_by_role("button", name="Save", exact=True).click()
+        await toast("Scene saved")
+        await page.reload()
+        await page.wait_for_load_state("networkidle")
+        await expect(editor).to_have_value(typed)
+        await expect(banner).to_have_count(0)
+        after = await revision_count()
+        assert after == before + 1, f"revisions went {before} -> {after}, not +1"
+
+        # The revision preview is a modal dialog: Escape closes it and focus
+        # returns to the revision that opened it.
+        revision = page.get_by_role("button", name=re.compile(r"^Revision 1(?!\d)"))
+        await revision.click()
+        preview = page.get_by_role("dialog", name="Revision preview")
+        await expect(preview).to_be_visible()
+        await shot(page, "revision-preview")
+        await page.keyboard.press("Escape")
+        await expect(preview).to_have_count(0)
+        await expect(revision).to_be_focused()
+
+        # Clean now: leaving asks nothing.
+        seen = len(DIALOGS["seen"])
+        await back.click()
+        await page.wait_for_url(re.compile(r"/books/detail"))
+        assert len(DIALOGS["seen"]) == seen, "a saved editor still asked to leave"
 
     async def reorder_delete_and_restore_chapter():
         await tab("Chapters")
@@ -379,7 +560,8 @@ async def journey(page: Page) -> None:
         button_name = "Generate all planned scenes"
         row = rows.filter(has=page.get_by_role("button", name=button_name)).first
         name = await row.get_attribute("data-chapter-title")
-        row = page.locator(f'[data-testid=chapter-row][data-chapter-title="{name}"]')
+        STATE["planned_chapter"] = name
+        row = chapter_row(page, name)
         await row.get_by_role("button", name=button_name).click()
         await toast(re.compile(r"Writing 2 planned scenes in order"))
         # The scenes are a chain: the second is created when the first completes.
@@ -393,6 +575,85 @@ async def journey(page: Page) -> None:
         await toast("Every planned beat in this chapter already has a scene.")
         await expect(edits).to_have_count(2)
         await shot(page, "planned-scenes")
+
+    async def export_markdown(**params) -> str:
+        r = await api_get(f"/books/{STATE['book_id']}/export", format="md", **params)
+        assert r.ok, f"export {params}: {r.status} {await r.text()}"
+        return await r.text()
+
+    async def export_is_a_clean_manuscript():
+        """SPEC-21a over the API: clean headings numbered by book position, a
+        scene break between a chapter's scenes, and a chapter range."""
+        book = await (await api_get(f"/books/{STATE['book_id']}")).json()
+        titles = [c["title"] for c in book["chapters"]]
+        n = titles.index(STATE["planned_chapter"]) + 1  # 1-based book position
+        text = await export_markdown()
+        headings = assert_clean_headings(text)
+        assert len(headings) >= 2, f"expected the written chapters: {headings}"
+        assert "\n* * *\n" in text, "no scene break between a chapter's scenes"
+        assert not re.search(r"## [^\n]*\n+\* \* \*", text), "a break opens a chapter"
+        # Only the planned chapter, still numbered by its place in the book.
+        part = await export_markdown(from_chapter=n, to_chapter=n)
+        only = assert_clean_headings(part)
+        assert len(only) == 1 and only[0].startswith(
+            f"## Chapter {n}"
+        ), f"range {n}-{n} exported {only}"
+        assert "\n* * *\n" in part, "the ranged chapter lost its scene break"
+        assert len(part) < len(text), "the range exported the whole book"
+        bad = await api_get(
+            f"/books/{STATE['book_id']}/export",
+            format="md",
+            from_chapter=n + 1,
+            to_chapter=n,
+        )
+        assert bad.status == 422, f"from > to answered {bad.status}"
+        (SHOTS / f"export-chapter-{n}.md").write_text(part, encoding="utf-8")
+
+    async def add_source_refuses_doc():
+        """SPEC-21c: the upload picker accepts what the server accepts, and an
+        old .doc is turned away with the fix, in the dialog and by the API."""
+        config = await (await page.request.get(f"{BASE}/api/v1/sources/config")).json()
+        accept = ",".join(config["accepted_extensions"])
+        assert ".doc" not in config["accepted_extensions"], config
+        await tab("Sources")
+        await page.get_by_role("button", name="Add source").first.click()
+        modal = page.get_by_role("dialog", name="Add Source")
+        await expect(modal).to_be_visible()
+        picker = modal.locator("input[type=file]")
+        await expect(picker).to_have_attribute("accept", accept)
+        await modal.get_by_placeholder("Enter a title for your source").fill(
+            "Old draft"
+        )
+        await picker.set_input_files(
+            files=[
+                {
+                    "name": "old-draft.doc",
+                    "mimeType": "application/msword",
+                    "buffer": b"\xd0\xcf\x11\xe0 not really a Word file",
+                }
+            ]
+        )
+        await expect(modal.get_by_text(DOC_UNSUPPORTED)).to_be_visible()
+        await expect(
+            modal.get_by_role("button", name="Upload", exact=True)
+        ).to_be_disabled()
+        await shot(page, "add-source-doc")
+        await modal.get_by_role("button", name="Cancel").click()
+        await expect(modal).to_have_count(0)
+        r = await page.request.post(
+            f"{BASE}/api/v1/sources/upload",
+            params={"book_id": STATE["book_id"], "title": "Old draft"},
+            multipart={
+                "file": {
+                    "name": "old-draft.doc",
+                    "mimeType": "application/msword",
+                    "buffer": b"\xd0\xcf\x11\xe0 not really a Word file",
+                }
+            },
+            headers=await api_headers(),
+        )
+        assert r.status == 415, f".doc upload answered {r.status}"
+        assert (await r.json())["detail"] == DOC_UNSUPPORTED, await r.text()
 
     async def open_scene_modal():
         await tab("Scenes")
@@ -564,6 +825,9 @@ async def journey(page: Page) -> None:
     await step("create a book", create_book())
     await step("paste a source, review, commit", paste_source_and_review())
     await step("the cast is in the canon", canon_has_cast())
+    await step(
+        "voice samples are the character's own words", voice_is_their_own_words()
+    )
     await step("add a chapter", add_chapter())
     await step("generate a scene from the cast", generate_scene())
     await step("generate a staged outline", generate_outline())
@@ -578,9 +842,20 @@ async def journey(page: Page) -> None:
     await step("plot threads", plot_threads())
     await step("edit a scene, load a revision", edit_scene_and_load_revision())
     await step(
+        "unsaved edits are guarded, kept as a draft, restored, saved",
+        editor_safety_net(),
+    )
+    await step(
         "reorder, delete and restore a chapter", reorder_delete_and_restore_chapter()
     )
     await step("generate all planned scenes", generate_all_planned_scenes())
+    await step(
+        "export: clean headings, scene breaks, a chapter range",
+        export_is_a_clean_manuscript(),
+    )
+    await step(
+        "add source: accepted types; a .doc is refused", add_source_refuses_doc()
+    )
     await step(
         "ensemble on the free tier runs as prose, and says so",
         ensemble_runs_as_prose_and_says_so(),
@@ -662,8 +937,13 @@ async def main() -> int:
         exe = os.getenv("PLAYWRIGHT_CHROMIUM")
         browser = await p.chromium.launch(**({"executable_path": exe} if exe else {}))
         page = await browser.new_page(accept_downloads=True)
-        # "Move to the Trash?" confirms: an author clicking OK.
-        page.on("dialog", lambda d: asyncio.ensure_future(d.accept()))
+
+        # "Move to the Trash?" confirms: an author clicking OK (see DIALOGS).
+        def on_dialog(d) -> None:
+            DIALOGS["seen"].append((d.type, d.message))
+            asyncio.ensure_future(d.accept() if DIALOGS["accept"] else d.dismiss())
+
+        page.on("dialog", on_dialog)
         errors: list[str] = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         try:
