@@ -60,9 +60,8 @@ class Finding(TypedDict):
     severity: str  # critical | major | minor
     detail: str  # <= 1000 chars
     quote: str  # the model's quote, <= 200 chars, as given ("" if none)
-    scene_id: Optional[
-        str
-    ]  # the scene whose prose contains `quote`; None = not located
+    # the scene whose prose contains `quote`; None = not located
+    scene_id: Optional[str]
 
 
 SCENE_MARKER = '[Ch {chapter} "{chapter_title}" › Scene {scene} "{scene_title}"]'

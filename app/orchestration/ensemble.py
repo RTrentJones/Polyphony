@@ -440,13 +440,9 @@ async def run_ensemble_scene_workflow(
         _canon_hash,
         plan_scene_beats,
         prose_tail,
-        scene_cast,
+        scene_setup,
         trim_seam_repeat,
     )
-    from app.orchestration.pov import resolve_pov
-    from app.orchestration.workflow import secondary_names, story_position_line
-    from app.planning.canon import build_canon
-    from app.planning.secondaries import render_secondaries, scene_secondaries
 
     started = datetime.now(timezone.utc)
     checkpoint = dict(checkpoint or {})
@@ -454,21 +450,10 @@ async def run_ensemble_scene_workflow(
         if book_id is None:
             raise RuntimeError("scene generation needs its book (book is the root)")
         async with get_async_session() as session:
-            canon = await build_canon(session, book_id)
-            secondaries = await scene_secondaries(
-                session, book_id, secondary_names(scene_request), canon
-            )
-        canon_context = canon.full_block()
-        # The planner sees the secondaries; the narrator and agent prompts do
-        # not yet (W3-10).
-        secondary_block = render_secondaries(secondaries)
-        scope = SceneScope.of(
-            canon, scene_cast(canon, scene_request), secondary_names(scene_request)
-        )
+            setup = await scene_setup(session, book_id, scene_request)
+        canon_context = setup.canon.full_block()
         canon_hash = _canon_hash(
-            canon_context + secondary_block,
-            chapter_summary + story_position_line(story_position),
-            prior_scene_tail,
+            setup, chapter_summary, story_position, prior_scene_tail
         )
         if checkpoint.get("canon_hash") not in (None, canon_hash):
             checkpoint = {}
@@ -486,9 +471,11 @@ async def run_ensemble_scene_workflow(
                 user_id,
                 canon_block=canon_context,
                 chapter_summary=chapter_summary,
-                pov=resolve_pov(scene_request, canon),
+                pov=setup.pov,
                 story_position=story_position,
-                secondary_block=secondary_block,
+                # The planner sees the secondaries; the narrator and agent
+                # prompts do not yet (W3-10).
+                secondary_block=setup.secondary_block,
             )
             checkpoint = {
                 "canon_hash": canon_hash,
@@ -520,7 +507,7 @@ async def run_ensemble_scene_workflow(
                 user_id=user_id,
                 book_id=book_id,
                 canon_context=canon_context,
-                scope=scope,
+                scope=setup.scope,
                 prior_tail=prior_tail,
                 state=checkpoint.get("beat_state"),
                 save_state=_save_beat,

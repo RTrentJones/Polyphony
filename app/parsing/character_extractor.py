@@ -260,7 +260,7 @@ _SUBJECT = re.compile(rf"^\s*(?P<who>{_PROPER})(?=,|\s+[a-z])")
 # vocative: an unattributed span this long keeps a paragraph out of a
 # character's chunks, and a voice sample must be at least this long ("So!",
 # "Zara," say nothing about a voice).
-_SPEECH_MIN_WORDS = 3
+SPEECH_MIN_WORDS = 3
 
 
 def _canon_speaker(who: str) -> Optional[str]:
@@ -619,9 +619,9 @@ JSON array:"""
         → the chunks one paragraph gives the character, deduplicated
         case-insensitively across calls (SPEC-17):
         - where they speak: their own lines, as `dialogue` — each at least
-          `_SPEECH_MIN_WORDS` words, so a lone vocative is no voice sample;
+          `SPEECH_MIN_WORDS` words, so a lone vocative is no voice sample;
         - where anyone else speaks (a credited span, or an uncredited one of
-          `_SPEECH_MIN_WORDS`+ words): nothing — in their own narration
+          `SPEECH_MIN_WORDS`+ words): nothing — in their own narration
           (`where == "narration"`) "said I" is them, not someone else;
         - otherwise the paragraph, typed as action / thought / description."""
         attributed = attribute_speech(text)
@@ -638,11 +638,11 @@ JSON array:"""
                 found = [
                     (line, ChunkType.DIALOGUE.value, f"dialogue_{i}")
                     for line in own[i]
-                    if len(line.split()) >= _SPEECH_MIN_WORDS
+                    if len(line.split()) >= SPEECH_MIN_WORDS
                 ]
             elif any(
                 s["speaker"] not in themselves
-                and (s["speaker"] or len(s["text"].split()) >= _SPEECH_MIN_WORDS)
+                and (s["speaker"] or len(s["text"].split()) >= SPEECH_MIN_WORDS)
                 for s in attributed[i]
             ):
                 return []

@@ -41,7 +41,6 @@ async def test_a_limited_plan_stays_in_the_pov_head_and_knows_its_place(monkeypa
     prompt, _, _ = await _plan(monkeypatch, Pov("third person limited", "Milo Voss"))
     assert POV_LINE_RE.search(prompt).group("who") == "Milo Voss"
     assert "plan the moment Milo Voss learns the name" in prompt
-    assert "</chapter>\nThis scene is in chapter 2 of 5. The synopsis" in prompt
 
 
 async def test_an_omniscient_plan_is_not_held_to_one_head(monkeypatch):

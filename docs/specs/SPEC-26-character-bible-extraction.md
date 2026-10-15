@@ -93,7 +93,7 @@ in the eval pipeline, so the dict-key drop alone keeps P9.
   form that never occurs in the text is not a title. `merge_characters` memoises the check per
 surface for its source, and a one-form group is never checked (one scan per distinct surface).
 - **Voice samples carry voice** (eval finding 5). A dialogue chunk needs at least
-  `_SPEECH_MIN_WORDS` (3) words (`character_extractor._paragraph_indexer`, the one place
+  `SPEECH_MIN_WORDS` (3) words (`character_extractor._paragraph_indexer`, the one place
   fragments enter; landed with the wave-1 fixes): "Zara," and "So!" are not indexed. On cel the
   shortest principal sample is 3 words and Milo's long lines remain.
 - **"How they move" keeps named places** (wave-1 review S2). `context._centres` decides whether a

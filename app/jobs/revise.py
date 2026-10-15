@@ -39,13 +39,9 @@ class RevisionConflict(RuntimeError):
 
 
 async def run(payload: dict) -> None:
-    from app.characters.context import SceneScope, build_cast_context
+    from app.characters.context import build_cast_context
     from app.orchestration import revise as rv
-    from app.orchestration.pov import resolve_pov
-    from app.orchestration.prose import scene_cast, scene_chapter
-    from app.orchestration.workflow import secondary_names
-    from app.planning.canon import build_canon
-    from app.planning.secondaries import render_secondaries, scene_secondaries
+    from app.orchestration.prose import scene_chapter, scene_setup
 
     scene_id = UUID(payload["scene_id"])
     book_id = UUID(payload["book_id"])
@@ -60,10 +56,8 @@ async def run(payload: dict) -> None:
         draft = scene.draft
         request = rv.cast_request(scene)
         summary, position = await scene_chapter(session, scene)
-        canon = await build_canon(session, book_id)
-        secondaries = await scene_secondaries(
-            session, book_id, secondary_names(request), canon
-        )
+        setup = await scene_setup(session, book_id, request)
+    canon = setup.canon
     if rv.text_hash(draft) != base_hash:
         raise RevisionConflict(DRAFT_EDITED)
 
@@ -72,10 +66,8 @@ async def run(payload: dict) -> None:
     ctx = current_job()
     revised = (ctx.checkpoint or {}).get("revised")
     if revised is None:
-        cast = scene_cast(canon, request)
-        scope = SceneScope.of(canon, cast, secondary_names(request))
         cast_context = await build_cast_context(
-            cast, f"{instruction}\n{target}", scope=scope
+            setup.cast, f"{instruction}\n{target}", scope=setup.scope
         )
         prompt = rv.build_revise_prompt(
             canon_block=canon.full_block(),
@@ -85,9 +77,9 @@ async def run(payload: dict) -> None:
             target=target,
             after=after,
             instruction=instruction,
-            pov=resolve_pov(request, canon),
+            pov=setup.pov,
             story_position=position,
-            secondary_block=render_secondaries(secondaries),
+            secondary_block=setup.secondary_block,
             beat=(
                 (payload["beat_index"], payload.get("beat_description"))
                 if payload.get("beat_index") is not None

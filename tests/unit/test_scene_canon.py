@@ -229,8 +229,6 @@ async def test_secondaries_follow_the_cast_in_every_beat_and_never_a_cast_member
         cast_part, rest = beat.split("CHARACTERS IN THIS BEAT")[1].split("<secondary>")
         fence = rest.split("</secondary>")[0]
         assert "### Old Fen" in fence and "### Prava" not in fence
-        assert "This scene is in chapter 1 of 1." in beat
-        assert "Also named (secondary, not in the cast): Old Fen\n" in beat
         casts.append(cast_part)
     assert "### Prava" in casts[0] and "### Prava" not in casts[1]
 

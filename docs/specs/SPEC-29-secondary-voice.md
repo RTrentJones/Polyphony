@@ -21,7 +21,7 @@ voice in the source; the prompt did not show it.
   sources once. Each source is attributed **once** (`character_extractor.attribute_speech`), and
   each name's lines come from `spoken_lines(..., cast=<canon cast>, attributed=<that source's
   result>)`. A tag that more than one cast member's names cover credits nobody, so a secondary
-  never takes a principal's line. Lines shorter than `_SPEECH_MIN_WORDS` are dropped; lines of 4+
+  never takes a principal's line. Lines shorter than `SPEECH_MIN_WORDS` are dropped; lines of 4+
   words come first (one stable sort); the first 3 are kept. The introduction is looked up in
   `[synopsis, *canon entries, *sources]`.
 - `render_secondaries(people) -> str`: one `<secondary>` fence; per person `### <name>`, then
@@ -39,7 +39,9 @@ Where it goes. The block is built once per scene, in the session that loads the 
 A secondary who resolves to a Character is cast by `beat_people` and gets the full character
 block; it is never on the "Also named" line or in `<secondary>` (§2 item 5: the "(secondary)"
 cast-block variant is not built). `_canon_hash` covers the block when it is non-empty, so a scene
-paused across the deploy restarts once.
+paused across the deploy restarts once. Prose, ensemble and revise build the canon, cast, scope,
+POV and this block through one `prose.scene_setup`, and `_canon_hash(setup, summary, position,
+tail)` does the concatenation itself.
 
 Cost: Prava and Old Fen on cel add ≤ 1,500 characters to a beat prompt.
 

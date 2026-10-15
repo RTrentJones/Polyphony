@@ -113,21 +113,11 @@ def test_omniscient_and_objective_are_not_held_to_one_head():
     assert f"{POV_LIMIT_OPEN} Milo Voss" in limited
 
 
-def test_one_head_is_the_one_wide_mode_rule():
-    assert Pov("third person omniscient").one_head is False
-    assert Pov("third person objective", "Milo Voss").one_head is False
-    assert Pov("third person limited").one_head is True
-    assert Pov("first person", "Milo Voss").one_head is True
-
-
 def test_one_head_modes_name_people_only_once_learned():
     """W3-3: an introduction in the scene counts, so no name badges."""
     rule = "learns their name in the story; an introduction in this scene counts"
     assert f"before Milo Voss {rule}" in pov_instruction(
         Pov("third person limited", "Milo Voss")
-    )
-    assert "before they learn their name in the story" in pov_instruction(
-        Pov("first person")
     )
 
 

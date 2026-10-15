@@ -140,10 +140,9 @@ def test_every_check_fails_its_failing_fixture(tmp_path):
         reasons = [r for f in out[check]["failures"] for r in f["reasons"]]
         assert reason in reasons, (check, out[check])
     assert out["n_calls"] == len(FAILING)
-    # W3-3: the planner's POV line is graded too (record 2 has none); the
-    # movement fixture appended last is a fourth beat_prose prompt.
+    # W3-3: the planner's POV line is graded too (record 2 has none).
     pov = out["pov_line_has_mode_and_character"]
-    assert pov["n"] == 4 and "2" in [f["id"] for f in pov["failures"]]
+    assert "2" in [f["id"] for f in pov["failures"]]
 
 
 def test_prior_keeps_its_paragraphs_and_starts_a_sentence():

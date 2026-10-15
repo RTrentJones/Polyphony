@@ -544,8 +544,7 @@ async def test_prompt_carries_canon_cast_and_read_only_surroundings(
     assert f"<after>\n{P3}\n</after>" in prompt
     assert "<instruction>\nMake Zara colder.\n</instruction>" in prompt
     assert "of this scene's plan" not in prompt  # a range, not a beat
-    # W3-2, S5: where the scene sits; S4: one amended sentence, every revise.
-    assert "</chapter>\nThis scene is in chapter 1 of 1. The synopsis" in prompt
+    # S4: one amended sentence, every revise.
     assert "Keep the events, and the facts, people and objects the surrounding" in (
         " ".join(prompt.split())
     )

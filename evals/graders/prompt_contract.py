@@ -633,8 +633,8 @@ class _Tally:
 def movement_blocks(section: str) -> list[tuple[str, list[str]]]:
     """(owner, [movement line]) for each ``### owner`` block, in order."""
     out = []
-    for owner, lines in candidate_sections(section).items():
-        run = lines[lines.index(MOVEMENT_LABEL) + 1 :] if MOVEMENT_LABEL in lines else []
+    for owner, ls in candidate_sections(section).items():
+        run = ls[ls.index(MOVEMENT_LABEL) + 1 :] if MOVEMENT_LABEL in ls else []
         out.append((owner, [ln[2:] for ln in takewhile(lambda x: x[:2] == "- ", run)]))
     return out
 
@@ -665,8 +665,8 @@ def check_movement_in_scene(
     m = _ALSO_NAMED.search(prompt)
     present = {o for o, _ in blocks} | {who(n) for n in _names(m.group(1) if m else "")}
     brief = f"{block(prompt, 'scene') or ''}\n{block(prompt, BEATS_FENCE) or ''}"
-    principals = set(aliases.values())
-    present |= {p["name"] for p in people if p["name"] in principals and _named(brief, p)}
+    principals = [p for p in people if p["name"] in aliases.values()]
+    present |= {p["name"] for p in principals if _named(brief, p)}
     reasons = [
         f"{owner}: names {p['name']}: {line!r}"
         for owner, lines in blocks

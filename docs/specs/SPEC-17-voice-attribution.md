@@ -121,7 +121,7 @@ the shared `_voice_and_movement`. `build_agent_context` (ensemble) uses the same
   `(words, movement)`: up to `k` own-words samples and up to `min(k, 3)` movement samples. It is
   the only voice retrieval. Beat prose and revise (through `build_character_context`), the
   ensemble (`build_agent_context`) and the voice workbench's "Test dialogue" all use it.
-- **The speech minimum.** A dialogue sample shows only with 3+ words (`_SPEECH_MIN_WORDS`, the
+- **The speech minimum.** A dialogue sample shows only with 3+ words (`SPEECH_MIN_WORDS`, the
   same minimum the indexer uses). Retrieval fetches `2k` dialogue hits so that short lines
   ("So!", "Zara,") indexed before that rule, or added by hand, do not take the slots.
 - **One renderer.** `context.render_character(name, words, movement)` prints `### name`, then

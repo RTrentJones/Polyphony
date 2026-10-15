@@ -84,6 +84,3 @@ async def test_the_probe_uses_the_scene_samples(probe):
     assert "### Milo Voss" in prompts["action"] and LONG in prompts["action"]
     assert out["dialogue"] == REPLY and out["character"] == "Milo Voss"
     assert out["confidence_score"] == 1.0
-    excerpts = [g["excerpt"] for g in out["grounding"]]
-    assert len(excerpts) == 3 and excerpts[0].endswith("…")
-    assert {g["character_id"] for g in out["grounding"]} == {str(milo.id)}

@@ -62,7 +62,7 @@ def test_markers_module_imports_nothing_from_app():
 
 def test_pov_line_re_mode_and_who():
     """S5: a POV character may contain a period ("Dr. Ada Vance")."""
-    from app.orchestration.prose import Pov, pov_instruction
+    from app.orchestration.pov import Pov, pov_instruction
 
     m = POV_LINE_RE.search(pov_instruction(Pov("first person", "Dr. Ada Vance")))
     assert m.group("mode") == "first person"

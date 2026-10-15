@@ -947,8 +947,7 @@ async def generate_scene_into_chapter(
     chapter_cast, pov_id = chapter_people(chapter, index)
     character_ids = with_pov([str(c) for c in payload.character_ids], pov_id)
     pov_character = payload.pov_character or index.names.get(pov_id)
-    if beat is not None:
-        secondary = beat_people(beat, index, chapter_cast, pov_id)[1]
+    secondary = beat_people(beat, index, chapter_cast, pov_id)[1] if beat else None
 
     # The cast is resolved against THIS book before anything is spent (SPEC-01).
     cast = await resolve_cast(
