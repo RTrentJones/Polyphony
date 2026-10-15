@@ -289,6 +289,26 @@ export interface BookChapter {
   plan_node_id?: string | null
   pov_character_id?: string | null
   character_ids?: string[]
+  /** The chapter's planned scenes as data (SPEC-23). */
+  planned_beats?: PlannedBeat[]
+}
+
+/** One planned scene of a chapter (SPEC-23). */
+export interface PlannedBeat {
+  node_id: string
+  title: string
+  summary: string
+  /** [] = the chapter's cast. */
+  character_ids: string[]
+  secondary_names: string[]
+  setting: string
+  tone: string
+}
+
+/** A person the outline names who is in the synopsis/canon but not the cast (SPEC-24). */
+export interface SuggestedCharacter {
+  name: string
+  synopsis_sentence: string
 }
 
 /** GET /books/{id} */
@@ -367,6 +387,7 @@ export interface ChapterSceneGenerateResponse {
 export interface PlannedScenesRequest {
   character_ids?: string[]
   setting?: string
+  /** Defaults to '' server-side (no injected "neutral" tone). */
   emotional_tone?: string
   target_word_count?: number
   style_notes?: string | null
@@ -751,6 +772,8 @@ export interface BookPlan {
   premise?: PlanPremise | null
   updated_at: string | null
   job?: JobSummary | null
+  /** Secondary people the outline names who are not in the cast (SPEC-24). */
+  suggested_characters?: SuggestedCharacter[]
 }
 
 /** POST /books/{id}/plans/generate — async (staged) returns status:'generating'
@@ -775,11 +798,13 @@ export interface PromoteNodeResponse {
   plan_node_id?: string | null
   /** False when the node already had a chapter (promote is idempotent). */
   created?: boolean
+  suggested_characters?: SuggestedCharacter[]
 }
 
 export interface PromoteAllResponse {
   chapters: PromoteNodeResponse[]
   created: number
+  suggested_characters?: SuggestedCharacter[]
 }
 
 export type ThreadStatus = 'open' | 'resolved' | 'abandoned'
