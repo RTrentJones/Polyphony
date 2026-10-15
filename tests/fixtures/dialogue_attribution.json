@@ -1,0 +1,31 @@
+{
+  "description": "Hand-labelled speech attribution (B2, SPEC-17). Every quoted span in `text` is listed in `lines`, in order, with its true speaker (a cast name) or null when no canon character says it. Covers inversions, plain and before tags, action beats, a pronoun tag with no beat, a beat naming two people, a strictly alternating untagged exchange, a speech continued across paragraphs, a split quote and non-cast speakers.",
+  "cast": [
+    {"name": "Ada Pell", "aliases": []},
+    {"name": "Bram Kestrel", "aliases": []},
+    {"name": "Corin Vale", "aliases": ["Corin"]}
+  ],
+  "text": "The ferry docked at noon, and the three of them came down the ramp together.\n\n“We are late,” said Ada Pell.\n\nBram Kestrel shrugged. “The tide does not care about our schedule.”\n\n“Then the tide can carry the luggage,” Corin said, dropping her bag on the boards.\n\nThe porter frowned at the bag. “That will be two coins, miss,” he said.\n\nAda said, “Pay the man, Bram.”\n\n“Because you lost the wager,” she said.\n\nCorin turned to Ada at the top of the stairs.\n\n“Did you bring the letter?” Corin asked.\n\n“It is in my coat,” Ada answered.\n\n“Show me.”\n\n“Not here.”\n\n“Then where?”\n\nBram cleared his throat. “When I was a boy on this island, the ferry ran twice a day, and nobody ever asked for a letter.\n\n“Now they want papers for everything.”\n\n“Papers,” said Corin Vale, “are how the island remembers.”\n\n“Enough,” Ada said. “We go up.”\n\nBram looked at Corin. “After you.”\n\n“Very gallant,” said Ms. Pell.\n\n“Mind the gap in the third step,” called the porter from below.",
+  "lines": [
+    {"quote": "We are late,", "speaker": "Ada Pell"},
+    {"quote": "The tide does not care about our schedule.", "speaker": "Bram Kestrel"},
+    {"quote": "Then the tide can carry the luggage,", "speaker": "Corin Vale"},
+    {"quote": "That will be two coins, miss,", "speaker": null},
+    {"quote": "Pay the man, Bram.", "speaker": "Ada Pell"},
+    {"quote": "Because you lost the wager,", "speaker": "Ada Pell"},
+    {"quote": "Did you bring the letter?", "speaker": "Corin Vale"},
+    {"quote": "It is in my coat,", "speaker": "Ada Pell"},
+    {"quote": "Show me.", "speaker": "Corin Vale"},
+    {"quote": "Not here.", "speaker": "Ada Pell"},
+    {"quote": "Then where?", "speaker": "Corin Vale"},
+    {"quote": "When I was a boy on this island, the ferry ran twice a day, and nobody ever asked for a letter.", "speaker": "Bram Kestrel"},
+    {"quote": "Now they want papers for everything.", "speaker": "Bram Kestrel"},
+    {"quote": "Papers,", "speaker": "Corin Vale"},
+    {"quote": "are how the island remembers.", "speaker": "Corin Vale"},
+    {"quote": "Enough,", "speaker": "Ada Pell"},
+    {"quote": "We go up.", "speaker": "Ada Pell"},
+    {"quote": "After you.", "speaker": "Bram Kestrel"},
+    {"quote": "Very gallant,", "speaker": "Ada Pell"},
+    {"quote": "Mind the gap in the third step,", "speaker": null}
+  ]
+}
