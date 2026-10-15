@@ -31,7 +31,7 @@ _SKELETON = json.dumps(
     }
 )
 _CHAPTERS = json.dumps(
-    [{"title": "One", "summary": "s", "act_index": 0, "pov": "", "characters": []}]
+    [{"title": "One", "summary": "s", "act_index": 0, "pov": "", "people": []}]
 )
 _ELARA = json.dumps(
     [
@@ -236,3 +236,42 @@ def test_title_case_fragments_and_sentence_openers_are_not_names():
         "Been An Email. Suddenly, Brannoch Vale arrives."
     )
     assert unknown_proper_nouns(text, {"Milo"}) == ["Brannoch Vale"]
+
+
+def test_principal_recall_finds_a_punctuated_alias():
+    """PR-S2: recall and classify_people share names.norm / names.mentions,
+    so "Voss," counts as a mention in both."""
+    from app.planning.fidelity import principal_recall
+
+    recall, present, missing = principal_recall(
+        "Then Voss, alone, signs.", [{"name": "Milo Voss", "aliases": ["Voss,"]}]
+    )
+    assert recall == 1.0 and present == ["Milo Voss"] and missing == []
+
+
+def test_flatten_outline_is_one_walk_with_titles_apart():
+    from app.planning.fidelity import flatten_outline
+
+    nodes = [
+        {
+            "title": "Intake",
+            "summary": "Milo arrives.",
+            "pov": "Milo Voss",
+            "people": ["Milo Voss", "Prava"],
+            "threads": ["the audit"],
+            "children": [
+                {"title": "Badge", "summary": "a photo", "people": ["Old Fen"]}
+            ],
+        }
+    ]
+    titles, body = flatten_outline(nodes)
+    assert titles == ["Intake", "Badge"]
+    assert body == [
+        "Milo arrives.",
+        "Milo Voss",
+        "Milo Voss",
+        "Prava",
+        "the audit",
+        "a photo",
+        "Old Fen",
+    ]

@@ -5,6 +5,9 @@
 the `secondaries.py` signatures) · **Wave**: 2 (package E2) · **Pairs with**: SPEC-23 (E1
 persists the beats and passes the per-beat request), SPEC-27 (E5 renders the chips), SPEC-28
 (E6 greps the P1–P7 strings).
+**Wave 2.5 (package A, people):** 24a–24c and 24f are rewritten for §1e of tpm-plan-wave2_5:
+one `people` list per chapter and beat, one `classify_people` call per node (review S2, S3,
+S9, PR-S2, eval finding 3, W1-S7).
 
 ## Problem
 
@@ -21,66 +24,77 @@ persists the beats and passes the per-beat request), SPEC-27 (E5 renders the chi
 
 ## Behaviour
 
-### 24a — The outline asks for each beat's cast and allows named secondaries (P1, P2)
+### 24a — The outline asks for one `people` list per chapter and beat (wave 2.5, §1e)
 
 `app/planning/staged_outline.py`.
 
-- `outline:chapters` and `outline:beats` carry `_cast_rules(canon)`:
-  - `Principal characters MUST be canon cast: <cast>. …` — `pov` and `characters` name canon
-    cast only; a secondary person goes in `secondary_names`.
-  - **P1**, one line: `SECONDARY PEOPLE (named in the synopsis or canon, not in the cast; you
-    may name them, never invent others): A, B, C`, or `… : (none)`. The list is
-    `secondaries.secondary_candidates(canon)`.
-  - The old sentence "Every name you use for a character MUST be one of" is gone.
-- The chapters template adds `"secondary_names"`. The beats template (**P2**) gives each child
-  `"characters"`, `"secondary_names"`, `"setting"` and `"tone"`, and the echo adds the chapter's
-  `secondary_names`. The prose asks for the cast actually present in THAT beat, and says an
-  unnamed functional figure stays unnamed. Acts are still numbered from 1. The stub and grader
-  markers ("scene beats", "mirroring the chapters", "write 2-4 scene beats") are kept.
-- `merge_structural` also carries `secondary_names` from S2 onto S3's nodes.
-- Before validation, `keep_known_secondaries(nodes, canon_text, cast)` (generation path only):
-  - drops a `secondary_names` entry that `canon_known_text(canon)` never names;
-  - moves a `characters` entry that is not cast but is named in the canon text into
-    `secondary_names`, so a model that cast Prava in `characters` still yields the suggestion.
-- The fidelity audit runs on the raw nodes, so an invented secondary still raises the
-  invented-names warning (`fidelity._outline_fields` reads `secondary_names`). A chapter's
-  `characters` entry that the node also declares as secondary is not reported as "cast outside
-  the canon".
+- `outline:chapters` and `outline:beats` carry `_cast_rules(canon)`, three lines:
+  1. `Principal characters MUST be canon cast: <cast>. Do not introduce new principal characters.`
+  2. `People the synopsis or canon name who are not in the cast may appear by name; never invent others.`
+  3. One sentence: `pov` names one canon cast member; `people` lists everyone named in that
+     chapter or beat (canon cast, or people the synopsis or canon name).
+- There is **no** list of secondary people in the prompt (wave-2 P1 is gone, review S3 / eval
+  finding 2): its heuristic (`secondary_candidates`) listed mostly places. The model is asked;
+  the server classifies.
+- The chapters template is `{"title", "summary", "act_index", "pov", "people", "threads"}`. The
+  beats template echoes those fields and gives each child
+  `{"title", "summary", "people", "setting", "tone", "children": []}`. `characters` and
+  `secondary_names` are no longer asked for. The prose still asks for the people of THAT beat
+  and keeps an unnamed functional figure unnamed. The stub markers ("scene beats", "mirroring
+  the chapters", "write 2-4 scene beats") are kept.
+- `merge_structural`'s `_STRUCTURAL` is `("act_index", "pov", "people", "threads")`.
+- `generate_staged_outline` builds `known_text = names.norm(canon_known_text(canon))` once per
+  outline and passes it to `validate_outline_nodes`.
+- The fidelity audit runs on the raw nodes. `fidelity._structural_cast` classifies each
+  chapter's `pov` + people with the same `classify_people`; its "cast outside the canon"
+  warning lists the `invented` entries plus a `pov` that does not resolve. There is no
+  `secondary_names` exemption: a name the canon text names is simply a secondary.
+  `flatten_outline(nodes) -> (titles, body)` is the one outline walk (recall reads both, the
+  invented-names heuristic reads the body); it reads `people` and the legacy keys.
+- `fidelity._norm` / `_present` are gone: recall and classification share `names.norm` /
+  `names.mentions`, so "Voss," is a mention in both (review PR-S2).
 
-### 24b — Validating beat children (§1.1)
+### 24b — Validating people (§1e)
 
-`app/planning/outline.py::validate_outline_nodes`.
+`app/planning/outline.py::validate_outline_nodes(nodes, *, cast, strict, known_text)`.
 
-- Children keep `node_id`, `title`, `summary`, `children` as before, plus:
-  - `character_ids` (optional): from `character_ids`, else `characters` names, resolved with
-    `CastIndex` exactly like a chapter's. An unknown name is dropped (generation) or rejected
-    (`strict`), **unless** the beat lists it in `secondary_names`. Absent when the model gave
-    no cast.
-  - `secondary_names` (optional): trimmed, deduped case-insensitively, ≤ 12
-    (`planned_beat.MAX_SECONDARY_NAMES`), ≤ 100 chars. A name that resolves to the cast moves
-    into `character_ids` (not duplicated).
-  - `setting` (≤ 500) and `tone` (≤ 200), trimmed, kept when given as strings (even `""`).
-- Top-level nodes add `secondary_names` with the same rules and the same `strict` exemption.
-- A restore (`cast=None`) keeps stored ids and fields as they are: validation is byte-identical.
+- A node's input refs are `people` + `character_ids` + `characters` + `secondary_names`, in that
+  order, all optional. The legacy keys stay for stored outlines, restores, author PUTs and old
+  archives. Each node (chapter or beat) makes **one** `classify_people(refs, cast, known_text)`
+  call:
 
-### 24c — Secondaries and suggestions
+  | Path | `known_text` | invented |
+  |---|---|---|
+  | generation (`staged_outline`) | `names.norm(canon_known_text(canon))` | dropped (the audit warns) |
+  | author edit (`strict=True`) | `None` (every unresolved name is a secondary) | rejected (422); only a dead or foreign id can be invented |
+  | restore (`cast=None`) | n/a | stored ids and names kept as they are |
 
-`app/planning/secondaries.py` (signatures frozen on day 0).
+- Stored node: `.ids` → `character_ids` (top level: the `pov` id first), `.secondary` →
+  `secondary_names` (deduped case-insensitively, ≤ 12, ≤ 100 chars). `people` is never stored.
+  `character_ids` is present when the input carried any people-ish list (possibly `[]`) or the
+  pov resolved; `secondary_names` when it is non-empty or the input carried `people` or
+  `secondary_names`.
+- `pov` (top level) must resolve to the cast and is stored as the character's name; it is never
+  a secondary. An unknown `pov` is dropped (generation) or rejected (`strict`).
+- Children keep `setting` (≤ 500) and `tone` (≤ 200), trimmed, when given as strings.
+- A restore and a re-validation of stored nodes are byte-identical.
+- **Removal trigger** (PR-S8.1): the legacy input keys `characters` / `secondary_names` go once no
+  stored `book_plans.content` has a `characters` key (one read-only prod query, a user action;
+  tpm-plan-wave2_5 §4).
 
-- `secondary_candidates(canon)`: capitalised runs in `canon_known_text(canon)` (synopsis
-  paragraphs unwrapped; bible headings dropped and field labels stripped), in first-appearance
-  order, excluding: cast names, aliases and any phrase built on a cast-name token ("Chief
-  Executive Lich"); canon-entry names; the book title; ALL-CAPS headings and acronyms;
-  title-case fragments; words the text also uses in lower case ("Intake", "Records" when used
-  lowercase); single words that only ever open a sentence ("Death, it turns out"); and a
-  shorter run inside a longer one ("Fen" when "Old Fen" is listed). On cel this lists Prava and
-  Old Fen (plus some institutions: the heuristic cannot tell a person from a place, which is
-  why it only feeds the prompt line).
-- `suggested_characters(nodes, canon)`: only the names the model declared in a node's or a
-  beat's `secondary_names`, that occur in the canon text and do not resolve to the current cast
-  (`CastIndex`), deduped case-insensitively in outline order. `synopsis_sentence` is the first
-  synopsis sentence naming them, else the first canon-entry sentence, capped at 400 chars at a
-  word boundary (with "…"); `""` when only the bible names them. E1 exposes it (§1.2).
+### 24c — Suggestions
+
+`app/planning/secondaries.py` keeps only `suggested_characters(names, canon)`.
+
+- `names` are the `secondary_names` the outline and its promoted chapters declared (collected
+  by `app/api/plans.py`). They are re-classified with `classify_people` against canon's
+  current cast and `names.norm(canon_known_text(canon))`; the `secondary` ones are offered,
+  deduped case-insensitively, in the given order. `synopsis_sentence` is the first synopsis
+  sentence naming them, else the first canon-entry sentence, capped at 400 chars at a word
+  boundary (with "…"); `""` when only the bible names them.
+- Suggestions come only from model-declared people. A canon phrase that is a place ("Aeon
+  Holdings") is offered if the model declares it a person (tpm-plan-wave2_5 §7 risk 2); the fix
+  is the prompt, never a heuristic.
 
 ### 24d — The scene brief and the planner (P3, P4)
 
@@ -120,25 +134,31 @@ persists the beats and passes the per-beat request), SPEC-27 (E5 renders the chi
 
 ### 24f — The offline stub
 
-`evals/stub_llm.py`. The beats branch (markers `scene beats` + `mirroring the chapters`) now
-parses the act's chapters JSON and gives each child `characters` (its chapter's), `setting`
-`"the intake atrium"` and `tone` `"wry"`; the first chapter of act 1's first beat declares every
-name on the P1 line as `secondary_names` (E5's journey needs one "Add Prava to cast" chip). The
-planner branch still parses the new `plan_beats` wording.
+`evals/stub_llm.py`. The chapters branch gives each chapter `people` (the cast it carries). The
+beats branch (markers `scene beats` + `mirroring the chapters`) parses the act's chapters JSON
+and gives each child `people` (its chapter's), `setting` `"the intake atrium"` and `tone`
+`"wry"`. The first chapter of act 1's first beat also names every `<synopsis>` name matching
+`\b([A-Z][a-z]+), the ` that is not a cast-name token ("Prava, the intake caseworker"), so the
+server keeps Prava as a secondary and the e2e journey still gets its "Add Prava to cast" chip.
+Routing stays a single text-sniffing path. The planner branch still parses `plan_beats`.
 
 ## Tests
 
-- `tests/unit/test_beat_cast_prompts.py`: P1/P2 in the chapters and beats prompts (old
-  sentence absent, principals rule present, markers kept); child validation (names → ids,
-  secondary in cast moves, unknown dropped, `strict` rejects unless secondary, cap/trim,
-  restore byte-identical, top-level secondaries); `keep_known_secondaries`; the staged outline
-  end to end saves beat fields and warns on an invented secondary; `scene_block` P4 and the
-  "Also named" line; the planner's P3 and the unchanged subset rule; the stub's beat fields
-  (one secondary set only) and planner parsing.
-- `tests/unit/test_secondaries.py`: cel candidates include Prava and Old Fen and exclude cast
-  names, aliases, the title and headings; canon-entry and bible-label exclusion; suggestions
-  exclude the current cast and anything absent from the canon text, dedupe in order, take the
-  synopsis sentence (else a canon-entry sentence), cap at 400.
+- `tests/unit/test_beat_cast_prompts.py`: both outline prompts ask for `people`, carry the §1e
+  sentence and no SECONDARY PEOPLE line (exact wording is graded by SPEC-28's round trip); child
+  validation (legacy keys → ids, a secondary in the cast moves, cap/trim, restore
+  byte-identical); `strict` keeps Prava and Elara secondary and rejects a dead id or an unknown
+  pov; generation with `people: ["Milo", "Prava", "Elara"]` gives Milo's id, `["Prava"]`, Elara
+  dropped, and legacy `characters` + `secondary_names` give the same; the staged outline end to
+  end saves beat fields and warns on an invention; `scene_block` and the planner; the stub's
+  `people` and Prava on the first beat only.
+- `tests/unit/test_staged_outline.py`: Halvard Bell (eval finding 3) in a beat's `people`, named
+  by the synopsis, is stored as a secondary with no invented-name warning.
+- `tests/unit/test_fidelity_gate.py`: `principal_recall` finds a punctuated alias ("Voss,");
+  `flatten_outline` returns (titles, body) from one walk over `people`, threads and children.
+- `tests/unit/test_secondaries.py`: suggestions exclude the current cast and anything absent
+  from the canon text, dedupe in order, come only from declared people (a declared "Aeon
+  Holdings" is offered), take the synopsis sentence (else a canon-entry sentence), cap at 400.
 - `tests/unit/test_pov_prompt.py`: request POV + `style.pov` "third person limited, on Milo
   Voss" → `Point of view: third person limited, Milo Voss.` then `Narrate only what Milo Voss
   perceives or knows`; mode precedence; no style → `third person limited`; style-guide character
@@ -152,15 +172,16 @@ planner branch still parses the new `plan_beats` wording.
 **docs/BRD.md, §5.1, after R1.5:**
 
 > - **R1.5a** **Named secondaries are allowed; principals are still gated.** The outline may
->   name people the synopsis or canon entries name who are not in the cast (listed in the
->   prompt as SECONDARY PEOPLE); it may not invent others, and `pov`/`characters` stay canon
->   cast. Each beat declares its `secondary_names`; a declared secondary the canon text never
->   names is dropped and warned about. The outline offers "Add <name> to cast" only for declared
->   secondaries that the canon text names and the cast lacks. *(SPEC-24)*
+>   name people the synopsis or canon entries name who are not in the cast; it may not invent
+>   others, and `pov` stays canon cast. Each chapter and beat lists its `people`; the server
+>   classifies them once (cast → `character_ids`, named by the canon text → `secondary_names`,
+>   anyone else is dropped from the saved outline and reported by the invented-names warning).
+>   The outline offers "Add <name> to cast" only for declared secondaries that the canon text
+>   names and the cast lacks. *(SPEC-24, SPEC-23)*
 
-**docs/BRD.md, §5.1, after R1.1a:**
+**docs/BRD.md, §5.1, R1.1c (already applied; the earlier draft called it R1.1b):**
 
-> - **R1.1b** A beat's scene is planned from its own cast: the planner sees the cast as
+> - **R1.1c** A beat's scene is planned from its own cast: the planner sees the cast as
 >   *available* (not all need appear; unnamed functional figures allowed), and a blank setting
 >   or a blank/"neutral" tone is omitted from the prompt so the style guide governs. The prose
 >   prompt states the POV mode and character and narrates only what that character perceives
@@ -173,5 +194,5 @@ planner branch still parses the new `plan_beats` wording.
 |---|---|---|---|
 | Outline beats carry their own cast, setting, tone and named secondaries | R1.5a | ✅ | `app/planning/staged_outline.py`, `outline.py::validate_outline_nodes` (SPEC-24) |
 | Named secondaries allowed in the outline; suggestions to add them to the cast | R1.5a | ✅ | `app/planning/secondaries.py` (SPEC-24; API SPEC-23, UI SPEC-27) |
-| Planner treats the cast as available; no blank setting / neutral tone in prompts | R1.1b | ✅ | `app/orchestration/workflow.py` (SPEC-24) |
-| POV line with mode + character; last beat ends in POV | R1.1b | ✅ | `app/orchestration/prose.py::resolve_pov`, `pov_instruction` (SPEC-24) |
+| Planner treats the cast as available; no blank setting / neutral tone in prompts | R1.1c | ✅ | `app/orchestration/workflow.py` (SPEC-24) |
+| POV line with mode + character; last beat ends in POV | R1.1c | ✅ | `app/orchestration/prose.py::resolve_pov`, `pov_instruction` (SPEC-24) |
