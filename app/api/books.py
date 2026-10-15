@@ -45,6 +45,11 @@ from app.exports.builder import (
 from app.jobs import repository as jobs_repo
 from app.jobs import scene_batch
 from app.llm.tier import get_tier
+from app.planning.planned_beat import (
+    MAX_PLANNED_BEATS,
+    PlannedBeat,
+    normalize_planned_beats,
+)
 from app.versioning import entities as entity_versions
 from app.versioning import trash
 from app.versioning.synopsis import record_synopsis
@@ -83,6 +88,11 @@ class ChapterUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=500)
     summary: Optional[str] = None
     status: Optional[str] = None
+    # The chapter's planned scenes (SPEC-23), replacing the stored list. Strict:
+    # a character id that is not live in this book is a 422.
+    planned_beats: Optional[list[PlannedBeat]] = Field(
+        None, max_length=MAX_PLANNED_BEATS
+    )
 
 
 class PositionUpdate(BaseModel):
@@ -118,13 +128,16 @@ class ChapterSceneRequest(BaseModel):
 
 
 class PlannedScenesRequest(BaseModel):
-    """Generate every planned scene of a chapter (SPEC-10 follow-up). The
-    descriptions are the chapter's planned beats; the rest applies to each."""
+    """Generate every planned scene of a chapter (SPEC-10 follow-up, SPEC-23).
+    Each scene is written from its planned beat: its description, cast,
+    setting and tone. A field set here overrides every beat's."""
 
-    # Defaults to the chapter's promoted cast when empty.
+    # Non-empty = the cast of EVERY scene. Empty = each beat's own cast, else
+    # the chapter's promoted cast.
     character_ids: list[UUID] = Field(default_factory=list)
+    # "" = each beat's setting / tone ("" allowed: the style guide governs).
     setting: str = ""
-    emotional_tone: str = "neutral"
+    emotional_tone: str = ""
     target_word_count: int = Field(default=800, ge=100, le=3000)
     style_notes: Optional[str] = None
     mode: str = Field(default="prose", pattern="^(prose|ensemble)$")
@@ -225,6 +238,8 @@ def _chapter_dict(c: ChapterORM) -> dict:
         "plan_node_id": str(c.plan_node_id) if c.plan_node_id else None,
         "pov_character_id": str(c.pov_character_id) if c.pov_character_id else None,
         "character_ids": c.character_ids or [],
+        # The planned scenes as data (SPEC-23); [] for a hand-made chapter.
+        "planned_beats": normalize_planned_beats(c.planned_beats),
     }
 
 
@@ -476,6 +491,43 @@ async def get_chapter(
     }
 
 
+async def _strict_planned_beats(
+    db: AsyncSession, book_id: UUID, beats: list[PlannedBeat]
+) -> list[dict]:
+    """The author's planned beats, normalized; 422 naming every character id
+    that is not a live character of this book (the author's own edit is
+    strict, like an outline PUT)."""
+    live_ids = {
+        str(cid)
+        for cid in (
+            await db.execute(
+                live(select(CharacterORM.id), CharacterORM).where(
+                    CharacterORM.book_id == book_id
+                )
+            )
+        ).scalars()
+    }
+    unknown: list[str] = []
+    for beat in beats:
+        for cid in beat.character_ids:
+            try:
+                key = str(UUID(str(cid)))
+            except ValueError:
+                key = None
+            if key not in live_ids and cid not in unknown:
+                unknown.append(cid)
+    if unknown:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": "These characters are not in this book's cast. Add "
+                "them in the Canon tab first, or pick from the cast.",
+                "unknown": unknown,
+            },
+        )
+    return normalize_planned_beats([b.model_dump() for b in beats])
+
+
 @router.patch("/chapters/{chapter_id}", response_model=dict)
 async def update_chapter(
     chapter_id: UUID,
@@ -490,9 +542,13 @@ async def update_chapter(
         if getattr(payload, f) is not None
         and getattr(payload, f) != getattr(chapter, f)
     }
+    if payload.planned_beats is not None:
+        beats = await _strict_planned_beats(db, chapter.book_id, payload.planned_beats)
+        if beats != normalize_planned_beats(chapter.planned_beats):
+            changes["planned_beats"] = beats
     if changes:
-        # Chapter titles and summaries are versioned (SPEC-13, F16); a chapter
-        # from before then keeps its current text as v1.
+        # Chapter titles, summaries and planned beats are versioned (SPEC-13,
+        # F16, SPEC-23); a chapter from before then keeps its state as v1.
         await entity_versions.ensure_baseline(
             db, "chapter", chapter, created_by=current_user.id
         )
@@ -827,10 +883,12 @@ async def generate_planned_scenes(
 ):
     """One scene per planned beat of a promoted chapter, written in order.
 
-    The beats are the "Planned beats:" lines promote wrote into the chapter
-    summary (SPEC-10); a beat that already has a live scene in the chapter is
-    skipped, so a second click after a failure picks up where it stopped. The
-    cast and POV default to the chapter's promoted ones.
+    The beats are the chapter's `planned_beats` (SPEC-23; the legacy "Planned
+    beats:" summary lines for a chapter not yet migrated). A beat that already
+    has a live scene in the chapter is skipped, so a second click after a
+    failure picks up where it stopped. Each scene takes its beat's cast (else
+    the chapter's), setting and tone, plus the chapter's POV character; editing
+    the chapter summary changes none of it.
 
     Same gates as a single scene: budget check, the scene estimator's preflight
     for ALL the scenes (refused with the estimate rather than stopping halfway),
@@ -862,7 +920,7 @@ async def generate_planned_scenes(
     if (found := await _existing()) is not None:
         return found
 
-    beats = scene_batch.planned_beats(chapter.summary)
+    beats = scene_batch.planned_beats(chapter)
     if not beats:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -885,53 +943,90 @@ async def generate_planned_scenes(
 
     await check_user_budget(db, current_user.id)
 
-    # The cast: the request's, else the chapter's promoted cast — minus anyone
-    # trashed since promote (resolve_cast 422s on an unknown id, SPEC-01).
-    if payload.character_ids:
-        requested = list(payload.character_ids)
-    else:
-        live_ids = {
-            str(cid)
-            for cid in (
-                await db.execute(
-                    live(select(CharacterORM.id), CharacterORM).where(
-                        CharacterORM.book_id == chapter.book_id
-                    )
-                )
-            ).scalars()
-        }
-        requested = [
-            UUID(str(c)) for c in (chapter.character_ids or []) if str(c) in live_ids
-        ]
-    cast = await resolve_cast(db, chapter.book_id, character_ids=requested)
-    cast_names = [c.name for c in cast]
-    cast_ids = [str(c.id) for c in cast]
-    pov = next(
-        (c.name for c in cast if chapter.pov_character_id == c.id),
-        None,
-    )
+    # Each beat's cast (SPEC-23): an explicit request cast for every beat
+    # (resolve_cast 422s on an unknown id, SPEC-01) > the beat's own cast plus
+    # any secondary name that now resolves > the chapter's promoted cast. Ids
+    # no longer live are dropped, and the chapter's POV character is added.
+    from app.planning.outline import CastIndex
+    from app.planning.planned_beat import beat_scene_description
 
-    # Preflight ALL the scenes with the single-scene estimator (SPEC-12).
+    live_cast = (
+        (
+            await db.execute(
+                live(select(CharacterORM), CharacterORM).where(
+                    CharacterORM.book_id == chapter.book_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    index = CastIndex(live_cast)
+    pov_id = (
+        str(chapter.pov_character_id)
+        if chapter.pov_character_id is not None
+        and str(chapter.pov_character_id) in index.names
+        else None
+    )
+    explicit = [str(c) for c in payload.character_ids]
+    if explicit:
+        await resolve_cast(db, chapter.book_id, character_ids=payload.character_ids)
+    chapter_cast = [str(c) for c in (chapter.character_ids or [])]
+
+    def beat_cast(beat: dict) -> tuple[list[str], list[str]]:
+        """(the scene's character ids, its still-unresolved secondary names)."""
+        secondary: list[str] = []
+        own = list(beat.get("character_ids") or [])
+        for name in beat.get("secondary_names") or []:
+            cid = index.resolve(name)
+            if cid is None:
+                secondary.append(name)
+            elif cid not in own:
+                own.append(cid)
+        ids = explicit or own or chapter_cast
+        ids = [c for c in dict.fromkeys(ids) if c in index.names]
+        if pov_id is not None and pov_id not in ids:
+            ids.insert(0, pov_id)
+        return ids, secondary
+
+    plans = [(beat, *beat_cast(beat)) for beat in todo]
+    # resolve_cast once per distinct cast (it also 422s an empty one).
+    casts: dict[tuple, list] = {}
+    for _, ids, _ in plans:
+        if tuple(ids) not in casts:
+            casts[tuple(ids)] = await resolve_cast(
+                db, chapter.book_id, character_ids=[UUID(c) for c in ids]
+            )
+    pov = index.names.get(pov_id) if pov_id is not None else None
+
+    # Preflight ALL the scenes with the single-scene estimator (SPEC-12): the
+    # sum of each scene's estimate, so a beat's own cast size counts.
     from dataclasses import replace
 
     from app.core import estimates
     from app.planning.canon import build_canon, render_character
 
     canon = await build_canon(db, chapter.book_id)
-    one = estimates.scene(
-        canon_chars=len(canon.full_block()),
-        cast_context_chars=sum(len(render_character(c)) + 1500 for c in cast),
-        target_words=payload.target_word_count,
-        mode=payload.mode,
-        cast_size=len(cast),
-    )
+    canon_chars = len(canon.full_block())
+    per_scene = [
+        estimates.scene(
+            canon_chars=canon_chars,
+            cast_context_chars=sum(
+                len(render_character(c)) + 1500 for c in casts[tuple(ids)]
+            ),
+            target_words=payload.target_word_count,
+            mode=payload.mode,
+            cast_size=len(casts[tuple(ids)]),
+        )
+        for _, ids, _ in plans
+    ]
     n = len(todo)
     est = replace(
-        one,
-        calls=one.calls * n,
-        input_tokens=one.input_tokens * n,
-        output_tokens=one.output_tokens * n,
-        notes=[*one.notes, f"{n} scene(s), written one after another."],
+        per_scene[0],
+        calls=sum(e.calls for e in per_scene),
+        input_tokens=sum(e.input_tokens for e in per_scene),
+        output_tokens=sum(e.output_tokens for e in per_scene),
+        notes=[*per_scene[0].notes, f"{n} scene(s), written one after another."],
     )
     assessed = await estimates.assess(db, current_user.id, est)
     if not assessed["allowed"]:
@@ -943,17 +1038,19 @@ async def generate_planned_scenes(
     requests = [
         {
             "source_id": None,
-            "character_ids": cast_ids,
-            "characters": cast_names,
-            "scene_description": beat,
-            "setting": payload.setting,
-            "emotional_tone": payload.emotional_tone,
+            "character_ids": [str(c.id) for c in casts[tuple(ids)]],
+            "characters": [c.name for c in casts[tuple(ids)]],
+            "scene_description": beat_scene_description(beat),
+            "setting": payload.setting or beat.get("setting") or "",
+            "emotional_tone": payload.emotional_tone or beat.get("tone") or "",
             "pov_character": pov,
+            "planned_beat_id": beat["node_id"],
+            "secondary_names": secondary,
             "target_word_count": payload.target_word_count,
             "style_notes": payload.style_notes,
             "mode": payload.mode,
         }
-        for beat in todo
+        for beat, ids, secondary in plans
     ]
     job_kind = _scene_job_kind(payload.mode)
     book_id = chapter.book_id

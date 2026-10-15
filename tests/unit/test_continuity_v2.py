@@ -65,6 +65,47 @@ async def test_fact_sheet_is_the_whole_canon_plus_plot_state(async_session, test
     assert "<plot_state>" in sheet
 
 
+async def test_fact_sheet_indents_planned_beats_under_their_chapter(
+    async_session, test_book
+):
+    """SPEC-23: a chapter heading, its summary, then its beats indented; no
+    "- Ch" line inside a beat list, for data beats and legacy summary text."""
+    async_session.add_all(
+        [
+            Chapter(
+                book_id=test_book.id,
+                title="Onboarding",
+                position=0,
+                summary="Milo is retained.",
+                planned_beats=[
+                    {"title": "Intake", "summary": "Milo signs"},
+                    {"title": "Lunch", "summary": ""},
+                ],
+            ),
+            Chapter(
+                book_id=test_book.id,
+                title="Overtime",
+                position=1,
+                summary="Zara stays late.\n\nPlanned beats:\n- Memo: a decree",
+            ),
+        ]
+    )
+    await async_session.commit()
+    sheet = await cont.build_fact_sheet(async_session, test_book.id)
+    plot = sheet[sheet.index("Chapter summaries so far:") :]
+    lines = plot.split("\n")
+    at = lines.index("Ch 1: Onboarding")
+    assert lines[at + 1 : at + 4] == [
+        "  Milo is retained.",
+        "  - Intake: Milo signs",
+        "  - Lunch:",
+    ]
+    at = lines.index("Ch 2: Overtime")
+    assert lines[at + 1 : at + 3] == ["  Zara stays late.", "  - Memo: a decree"]
+    assert "Planned beats:" not in plot
+    assert not any(line.lstrip().startswith("- Ch") for line in lines)
+
+
 async def test_prompt_is_fenced_and_uncut(monkeypatch):
     fake = FakeLLM(['{"findings": []}'])
     monkeypatch.setattr(cont, "get_llm_client", lambda: fake)

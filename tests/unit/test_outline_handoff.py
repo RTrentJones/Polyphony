@@ -375,7 +375,10 @@ async def test_ac3_promoting_the_same_node_twice_yields_one_chapter(
     assert str(ch.plan_node_id) == nodes[0]["node_id"]
     assert str(ch.pov_character_id) == ids["Milo Voss"]
     assert ch.character_ids == [ids["Milo Voss"], ids["Zara Okafor"]]
-    assert "Badge photo" in ch.summary
+    # The child is a planned beat as data (SPEC-23), not a summary line.
+    assert ch.summary == "Milo arrives"
+    assert [b["title"] for b in ch.planned_beats] == ["Badge photo"]
+    assert ch.planned_beats[0]["node_id"] == nodes[0]["children"][0]["node_id"]
 
     detail = (
         await client.get(f"/api/v1/books/{test_book.id}", headers=auth_headers)

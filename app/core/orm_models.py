@@ -267,6 +267,9 @@ class Chapter(Base):
         UUID(as_uuid=True), ForeignKey("characters.id", ondelete="SET NULL")
     )
     character_ids = Column(JSON)
+    # The chapter's planned scenes as data (SPEC-23): list[PlannedBeat]
+    # (app/planning/planned_beat.py). Read through normalize_planned_beats.
+    planned_beats = Column(JSON().with_variant(JSONB(), "postgresql"))
     deleted_at = _soft_delete_column()
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
