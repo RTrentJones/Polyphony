@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 
 N = 6
+SEAM_WORDS = 60
 
 _WORD = re.compile(r"[a-z0-9]+(?:'[a-z0-9]+)*")
 
@@ -27,19 +28,19 @@ def words(text: str) -> list[str]:
     return _WORD.findall(t)
 
 
-def ngrams(text: str, n: int = N) -> set[tuple[str, ...]]:
-    w = words(text)
+def _grams(w: list[str], n: int) -> set[tuple[str, ...]]:
     return {tuple(w[i : i + n]) for i in range(len(w) - n + 1)}
 
 
 def shared(a: str, b: str, n: int = N) -> set[tuple[str, ...]]:
-    """The n-grams `a` and `b` have in common."""
-    return ngrams(a, n) & ngrams(b, n)
+    """The n-grams the end of `a` and the start of `b` have in common: the
+    seam where `b` follows `a`."""
+    return _grams(words(a)[-SEAM_WORDS:], n) & _grams(words(b)[:SEAM_WORDS], n)
 
 
 def max_overlap(texts: list[str], n: int = N) -> int:
-    """The largest number of n-grams shared by any two ADJACENT texts (0 when
-    fewer than two texts). 0 is a clean set of seams."""
+    """The largest number of n-grams repeated across any seam between two
+    ADJACENT texts (0 when fewer than two texts). 0 is a clean set of seams."""
     return max(
         (len(shared(a, b, n)) for a, b in zip(texts, texts[1:])),
         default=0,
