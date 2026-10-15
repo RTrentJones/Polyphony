@@ -225,6 +225,9 @@ def test_resolve_span_modes():
         rv.resolve_span(DRAFT, beat_text="A beat the author rewrote.")
     assert e.value.status == 409 and "select the text instead" in str(e.value)
     with pytest.raises(rv.SpanError) as e:
+        rv.resolve_span(DRAFT + "\n\n" + P2, beat_text=P2)
+    assert e.value.status == 409 and "appears more than once" in str(e.value)
+    with pytest.raises(rv.SpanError) as e:
         rv.resolve_span(DRAFT, range_=(5, len(DRAFT) + 1))
     assert e.value.status == 422
     with pytest.raises(rv.SpanError):

@@ -78,8 +78,13 @@ def resolve_span(
     if beat_text is not None:
         needle = beat_text.strip()
         at = draft.find(needle) if needle else -1
-        if at < 0 or draft.find(needle, at + 1) >= 0:
+        if at < 0:
             raise SpanError("The beat was edited; select the text instead.")
+        if draft.find(needle, at + 1) >= 0:
+            # Two beats wrote the same prose: which one is meant is ambiguous.
+            raise SpanError(
+                "That beat's text appears more than once; select the text instead."
+            )
         return Span(at, at + len(needle))
     return Span(0, len(draft))
 
