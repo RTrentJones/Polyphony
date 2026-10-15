@@ -130,9 +130,15 @@ async def _revise_estimate(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Scene not found"
         )
+    if payload.range is not None and payload.beat_index is not None:
+        # Same span rule as POST /scenes/{id}/revise (RevisionRequest).
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="send range OR beat_index (or neither, for the scene)",
+        )
     scene = await owned_scene(payload.scene_id, user, db)
     beat_text = None
-    if payload.beat_index is not None and payload.range is None:
+    if payload.beat_index is not None:
         beat_text = await _beat_text(db, scene.id, payload.beat_index)
     span = resolve_request_span(draft_of(scene), payload.range, beat_text)
     est, _ = await revise_estimate(db, scene, span)

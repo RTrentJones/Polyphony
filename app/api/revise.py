@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.books import owned_scene
+from app.api.books import lock_scene, owned_scene
 from app.core.budget import check_user_budget
 from app.core.database import get_db
 from app.core.orm_models import (
@@ -299,7 +299,9 @@ async def accept_proposal(
     """Make the proposal the draft. The current draft is snapshotted first, as a
     manual save would; 409 if the draft changed since the proposal was written
     (its untouched text would no longer match)."""
-    scene = await owned_scene(scene_id, current_user, db)
+    # Lock the scene before the proposal and before reading the draft: a manual
+    # save takes the same lock, so whichever commits first is what the other sees.
+    scene = await lock_scene(db, await owned_scene(scene_id, current_user, db))
     row = await _owned_proposal(db, scene, revision_id)
     meta = row.meta or {}
     previous = revise_job.draft_of(scene)

@@ -243,3 +243,86 @@ async def test_revise_accept_round_trip_through_the_worker(monkeypatch):
             await s.commit()
     finally:
         await engine.dispose()
+
+
+async def test_accept_racing_a_manual_save_sees_the_save(monkeypatch):
+    """Codex P1 on #38: accept must lock the scene before it reads the draft.
+    A save holding the scene's lock commits new prose; the accept that waited
+    then sees that prose, so the hash check refuses it (409) instead of
+    overwriting the save without a snapshot."""
+    import httpx
+
+    import app.core.database as db_mod
+    from app.core.database import get_async_db_url
+    from app.core.orm_models import Book, Chapter, Scene, SceneRevision, User
+    from app.core.security import create_access_token
+    from app.main import app
+    from app.orchestration import revise as rv
+
+    cfg, _ = _alembic()
+    await _alembic_cmd("upgrade", cfg, "head")
+    engine = create_async_engine(get_async_db_url())
+    Session = async_sessionmaker(engine, expire_on_commit=False)
+    monkeypatch.setattr(db_mod, "get_session_factory", lambda: Session)
+    draft, saved = "Milo kept his eyes on the ledger.", "The author's own line."
+    async with Session() as s:
+        user = User(email=f"race-{uuid.uuid4()}@ex.com", hashed_password="x")
+        s.add(user)
+        await s.flush()
+        book = Book(user_id=user.id, title="B", synopsis="Milo.")
+        s.add(book)
+        await s.flush()
+        chapter = Chapter(book_id=book.id, title="One", position=0, summary="A.")
+        s.add(chapter)
+        await s.flush()
+        scene = Scene(
+            user_id=user.id,
+            book_id=book.id,
+            chapter_id=chapter.id,
+            position=0,
+            status="completed",
+            content=draft,
+        )
+        s.add(scene)
+        await s.flush()
+        proposal = SceneRevision(
+            scene_id=scene.id,
+            content="Milo looked away.",
+            word_count=3,
+            source="ai_revise",
+            meta={"status": "proposed", "base_text_hash": rv.text_hash(draft)},
+        )
+        s.add(proposal)
+        await s.commit()
+        user_id, scene_id, proposal_id = user.id, scene.id, proposal.id
+
+    headers = {
+        "Authorization": f"Bearer {create_access_token(data={'sub': str(user_id)})}"
+    }
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            async with Session() as saver:
+                row = (
+                    await saver.execute(
+                        select(Scene).where(Scene.id == scene_id).with_for_update()
+                    )
+                ).scalar_one()
+                accept = asyncio.create_task(
+                    client.post(
+                        f"/api/v1/books/scenes/{scene_id}/revisions/"
+                        f"{proposal_id}/accept",
+                        headers=headers,
+                    )
+                )
+                await asyncio.sleep(0.5)
+                assert not accept.done()
+                row.content = saved
+                await saver.commit()
+            r = await accept
+            assert r.status_code == 409, r.text
+        async with Session() as s:
+            assert (await s.get(Scene, scene_id)).content == saved
+    finally:
+        await engine.dispose()

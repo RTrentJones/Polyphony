@@ -199,6 +199,20 @@ async def owned_scene(scene_id: UUID, user: UserORM, db: AsyncSession, *options)
     return scene
 
 
+async def lock_scene(db: AsyncSession, scene: SceneORM) -> SceneORM:
+    """Row-lock an owned scene and re-read it, so a write that checks the draft
+    (accepting a revision) and one that snapshots it (a manual save) cannot
+    both read the same draft and overwrite each other."""
+    return (
+        await db.execute(
+            select(SceneORM)
+            .where(SceneORM.id == scene.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+
+
 def _chapter_dict(c: ChapterORM) -> dict:
     return {
         "id": str(c.id),
@@ -1076,7 +1090,7 @@ async def update_scene_content(
     db: AsyncSession = Depends(get_db),
 ):
     """Save an edit to the draft prose, snapshotting the previous state."""
-    scene = await owned_scene(scene_id, current_user, db)
+    scene = await lock_scene(db, await owned_scene(scene_id, current_user, db))
 
     previous = scene_text(scene)
     if previous:
@@ -1119,6 +1133,9 @@ async def list_scene_revisions(
                 "content": r.content,
             }
             for r in scene.revisions
+            # AI proposals (SPEC-19) live behind /proposals with their own
+            # status and stale-draft checks; they are not restorable history.
+            if r.source != "ai_revise"
         ],
     }
 

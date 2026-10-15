@@ -387,6 +387,18 @@ async def test_estimate_endpoint_prices_a_revision(
         "/api/v1/estimate", json={"action": "revise"}, headers=auth_headers
     )
     assert missing.status_code == 404
+    # Same span rule as /revise: a range and a beat together are refused.
+    both = await client.post(
+        "/api/v1/estimate",
+        json={
+            "action": "revise",
+            "scene_id": str(story.scene.id),
+            "beat_index": 1,
+            "range": _p2_range(),
+        },
+        headers=auth_headers,
+    )
+    assert both.status_code == 422
 
 
 # --- the job through the worker -------------------------------------------------------
@@ -501,6 +513,12 @@ async def test_discard_leaves_the_draft_byte_identical(
     assert len(await _revisions(async_session, story.scene)) == count
     [listed] = (await _proposals(client, auth_headers, story.scene))["proposals"]
     assert listed["status"] == "discarded"
+    # Proposals are not restorable history: the revisions list leaves them out.
+    history = await client.get(
+        f"/api/v1/books/scenes/{story.scene.id}/revisions", headers=auth_headers
+    )
+    assert all(r["source"] != "ai_revise" for r in history.json()["revisions"])
+    assert proposal["id"] not in {r["id"] for r in history.json()["revisions"]}
     again = await client.post(
         _url(story.scene, f"revisions/{proposal['id']}/accept"), headers=auth_headers
     )
