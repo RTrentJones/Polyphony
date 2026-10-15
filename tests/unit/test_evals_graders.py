@@ -36,6 +36,7 @@ class TestStepRegistry:
             "outline",
             "continuity",
             "prose",
+            "revise",
             "ensemble",
         ]
         # embedding-only steps must not require the API (so they run keyless)
