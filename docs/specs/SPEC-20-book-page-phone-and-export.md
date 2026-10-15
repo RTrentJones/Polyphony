@@ -89,9 +89,8 @@ message. A successful download closes it.
   keyboard behaviour (open, arrows skip disabled, Home/End, Escape returns focus, outside click).
 - Browser (`scripts/e2e_browser.py`):
   - *export the book*: drives the dialog and checks its defaults. The default MD excludes the
-    synopsis; a second export with "Include synopsis" includes it. With `KNOWN_AFTER_MERGE` (on
-    by default, off with `E2E_KNOWN_AFTER_MERGE=0` in a tree without SPEC-21), no Markdown heading
-    contains two `Chapter` tokens.
+    synopsis; a second export with "Include synopsis" includes it. No Markdown heading contains
+    two `Chapter` tokens (always checked).
   - *the book at phone width*: the right-hand scroll affordance shows. With a chapter expanded,
     every chapter row's title is visible with ≥ 20 characters (or all of a shorter title) actually
     rendered inside its box, counted per glyph. Every visible button's box lies inside its row
