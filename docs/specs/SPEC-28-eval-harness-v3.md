@@ -112,7 +112,10 @@ which also proves the stub parses the real prompts. For a cel-like book (the cel
 synopsis in the unit-test DB) it drives public entry points only: `generate_staged_outline(canon)`
 (skeleton, chapters, beats), `plan_scene_beats` for a stored outline beat with its setting and
 tone, `run_prose_scene_workflow` for a whole scene (three beats; `resolve_pov` reads the style
-POV) and `extract_canon` on the cel excerpt. The records are written as an archive and graded:
+POV), a "Redo beat 2" through `resolve_scene_span` and the revise job (its prompt must carry
+"Beat 2 of this scene's plan: <description>", eval finding 6; each stub beat answer gets a unique
+closing sentence so the beat's text is unique in the draft) and `extract_canon` on the cel
+excerpt. The records are written as an archive and graded:
 every check that ran is 1.0, and all fourteen run (n > 0). A failure is fixed in the prompt that
 broke the contract, never in the check. `test_prompt_contract.py` keeps one failing fixture per check.
 
