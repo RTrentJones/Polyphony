@@ -25,14 +25,50 @@ from app.llm.json_utils import extract_json_array
 logger = setup_logging("orchestration.workflow")
 
 
+# The tone the old request form defaulted to. It says nothing, and printed
+# into a prompt it overrode the style guide's tone (SPEC-24, W2-1): a blank or
+# "neutral" tone is omitted, so the book's own tone governs.
+_NO_TONE = {"", "neutral"}
+
+ALSO_NAMED_LABEL = "Also named (secondary, not in the cast)"
+
+
+def _one_line(value) -> str:
+    return " ".join(clean_for_llm(str(value or "")).split())
+
+
+def secondary_names(scene_request: dict) -> list[str]:
+    """The request's named secondaries (SPEC-23 passes the beat's unresolved
+    ones): trimmed, deduped, in order."""
+    raw = scene_request.get("secondary_names")
+    out: list[str] = []
+    for name in raw if isinstance(raw, list) else []:
+        name = _one_line(name)
+        if name and name.lower() not in {n.lower() for n in out}:
+            out.append(name)
+    return out
+
+
 def scene_block(scene_request: dict) -> str:
     """The author's scene brief, fenced. It is first-party, but it is free text
-    and can carry pasted material, so it is fenced like everything else."""
+    and can carry pasted material, so it is fenced like everything else.
+
+    A blank setting and a blank (or "neutral") tone are left out rather than
+    printed empty — a bare "Setting:" invites the model to invent one, and a
+    default tone overrides the style guide (SPEC-24). Named secondaries the
+    beat declares are listed so they may appear by name without being cast."""
     parts = [
-        f"Scene description: {clean_for_llm(scene_request.get('scene_description'))}",
-        f"Setting: {clean_for_llm(scene_request.get('setting'))}",
-        f"Emotional tone: {clean_for_llm(scene_request.get('emotional_tone'))}",
+        f"Scene description: {clean_for_llm(scene_request.get('scene_description'))}"
     ]
+    setting = _one_line(scene_request.get("setting"))
+    if setting:
+        parts.append(f"Setting: {setting}")
+    tone = _one_line(scene_request.get("emotional_tone"))
+    if tone.lower() not in _NO_TONE:
+        parts.append(f"Emotional tone: {tone}")
+    secondaries = secondary_names(scene_request)
+    if secondaries:
+        parts.append(f"{ALSO_NAMED_LABEL}: {', '.join(secondaries)}")
     return as_quoted_block("\n".join(parts), "scene")
 
 
@@ -48,6 +84,10 @@ async def plan_scene_beats(
     Returns ``[{"description", "characters": [names]}]`` where each beat's cast
     is a validated subset of the scene's cast (an empty or invalid subset falls
     back to the whole scene cast — never to an invented name).
+
+    The cast is offered as AVAILABLE, not mandatory (SPEC-24, W2-1): the old
+    "the scene's cast is exactly" made every beat of a Milo-and-a-caseworker
+    scene a Milo-and-Zara scene.
     """
     cast: list[str] = list(scene_request.get("characters") or [])
     chapter = as_quoted_block(chapter_summary, "chapter")
@@ -60,9 +100,13 @@ async def plan_scene_beats(
 {scene_block(scene_request)}
 
 You are a narrative planner. Break this scene of THIS book into 3-5 beats
-(smaller moments), consistent with the canon above. The scene's cast is exactly:
-{", ".join(cast)}. Each beat lists which of those characters are present in it —
-use only names from that list.
+(smaller moments), consistent with the canon above.
+Available cast (not all need appear): {", ".join(cast) or "(none)"}
+These are the characters who MAY appear; a beat need not use all of them. Each
+beat lists which of them are present in it — use only names from that list. A
+person listed as "Also named" in the scene brief may appear by name, but is not
+listed in a beat's characters. Unnamed functional figures (a caseworker, a
+clerk, a guard) may appear without a name; do not invent names for them.
 
 Return ONLY a JSON array:
 [{{"description": "what happens, plus its emotional subtext, in one sentence",

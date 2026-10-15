@@ -69,14 +69,95 @@ def scene_cast(canon, scene_request: dict) -> list:
     return [by_name[n] for n in names if n in by_name]
 
 
+DEFAULT_POV_MODE = "third person limited"
+_POV_MODE = re.compile(
+    r"\b(first|second|third)[ -]person(?:[ -](limited|omniscient|objective))?\b",
+    re.I,
+)
+# A last-beat instruction that keeps the close inside the scene (SPEC-24, W2-4):
+# "end the scene here" invited an omniscient wrap-up paragraph.
+LAST_BEAT_ENDING = "end the scene inside the moment, in POV; no summary of what follows"
+
+
+def pov_mode(text) -> Optional[str]:
+    """The narrative mode a free-text POV names ("Third-person limited, on
+    Milo" -> "third person limited"), or None."""
+    m = _POV_MODE.search(str(text or ""))
+    if not m:
+        return None
+    return " ".join(w for w in (m.group(1), "person", m.group(2)) if w).lower()
+
+
+def split_pov(pov) -> tuple[str, Optional[str]]:
+    """(mode, POV character) from a resolved POV string ("third person
+    limited, Milo Voss"). A string without a mode is a character, written in
+    the default mode."""
+    text = " ".join(clean_for_llm(str(pov or "")).split())
+    m = _POV_MODE.search(text)
+    mode = pov_mode(text) or DEFAULT_POV_MODE
+    who = (text[: m.start()] + " " + text[m.end() :]) if m else text
+    who = " ".join(who.split()).strip(" ,;:.-–—")
+    return mode, (who or None)
+
+
 def resolve_pov(scene_request: dict, canon) -> str:
-    """The request's POV wins; else the book's style guide; else a default."""
-    if scene_request.get("pov_character"):
-        return clean_for_llm(scene_request["pov_character"])
+    """The scene's point of view as "<mode>, <character>" (or just "<mode>").
+
+    The character is the request's POV character. The mode is the one the
+    request names, else the one the book's style guide names (style.pov is
+    free text: "third person limited, on Milo Voss"), else third person
+    limited (SPEC-24, W2-4). The mode and the character are both stated, so
+    the model knows whose head the scene stays in."""
+    raw = scene_request.get("pov_character")
     style = getattr(canon, "style", None)
-    if style is not None and getattr(style, "pov", None):
-        return f"as the book's style guide specifies ({clean_for_llm(style.pov)})"
-    return "third person limited"
+    mode = (
+        pov_mode(scene_request.get("pov_mode"))
+        or pov_mode(raw)
+        or pov_mode(getattr(style, "pov", None) if style is not None else None)
+        or DEFAULT_POV_MODE
+    )
+    _, who = split_pov(raw) if raw else (None, None)
+    if not who and style is not None:
+        who = _style_pov_character(getattr(style, "pov", None), canon)
+    return f"{mode}, {who}" if who else mode
+
+
+def _style_pov_character(style_pov, canon) -> Optional[str]:
+    """The cast member a style-guide POV names ("third person limited, on Milo
+    Voss" -> "Milo Voss"), or None. Only a name that resolves to the cast is
+    used: free text is never promoted to a character."""
+    from app.planning.outline import CastIndex
+
+    _, rest = split_pov(style_pov)
+    if not rest:
+        return None
+    cast = CastIndex(getattr(canon, "characters", None) or [])
+    words = rest.split()
+    # Drop leading lowercase connectives ("on", "close on", "following").
+    while words and words[0].islower():
+        words.pop(0)
+    for candidate in (rest, " ".join(words)):
+        cid = cast.resolve(candidate) if candidate else None
+        if cid is not None:
+            return cast.names[cid]
+    return None
+
+
+def pov_instruction(pov) -> str:
+    """The beat prompt's POV paragraph (SPEC-24, W2-4): mode and character on
+    one line, then what staying in that head means."""
+    mode, who = split_pov(pov)
+    if not who:
+        return (
+            f"Point of view: {mode}. Narrate only what the point-of-view character "
+            "perceives or knows: no aftermath, no foreshadowing, no naming people "
+            "they have not learned."
+        )
+    return (
+        f"Point of view: {mode}, {who}. Narrate only what {who} perceives or "
+        f"knows: no aftermath, no foreshadowing, no naming people {who} has not "
+        "learned. Stay in their head from the first line to the last."
+    )
 
 
 def _sentence_starts(paragraph: str) -> list[int]:
@@ -209,7 +290,7 @@ async def write_beat_prose(
     target_words: int = 300,
     *,
     canon_block: str = "",
-    pov: str = "third person limited",
+    pov: str = DEFAULT_POV_MODE,
     all_beats: Optional[list[dict]] = None,
     beat_index: Optional[int] = None,
     style=None,
@@ -222,6 +303,8 @@ async def write_beat_prose(
     then style). `all_beats`/`beat_index` give the model the whole plan with
     this beat marked, so it stops where the next begins; `style` is the book's
     style guide, whose sample prose leads the style guidance (SPEC-18).
+    `pov` is `resolve_pov`'s "<mode>, <character>"; the prompt states both and
+    keeps the narration in that character's head (SPEC-24).
     """
     style_notes = scene_request.get("style_notes") or ""
     prior_block = (
@@ -245,7 +328,7 @@ async def write_beat_prose(
                 "anticipate it."
             )
         else:
-            position = f"\nWrite ONLY beat {n}, the last beat: end the scene here."
+            position = f"\nWrite ONLY beat {n}, the last beat: {LAST_BEAT_ENDING}."
     chapter = as_quoted_block(chapter_summary, "chapter")
     overrides = (
         "\nAuthor's style notes for THIS scene (they override the style guide):\n"
@@ -265,7 +348,7 @@ faithful to the canon above: its people, places, terms, and its style guide
 (point of view, tense, tone) unless the author's notes below override it.
 
 {scene_block(scene_request)}
-Point of view: {pov}{overrides}
+{pov_instruction(pov)}{overrides}
 
 {plan}CHARACTERS IN THIS BEAT — write each one's dialogue in THEIR OWN voice,
 matching their voice samples:

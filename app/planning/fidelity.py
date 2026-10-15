@@ -165,7 +165,9 @@ def _outline_fields(nodes: list[dict]) -> tuple[list[str], list[str]]:
             val = node.get(key)
             if isinstance(val, str):
                 (titles if key == "title" else body).append(val)
-        for key in ("characters", "threads"):
+        # Declared secondaries are checked too: one the canon never names is
+        # an invention, and the warning says so (SPEC-24).
+        for key in ("characters", "threads", "secondary_names"):
             val = node.get(key)
             if isinstance(val, list):
                 body.extend(str(v) for v in val)
@@ -348,11 +350,17 @@ def _structural_cast(nodes: list[dict], cast) -> tuple[list[str], list[str]]:
         refs = list(refs) if isinstance(refs, list) else []
         if isinstance(node.get("pov"), str) and node["pov"].strip():
             refs.append(node["pov"])
+        # A person the node declares secondary is not cast, by design (SPEC-24).
+        secondary = node.get("secondary_names")
+        if not isinstance(secondary, list):
+            secondary = []
+        allowed = {str(n).strip().lower() for n in secondary}
         outside = []
         for ref in refs:
             cid = cast.resolve(ref)
             if cid is None:
-                outside.append(str(ref))
+                if str(ref).strip().lower() not in allowed:
+                    outside.append(str(ref))
             else:
                 names.append(cast.names[cid])
         if outside:
