@@ -19,6 +19,13 @@ from uuid import UUID
 from app.core.config import settings
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.logging_config import setup_logging
+from app.core.prompt_markers import (
+    AVAILABLE_CAST_LABEL,
+    CHAPTER_FENCE,
+    EMOTIONAL_TONE_LABEL,
+    SCENE_DESCRIPTION_LABEL,
+    SETTING_LABEL,
+)
 from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_array
 
@@ -58,14 +65,15 @@ def scene_block(scene_request: dict) -> str:
     default tone overrides the style guide (SPEC-24). Named secondaries the
     beat declares are listed so they may appear by name without being cast."""
     parts = [
-        f"Scene description: {clean_for_llm(scene_request.get('scene_description'))}"
+        f"{SCENE_DESCRIPTION_LABEL}: "
+        f"{clean_for_llm(scene_request.get('scene_description'))}"
     ]
     setting = _one_line(scene_request.get("setting"))
     if setting:
-        parts.append(f"Setting: {setting}")
+        parts.append(f"{SETTING_LABEL}: {setting}")
     tone = _one_line(scene_request.get("emotional_tone"))
     if tone.lower() not in _NO_TONE:
-        parts.append(f"Emotional tone: {tone}")
+        parts.append(f"{EMOTIONAL_TONE_LABEL}: {tone}")
     secondaries = secondary_names(scene_request)
     if secondaries:
         parts.append(f"{ALSO_NAMED_LABEL}: {', '.join(secondaries)}")
@@ -90,7 +98,7 @@ async def plan_scene_beats(
     scene a Milo-and-Zara scene.
     """
     cast: list[str] = list(scene_request.get("characters") or [])
-    chapter = as_quoted_block(chapter_summary, "chapter")
+    chapter = as_quoted_block(chapter_summary, CHAPTER_FENCE)
     prompt = f"""{STORY_MATERIAL_NOTICE}
 
 {canon_block}
@@ -101,7 +109,7 @@ async def plan_scene_beats(
 
 You are a narrative planner. Break this scene of THIS book into 3-5 beats
 (smaller moments), consistent with the canon above.
-Available cast (not all need appear): {", ".join(cast) or "(none)"}
+{AVAILABLE_CAST_LABEL}: {", ".join(cast) or "(none)"}
 These are the characters who MAY appear; a beat need not use all of them. Each
 beat lists which of them are present in it — use only names from that list. A
 person listed as "Also named" in the scene brief may appear by name, but is not

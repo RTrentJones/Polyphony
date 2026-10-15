@@ -21,6 +21,7 @@ from typing import Optional
 from uuid import UUID
 
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block
+from app.core.prompt_markers import POV_LABEL
 from app.llm.client import get_llm_client
 
 # The stub LLM (evals/stub_llm.py) recognises the revise family by this line.
@@ -166,7 +167,7 @@ to you about the TARGET passage. Follow it for the TARGET only.
 
 {cast_block}
 
-Point of view: {pov}
+{POV_LABEL}: {pov}
 
 {prior_block}
 

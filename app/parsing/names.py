@@ -33,6 +33,13 @@ HONORIFICS = {
     "hon",
 }
 
+# Name tokens that are words, not names ("Old Fen", "The Lich", "Van Helsing"):
+# never counted on their own.
+NON_NAME_TOKENS = frozenset(
+    {"the", "a", "an", "of", "old", "young", "big", "little", "elder", "younger"}
+    | {"de", "van", "von", "der", "den", "la", "le", "du", "del", "da", "di", "al"}
+)
+
 _PUNCT = re.compile(r"[^\w\s'-]+")
 
 
@@ -41,6 +48,17 @@ def norm(name: str) -> str:
     and "Count Vasska" are one key)."""
     s = (name or "").lower().replace(".", " ").replace("’", "'")
     return " ".join(_PUNCT.sub(" ", s).split())
+
+
+def mentions(normed_text: str, name: str) -> bool:
+    """True when `name` occurs in `normed_text` (already norm()-ed) as a whole
+    phrase after norm(): "Prava," and "PRAVA" count, "Fen" does not match
+    "Fenwick". An empty name is never mentioned. It replaces fidelity._present
+    (and names.norm replaces fidelity._norm): package A deletes both."""
+    n = norm(name)
+    if not n or not normed_text:
+        return False
+    return re.search(rf"(?<!\w){re.escape(n)}(?!\w)", normed_text) is not None
 
 
 def tokens(name: str) -> set[str]:

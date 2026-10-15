@@ -33,12 +33,14 @@ from collections import Counter, deque
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.core.prompt_markers import ACT_CHAPTERS_HEADER, NAME_HEADING
+
 app = FastAPI(title="polyphony-stub-llm")
 
 _STATE: dict = {"fail_429": 0, "retry_after": 1, "calls": 0}
 _LOG: deque = deque(maxlen=200)
 
-_HEADING = re.compile(r"^###\s+(.+?)\s*$", re.M)
+_HEADING = re.compile(rf"^{re.escape(NAME_HEADING.strip())}\s+(.+?)\s*$", re.M)
 _CAP_NAME = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b")
 _FENCE = re.compile(r"<(\w+)>\n(.*?)\n</\1>", re.S)
 _STOP_FIRST = {
@@ -132,8 +134,10 @@ def _narrators(prompt: str) -> list[str]:
 
 
 _SECONDARY_LINE = re.compile(r"^SECONDARY PEOPLE \([^)\n]*\): (.+)$", re.M)
+_ACT_BEFORE, _ACT_AFTER = ACT_CHAPTERS_HEADER.split("{number}")
 _ACT_CHAPTERS = re.compile(
-    r"Here are the chapters of act (\d+), in order:\n(.*?)\n\nFor EACH chapter", re.S
+    rf"{re.escape(_ACT_BEFORE)}(\d+){re.escape(_ACT_AFTER)}\n(.*?)\n\nFor EACH chapter",
+    re.S,
 )
 
 

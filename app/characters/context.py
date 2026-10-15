@@ -21,6 +21,7 @@ from sqlalchemy import select
 from app.core.database import get_async_session
 from app.core.llm_text import as_quoted_block, clean_for_llm
 from app.core.orm_models import Character
+from app.core.prompt_markers import NAME_HEADING, VOICE_SAMPLES_LABEL
 from app.rag.store import get_chunk_store
 
 # A grounding record keeps a bounded excerpt of each sample's text as it was at
@@ -131,7 +132,7 @@ async def build_character_context(
     of them rather than this character is left out. `chunk_types`, when given,
     limits both blocks to those types.
     """
-    lines = [f"### {name}"]
+    lines = [f"{NAME_HEADING}{name}"]
     if character is None:
         return "\n".join(lines)
     if bible:
@@ -187,12 +188,10 @@ def _bible_lines(character: Character) -> list[str]:
     return lines
 
 
-# The prompt labels (SPEC-17). Only the character's own words sit under the
+# The prompt labels (SPEC-17; VOICE_SAMPLES_LABEL is a marker, so it lives in
+# app.core.prompt_markers). Only the character's own words sit under the
 # voice label — dialogue the attributor credited to them, or first-person
 # narration of their own section (SPEC-09). Everything else is movement.
-VOICE_SAMPLES_LABEL = (
-    "Voice samples (their own words — match cadence, diction, syntax):"
-)
 MOVEMENT_LABEL = "How they move:"
 _MOVEMENT_SAMPLES = 3
 # Ensemble agents are grounded on how they SPEAK and how they MOVE separately

@@ -30,6 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm_text import MAX_CANON_CHARS, as_quoted_block, clean_for_llm
+from app.core.prompt_markers import NAME_HEADING
 
 # Roles that make a character a PRINCIPAL — the hard-gate cast that must appear
 # in a faithful outline (docs/BRD.md R1.4).
@@ -122,7 +123,7 @@ def _aliases(character: Any) -> list[str]:
 
 def render_character(character: Any) -> str:
     """One character's full bible entry as markdown."""
-    lines = [f"### {character.name}"]
+    lines = [f"{NAME_HEADING}{character.name}"]
     aliases = _aliases(character)
     if aliases:
         # "the CEL" read as a company name because nothing told the model it

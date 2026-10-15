@@ -57,6 +57,26 @@ import json
 import re
 from pathlib import Path
 
+from app.core.prompt_markers import (
+    AVAILABLE_CAST_LABEL,
+    BEAT_TO_WRITE_LABEL,
+    BEATS_FENCE,
+    CHAPTER_FENCE,
+    CHARACTERS_SECTION,
+    CONFIRMED_PREMISE_NOTE,
+    CURRENT_BEAT_MARK,
+    EMOTIONAL_TONE_LABEL,
+    NAME_HEADING,
+    POV_LABEL,
+    POV_LIMIT_CLOSE,
+    POV_LIMIT_OPEN,
+    PRIOR_FENCE,
+    SCENE_DESCRIPTION_LABEL,
+    SETTING_LABEL,
+    STOP_AT_NEXT_BEAT,
+    labelled_line,
+)
+
 # The house-style paragraph the beat prompt hard-codes today; it must not
 # appear when the author's style guide supplies sample prose.
 GENERIC_CRAFT_MARKERS = (
@@ -151,21 +171,27 @@ def _is_last_beat(beats: str | None) -> bool:
     N+1 to stop at, so the prompt rightly omits that instruction."""
     if not beats:
         return False
-    items = re.findall(r"(?m)^\s*(→)?\s*\d+[.)]", beats)
-    return bool(items) and items[-1] == "→"
+    mark = re.escape(CURRENT_BEAT_MARK)
+    items = re.findall(rf"(?m)^\s*({mark})?\s*\d+[.)]", beats)
+    return bool(items) and items[-1] == CURRENT_BEAT_MARK
+
+
+# "Stop where beat <n + 1> begins" (STOP_AT_NEXT_BEAT), or a literal "N+1".
+_STOP_AT_NEXT = re.compile(
+    re.escape(STOP_AT_NEXT_BEAT.split("{next}")[0].rstrip()) + r"\s+(\d+|n\s*\+\s*1)",
+    re.IGNORECASE,
+)
 
 
 def check_beats_block(prompt: str) -> list[str]:
     """B5: the whole scene's beats, numbered, and where to stop."""
     reasons = []
-    beats = block(prompt, "beats")
+    beats = block(prompt, BEATS_FENCE)
     if beats is None:
         reasons.append("no <beats> block")
     elif not re.search(r"(?m)^\s*\d+[.)]", beats):
         reasons.append("<beats> is not a numbered list")
-    if not re.search(
-        r"stop where beat\s+(\d+|n\s*\+\s*1)", prompt, re.IGNORECASE
-    ) and not _is_last_beat(beats):
+    if not _STOP_AT_NEXT.search(prompt) and not _is_last_beat(beats):
         reasons.append('no "stop where beat N+1 begins" instruction')
     return reasons
 
@@ -243,8 +269,8 @@ def voice_samples(prompt: str) -> dict[str, list[str]]:
     collecting = False
     for line in prompt.splitlines():
         s = line.strip()
-        if s.startswith("### "):
-            name, collecting = s[4:].strip(), False
+        if s.startswith(NAME_HEADING):
+            name, collecting = s[len(NAME_HEADING) :].strip(), False
             continue
         if re.match(r"(?i)^voice samples\b", s):
             collecting = name is not None
@@ -353,21 +379,29 @@ def check_style_first(prompt: str, sample_prose: str) -> list[str]:
 _SECONDARY_LINE = re.compile(r"(?m)^SECONDARY PEOPLE \([^)\n]*\):[ \t]*(.*)$")
 _OLD_CAST_RULE = "Every name you use for a character MUST be one of"
 _PRINCIPALS_RULE = "Principal characters MUST be canon cast"
-_AVAILABLE_CAST = re.compile(r"(?m)^Available cast \(not all need appear\): (.+)$")
+_AVAILABLE_CAST = labelled_line(AVAILABLE_CAST_LABEL)
 _ALSO_NAMED = re.compile(r"(?m)^Also named \(secondary, not in the cast\): (.+)$")
-_BLANK_SETTING = re.compile(r"(?m)^\s*Setting:\s*$")
-_NEUTRAL_TONE = re.compile(r"(?im)^\s*Emotional tone:\s*neutral\s*$")
+_BLANK_SETTING = re.compile(rf"(?m)^\s*{re.escape(SETTING_LABEL)}:\s*$")
+_NEUTRAL_TONE = re.compile(
+    rf"(?im)^\s*{re.escape(EMOTIONAL_TONE_LABEL)}:\s*neutral\s*$"
+)
 _POV_LINE = re.compile(
-    r"(?m)^Point of view: (?P<mode>(first|second|third) person[^,\n]*), "
+    rf"(?m)^{re.escape(POV_LABEL)}: "
+    r"(?P<mode>(first|second|third) person[^,\n]*), "
     r"(?P<who>[^.\n]+)\."
 )
-_POV_MODE_ONLY = re.compile(r"(?m)^Point of view: (first|second|third) person[^,\n]*\.")
+_POV_MODE_ONLY = re.compile(
+    rf"(?m)^{re.escape(POV_LABEL)}: (first|second|third) person[^,\n]*\."
+)
 LAST_BEAT_TEXT = "end the scene inside the moment, in POV; no summary of what follows"
 _BIBLE_LABELS = re.compile(r"^(Role|Description|Goals|Arc|Voice):")
 _DOUBLED_VOICE = re.compile(r"(?i)\bvoice:\s*voice:")
 _EVIDENCE_LINE = re.compile(r"^\s*-\s*(\(part\s+\d+\)|[\"“])")
-_SCENE_DESCRIPTION = re.compile(r"(?m)^Scene description: (.+)$")
-_CONFIRMED_PREMISE = re.compile(r"(?m)^Premise \(confirmed by the author[^)]*\): (.+)$")
+_SCENE_DESCRIPTION = labelled_line(SCENE_DESCRIPTION_LABEL)
+# "Premise (confirmed by the author...): ..." (CONFIRMED_PREMISE_NOTE).
+_CONFIRMED_PREMISE = re.compile(
+    rf"(?m)^Premise{re.escape(CONFIRMED_PREMISE_NOTE.split(':')[0])}[^)]*\): (.+)$"
+)
 
 
 def _names(listing: str) -> list[str]:
@@ -422,7 +456,7 @@ def check_plan_cast_available(prompt: str) -> list[str]:
     reasons = []
     if not _AVAILABLE_CAST.search(prompt):
         reasons.append('no "Available cast (not all need appear):" line')
-    if "unnamed functional figures" not in prompt:
+    if "unnamed functional figures" not in prompt.lower():
         reasons.append('no "unnamed functional figures" allowance')
     if "cast is exactly" in prompt:
         reasons.append('"cast is exactly" present')
@@ -463,9 +497,12 @@ def check_pov_line(prompt: str, expected_who: str | None) -> list[str]:
         reasons.append(f"POV is {who!r}, not the chapter POV {expected_who!r}")
     para = _paragraph_from(prompt, m.start())
     if not re.search(
-        rf"Narrate only what\s+{re.escape(who)}\b.*?perceives or knows", para, re.DOTALL
+        rf"{re.escape(POV_LIMIT_OPEN)}\s+{re.escape(who)}\b.*?"
+        rf"{re.escape(POV_LIMIT_CLOSE)}",
+        para,
+        re.DOTALL,
     ):
-        reasons.append(f'no "Narrate only what {who} perceives or knows" after it')
+        reasons.append(f'no "{POV_LIMIT_OPEN} {who} {POV_LIMIT_CLOSE}" after it')
     return reasons
 
 
@@ -476,10 +513,10 @@ def check_last_beat_in_pov(prompt: str) -> list[str]:
 
 def characters_section(prompt: str) -> str | None:
     """The "CHARACTERS IN THIS BEAT" section of a beat prompt (to BEAT TO WRITE)."""
-    at = prompt.find("CHARACTERS IN THIS BEAT")
+    at = prompt.find(CHARACTERS_SECTION)
     if at == -1:
         return None
-    end = prompt.find("BEAT TO WRITE", at)
+    end = prompt.find(BEAT_TO_WRITE_LABEL, at)
     return prompt[at : end if end != -1 else len(prompt)]
 
 
@@ -522,8 +559,8 @@ def candidate_sections(prompt: str) -> dict[str, list[str]]:
     name = None
     for line in prompt.splitlines():
         s = line.strip()
-        if s.startswith("### "):
-            name = s[4:].strip()
+        if s.startswith(NAME_HEADING):
+            name = s[len(NAME_HEADING) :].strip()
             out[name] = []
         elif s.startswith("</") or s.startswith("<"):
             name = None
@@ -596,7 +633,7 @@ class OutlineIndex:
         return self.beats.get(_squash(m.group(1))) if m else None
 
     def chapter_for(self, prompt: str) -> dict | None:
-        chapter = block(prompt, "chapter")
+        chapter = block(prompt, CHAPTER_FENCE)
         if not chapter:
             return None
         flat = _squash(chapter)
@@ -783,7 +820,7 @@ def grade(
             tallies["pov_line_has_mode_and_character"].add(
                 rec, check_pov_line(prompt, who or None)
             )
-            if _is_last_beat(block(prompt, "beats")):
+            if _is_last_beat(block(prompt, BEATS_FENCE)):
                 tallies["last_beat_in_pov"].add(rec, check_last_beat_in_pov(prompt))
             tallies["no_duplicate_bible"].add(
                 rec, check_no_duplicate_bible(prompt, descriptions or [])
@@ -817,7 +854,7 @@ def grade(
             )
         if pur == "beat_prose":
             tallies["beats_block"].add(rec, check_beats_block(prompt))
-            prior = block(prompt, "prior")
+            prior = block(prompt, PRIOR_FENCE)
             if prior is not None:
                 reasons, verified = check_prior(prior, stream)
                 prior_unverified += not verified

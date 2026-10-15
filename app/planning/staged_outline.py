@@ -40,6 +40,7 @@ from uuid import UUID
 
 from app.core.llm_text import STORY_MATERIAL_NOTICE
 from app.core.logging_config import setup_logging
+from app.core.prompt_markers import ACT_CHAPTERS_HEADER, CONFIRMED_PREMISE_NOTE
 from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_array, extract_json_object
 from app.planning.canon import Canon
@@ -123,11 +124,7 @@ def _premise_lines(skeleton: dict) -> str:
     """The premise and central conflict, with the author's confirmation said
     out loud: a premise the author confirmed (or rewrote) is the ground truth
     for the rest of the outline (SPEC-10), at every stage that follows."""
-    confirmed = (
-        " (confirmed by the author: treat it as authoritative)"
-        if skeleton.get("confirmed")
-        else ""
-    )
+    confirmed = CONFIRMED_PREMISE_NOTE if skeleton.get("confirmed") else ""
     return (
         f"Premise{confirmed}: {skeleton.get('premise_restated', '')}\n"
         f"Central conflict: {skeleton.get('central_conflict', '')}"
@@ -231,7 +228,7 @@ async def _stage_beats_for_act(
 
 {plan}{_act_brief(skeleton, act_index)}
 
-Here are the chapters of act {number}, in order:
+{ACT_CHAPTERS_HEADER.format(number=number)}
 {_json(act_chapters)}
 
 For EACH chapter, write 2-4 scene beats. Keep every character name faithful to

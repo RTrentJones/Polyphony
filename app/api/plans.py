@@ -197,9 +197,17 @@ def _suggested_characters(nodes, canon) -> list[dict]:
     (SPEC-24 computes them; SPEC-23 exposes them). Always a list: a failure here
     must not take the plans or a promote down with it."""
     try:
-        found = secondaries.suggested_characters(
-            [n for n in (nodes or []) if isinstance(n, dict)], canon
-        )
+        # Every declared `secondary_names` entry, node before its children.
+        names: list = []
+        stack = [n for n in reversed(list(nodes or [])) if isinstance(n, dict)]
+        while stack:
+            node = stack.pop()
+            declared = node.get("secondary_names")
+            names.extend(declared if isinstance(declared, list) else [])
+            children = node.get("children")
+            if isinstance(children, list):
+                stack.extend(c for c in reversed(children) if isinstance(c, dict))
+        found = secondaries.suggested_characters(names, canon)
     except Exception as e:  # noqa: BLE001 - suggestions are advisory
         logger.warning(
             f"suggested_characters failed: {e}",

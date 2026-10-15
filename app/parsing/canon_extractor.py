@@ -48,9 +48,21 @@ from app.core.llm_text import (
     clean_for_llm,
 )
 from app.core.logging_config import setup_logging
+from app.core.prompt_markers import (
+    EVIDENCE_ITEM,
+    EVIDENCE_LABEL,
+    NAME_HEADING,
+    QUOTED_LINES_LABEL,
+)
 from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_object
-from app.parsing.names import HONORIFICS, norm, significant, tokens
+from app.parsing.names import (
+    HONORIFICS,
+    NON_NAME_TOKENS,
+    norm,
+    significant,
+    tokens,
+)
 
 logger = setup_logging("parsing.canon_extractor")
 
@@ -601,14 +613,6 @@ def merge_characters(window_answers: list[tuple[int, dict]], text: str = "") -> 
     return merged
 
 
-# Name tokens that are words, not names ("Old Fen", "The Lich", "Van Helsing"):
-# never counted on their own.
-_NON_NAME_TOKENS = frozenset(
-    {"the", "a", "an", "of", "old", "young", "big", "little", "elder", "younger"}
-    | {"de", "van", "von", "der", "den", "la", "le", "du", "del", "da", "di", "al"}
-)
-
-
 def _name_tokens(form: str) -> list[str]:
     """The capitalised, significant surface tokens of a name form ("Mr. Voss"
     -> ["Voss"]; "Milo Voss" -> ["Milo", "Voss"])."""
@@ -621,7 +625,7 @@ def _name_tokens(form: str) -> list[str]:
             and tok[0].isupper()
             and key
             and key not in HONORIFICS
-            and key not in _NON_NAME_TOKENS
+            and key not in NON_NAME_TOKENS
         ):
             out.append(tok)
     return out
@@ -777,7 +781,7 @@ def merge_style(window_answers: list[tuple[int, dict]]) -> dict:
 
 
 def _render_candidate(g: dict, total_windows: int) -> str:
-    lines = [f"### {g['name']}"]
+    lines = [f"{NAME_HEADING}{g['name']}"]
     if g["aliases"]:
         lines.append("Also called: " + ", ".join(g["aliases"]))
     lines.append(
@@ -787,11 +791,14 @@ def _render_candidate(g: dict, total_windows: int) -> str:
     if g["role_hints"]:
         lines.append("Role hints: " + ", ".join(g["role_hints"]))
     if g["evidence"]:
-        lines.append("Evidence:")
-        lines.extend(f"- (part {w + 1}) {e}" for w, e in g["evidence"][:_MAX_EVIDENCE])
+        lines.append(EVIDENCE_LABEL)
+        lines.extend(
+            EVIDENCE_ITEM.format(part=w + 1, quote=e)
+            for w, e in g["evidence"][:_MAX_EVIDENCE]
+        )
     quotes = g.get("quotes") or []
     if quotes:
-        lines.append("Quoted lines (their own words):")
+        lines.append(QUOTED_LINES_LABEL)
         lines.extend(f'- "{q}"' for q in quotes[:_MAX_QUOTED_LINES])
     return "\n".join(lines)
 
@@ -951,7 +958,7 @@ async def _synopsis(
         "\n".join(
             x
             for x in (
-                f"### {c['name']}",
+                f"{NAME_HEADING}{c['name']}",
                 f"Role: {c['role']}" if c["role"] else "",
                 c["description"],
             )

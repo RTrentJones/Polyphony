@@ -8,7 +8,7 @@ secondary_names, setting and tone (SPEC-24); promote stores them as
 `chapters.planned_beats` (SPEC-23).
 """
 
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, NamedTuple, Optional
 from uuid import UUID, uuid4
 
 from app.core.llm_text import (
@@ -20,6 +20,7 @@ from app.core.llm_text import (
 from app.core.logging_config import setup_logging
 from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_array
+from app.parsing import names
 from app.planning.planned_beat import MAX_SECONDARY_NAMES
 
 logger = setup_logging("planning.outline")
@@ -63,6 +64,67 @@ class CastIndex:
         if text in self.names:
             return text
         return self._forms.get(text.lower())
+
+
+class People(NamedTuple):
+    ids: list[str]  # cast character ids, first-mention order, deduped
+    secondary: list[str]  # named people who are not cast (rule below), deduped
+    invented: list[str]  # everything else, as given
+
+
+def classify_people(
+    refs: Iterable[Any], cast: CastIndex, known_text: Optional[str]
+) -> People:
+    """Classify person references (names, aliases or character ids) against a
+    book's cast: the single rule behind every "who is in this chapter / beat /
+    scene" decision (review S2).
+
+    `known_text` is names.norm(canon_known_text(canon)), normalised ONCE by the
+    caller per outline or request (it is not re-normalised here). None means
+    "the names were already vetted" (re-resolving STORED secondary names
+    against today's cast, or an author's own edit).
+
+    For each ref, in order (non-str/non-UUID and blank refs are skipped):
+      1. cast.resolve(ref) gives an id -> `ids`.
+      2. A ref that parses as a UUID but does not resolve (a trashed or
+         foreign character) -> `invented`. A dead id is never a name.
+      3. A name, whitespace-collapsed and cut to 100 chars:
+         -> `secondary` when known_text is None or
+            names.mentions(known_text, name);
+         -> `invented` otherwise.
+    `secondary` is deduped case-insensitively and capped at
+    MAX_SECONDARY_NAMES (12); names past the cap are dropped. Never raises.
+    Callers decide what `invented` means: dropped on the generation path (the
+    fidelity audit warns), rejected under `strict`, ignored at generate time."""
+    out = People([], [], [])
+    seen: set[str] = set()
+    try:
+        items = list(refs or [])
+    except TypeError:
+        return out
+    for ref in items:
+        if not isinstance(ref, (str, UUID)):
+            continue
+        given = str(ref)
+        if not given.strip():
+            continue
+        cid = cast.resolve(ref) if cast is not None else None
+        if cid is not None:
+            if cid not in out.ids:
+                out.ids.append(cid)
+            continue
+        if _uuid_str(given) is not None:
+            out.invented.append(given)
+            continue
+        name = " ".join(given.split())[:100]
+        if known_text is None or names.mentions(known_text, name):
+            if name.lower() not in seen:
+                seen.add(name.lower())
+                if len(out.secondary) < MAX_SECONDARY_NAMES:
+                    out.secondary.append(name)
+        else:
+            out.invented.append(given)
+    return out
 
 
 def _uuid_str(value: Any) -> Optional[str]:

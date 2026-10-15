@@ -122,8 +122,17 @@ def _outline(*secondaries_per_beat, top=None):
     return [node]
 
 
+def _declared(nodes):
+    """The declared names, node before children (what plans.py collects)."""
+    out = []
+    for node in nodes:
+        out.extend(node.get("secondary_names") or [])
+        out.extend(_declared(node.get("children") or []))
+    return out
+
+
 def test_suggestions_come_from_declared_secondaries_in_the_canon(cel):
-    nodes = _outline(["Prava", "Bartholomew Quince"], ["Old Fen"])
+    nodes = _declared(_outline(["Prava", "Bartholomew Quince"], ["Old Fen"]))
     out = suggested_characters(nodes, cel)
     assert [s["name"] for s in out] == ["Prava", "Old Fen"]
     prava = out[0]["synopsis_sentence"]
@@ -134,7 +143,7 @@ def test_suggestions_come_from_declared_secondaries_in_the_canon(cel):
 
 
 def test_suggestions_exclude_the_current_cast(cel):
-    nodes = _outline(["Prava", "Milo", "the Lich", "Zara Okafor"])
+    nodes = _declared(_outline(["Prava", "Milo", "the Lich", "Zara Okafor"]))
     assert [s["name"] for s in suggested_characters(nodes, cel)] == ["Prava"]
     # once the author adds her, she is no longer suggested
     cel.characters.append(_person("Prava", role="minor"))
@@ -142,17 +151,24 @@ def test_suggestions_exclude_the_current_cast(cel):
 
 
 def test_suggestions_dedupe_case_insensitively_in_outline_order(cel):
+    from app.api.plans import _suggested_characters
+
     nodes = _outline(["old fen"], ["Prava", "OLD FEN"], top=["Prava"])
-    assert [s["name"] for s in suggested_characters(nodes, cel)] == [
+    assert [s["name"] for s in suggested_characters(_declared(nodes), cel)] == [
         "Prava",
         "old fen",
     ]
+    # plans.py collects the same names, node before children
+    assert [s["name"] for s in _suggested_characters(nodes, cel)] == [
+        "Prava",
+        "old fen",
+    ]
+    assert _suggested_characters("not a list", cel) == []
 
 
 def test_suggestion_absent_from_synopsis_and_canon_is_never_offered(cel):
-    assert suggested_characters(_outline(["Elara", "Corporeal"]), cel) == []
+    assert suggested_characters(_declared(_outline(["Elara", "Corporeal"])), cel) == []
     assert suggested_characters([], cel) == []
-    assert suggested_characters("not a list", cel) == []
 
 
 def test_sentence_falls_back_to_canon_entries():
@@ -164,13 +180,13 @@ def test_sentence_falls_back_to_canon_entries():
             _entry("Records", "The filing floor. Old Fen keeps it. He never leaves.")
         ],
     )
-    out = suggested_characters(_outline(["Old Fen"]), canon)
+    out = suggested_characters(["Old Fen"], canon)
     assert out == [{"name": "Old Fen", "synopsis_sentence": "Old Fen keeps it."}]
 
 
 def test_sentence_is_capped_at_a_word_boundary():
     long = "Prava " + "files and files " * 60 + "forever."
     canon = Canon(title="T", synopsis=long, characters=[_person("Milo Voss")])
-    sentence = suggested_characters(_outline(["Prava"]), canon)[0]["synopsis_sentence"]
+    sentence = suggested_characters(["Prava"], canon)[0]["synopsis_sentence"]
     assert len(sentence) <= SENTENCE_CAP and sentence.endswith("…")
     assert sentence.startswith("Prava files")

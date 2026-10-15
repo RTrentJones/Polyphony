@@ -471,8 +471,8 @@ async def test_plans_and_promote_return_suggested_characters(
 ):
     seen = []
 
-    def fake(nodes, canon):
-        seen.append(([n.get("title") for n in nodes], canon is not None))
+    def fake(names, canon):
+        seen.append((list(names), canon is not None))
         return [_PRAVA]
 
     monkeypatch.setattr(secondaries, "suggested_characters", fake)
@@ -480,7 +480,10 @@ async def test_plans_and_promote_return_suggested_characters(
     await _outline(
         async_session,
         test_book,
-        [{"title": "One", "summary": "a"}, {"title": "Two", "summary": "b"}],
+        [
+            {"title": "One", "summary": "a", "secondary_names": ["One"]},
+            {"title": "Two", "summary": "b", "secondary_names": ["Two"]},
+        ],
     )
     base = f"/api/v1/books/{test_book.id}/plans"
 

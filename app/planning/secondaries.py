@@ -9,9 +9,9 @@ deterministic:
   line: the capitalised names the canon text uses that are not cast. It is a
   heuristic (it cannot tell a person from a place), so it only ever widens
   what the model MAY name; it never becomes data on its own.
-- `suggested_characters(nodes, canon)` is what the author is offered ("Add
+- `suggested_characters(names, canon)` is what the author is offered ("Add
   Prava to cast"): only names the MODEL declared as a node's or beat's
-  `secondary_names`, filtered to the canon text and to people not already in
+  `secondary_names` (the caller collects them), filtered to the canon text and to people not already in
   the cast. A name absent from both the synopsis and the canon is never
   offered.
 """
@@ -19,7 +19,7 @@ deterministic:
 from __future__ import annotations
 
 import re
-from typing import Any, Iterable, Optional
+from typing import Iterable, Optional
 
 from app.planning.fidelity import (
     _SKIP_WORDS,
@@ -176,20 +176,17 @@ def _first_sentence_naming(name: str, texts: Iterable[str]) -> Optional[str]:
     return None
 
 
-def _walk(nodes: Any):
-    for node in nodes if isinstance(nodes, list) else []:
-        if isinstance(node, dict):
-            yield node
-            yield from _walk(node.get("children"))
+def suggested_characters(names: Iterable[str], canon) -> list[dict]:
+    """[{"name", "synopsis_sentence"}]: each of `names` that classify_people
+    (against canon's current cast, with known_text from canon) puts in
+    `secondary`, deduped case-insensitively, in the given order.
+    synopsis_sentence is the first synopsis sentence naming them, else the
+    first canon-entry sentence naming them, capped at 400 chars.
 
-
-def suggested_characters(nodes: list[dict], canon) -> list[dict]:
-    """[{"name": str, "synopsis_sentence": str}]: every `secondary_names` entry
-    on any outline node or child that (a) occurs in canon_known_text(canon) and
-    (b) does not resolve to the CURRENT cast (CastIndex). Deduped, case-insensitive,
-    in outline order. synopsis_sentence is the first sentence of the synopsis
-    naming them, else the first sentence of the canon entries naming them,
-    capped at 400 chars."""
+    The caller collects `names` (the declared `secondary_names` of the outline
+    and its promoted chapters; app/api/plans.py). Day-0 keeps the body's
+    pre-wave-2.5 rule (occurs in canon_known_text, does not resolve to the
+    CURRENT cast); package A rewrites it onto classify_people."""
     from app.planning.outline import CastIndex
 
     hay = _norm(canon_known_text(canon))
@@ -203,20 +200,18 @@ def suggested_characters(nodes: list[dict], canon) -> list[dict]:
     ]
     seen: set[str] = set()
     out: list[dict] = []
-    for node in _walk(nodes):
-        names = node.get("secondary_names")
-        for raw in names if isinstance(names, list) else []:
-            name = str(raw or "").strip()
-            key = name.lower()
-            if not name or key in seen:
-                continue
-            seen.add(key)
-            if not _present(name, hay) or cast.resolve(name) is not None:
-                continue
-            sentence = (
-                _first_sentence_naming(name, [synopsis])
-                or _first_sentence_naming(name, entry_texts)
-                or ""
-            )
-            out.append({"name": name, "synopsis_sentence": sentence})
+    for raw in list(names or []):
+        name = str(raw or "").strip()
+        key = name.lower()
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        if not _present(name, hay) or cast.resolve(name) is not None:
+            continue
+        sentence = (
+            _first_sentence_naming(name, [synopsis])
+            or _first_sentence_naming(name, entry_texts)
+            or ""
+        )
+        out.append({"name": name, "synopsis_sentence": sentence})
     return out

@@ -21,6 +21,18 @@ from app.core.database import get_async_session
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.logging_config import log_business_event, log_error, setup_logging
 from app.core.orm_models import Scene, SceneBeat
+from app.core.prompt_markers import (
+    BEAT_TO_WRITE_LABEL,
+    BEATS_FENCE,
+    CHAPTER_FENCE,
+    CHARACTERS_SECTION,
+    CURRENT_BEAT_MARK,
+    POV_LABEL,
+    POV_LIMIT_CLOSE,
+    POV_LIMIT_OPEN,
+    PRIOR_FENCE,
+    STOP_AT_NEXT_BEAT,
+)
 from app.llm.client import get_llm_client
 from app.llm.errors import QuotaExhaustedError
 
@@ -149,13 +161,13 @@ def pov_instruction(pov) -> str:
     mode, who = split_pov(pov)
     if not who:
         return (
-            f"Point of view: {mode}. Narrate only what the point-of-view character "
-            "perceives or knows: no aftermath, no foreshadowing, no naming people "
+            f"{POV_LABEL}: {mode}. {POV_LIMIT_OPEN} the point-of-view character "
+            f"{POV_LIMIT_CLOSE}: no aftermath, no foreshadowing, no naming people "
             "they have not learned."
         )
     return (
-        f"Point of view: {mode}, {who}. Narrate only what {who} perceives or "
-        f"knows: no aftermath, no foreshadowing, no naming people {who} has not "
+        f"{POV_LABEL}: {mode}, {who}. {POV_LIMIT_OPEN} {who} {POV_LIMIT_CLOSE}: "
+        f"no aftermath, no foreshadowing, no naming people {who} has not "
         "learned. Stay in their head from the first line to the last."
     )
 
@@ -248,10 +260,10 @@ def _beats_block(all_beats: list[dict], beat_index: int) -> str:
     marked — so the model knows where its beat ends (SPEC-18, B5)."""
     lines = []
     for i, b in enumerate(all_beats):
-        mark = "→ " if i == beat_index else ""
+        mark = f"{CURRENT_BEAT_MARK} " if i == beat_index else ""
         description = clean_for_llm(b.get("description") if isinstance(b, dict) else b)
         lines.append(f"{mark}{i + 1}. {description}")
-    return as_quoted_block("\n".join(lines), "beats")
+    return as_quoted_block("\n".join(lines), BEATS_FENCE)
 
 
 def _style_section(style) -> str:
@@ -310,7 +322,7 @@ async def write_beat_prose(
     prior_block = (
         "The prose so far (continue seamlessly from it; do not restate "
         "anything in <prior>, begin with what happens next):\n"
-        + as_quoted_block(prior_prose_tail, "prior")
+        + as_quoted_block(prior_prose_tail, PRIOR_FENCE)
         if prior_prose_tail
         else "This beat opens the scene."
     )
@@ -324,12 +336,12 @@ async def write_beat_prose(
         )
         if n < total:
             position = (
-                f"\nWrite ONLY beat {n}. Stop where beat {n + 1} begins; do not "
-                "anticipate it."
+                f"\nWrite ONLY beat {n}. {STOP_AT_NEXT_BEAT.format(next=n + 1)}; do "
+                "not anticipate it."
             )
         else:
             position = f"\nWrite ONLY beat {n}, the last beat: {LAST_BEAT_ENDING}."
-    chapter = as_quoted_block(chapter_summary, "chapter")
+    chapter = as_quoted_block(chapter_summary, CHAPTER_FENCE)
     overrides = (
         "\nAuthor's style notes for THIS scene (they override the style guide):\n"
         + as_quoted_block(style_notes, "style_notes")
@@ -350,14 +362,14 @@ faithful to the canon above: its people, places, terms, and its style guide
 {scene_block(scene_request)}
 {pov_instruction(pov)}{overrides}
 
-{plan}CHARACTERS IN THIS BEAT — write each one's dialogue in THEIR OWN voice,
+{plan}{CHARACTERS_SECTION} — write each one's dialogue in THEIR OWN voice,
 matching their voice samples:
 
 {cast_context}
 
 {prior_block}
 
-BEAT TO WRITE: {clean_for_llm(beat["description"])}{position}
+{BEAT_TO_WRITE_LABEL}: {clean_for_llm(beat["description"])}{position}
 
 {_style_section(style)}
 
