@@ -50,3 +50,27 @@ def test_the_report_names_the_dirty_seam():
     assert report["dirty_seams"] == 1
     assert report["max_overlap"] == report["pairs"][2]["shared"]
     assert report["pairs"][2]["example"]
+
+
+def _filler(tag: str) -> str:
+    """More than SEAM_WORDS distinct words, so a phrase can sit well away
+    from the seam."""
+    return " ".join(f"{tag}{i}" for i in range(seams.SEAM_WORDS + 10))
+
+
+_NAME = "Edric Thane, the Chief Executive Lich"
+
+
+def test_a_name_repeated_mid_text_is_not_a_seam():
+    # The six-word title appears in both pieces, but far from where they meet.
+    a = f"{_filler('a')} {_NAME} signed the order. {_filler('b')} Lamps out."
+    b = f"Morning came grey. {_filler('c')} {_NAME} was waiting. {_filler('d')}"
+    assert len(seams.words(_NAME)) == seams.N
+    assert seams.max_overlap([a, b]) == 0
+
+
+def test_a_repeat_across_the_seam_is_still_caught():
+    # Piece b opens by re-telling the end of piece a.
+    a = f"{_filler('a')} {_NAME} signed the order and the lamps went out."
+    b = f"{_NAME} signed the order and the lamps went out. {_filler('b')}"
+    assert seams.max_overlap([a, b]) >= 1

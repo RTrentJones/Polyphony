@@ -150,7 +150,6 @@ describe('Scene editor safety net (SPEC-16, B1)', () => {
     writeDraft('s1', {
       text: 'Final words.',
       savedAt: new Date().toISOString(),
-      baseUpdatedAt: null,
       baseHash: hashText(ORIGINAL),
     })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
@@ -167,7 +166,7 @@ describe('Scene editor safety net (SPEC-16, B1)', () => {
 
   it('offers an older local draft on reopen; Restore puts the text back without saving', async () => {
     const savedAt = new Date(2026, 9, 15, 14, 3).toISOString()
-    writeDraft('s1', { text: 'The typed text.', savedAt, baseUpdatedAt: null, baseHash: hashText(ORIGINAL) })
+    writeDraft('s1', { text: 'The typed text.', savedAt, baseHash: hashText(ORIGINAL) })
     const editor = await renderEditor()
     expect(screen.getByText(/Restore unsaved draft from 14:03/)).toBeInTheDocument()
     expect(editor.value).toBe(ORIGINAL)
@@ -184,7 +183,6 @@ describe('Scene editor safety net (SPEC-16, B1)', () => {
     writeDraft('s1', {
       text: 'Abandoned.',
       savedAt: new Date().toISOString(),
-      baseUpdatedAt: null,
       baseHash: hashText(ORIGINAL),
     })
     const editor = await renderEditor()
@@ -197,7 +195,6 @@ describe('Scene editor safety net (SPEC-16, B1)', () => {
     writeDraft('s1', {
       text: 'Typed in s1.',
       savedAt: new Date().toISOString(),
-      baseUpdatedAt: null,
       baseHash: hashText(ORIGINAL),
     })
     booksApi.getScene.mockImplementation(async (id: string) =>
@@ -214,8 +211,40 @@ describe('Scene editor safety net (SPEC-16, B1)', () => {
     expect(readDraft('s1')?.text).toBe('Typed in s1.')
   })
 
+  it('on a ?scene= switch, flushes the old scene\'s text under its own key and offers only the new scene\'s draft', async () => {
+    writeDraft('s2', {
+      text: 'Older s2 draft.',
+      savedAt: new Date().toISOString(),
+      baseHash: hashText('Scene two.'),
+    })
+    booksApi.getScene.mockImplementation(async (id: string) =>
+      id === 's2' ? { ...scene, id: 's2', content: 'Scene two.' } : scene
+    )
+    const view = render(<SceneEditorPage />)
+    const first = (await screen.findByDisplayValue(ORIGINAL)) as HTMLTextAreaElement
+    // Unsaved text, switched away from before autosave's 5 s timer fires.
+    type(first, 'Typed in s1.')
+    expect(readDraft('s1')).toBeNull()
+
+    nav.query = 'scene=s2&book=b1'
+    view.rerender(<SceneEditorPage />)
+    // The old editor's unmount flush saved s1's text under s1, not s2.
+    expect(readDraft('s1')?.text).toBe('Typed in s1.')
+    expect(readDraft('s2')?.text).toBe('Older s2 draft.')
+    // A pagehide mid-switch must not write s1's text under s2 either.
+    window.dispatchEvent(new Event('pagehide'))
+    expect(readDraft('s2')?.text).toBe('Older s2 draft.')
+
+    const editor = (await screen.findByDisplayValue('Scene two.')) as HTMLTextAreaElement
+    // s2's own draft is offered (3 words), not s1's.
+    expect(screen.getByText(/Restore unsaved draft/).parentElement).toHaveTextContent('3 words')
+    fireEvent.click(screen.getByRole('button', { name: 'Restore draft' }))
+    expect(editor.value).toBe('Older s2 draft.')
+    expect(readDraft('s1')?.text).toBe('Typed in s1.')
+  })
+
   it('silently drops a draft identical to the saved text', async () => {
-    writeDraft('s1', { text: ORIGINAL, savedAt: new Date().toISOString(), baseUpdatedAt: null, baseHash: '' })
+    writeDraft('s1', { text: ORIGINAL, savedAt: new Date().toISOString(), baseHash: '' })
     await renderEditor()
     expect(screen.queryByText(/Restore unsaved draft/)).not.toBeInTheDocument()
     expect(readDraft('s1')).toBeNull()

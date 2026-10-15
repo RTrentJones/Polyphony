@@ -71,3 +71,40 @@ async def test_a_429_is_waited_out_and_retried(monkeypatch):
     assert r.status_code == 200 and get.await_count == 2
     assert slept == [7.0]
     await c.aclose()
+
+
+def test_to_async_url_converts_driver_and_drops_libpq_params():
+    from app.core.database import to_async_url
+
+    assert to_async_url("postgres://u:p@h/db") == "postgresql+asyncpg://u:p@h/db"
+    assert to_async_url("postgresql://u:p@h/db") == "postgresql+asyncpg://u:p@h/db"
+    assert (
+        to_async_url("postgresql://u:p@h/db?sslmode=require&channel_binding=require")
+        == "postgresql+asyncpg://u:p@h/db"
+    )
+    assert (
+        to_async_url("postgresql://u@h/db?sslmode=require&application_name=x")
+        == "postgresql+asyncpg://u@h/db?application_name=x"
+    )
+    already = "postgresql+asyncpg://u:p@h/db"
+    assert to_async_url(already) == already
+
+
+async def test_read_beats_uses_an_async_driver_url(monkeypatch):
+    """Codex on #38: the app's documented postgresql:// URL made the async
+    engine raise, and the broad except hid it as 'no beat rows'."""
+    import sqlalchemy.ext.asyncio as sa_async
+
+    from evals.harness import client as harness_client
+
+    seen = []
+
+    def fake_engine(url, *a, **kw):
+        seen.append(url)
+        raise RuntimeError("stop after recording the url")
+
+    monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
+    monkeypatch.setattr(harness_client, "_ENGINES", {})
+    rows = await harness_client._read_beats("postgresql://u:p@h/db", "s1")
+    assert rows == []
+    assert seen == ["postgresql+asyncpg://u:p@h/db"]

@@ -621,9 +621,14 @@ async def _read_beats(database_url: str, scene_id: str) -> list[dict]:
         from sqlalchemy import text
         from sqlalchemy.ext.asyncio import create_async_engine
 
-        engine = _ENGINES.get(database_url)
+        from app.core.database import to_async_url
+
+        # The app's documented DATABASE_URL is often a plain postgresql:// (or
+        # a Neon DSN with libpq params), which the async engine cannot use.
+        url = to_async_url(database_url)
+        engine = _ENGINES.get(url)
         if engine is None:
-            engine = _ENGINES[database_url] = create_async_engine(database_url)
+            engine = _ENGINES[url] = create_async_engine(url)
         async with engine.connect() as conn:
             rows = (
                 await conn.execute(

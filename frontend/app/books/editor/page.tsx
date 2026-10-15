@@ -109,11 +109,7 @@ function useModalDialog(open: boolean, onClose: () => void) {
   return { dialogRef, returnFocusRef }
 }
 
-function SceneEditorContent() {
-  const searchParams = useSearchParams()
-  const sceneId = searchParams.get('scene') || ''
-  const bookId = searchParams.get('book') || ''
-
+function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: string }) {
   const [scene, setScene] = useState<Scene | null>(null)
   const [content, setContent] = useState('')
   const [savedContent, setSavedContent] = useState('')
@@ -155,15 +151,10 @@ function SceneEditorContent() {
       setIsLoading(false)
       return
     }
-    // Next reuses this page when only `?scene=` changes: forget the previous
-    // scene's draft offer, and ignore a load that resolves after a newer one.
-    let cancelled = false
-    setPendingDraft(null)
     const load = async () => {
       setIsLoading(true)
       try {
         const data = await booksApi.getScene(sceneId)
-        if (cancelled) return
         setScene(data)
         const serverText = data.content || ''
         setContent(serverText)
@@ -176,15 +167,12 @@ function SceneEditorContent() {
         }
         await loadRevisions()
       } catch (err: any) {
-        if (!cancelled) setError(err.message || 'Failed to load scene')
+        setError(err.message || 'Failed to load scene')
       } finally {
-        if (!cancelled) setIsLoading(false)
+        setIsLoading(false)
       }
     }
     load()
-    return () => {
-      cancelled = true
-    }
   }, [sceneId, loadRevisions])
 
   const isDirty = content !== savedContent
@@ -195,7 +183,6 @@ function SceneEditorContent() {
     sceneId,
     text: content,
     baseText: savedContent,
-    baseUpdatedAt: lastSavedAt,
     // Hold autosave until the author decides on an older draft, so it is not
     // overwritten before they choose.
     enabled: !isLoading && !pendingDraft,
@@ -485,10 +472,27 @@ function SceneEditorContent() {
   )
 }
 
+/**
+ * Keyed by scene: when only `?scene=` changes, the editor remounts instead of
+ * being reused, so no state, draft offer or autosave binding carries over from
+ * the previous scene (its unsaved text is flushed under its own key on unmount).
+ */
+function SceneEditorRoute() {
+  const searchParams = useSearchParams()
+  const sceneId = searchParams.get('scene') || ''
+  return (
+    <SceneEditorContent
+      key={sceneId}
+      sceneId={sceneId}
+      bookId={searchParams.get('book') || ''}
+    />
+  )
+}
+
 export default function SceneEditorPage() {
   return (
     <Suspense fallback={null}>
-      <SceneEditorContent />
+      <SceneEditorRoute />
     </Suspense>
   )
 }
