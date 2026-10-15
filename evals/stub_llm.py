@@ -33,7 +33,11 @@ from collections import Counter, deque
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.core.prompt_markers import ACT_CHAPTERS_HEADER, NAME_HEADING
+from app.core.prompt_markers import (
+    ACT_CHAPTERS_HEADER,
+    BEAT_TO_WRITE_LABEL,
+    NAME_HEADING,
+)
 
 app = FastAPI(title="polyphony-stub-llm")
 
@@ -354,6 +358,13 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
         return json.dumps({"score": 0.75, "explanation": "stub judge"})
     # Prose.
     people = " and ".join(cast[:3]) or "The two of them"
+    beat = re.search(rf"(?m)^{re.escape(BEAT_TO_WRITE_LABEL)}: (.+)$", prompt)
+    if beat:
+        # Built from the beat itself, with no fixed run of six words, so
+        # consecutive beats never repeat a phrase at the seam (R4) and each
+        # beat's prose is unique in its scene (revise beat mode can find it).
+        what = " ".join(beat.group(1).rstrip(".!? ").split()[:14])
+        return f'{lead} saw it first: {what}. "{what}," said {second}.'
     return (
         f"{people} stood in the doorway while the rain kept on. "
         f"{lead} turned first, and said nothing for a while. "

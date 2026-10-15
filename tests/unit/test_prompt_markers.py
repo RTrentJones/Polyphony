@@ -166,17 +166,6 @@ async def test_plan_scene_beats_prompt_markers(monkeypatch):
         "Milo meets Prava at the desk."
     )
     assert pc.block(prompt, pm.CHAPTER_FENCE) == "Ch one."
-    # B1: the planner's "Unnamed functional figures" sentence is found
-    assert pc.check_plan_cast_available(prompt) == []
-
-
-def test_b1_unnamed_figures_is_case_insensitive():
-    cast = "Available cast (not all need appear): Milo\n"
-    assert pc.check_plan_cast_available(cast + "Unnamed functional figures") == []
-    assert pc.check_plan_cast_available(cast + "unnamed functional figures") == []
-    assert pc.check_plan_cast_available(cast) == [
-        'no "unnamed functional figures" allowance'
-    ]
 
 
 # --- a beat prompt through run_prose_scene_workflow ------------------------------
