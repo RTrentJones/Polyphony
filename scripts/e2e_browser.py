@@ -949,8 +949,10 @@ async def journey(page: Page) -> None:
 
         await ask_to_revise(editor, panel, "Make it colder.")
         await expect(review).to_be_visible(timeout=TIMEOUT)
+        # The stub's revision only drops words, so the diff shows deletions
+        # (a real model's rewrite also shows `diff-insert`).
+        await expect(review.get_by_test_id("diff-view")).to_be_visible()
         await expect(review.get_by_test_id("diff-delete").first).to_be_visible()
-        await expect(review.get_by_test_id("diff-insert").first).to_be_visible()
         await shot(page, "revise-diff")
         await review.get_by_role("button", name="Discard").click()
         await expect(review).to_have_count(0)

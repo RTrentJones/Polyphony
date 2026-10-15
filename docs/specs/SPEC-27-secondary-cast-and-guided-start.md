@@ -127,7 +127,7 @@ unchanged.
     view is refused* (SPEC-25's panel; after the editor safety-net step, not directly after "edit a
     scene, load a revision", because the safety-net step depends on the draft that step leaves).
     The scene text is saved with an emoji and an em dash before the selected phrase. The diff
-    shows `diff-delete` and `diff-insert`; Discard leaves the textarea and the saved scene
+    shows `diff-delete` (the stub only drops words); Discard leaves the textarea and the saved scene
     byte-identical with no new revision; the newest proposal's `range` slices (Python code
     points) to exactly the selected phrase; Accept makes the editor equal the proposal, leaves it
     clean, saves it, and adds exactly one revision. "Redo beat N" on the hand-rewritten scene is
