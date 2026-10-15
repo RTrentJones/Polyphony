@@ -18,8 +18,6 @@ export interface SceneDraft {
   text: string
   /** ISO time the draft was written. */
   savedAt: string
-  /** The server's last-known save time for the scene, when the editor knew it. */
-  baseUpdatedAt: string | null
   /** Fingerprint of the server content the draft was edited from. */
   baseHash: string
 }
@@ -63,7 +61,6 @@ export function readDraft(sceneId: string): SceneDraft | null {
     return {
       text: parsed.text,
       savedAt: parsed.savedAt,
-      baseUpdatedAt: typeof parsed.baseUpdatedAt === 'string' ? parsed.baseUpdatedAt : null,
       baseHash: typeof parsed.baseHash === 'string' ? parsed.baseHash : '',
     }
   } catch {
@@ -94,12 +91,16 @@ export function clearDraft(sceneId: string): void {
 }
 
 export interface DraftAutosaveOptions {
+  /**
+   * Fixed for the life of the hook: the editor is keyed by scene, so a scene
+   * switch remounts it (the unmount flush saves the old scene's text under
+   * its own key) rather than re-rendering it with another scene's id.
+   */
   sceneId: string
   /** Current editor text. */
   text: string
   /** The server content the editor was loaded with / last saved. */
   baseText: string
-  baseUpdatedAt: string | null
   /**
    * False holds autosave entirely (e.g. while an older draft is waiting for
    * Restore/Discard, so it is not overwritten before the author chooses).
@@ -112,7 +113,6 @@ function persist(cur: DraftAutosaveOptions): void {
   writeDraft(cur.sceneId, {
     text: cur.text,
     savedAt: new Date().toISOString(),
-    baseUpdatedAt: cur.baseUpdatedAt,
     baseHash: hashText(cur.baseText),
   })
 }
@@ -128,42 +128,19 @@ export function useDraftAutosave({
   sceneId,
   text,
   baseText,
-  baseUpdatedAt,
   enabled,
 }: DraftAutosaveOptions): void {
-  const latest = useRef({ sceneId, text, baseText, baseUpdatedAt, enabled })
+  const latest = useRef({ sceneId, text, baseText, enabled })
+  latest.current = { sceneId, text, baseText, enabled }
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Text carried over a scene switch: when only `?scene=` changes, the page is
-  // reused and for a render or two `text` is still the previous scene's. Until
-  // it changes, it belongs to the old scene and must not be saved under the new
-  // scene's key.
-  const carried = useRef<{ sceneId: string; text: string } | null>(null)
-  if (latest.current.sceneId !== sceneId) {
-    if (timer.current) {
-      clearTimeout(timer.current)
-      timer.current = null
-    }
-    // Flush the old scene's pending text under its own key, then switch.
-    save(latest.current)
-    carried.current = { sceneId, text: latest.current.text }
-  }
-  if (carried.current && carried.current.text !== text) carried.current = null
-  latest.current = { sceneId, text, baseText, baseUpdatedAt, enabled }
-
-  function save(cur: DraftAutosaveOptions): void {
-    const c = carried.current
-    if (c && c.sceneId === cur.sceneId && c.text === cur.text) return
-    persist(cur)
-  }
 
   const isDirty = text !== baseText
 
   useEffect(() => {
-    const flush = () => save(latest.current)
-    const onPageHide = () => flush()
-    window.addEventListener('pagehide', onPageHide)
+    const flush = () => persist(latest.current)
+    window.addEventListener('pagehide', flush)
     return () => {
-      window.removeEventListener('pagehide', onPageHide)
+      window.removeEventListener('pagehide', flush)
       if (timer.current) {
         clearTimeout(timer.current)
         timer.current = null
@@ -180,15 +157,13 @@ export function useDraftAutosave({
         clearTimeout(timer.current)
         timer.current = null
       }
-      // Text carried from the previous scene says nothing about this scene's
-      // draft; clearing here would drop it before the restore banner shows.
-      if (!carried.current) clearDraft(sceneId)
+      clearDraft(sceneId)
       return
     }
     if (timer.current) return
     timer.current = setTimeout(() => {
       timer.current = null
-      save(latest.current)
+      persist(latest.current)
     }, AUTOSAVE_INTERVAL_MS)
   }, [sceneId, text, isDirty, enabled])
 }
