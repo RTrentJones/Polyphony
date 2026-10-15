@@ -30,7 +30,9 @@ from app.characters.serialize import CHARACTER_FIELDS
 from app.core.security import get_current_active_user
 from app.planning.outline import validate_outline_nodes
 from app.planning.planned_beat import (
+    LEGACY_MARKER,
     beat_from_line,
+    beat_scene_description,
     normalize_planned_beats,
     split_legacy_summary,
 )
@@ -297,15 +299,30 @@ def _legacy_beats_to_data(chapter) -> None:
     """A chapter version from before SPEC-23 restores a "Planned beats:" block
     into the summary: convert it at this write, as migration 0019 did. The
     block leaves the summary; its lines become the planned beats only when the
-    chapter has none, so restoring the same version twice adds nothing."""
+    chapter has none, so restoring the same version twice adds nothing. A
+    block that would lose author text (more than 12 lines, a "- : x" line, a
+    cut) stays in the summary as text (review NB-2)."""
     legacy = split_legacy_summary(chapter.summary)
     if legacy is None:
         return
+    beats = normalize_planned_beats([beat_from_line(ln.text) for ln in legacy.lines])
+    if not keeps_every_word(chapter.summary, legacy.text, beats):
+        return
     chapter.summary = legacy.text
     if not normalize_planned_beats(chapter.planned_beats):
-        chapter.planned_beats = normalize_planned_beats(
-            [beat_from_line(line.text) for line in legacy.lines]
-        )
+        chapter.planned_beats = beats
+
+
+def _words(text: str) -> list[str]:
+    return sorted(w for w in text.replace(":", " ").split() if w != "-")
+
+
+def keeps_every_word(summary: str, text: str, beats: list[dict]) -> bool:
+    """The summary left after the block plus the beats hold every word the
+    block had (bullets, colons and spacing aside): converting loses no author
+    text. Migration 0019 carries an inline copy (parity-tested)."""
+    described = (beat_scene_description(b) for b in beats)
+    return _words(summary) == _words(" ".join([text, LEGACY_MARKER, *described]))
 
 
 async def _next_chapter_position(db: AsyncSession, book_id: UUID) -> int:

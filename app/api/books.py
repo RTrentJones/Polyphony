@@ -45,10 +45,13 @@ from app.exports.builder import (
 from app.jobs import repository as jobs_repo
 from app.jobs import scene_batch
 from app.llm.tier import get_tier
+from app.planning.outline import CastIndex, classify_people
 from app.planning.planned_beat import (
     MAX_PLANNED_BEATS,
     PlannedBeat,
+    beat_scene_description,
     normalize_planned_beats,
+    unwritten_beats,
 )
 from app.versioning import entities as entity_versions
 from app.versioning import trash
@@ -831,6 +834,41 @@ async def list_book_scenes(
 # --- Generate into a chapter ------------------------------------------------------
 
 
+async def beat_cast_context(
+    db: AsyncSession, chapter: ChapterORM
+) -> tuple[CastIndex, list[str], Optional[str]]:
+    """(the book's live cast index, the chapter's live cast ids, the chapter's
+    live POV id or None): what beat_people resolves a beat against."""
+    rows = await db.execute(
+        live(select(CharacterORM), CharacterORM).where(
+            CharacterORM.book_id == chapter.book_id
+        )
+    )
+    index = CastIndex(rows.scalars().all())
+    chapter_cast = [
+        c for c in (str(x) for x in chapter.character_ids or []) if c in index.names
+    ]
+    pov = str(chapter.pov_character_id) if chapter.pov_character_id else None
+    return index, chapter_cast, pov if pov in index.names else None
+
+
+def beat_people(
+    beat: dict, index: CastIndex, chapter_cast: list[str], pov_id: Optional[str]
+) -> tuple[list[str], list[str]]:
+    """A planned beat's cast: the one rule for "Generate all planned scenes"
+    and a single scene generated from the beat (review W-1).
+
+    Returns (character ids, still-unresolved secondary names). The ids are the
+    beat's own cast (its live character ids plus any secondary name that now
+    resolves against the book, via classify_people), else the chapter's live
+    cast; the chapter's POV character is always added, first."""
+    own = classify_people(beat["character_ids"] + beat["secondary_names"], index, None)
+    ids = list(own.ids or chapter_cast)
+    if pov_id is not None and pov_id not in ids:
+        ids.insert(0, pov_id)
+    return ids, own.secondary
+
+
 @router.post("/chapters/{chapter_id}/scenes/generate", response_model=dict)
 async def generate_scene_into_chapter(
     chapter_id: UUID,
@@ -884,11 +922,27 @@ async def generate_scene_into_chapter(
 
     await check_user_budget(db, current_user.id)
 
+    # A scene written from a planned beat carries the beat's id; an id the
+    # chapter no longer has (a stale modal) is stored as None. With no explicit
+    # cast, the beat is cast by the batch's rule (beat_people, review W-1).
+    wanted = (payload.planned_beat_id or "").strip().lower()
+    beats = normalize_planned_beats(chapter.planned_beats)
+    beat = next((b for b in beats if b["node_id"] == wanted), None)
+    character_ids = list(payload.character_ids)
+    pov_character = payload.pov_character
+    if beat is not None:
+        index, chapter_cast, pov_id = await beat_cast_context(db, chapter)
+        beat_ids, secondary = beat_people(beat, index, chapter_cast, pov_id)
+        if not character_ids:
+            character_ids = [UUID(c) for c in beat_ids]
+            if not pov_character and pov_id is not None:
+                pov_character = index.names[pov_id]
+
     # The cast is resolved against THIS book before anything is spent (SPEC-01).
     cast = await resolve_cast(
         db,
         chapter.book_id,
-        character_ids=payload.character_ids,
+        character_ids=character_ids,
     )
     cast_names = [c.name for c in cast]
     cast_ids = [str(c.id) for c in cast]
@@ -923,23 +977,10 @@ async def generate_scene_into_chapter(
     request_dict = payload.model_dump(mode="json")
     request_dict["characters"] = cast_names
     request_dict["character_ids"] = cast_ids
-    # A scene written from a planned beat carries the beat's id and its
-    # still-uncast named people; an id the chapter no longer has (a stale
-    # modal) is stored as None.
-    from app.planning.outline import CastIndex, classify_people
-
-    wanted = (payload.planned_beat_id or "").strip().lower()
-    beats = normalize_planned_beats(chapter.planned_beats)
-    beat = next((b for b in beats if b["node_id"] == wanted), None)
+    request_dict["pov_character"] = pov_character
     request_dict["planned_beat_id"] = beat["node_id"] if beat else None
     if beat is not None:
-        book_cast = live(select(CharacterORM), CharacterORM).where(
-            CharacterORM.book_id == chapter.book_id
-        )
-        index = CastIndex((await db.execute(book_cast)).scalars().all())
-        request_dict["secondary_names"] = classify_people(
-            beat["secondary_names"], index, None
-        ).secondary
+        request_dict["secondary_names"] = secondary
 
     # Concurrent appends can both compute max+1; the UNIQUE constraint turns
     # that into an IntegrityError — recreate scene AND job (both roll back)
@@ -1062,9 +1103,6 @@ async def generate_planned_scenes(
             detail="This chapter has no planned beats. Promote it from the "
             "outline, or generate scenes one at a time.",
         )
-    from app.planning.outline import CastIndex, classify_people
-    from app.planning.planned_beat import beat_scene_description, unwritten_beats
-
     todo = unwritten_beats(beats, await scene_batch.written_beat_ids(db, chapter_id))
     if not todo:
         return {
@@ -1080,43 +1118,18 @@ async def generate_planned_scenes(
     await check_user_budget(db, current_user.id)
 
     # Each beat's cast (SPEC-23): an explicit request cast for every beat
-    # (resolve_cast below 422s on an unknown id, SPEC-01) > the beat's own cast
-    # plus any secondary name that now resolves > the chapter's promoted cast.
-    # Ids no longer live are dropped from the last two (a beat whose own cast
-    # was all trashed falls back to the chapter's), and the chapter's POV
-    # character is added.
-    live_cast = (
-        (
-            await db.execute(
-                live(select(CharacterORM), CharacterORM).where(
-                    CharacterORM.book_id == chapter.book_id
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    index = CastIndex(live_cast)
-    pov_id = (
-        str(chapter.pov_character_id)
-        if chapter.pov_character_id is not None
-        and str(chapter.pov_character_id) in index.names
-        else None
-    )
+    # (resolve_cast below 422s on an unknown id, SPEC-01) plus the chapter's POV
+    # character, else beat_people (the same rule as a single scene, W-1).
+    index, chapter_cast, pov_id = await beat_cast_context(db, chapter)
     explicit = [str(c) for c in payload.character_ids]
-    chapter_cast = [
-        c for c in (str(x) for x in chapter.character_ids or []) if c in index.names
-    ]
 
     def beat_cast(beat: dict) -> tuple[list[str], list[str]]:
         """(the scene's character ids, its still-unresolved secondary names)."""
-        own = classify_people(
-            beat["character_ids"] + beat["secondary_names"], index, None
-        )
-        ids = list(explicit or own.ids or chapter_cast)
-        if pov_id is not None and pov_id not in ids:
-            ids.insert(0, pov_id)
-        return ids, own.secondary
+        ids, secondary = beat_people(beat, index, chapter_cast, pov_id)
+        if explicit:
+            ids = [pov_id] if pov_id is not None and pov_id not in explicit else []
+            ids += explicit
+        return ids, secondary
 
     plans = [(beat, *beat_cast(beat)) for beat in todo]
     # resolve_cast once per distinct cast (it also 422s an empty one).

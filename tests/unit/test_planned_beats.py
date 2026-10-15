@@ -477,6 +477,44 @@ async def test_restoring_a_pre_spec23_version_converts_its_block_once(
     assert seen[0] == seen[1]
 
 
+@pytest.mark.parametrize(
+    "block",
+    [
+        "\n".join(f"- B{i}: s{i}" for i in range(13)),  # past the 12-beat cap
+        "- A: a\n- : the author's orphan line",  # a line with no title
+    ],
+)
+async def test_restoring_a_block_that_would_lose_text_keeps_it_as_text(
+    client, auth_headers, async_session, test_book, block
+):
+    """NB-2: converting would drop a line, so the summary keeps every line."""
+    from app.versioning import repository as versions_repo
+
+    chapter = Chapter(book_id=test_book.id, title="Old", position=0, summary="Now.")
+    async_session.add(chapter)
+    await async_session.flush()
+    chapter_id = chapter.id
+    summary = f"Then.\n\nPlanned beats:\n{block}"
+    await versions_repo.snapshot(
+        async_session,
+        book_id=test_book.id,
+        entity_type="chapter",
+        entity_id=chapter_id,
+        content={"title": "Old", "summary": summary, "status": "drafting"},
+        reason="created",
+    )
+    await async_session.commit()
+    r = await client.post(
+        f"/api/v1/books/{test_book.id}/versions/chapter/{chapter_id}/restore/1",
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    async_session.expire_all()
+    live = await async_session.get(Chapter, chapter_id)
+    assert live.summary == summary
+    assert not live.planned_beats
+
+
 # --- the beat's cast (review S8) --------------------------------------------------------
 
 
@@ -536,6 +574,38 @@ async def test_a_single_scene_from_a_beat_stores_its_id_and_secondaries(
     scene = await async_session.get(Scene, uuid.UUID(r.json()["scene_id"]))
     assert scene.scene_request["planned_beat_id"] is None
     assert "secondary_names" not in scene.scene_request
+
+
+async def test_a_single_scene_from_a_beat_is_cast_as_the_batch_casts_it(
+    client, auth_headers, async_session, test_book
+):
+    """W-1: with no explicit cast, the server casts the beat (beat_people): its
+    own cast, a secondary that now resolves, else the chapter's; plus the POV."""
+    ids, promoted, beat_ids = await _beat_book(
+        client, auth_headers, async_session, test_book
+    )
+    prava = Character(
+        book_id=test_book.id, user_id=test_book.user_id, name="Prava", role="minor"
+    )
+    async_session.add(prava)
+    await async_session.commit()
+    url = f"/api/v1/books/chapters/{promoted['chapter_id']}/scenes/generate"
+    body = {"scene_description": "From the plan.", "setting": "", "emotional_tone": ""}
+    for beat_id in beat_ids:
+        r = await client.post(
+            url, json={**body, "planned_beat_id": beat_id}, headers=auth_headers
+        )
+        assert r.status_code == 200, r.text
+    scenes = await async_session.execute(select(Scene).order_by(Scene.position))
+    requests = [s.scene_request for s in scenes.scalars().all()]
+    milo = ids["Milo Voss"]
+    assert [r["character_ids"] for r in requests] == [
+        [milo, ids["Edric Thane"]],
+        [milo, ids["Zara Okafor"]],
+        [milo, str(prava.id)],
+    ]
+    assert {r["pov_character"] for r in requests} == {"Milo Voss"}
+    assert [r["secondary_names"] for r in requests] == [[], [], []]
 
 
 # --- promote: one classification per node --------------------------------------------------

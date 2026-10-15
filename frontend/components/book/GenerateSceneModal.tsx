@@ -80,6 +80,8 @@ export default function GenerateSceneModal({
   const [setting, setSetting] = useState('')
   const [tone, setTone] = useState<string>('')
   const [beatId, setBeatId] = useState<string | null>(null)
+  // True while a picked beat's cast is left to the server (no toggle since).
+  const [castFromBeat, setCastFromBeat] = useState(false)
   const [povId, setPovId] = useState('')
   const [wordCount, setWordCount] = useState(800)
   const [styleNotes, setStyleNotes] = useState('')
@@ -132,38 +134,33 @@ export default function GenerateSceneModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingCast, activeChapter?.id])
 
-  // A planned beat fills the description, setting and tone, preselects its own
-  // cast (an empty cast means the chapter's), and links the scene to the beat
-  // by id (SPEC-23), so generate-all-planned never writes it twice. Its cast is
-  // its character ids plus any named person since added to the book, as the
-  // batch casts it.
+  // A planned beat fills the description, setting and tone, and links the
+  // scene to the beat by id (SPEC-23), so generate-all-planned never writes it
+  // twice. Its cast is the server's (review W-1), exactly as the batch casts
+  // it: the beat's own cast and anyone it names who is now in the book, else
+  // the chapter's, plus the chapter POV. The picker previews the beat's own
+  // ids; once the author toggles someone, their pick is sent instead.
   const pickBeat = (beat: PlannedBeat) => {
     setDescription(beatDescription(beat))
     if (beat.setting) setSetting(beat.setting)
     setTone(beat.tone ?? '')
-    const named = new Set(beat.secondary_names.map((n) => n.trim().toLowerCase()))
-    const ids = [
-      ...beat.character_ids.filter((id) => byId.has(id)),
-      ...cast
-        .filter((c) => named.has(c.name.trim().toLowerCase()))
-        .map((c) => c.id)
-        .filter((id) => !beat.character_ids.includes(id)),
-    ]
-    if (ids.length > 0) {
-      setSelected(ids)
-      if (!ids.includes(povId)) setPovId('')
-    }
+    const own = beat.character_ids.filter((id) => byId.has(id))
+    if (own.length > 0) setSelected(povId && !own.includes(povId) ? [povId, ...own] : own)
+    setCastFromBeat(true)
     setBeatId(beat.node_id)
   }
 
-  const toggle = (id: string) =>
+  const toggle = (id: string) => {
+    setCastFromBeat(false)
     setSelected((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     )
+  }
 
   const handleSubmit = async () => {
     setError(null)
-    if (selected.length === 0) {
+    const serverCast = Boolean(beatId) && castFromBeat
+    if (selected.length === 0 && !serverCast) {
       setError('Pick at least one character from the cast')
       return
     }
@@ -177,7 +174,7 @@ export default function GenerateSceneModal({
     }
     const pov = povId ? byId.get(povId)?.name : undefined
     const request: ChapterSceneRequest = {
-      character_ids: selected,
+      character_ids: serverCast ? [] : selected,
       scene_description: description.trim(),
       setting: setting.trim(),
       emotional_tone: tone,

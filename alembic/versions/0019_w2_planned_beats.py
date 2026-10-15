@@ -8,7 +8,10 @@ summary silently changed what generate-planned wrote.
 upgrade: add the column; convert each promote-format "Planned beats:" block
 (the `planned_beat.split_legacy_summary` rule) into beats parsed from its lines
 only (the author may have edited them; new uuid4 ids, no cast/setting/tone),
-leaving the rest of the summary; link each converted chapter's live scenes to
+leaving the rest of the summary. A block that would lose author text (more
+than 12 lines, a "- : x" line with no title, a line past the field caps) is
+not converted: the chapter keeps its summary as is and counts as skipped
+(review NB-2). Link each converted chapter's live scenes to
 their beats once (`scene_request.planned_beat_id`, by occurrence on the line);
 strip a leading "Chapter N:" from promoted titles unless that empties them; log
 the counts. downgrade: re-append the lines and drop the column; scenes keep
@@ -104,6 +107,18 @@ def _beat(line: str):
     }
 
 
+def _words(text: str) -> list:
+    return sorted(w for w in text.replace(":", " ").split() if w != "-")
+
+
+def _keeps_every_word(summary: str, text: str, beats: list) -> bool:
+    """Inline copy of versioning.keeps_every_word: the summary and the beats
+    together hold every word the block had (bullets, colons and spacing
+    aside), so a chapter is converted only when no author text is lost."""
+    described = (f"{b['title']}: {b['summary']}" for b in beats)
+    return _words(summary) == _words(" ".join([text, MARKER, *described]))
+
+
 def _key(line) -> str:
     # "Lunch:" (a titled beat with no summary) and "Lunch" are one line.
     return (line or "").strip().rstrip(":").strip()
@@ -162,6 +177,9 @@ def upgrade() -> None:
         text, lines = split
         pairs = [(h, b) for h, b in ((h, _beat(t)) for h, t in lines) if b][:MAX_BEATS]
         beats = [beat for _, beat in pairs]
+        if not _keeps_every_word(summary, text, beats):
+            skipped += 1  # past 12 lines, a "- : x" line, a cut: left as text
+            continue
         bind.execute(
             sa.text(
                 "UPDATE chapters SET summary = :s, "

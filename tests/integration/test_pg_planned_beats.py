@@ -101,6 +101,7 @@ def _migration_module():
     return module
 
 
+_THIRTEEN = "Ch.\n\nPlanned beats:\n" + "\n".join(f"- B{i}: s{i}" for i in range(13))
 _FIXTURES = [
     "Milo arrives\n\nPlanned beats:\n- Badge photo: he is dead\n- Lunch:",
     "Planned beats:\n- Storm: the moor floods",
@@ -109,11 +110,16 @@ _FIXTURES = [
     "Notes\n\nPlanned beats:\nTBD",
     "x\n\nPlanned beats:\n- :\n- : orphan summary\n- Bare\n- " + "T" * 600 + ": s",
     "No marker at all.",
+    _THIRTEEN,
+    "x\n\nPlanned beats:\n- A: a\n- : the author's orphan line",
 ]
+# NB-2: these lose text if converted, so 0019 and restore leave them as text.
+_LOSSY = {_THIRTEEN, _FIXTURES[5], _FIXTURES[-1]}
 
 
 def test_the_inline_parser_matches_the_app():
     """(vii) Parity: the migration's copies equal the app's functions."""
+    from app.api.versioning import keeps_every_word
     from app.planning.planned_beat import (
         beat_from_line,
         normalize_planned_beats,
@@ -131,7 +137,10 @@ def test_the_inline_parser_matches_the_app():
         app_beats = normalize_planned_beats(
             [beat_from_line(x.text) for x in app_split.lines]
         )
-        mig_beats = [b for b in (m._beat(line) for _, line in ours[1]) if b]
+        mig_beats = [b for b in (m._beat(line) for _, line in ours[1]) if b][:12]
+        keeps = keeps_every_word(summary, app_split.text, app_beats)
+        assert keeps == m._keeps_every_word(summary, ours[0], mig_beats)
+        assert keeps == (summary not in _LOSSY), summary
         assert [{**b, "node_id": ""} for b in mig_beats] == [
             {**b, "node_id": ""} for b in app_beats
         ]
@@ -211,7 +220,9 @@ async def test_migration_converts_links_strips_titles_and_round_trips(monkeypatc
         assert await _column_type(engine) is None
 
         # Chapters as the pre-SPEC-23 promote (or an author) wrote them.
-        edited, at_start, tail, stray, loose, wrapped = (uuid.uuid4() for _ in "123456")
+        edited, at_start, tail, stray, loose, wrapped, lossy = (
+            uuid.uuid4() for _ in "1234567"
+        )
         rows = [
             # (i) the author edited the promoted line
             (
@@ -239,6 +250,8 @@ async def test_migration_converts_links_strips_titles_and_round_trips(monkeypatc
                 "W\n\nPlanned beats:\n- Storm: the moor\nfloods at night\n- Shelter: barn",
                 None,
             ),
+            # NB-2: 13 beat lines and a "- : x" line would lose text: left as is
+            (lossy, "Lossy", _THIRTEEN + "\n- : the orphan line", None),
         ]
         async with engine.begin() as c:
             for pos, (cid, title, summary, plan_node) in enumerate(rows):
@@ -283,7 +296,7 @@ async def test_migration_converts_links_strips_titles_and_round_trips(monkeypatc
         (line,) = [x for x in log.lines if x.startswith("0019 planned beats: ")]
         # At least this test's rows (other tests' chapters may share the DB).
         counts = dict(kv.split("=") for kv in line.split(": ")[1].split())
-        assert int(counts["converted"]) >= 5 and int(counts["skipped"]) >= 1
+        assert int(counts["converted"]) >= 5 and int(counts["skipped"]) >= 2
         assert int(counts["scenes_linked"]) >= 2 and int(counts["beats"]) >= 9
         ids = [r[0] for r in rows]
         got = await _chapters(engine, ids)
@@ -306,6 +319,7 @@ async def test_migration_converts_links_strips_titles_and_round_trips(monkeypatc
                 "W",
                 [("Storm", "the moor floods at night"), ("Shelter", "barn")],
             ),
+            lossy: ("Lossy", _THIRTEEN + "\n- : the orphan line", []),
         }
         for cid, (title, summary, beats) in expected.items():
             assert (got[cid][1], got[cid][2], _shape(got[cid][3])) == (
@@ -313,7 +327,7 @@ async def test_migration_converts_links_strips_titles_and_round_trips(monkeypatc
                 summary,
                 beats,
             )
-        assert got[stray][3] is None
+        assert got[stray][3] is None and got[lossy][3] is None
         beats = got[edited][3]
         assert all(uuid.UUID(b["node_id"]).version == 4 for b in beats)
         assert beats[0]["character_ids"] == [] and beats[0]["tone"] == ""
@@ -363,7 +377,13 @@ async def test_migration_converts_links_strips_titles_and_round_trips(monkeypatc
                     text("SELECT summary FROM chapters WHERE id = :id"), {"id": loose}
                 )
             ).scalar()
+            kept = (
+                await c.execute(
+                    text("SELECT summary FROM chapters WHERE id = :id"), {"id": lossy}
+                )
+            ).scalar()
         assert restored == ("Loose\n\nPlanned beats:\n- Part 1: Storm: floods\n- Bare:")
+        assert kept == rows[-1][2]  # NB-2: every line, as the author had it
         await _alembic_cmd("upgrade", cfg, "head")
         again = await _chapters(engine, ids)
         for cid in ids:
