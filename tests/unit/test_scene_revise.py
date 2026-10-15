@@ -272,30 +272,6 @@ def test_span_spec_takes_a_range_or_a_beat_never_both():
         assert model(beat_index=1, **extra).beat_index == 1
 
 
-def test_revise_prompt_states_the_redone_beat_and_the_pov():
-    common = dict(
-        canon_block="Title: T",
-        chapter_summary="",
-        cast_context="",
-        prior=P1,
-        target=P2,
-        after=P3,
-        instruction="redo",
-    )
-    prompt = rv.build_revise_prompt(
-        **common,
-        pov=Pov("third person limited", "Milo Voss"),
-        beat=(1, "Zara finds the missing line."),
-    )
-    assert (
-        "Point of view: third person limited, Milo Voss\n"
-        "Beat 2 of this scene's plan: Zara finds the missing line.\n"
-    ) in prompt
-    prompt = rv.build_revise_prompt(**common, pov=Pov("first person"))
-    assert "Point of view: first person\n" in prompt
-    assert "of this scene's plan" not in prompt
-
-
 def test_stub_llm_revise_family_derives_the_answer_from_the_target():
     from evals.stub_llm import _answer
 
@@ -565,7 +541,9 @@ async def test_a_beat_revise_prompt_names_the_beat_from_the_plan(
     _bind(monkeypatch, async_session, fake)
     job = await _run_job(client, auth_headers, async_session, story.scene, beat_index=1)
     assert job.status == "succeeded", job.error
-    assert "Beat 2 of this scene's plan: b1\n" in fake.prompts[0]
+    assert (
+        "Point of view: third person limited\nBeat 2 of this scene's plan: b1\n"
+    ) in fake.prompts[0]
 
 
 async def test_whole_scene_revise_has_no_surroundings(

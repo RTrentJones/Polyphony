@@ -133,7 +133,7 @@ guarded. Downgrade drops the column, and proposals stay as plain revisions.
 | One draft (raw), trimmed only by the export | `…::test_scene_draft_is_raw_and_the_export_trims_it` |
 | Save and accept snapshot by one rule | `…::test_save_and_accept_snapshot_the_draft_by_one_rule` |
 | `SpanSpec` refuses range + beat for revise and estimate | `…::test_span_spec_takes_a_range_or_a_beat_never_both` |
-| Beat revise names the beat from the plan; a range revise does not | `…::test_a_beat_revise_prompt_names_the_beat_from_the_plan`, `…::test_revise_prompt_states_the_redone_beat_and_the_pov` |
+| Beat revise names the beat from the plan; a range revise does not | `…::test_a_beat_revise_prompt_names_the_beat_from_the_plan`, `…::test_prompt_carries_canon_cast_and_read_only_surroundings` |
 | `GET /scenes/{id}` returns `beats` | `tests/unit/test_book_scenes.py::…::test_get_scene_returns_its_beats_in_order` |
 | Migration upgrade/downgrade on PG | `tests/integration/test_pg_scene_revise.py::test_migration_upgrade_downgrade_round_trip` |
 | Revise → accept through the worker on PG | `…::test_revise_accept_round_trip_through_the_worker` |
