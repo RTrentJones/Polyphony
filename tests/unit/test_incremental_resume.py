@@ -485,7 +485,8 @@ async def test_prior_scene_tail_keeps_paragraph_breaks(
     """The tail handed to the next scene is prose, not a wall of words: its
     paragraph breaks survive and it opens on a sentence (SPEC-18)."""
     from app.jobs.handlers import _scene_context
-    from app.orchestration.prose import PREV_TAIL_WORDS, _canon_hash
+    from app.orchestration.prose import PREV_TAIL_WORDS, SceneSetup, _canon_hash
+    from app.planning.canon import Canon
 
     import app.jobs.handlers as handlers_mod
 
@@ -514,7 +515,8 @@ async def test_prior_scene_tail_keeps_paragraph_breaks(
     assert tail.startswith("Milo counted form ")  # a sentence, not a fragment
     # A checkpoint fingerprinted with the old flat tail still matches.
     legacy = " ".join(content.split()[-PREV_TAIL_WORDS:])
-    assert _canon_hash("c", "s", tail) == _canon_hash("c", "s", legacy)
+    setup = SceneSetup(Canon("c"), [], None, None, "")
+    assert _canon_hash(setup, "s", None, tail) == _canon_hash(setup, "s", None, legacy)
 
 
 async def test_editing_the_previous_scene_during_pause_restarts(

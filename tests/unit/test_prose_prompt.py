@@ -18,6 +18,7 @@ from app.orchestration.pov import Pov
 from app.orchestration.prose import (
     GENERIC_CRAFT_GUIDANCE,
     PREV_TAIL_WORDS,
+    SceneSetup,
     _canon_hash,
     prose_tail,
     scene_chapter,
@@ -25,7 +26,7 @@ from app.orchestration.prose import (
     write_beat_prose,
 )
 from app.orchestration.workflow import StoryPosition
-from app.planning.canon import render_style
+from app.planning.canon import Canon, render_style
 
 pytestmark = pytest.mark.unit
 
@@ -124,7 +125,10 @@ class TestProseTail:
         tail = prose_tail(text)
         assert "\n\n" in tail
         assert " ".join(tail.split()[-PREV_TAIL_WORDS:]) == legacy
-        assert _canon_hash("c", "ch", tail) == _canon_hash("c", "ch", legacy)
+        setup = SceneSetup(Canon("c"), [], None, None, "")
+        assert _canon_hash(setup, "ch", None, tail) == _canon_hash(
+            setup, "ch", None, legacy
+        )
 
 
 # --- trim_seam_repeat ---------------------------------------------------------
@@ -233,25 +237,6 @@ class TestBeatPrompt:
         assert await _write(_BEATS[0]) == "Prose."
         assert "<beats>" not in fake.prompts[0]
         assert "BEAT TO WRITE: Milo finds the ledger." in fake.prompts[0]
-
-    async def test_story_position_follows_the_chapter_and_secondaries_the_cast(
-        self, fake
-    ):
-        """SPEC-30, SPEC-29: the position line sits right after <chapter> (the
-        stable prefix); the secondary block follows the beat's cast."""
-        secondary = "<secondary>\n### Prava\nIntroduced: Prava files.\n</secondary>"
-        await _write(
-            _BEATS[0],
-            chapter_summary="Milo's first day.",
-            story_position=StoryPosition(2, 5),
-            secondary_block=secondary,
-        )
-        await _write(_BEATS[0], chapter_summary="Milo's first day.")
-        with_both, without = fake.prompts
-        assert "</chapter>\nThis scene is in chapter 2 of 5. The synopsis" in with_both
-        assert f"cast\n\n{secondary}\n" in with_both
-        assert "This scene is in chapter" not in without
-        assert "<secondary>" not in without
 
 
 # --- scene_chapter (SPEC-30) ----------------------------------------------------

@@ -15,6 +15,7 @@ import pytest
 
 import app.characters.context as ctx
 from app.orchestration import prose as prose_module
+from app.orchestration.pov import Pov
 from app.planning.canon import Canon, _render_json_field, render_character
 
 pytestmark = pytest.mark.unit
@@ -181,7 +182,7 @@ class TestBeatPrompt:
             cast_context,
             "",
             canon_block=canon.full_block(),
-            pov=prose_module.Pov("first person"),
+            pov=Pov("first person"),
             story_position=None,
             secondary_block="",
         )

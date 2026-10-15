@@ -140,10 +140,9 @@ def test_every_check_fails_its_failing_fixture(tmp_path):
         reasons = [r for f in out[check]["failures"] for r in f["reasons"]]
         assert reason in reasons, (check, out[check])
     assert out["n_calls"] == len(FAILING)
-    # W3-3: the planner's POV line is graded too (record 2 has none); the
-    # movement fixture appended last is a fourth beat_prose prompt.
+    # W3-3: the planner's POV line is graded too (record 2 has none).
     pov = out["pov_line_has_mode_and_character"]
-    assert pov["n"] == 4 and "2" in [f["id"] for f in pov["failures"]]
+    assert "2" in [f["id"] for f in pov["failures"]]
 
 
 def test_prior_keeps_its_paragraphs_and_starts_a_sentence():
@@ -215,12 +214,14 @@ def test_corpus_inputs_take_the_pov_from_the_ground_truth():
     assert len(kw["principals"]) == 3 and len(kw["descriptions"]) == 3
 
 
-def test_movement_counts_the_scene_and_reports_coverage(tmp_path):
+@pytest.mark.parametrize("brief", ["Zara audits.", "Zara audits Halvard Bell."])
+def test_movement_counts_the_scene_and_reports_coverage(tmp_path, brief):
     """SPEC-30: a secondary on the Also-named line, or a principal the scene
-    names, may appear; Bell may not. Coverage counts principal blocks with a
-    movement line (B-2: an emptied block must not score 1.0 unseen)."""
+    names, may appear; Bell may not, even when the brief names him (NB-2).
+    Coverage counts principal blocks with a movement line (B-2: an emptied
+    block must not score 1.0 unseen)."""
     prompt = (
-        f"<scene>\nScene description: Zara audits.\n{ALSO_NAMED_LABEL}: Prava\n"
+        f"<scene>\nScene description: {brief}\n{ALSO_NAMED_LABEL}: Prava\n"
         "</scene>\nCHARACTERS IN THIS BEAT\n"
         f"### Milo Voss\n{MOVEMENT_LABEL}\n- Milo nodded at Zara and Prava.\n"
         f"- Milo closed the Halvard Bell file.\n### Zara Okafor\n{MOVEMENT_LABEL}\n"

@@ -13,7 +13,7 @@ scene set in Aeon Holdings knew nothing about Aeon Holdings.
 
 import re
 from datetime import datetime, timezone
-from typing import Optional
+from typing import NamedTuple, Optional
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -33,6 +33,7 @@ from app.core.prompt_markers import (
 )
 from app.llm.client import get_llm_client
 from app.llm.errors import QuotaExhaustedError
+from app.planning.canon import Canon, build_canon
 
 from .pov import Pov, pov_instruction, resolve_pov
 from .workflow import (
@@ -85,6 +86,30 @@ def scene_cast(canon, scene_request: dict) -> list:
     names = scene_request.get("characters") or []
     by_name = {c.name: c for c in canon.characters}
     return [by_name[n] for n in names if n in by_name]
+
+
+class SceneSetup(NamedTuple):
+    """What a scene is written against (SPEC-29/30)."""
+
+    canon: Canon
+    cast: list  # Character rows, from scene_cast
+    scope: SceneScope
+    pov: Pov
+    secondary_block: str  # render_secondaries; "" without Also-named people
+
+
+async def scene_setup(session, book_id: UUID, scene_request: dict) -> SceneSetup:
+    """The one scene setup for prose, ensemble and revise: the book's canon, the
+    request's cast from it, the scene scope with its Also-named secondaries,
+    the POV and the rendered secondary block."""
+    from app.planning.secondaries import render_secondaries, scene_secondaries
+
+    canon = await build_canon(session, book_id)
+    names = secondary_names(scene_request)
+    secondaries = await scene_secondaries(session, book_id, names, canon)
+    cast = scene_cast(canon, scene_request)
+    scope, pov = SceneScope.of(canon, cast, names), resolve_pov(scene_request, canon)
+    return SceneSetup(canon, cast, scope, pov, render_secondaries(secondaries))
 
 
 # A last-beat instruction that keeps the close inside the scene (SPEC-24, W2-4):
@@ -366,29 +391,18 @@ async def run_prose_scene_workflow(
     completed model call instead of re-spending every beat (SPEC-08);
     `on_restart(note)` records why a checkpoint was discarded.
     """
-    from app.planning.canon import build_canon
-    from app.planning.secondaries import render_secondaries, scene_secondaries
-
     started = datetime.now(timezone.utc)
     checkpoint = dict(checkpoint or {})
     try:
         if book_id is None:
             raise RuntimeError("scene generation needs its book (book is the root)")
         async with get_async_session() as session:
-            canon = await build_canon(session, book_id)
-            secondaries = await scene_secondaries(
-                session, book_id, secondary_names(scene_request), canon
-            )
+            setup = await scene_setup(session, book_id, scene_request)
+        canon, cast, scope, pov, secondary_block = setup
         canon_block = canon.full_block()
-        secondary_block = render_secondaries(secondaries)
-        cast = scene_cast(canon, scene_request)
-        names = [c.name for c in cast]
-        request = {**scene_request, "characters": names}
-        pov = resolve_pov(scene_request, canon)
+        request = {**scene_request, "characters": [c.name for c in cast]}
         canon_hash = _canon_hash(
-            canon_block + secondary_block,
-            chapter_summary + story_position_line(story_position),
-            prior_scene_tail,
+            setup, chapter_summary, story_position, prior_scene_tail
         )
 
         if checkpoint.get("canon_hash") not in (None, canon_hash):
@@ -424,7 +438,6 @@ async def run_prose_scene_workflow(
         target_total = int(scene_request.get("target_word_count") or 500)
         per_beat_words = max(120, target_total // max(1, len(beats)))
         by_name = {c.name: c for c in cast}
-        scope = SceneScope.of(canon, cast, secondary_names(request))
 
         prose_parts: list[str] = list(checkpoint.get("prose") or [])
         grounding: dict = dict(checkpoint.get("grounding") or {})
@@ -544,22 +557,21 @@ async def run_prose_scene_workflow(
         return {"scene_id": str(scene_id), "status": "failed", "error": str(e)}
 
 
-def _canon_hash(
-    canon_block: str, chapter_summary: str, prior_scene_tail: str = ""
-) -> str:
+def _canon_hash(setup: SceneSetup, summary: str, position, prior_tail="") -> str:
     """Fingerprint of everything a checkpointed beat was written against: the
-    canon, the chapter, and the prose of the scene before this one. Editing any
-    of them while the job is paused restarts it rather than continuing from
-    beats that no longer follow. Callers append the secondary block to the
-    canon and the story-position line to the chapter (SPEC-29/30)."""
+    canon and secondary block, the chapter and its story position, and the
+    prose of the scene before this one (SPEC-29/30). Editing any of them while
+    the job is paused restarts it rather than continuing from beats that no
+    longer follow."""
     import hashlib
 
     # Hash the tail's last PREV_TAIL_WORDS words, whitespace-normalised: that
     # is exactly what the pre-SPEC-18 flattened tail was, and `prose_tail`
     # always ends with those same words, so a checkpoint saved before the
     # paragraph-preserving tail still matches (no needless restart).
-    tail = " ".join((prior_scene_tail or "").split()[-PREV_TAIL_WORDS:])
-    parts = (canon_block, chapter_summary or "", tail)
+    tail = " ".join((prior_tail or "").split()[-PREV_TAIL_WORDS:])
+    canon = setup.canon.full_block() + setup.secondary_block
+    parts = (canon, (summary or "") + story_position_line(position), tail)
     return hashlib.sha256("\x00".join(parts).encode("utf-8")).hexdigest()[:16]
 
 

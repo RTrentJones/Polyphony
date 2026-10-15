@@ -22,7 +22,7 @@ from app.core.database import get_async_session
 from app.core.llm_text import as_quoted_block, clean_for_llm
 from app.core.orm_models import Character
 from app.core.prompt_markers import MOVEMENT_LABEL, NAME_HEADING, VOICE_SAMPLES_LABEL
-from app.parsing.character_extractor import _SPEECH_MIN_WORDS
+from app.parsing.character_extractor import SPEECH_MIN_WORDS
 from app.rag.store import get_chunk_store
 
 # A grounding record keeps a bounded excerpt of each sample's text as it was at
@@ -158,9 +158,8 @@ async def build_character_context(
     of them rather than this character is left out (SPEC-30). `chunk_types`,
     when given, limits both blocks to those types.
     """
-    heading = f"{NAME_HEADING}{name}"
     if character is None:
-        return heading
+        return render_character(name, [], [])
     bio = _bible_lines(character) if bible else []
     words, movement = [], []
     if max_samples > 0:
@@ -173,15 +172,15 @@ async def build_character_context(
         )
         if grounding is not None:
             grounding.extend(grounding_entries(character, [*words, *movement]))
-    _, _, samples = render_character(name, words, movement).partition("\n")
-    return "\n".join([heading, *bio, *([samples] if samples else [])])
+    return render_character(name, words, movement, bio)
 
 
-def render_character(name: str, words: list[dict], movement: list[dict]) -> str:
-    """The one character-block renderer (SPEC-17): `### name`, their own words
-    under VOICE_SAMPLES_LABEL, how they move under MOVEMENT_LABEL. Beat prose,
-    revise and the voice probe all print a character through it."""
-    lines = [f"{NAME_HEADING}{name}"]
+def render_character(name: str, words: list, movement: list, bio=()) -> str:
+    """The one character-block renderer (SPEC-17): `### name`, the `bio` lines,
+    their own words under VOICE_SAMPLES_LABEL, how they move under
+    MOVEMENT_LABEL. Beat prose, revise, the ensemble agent and the voice probe
+    all print a character through it."""
+    lines = [f"{NAME_HEADING}{name}", *bio]
     if words:
         lines.append(VOICE_SAMPLES_LABEL)
         # These samples ARE the voice grounding — the product's whole premise.
@@ -363,7 +362,7 @@ async def character_samples(
             for s in await _retrieve(character, query, 2 * k_voice, voice_types)
             if (s.get("chunk_type") or _DIALOGUE) == _DIALOGUE
             # "So!" and "Zara," carry no voice (W3-5): the speech minimum.
-            and len((s.get("text") or "").split()) >= _SPEECH_MIN_WORDS
+            and len((s.get("text") or "").split()) >= SPEECH_MIN_WORDS
         ][:k_voice]
         if voice_types
         else []
@@ -479,8 +478,8 @@ async def build_agent_context(
     (SPEC-14, SPEC-17). <voice> never falls back to narration. Physicality that
     centres another member of `scope.cast` is left out."""
     # The ensemble prompt has no canon block, so the agent keeps its bible.
-    bio = [f"{NAME_HEADING}{name}", *(_bible_lines(character) if character else [])]
-    blocks = [as_quoted_block("\n".join(bio), "character")]
+    bio = _bible_lines(character) if character else []
+    blocks = [as_quoted_block(render_character(name, [], [], bio), "character")]
     if character is None:
         return "\n\n".join(b for b in blocks if b)
 

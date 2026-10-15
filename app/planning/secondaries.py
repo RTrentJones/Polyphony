@@ -98,19 +98,23 @@ async def scene_secondaries(
     texts = [t for t in rows.scalars() if t]
     attributed = [ce.attribute_speech(t) for t in texts]
     cast = [{"name": c.name, "aliases": c.aliases or []} for c in canon.characters]
-    entries = [str(getattr(e, "content", "") or "") for e in canon.canon_entries or []]
-    out = []
+    entries, out = _entry_texts(canon), []
     for name in names:
         said = [
             line
             for text, spans in zip(texts, attributed)
             for _, line in ce.spoken_lines(text, name, cast=cast, attributed=spans)
-            if len(line.split()) >= ce._SPEECH_MIN_WORDS
+            if len(line.split()) >= ce.SPEECH_MIN_WORDS
         ]
         said = sorted(dict.fromkeys(said), key=lambda line: len(line.split()) < 4)
         intro = intro_sentence(name, [canon.synopsis or "", *entries, *texts])
         out.append(Secondary(name, intro, said[:SAMPLES]))
     return out
+
+
+def _entry_texts(canon) -> list[str]:
+    """The canon entries' texts, in canon order."""
+    return [str(getattr(e, "content", "") or "") for e in canon.canon_entries or []]
 
 
 def render_secondaries(people: list[Secondary]) -> str:
@@ -141,15 +145,11 @@ def suggested_characters(names: Iterable[str], canon) -> list[dict]:
     cast = CastIndex(getattr(canon, "characters", None) or [])
     people = classify_people(names, cast, norm(canon_known_text(canon)))
     synopsis = getattr(canon, "synopsis", "") or ""
-    entry_texts = [
-        str(getattr(e, "content", "") or "")
-        for e in getattr(canon, "canon_entries", None) or []
-    ]
     return [
         {
             "name": name,
             "synopsis_sentence": intro_sentence(name, [synopsis])
-            or intro_sentence(name, entry_texts),
+            or intro_sentence(name, _entry_texts(canon)),
         }
         for name in people.secondary
     ]

@@ -78,6 +78,7 @@ class TestProseCallBudget:
     async def test_four_beat_scene_costs_at_most_six_calls(self):
         """Regression guard: prose mode must stay at 1 planning + 1 call/beat."""
         from app.orchestration import prose as prose_module
+        from app.orchestration.pov import Pov
 
         calls = {"n": 0}
 
@@ -109,7 +110,7 @@ class TestProseCallBudget:
                 prose_module, "build_cast_context", AsyncMock(return_value="cast")
             ),
         ):
-            context = {"pov": prose_module.Pov("first person")}
+            context = {"pov": Pov("first person")}
             context.update(story_position=None, secondary_block="")
             beats = await prose_module.plan_scene_beats(
                 scene_request, None, canon_block="", chapter_summary="", **context

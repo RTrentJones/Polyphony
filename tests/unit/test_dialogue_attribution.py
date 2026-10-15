@@ -628,14 +628,15 @@ class TestMovementInScene:
         lich = "Milo bowed to the Lich."
         assert names_outside_scene(lich, by["Milo"], scope) == ["Edric Thane"]
 
-    async def test_a_later_story_is_dropped(self, monkeypatch):
-        """W3-2: the Bell account happens chapters later; Bell is no one here."""
-        moves = await _milo_moves(monkeypatch, [self.BELL, self.WALK], ["Zara"])
-        assert moves == [self.WALK]
-
-    async def test_a_cast_member_counts_only_outside_the_scene(self, monkeypatch):
-        assert await _milo_moves(monkeypatch, [self.EDRIC], ["Zara"]) == []
-        assert await _milo_moves(monkeypatch, [self.EDRIC], ["Edric"]) == [self.EDRIC]
+    # W3-2: Bell is no one here (two retrieved, one kept: no refill after the
+    # filter); a cast member counts only outside the scene.
+    @pytest.mark.parametrize(
+        "texts, scene, kept",
+        [([BELL, WALK], ["Zara"], [WALK]), ([EDRIC], ["Zara"], [])]
+        + [([EDRIC], ["Edric"], [EDRIC])],
+    )
+    async def test_outside_names_drop(self, monkeypatch, texts, scene, kept):
+        assert await _milo_moves(monkeypatch, texts, scene) == kept
 
     async def test_a_named_secondary_belongs_to_the_scene(self, monkeypatch):
         # Without the synopsis, nothing else makes Old Fen known.
@@ -643,11 +644,6 @@ class TestMovementInScene:
         assert fen == []
         fen = await _milo_moves(monkeypatch, [self.FEN], [], ["Old Fen"], False)
         assert fen == [self.FEN]
-
-    async def test_no_refill_after_the_filter(self, monkeypatch):
-        """3 retrieved, 2 dropped: the block shows the 1 left (W3-2)."""
-        texts = [self.BELL, self.WALK, self.EDRIC]
-        assert await _milo_moves(monkeypatch, texts, ["Zara"]) == [self.WALK]
 
 
 # --- reindex-voice ----------------------------------------------------------------
