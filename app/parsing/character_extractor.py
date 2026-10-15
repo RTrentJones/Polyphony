@@ -488,9 +488,26 @@ def spoken_lines(
                 run.append(s["text"])
                 continue
             if run:
-                out.append((i, " ".join(run)))
+                out.append((i, _join_utterance(run)))
                 run = []
     return out
+
+
+def _join_utterance(spans: list[str]) -> str:
+    """Join one speaker's quote halves into a line that reads as speech.
+
+    A quote broken by its tag keeps the comma the tag needed ("Don't thank
+    her," she said. "Read the appendices first."). Joined as-is that reads
+    "Don't thank her, Read the appendices first." so the comma closes to a
+    full stop when the next half starts a sentence, and a line that ends on
+    the tag's comma ends on a full stop instead."""
+    line = spans[0].strip()
+    for nxt in spans[1:]:
+        nxt = nxt.strip()
+        if line.endswith(",") and nxt[:1].isupper():
+            line = line[:-1] + "."
+        line = f"{line} {nxt}"
+    return line[:-1] + "." if line.endswith(",") else line
 
 
 class CharacterExtractor:

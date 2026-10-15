@@ -122,7 +122,7 @@ async def test_e2e_source_voice_is_attributed_to_its_speaker(pg):
     for chunk in await _chunks(pg, ids["Milo Voss"]):
         assert "Don't thank her" not in chunk
         assert "You've been retained" not in chunk
-    assert await _chunks(pg, ids["Zara Okafor"], "dialogue") == ["Don't thank her,"]
+    assert await _chunks(pg, ids["Zara Okafor"], "dialogue") == ["Don't thank her."]
     assert await _chunks(pg, ids["Edric Thane"], "dialogue") == []
 
 

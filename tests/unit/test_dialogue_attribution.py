@@ -67,12 +67,12 @@ class TestE2ESource:
 
     def test_zara_says_exactly_her_line(self):
         cx = CharacterExtractor()
-        assert cx.extract_dialogue_only(SOURCE, "Zara Okafor") == ["Don't thank her,"]
+        assert cx.extract_dialogue_only(SOURCE, "Zara Okafor") == ["Don't thank her."]
         lines = [
             c["text"]
             for c in _dialogue(cx.extract_character_content(SOURCE, "Zara Okafor"))
         ]
-        assert lines == ["Don't thank her,"]
+        assert lines == ["Don't thank her."]
 
     def test_alias_paragraphs_follow_the_same_rule(self):
         # The real journey's cast carries aliases ("Milo", "Zara"), and the
@@ -86,7 +86,7 @@ class TestE2ESource:
             assert "Don't thank her" not in c["text"]
             assert c["chunk_type"] != "dialogue"
         zara = cx.extract_narration(SOURCE, "Zara Okafor", aliases=["Zara"], cast=cast)
-        assert [c["text"] for c in _dialogue(zara)] == ["Don't thank her,"]
+        assert [c["text"] for c in _dialogue(zara)] == ["Don't thank her."]
 
     def test_caseworker_line_belongs_to_no_canon_character(self):
         spans = [s for para in attribute_speech(SOURCE) for s in para]
@@ -203,13 +203,13 @@ class TestAttributionRules:
     def test_aliases_and_honorifics(self):
         text = '"Enough," said Mrs. Harker.'
         cx = CharacterExtractor()
-        assert cx.extract_dialogue_only(text, "Mina Harker") == ["Enough,"]
+        assert cx.extract_dialogue_only(text, "Mina Harker") == ["Enough."]
         assert cx.extract_dialogue_only('"Enough," said Mina.', "Mina Harker") == [
-            "Enough,"
+            "Enough."
         ]
         assert cx.extract_dialogue_only(
             '"Enough," said the Countess.', "Vasska", aliases=["the Countess"]
-        ) == ["Enough,"]
+        ) == ["Enough."]
 
 
 # --- the hand-labelled precision gate (gates CI) --------------------------------
@@ -275,7 +275,7 @@ class TestChunking:
         text = 'Zara stood. "Enough," said Zara.\n\nZara walked to the door.'
         chunks = CharacterExtractor().extract_character_content(text, "Zara")
         assert [(c["chunk_type"], c["text"]) for c in chunks] == [
-            ("dialogue", "Enough,"),
+            ("dialogue", "Enough."),
             ("action", "Zara walked to the door."),
         ]
 
@@ -534,3 +534,19 @@ def test_reindex_voice_is_a_cli_command(monkeypatch):
     monkeypatch.setattr(cli, "_reindex_voice", fake)
     monkeypatch.setattr("sys.argv", ["app.cli", "reindex-voice", "--book", str(book)])
     assert cli.main() == 0 and seen["book"] == book
+
+
+def test_quote_halves_split_by_a_tag_read_as_speech():
+    """The tag's comma closes to a full stop when the next half is a new
+    sentence, and stays when the sentence carries on across the tag."""
+    from app.parsing.character_extractor import _join_utterance
+
+    assert (
+        _join_utterance(["Don't thank her,", "Read the appendices first."])
+        == "Don't thank her. Read the appendices first."
+    )
+    assert (
+        _join_utterance(["You must,", "there is no other way."])
+        == "You must, there is no other way."
+    )
+    assert _join_utterance(["I'm good, thanks,"]) == "I'm good, thanks."
