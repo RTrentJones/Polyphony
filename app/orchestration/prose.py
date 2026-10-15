@@ -13,31 +13,36 @@ scene set in Aeon Holdings knew nothing about Aeon Holdings.
 
 import re
 from datetime import datetime, timezone
-from typing import NamedTuple, Optional
+from typing import Optional
 from uuid import UUID
+
+from sqlalchemy import func, select
 
 from app.characters.context import SceneScope, build_cast_context
 from app.core.database import get_async_session
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.logging_config import log_business_event, log_error, setup_logging
-from app.core.orm_models import Scene, SceneBeat
+from app.core.orm_models import Chapter, Scene, SceneBeat
 from app.core.prompt_markers import (
     BEAT_TO_WRITE_LABEL,
     BEATS_FENCE,
-    CHAPTER_FENCE,
     CHARACTERS_SECTION,
     CURRENT_BEAT_MARK,
-    POV_LABEL,
-    POV_LIMIT_CLOSE,
-    POV_LIMIT_OPEN,
-    POV_WIDE_OPEN,
     PRIOR_FENCE,
     STOP_AT_NEXT_BEAT,
 )
 from app.llm.client import get_llm_client
 from app.llm.errors import QuotaExhaustedError
 
-from .workflow import plan_scene_beats, scene_block, secondary_names
+from .pov import Pov, pov_instruction, resolve_pov
+from .workflow import (
+    StoryPosition,
+    chapter_context,
+    plan_scene_beats,
+    scene_block,
+    secondary_names,
+    story_position_line,
+)
 
 logger = setup_logging("orchestration.prose")
 
@@ -82,110 +87,46 @@ def scene_cast(canon, scene_request: dict) -> list:
     return [by_name[n] for n in names if n in by_name]
 
 
-DEFAULT_POV_MODE = "third person limited"
-# "person" is optional: style.pov also stores the short forms the extraction
-# writes ("first", "third-limited", "third-omniscient").
-_POV_MODE = re.compile(
-    r"\b(first|second|third)(?:[ -]person)?(?:[ ,-]+(limited|omniscient|objective))?\b",
-    re.I,
-)
 # A last-beat instruction that keeps the close inside the scene (SPEC-24, W2-4):
 # "end the scene here" invited an omniscient wrap-up paragraph.
 LAST_BEAT_ENDING = "end the scene inside the moment, in POV; no summary of what follows"
 
 
-def pov_mode(text) -> Optional[str]:
-    """The narrative mode a free-text POV names ("Third-person limited, on
-    Milo" -> "third person limited"), or None."""
-    m = _POV_MODE.search(str(text or ""))
-    if not m:
-        return None
-    person = m.group(1).lower()
-    # An unqualified third ("third", "close third") is read as limited.
-    view = m.group(2) or ("limited" if person == "third" else None)
-    return " ".join(w for w in (person, "person", view) if w).lower()
-
-
-class Pov(NamedTuple):
-    """A scene's point of view: the narrative mode, and whose head the scene
-    stays in (a cast member's name), if anyone's."""
-
-    mode: str
-    who: Optional[str] = None
-
-    @property
-    def label(self) -> str:
-        """ "<mode>, <who>" (or the mode alone): the text after "Point of view: "."""
-        return f"{self.mode}, {self.who}" if self.who else self.mode
-
-
-DEFAULT_POV = Pov(DEFAULT_POV_MODE)
-# The run of capitalised words a style-guide POV names its character with
-# ("on Dr. Ada Vance").
-_CAPITALISED_RUN = re.compile(r"[A-Z][\w'’-]*\.?(?:\s+[A-Z][\w'’-]*\.?)*")
-
-
-def resolve_pov(scene_request: dict, canon) -> Pov:
-    """The scene's point of view (SPEC-24, W2-4).
-
-    The character is the request's POV character (a cast name, as the API
-    writes it), else the cast member the book's style guide names. The mode is
-    the one the style guide names (style.pov is free text: "third person
-    limited, on Milo Voss"), else third person limited. Both are stated, so the
-    model knows whose head the scene stays in."""
-    style_pov = getattr(getattr(canon, "style", None), "pov", None)
-    mode = pov_mode(style_pov) or DEFAULT_POV_MODE
-    who = " ".join(clean_for_llm(str(scene_request.get("pov_character") or "")).split())
-    return Pov(mode, who or _style_pov_character(style_pov, canon))
-
-
-def _style_pov_character(style_pov, canon) -> Optional[str]:
-    """The cast member a style-guide POV names ("third person limited, on Dr.
-    Ada Vance" -> "Ada Vance"), or None: the first capitalised run outside the
-    mode that resolves to the cast, dropping leading words ("Dr.") until it
-    does. Free text is never promoted to a character."""
-    from app.planning.outline import CastIndex
-
-    cast = CastIndex(getattr(canon, "characters", None) or [])
-    rest = _POV_MODE.sub(" ", clean_for_llm(str(style_pov or "")))
-    for run in _CAPITALISED_RUN.finditer(rest):
-        words = run.group(0).rstrip(".").split()
-        for i in range(len(words)):
-            cid = cast.resolve(" ".join(words[i:]))
-            if cid is not None:
-                return cast.names[cid]
-    return None
-
-
-def pov_instruction(pov: Pov) -> str:
-    """The beat prompt's POV paragraph (SPEC-24, W2-4): mode and character on
-    one line, then what the mode allows. Limited and first/second person stay
-    in one head; omniscient and objective do not, but neither runs ahead of
-    the beat."""
-    head = f"{POV_LABEL}: {pov.label}."
-    if pov.mode.endswith("omniscient"):
-        return (
-            f"{head} {POV_WIDE_OPEN} may move between characters' thoughts, but "
-            "tells nothing that happens after this beat: no aftermath, no "
-            "foreshadowing."
+async def scene_chapter(session, scene) -> tuple[str, Optional[StoryPosition]]:
+    """(summary, position) of the scene's chapter for the scene jobs and revise
+    (SPEC-30); ("", None) without one. Only a live chapter has a position: a
+    trashed one keeps a stale `position` (review R-3)."""
+    chapter = await session.get(Chapter, scene.chapter_id) if scene.chapter_id else None
+    if chapter is None:
+        return "", None
+    if chapter.deleted_at is not None:
+        return chapter.summary or "", None
+    live = await session.scalar(
+        select(func.count(Chapter.id)).where(
+            Chapter.book_id == chapter.book_id, Chapter.deleted_at.is_(None)
         )
-    if pov.mode.endswith("objective"):
-        return (
-            f"{head} {POV_WIDE_OPEN} reports only what can be seen and heard: no "
-            "one's thoughts or feelings stated, no aftermath, no foreshadowing."
-        )
-    if not pov.who:
-        return (
-            f"{POV_LABEL}: {pov.label}. {POV_LIMIT_OPEN} the point-of-view character "
-            f"{POV_LIMIT_CLOSE}: no aftermath, no foreshadowing, no naming people "
-            "they have not learned."
-        )
-    who = pov.who
-    return (
-        f"{POV_LABEL}: {pov.label}. {POV_LIMIT_OPEN} {who} {POV_LIMIT_CLOSE}: "
-        f"no aftermath, no foreshadowing, no naming people {who} has not "
-        "learned. Stay in their head from the first line to the last."
     )
+    return chapter.summary or "", StoryPosition(chapter.number, live)
+
+
+async def scene_prior_tail(session, scene) -> str:
+    """The tail of the chapter's previous completed scene (SPEC-18), or ""."""
+    from app.exports.builder import scene_text
+
+    if scene.chapter_id is None:
+        return ""
+    prev = await session.scalar(
+        select(Scene)
+        .where(
+            Scene.chapter_id == scene.chapter_id,
+            Scene.status == "completed",
+            Scene.position < scene.position,
+            Scene.deleted_at.is_(None),  # trashed prose is not context
+        )
+        .order_by(Scene.position.desc())
+        .limit(1)
+    )
+    return prose_tail(scene_text(prev)) if prev is not None else ""
 
 
 def _sentence_starts(paragraph: str) -> list[int]:
@@ -309,12 +250,14 @@ async def write_beat_prose(
     scene_request: dict,
     cast_context: str,
     prior_prose_tail: str,
+    *,
+    pov: Pov,
+    story_position: Optional[StoryPosition],
+    secondary_block: str,
     chapter_summary: str = "",
+    canon_block: str = "",
     user_id: Optional[UUID] = None,
     target_words: int = 300,
-    *,
-    canon_block: str = "",
-    pov: Pov = DEFAULT_POV,
     all_beats: Optional[list[dict]] = None,
     beat_index: Optional[int] = None,
     style=None,
@@ -328,7 +271,8 @@ async def write_beat_prose(
     this beat marked, so it stops where the next begins; `style` is the book's
     style guide, whose sample prose leads the style guidance (SPEC-18).
     `pov` is `resolve_pov`'s; the prompt states its mode and character and
-    keeps the narration in that character's head (SPEC-24).
+    keeps the narration in that character's head (SPEC-24). The story position
+    follows the chapter (SPEC-30), the secondaries the cast (SPEC-29).
     """
     style_notes = scene_request.get("style_notes") or ""
     prior_block = (
@@ -339,7 +283,7 @@ async def write_beat_prose(
         else "This beat opens the scene."
     )
     plan = ""
-    position = ""
+    stop_line = ""
     if all_beats and beat_index is not None and 0 <= beat_index < len(all_beats):
         n, total = beat_index + 1, len(all_beats)
         plan = (
@@ -347,13 +291,13 @@ async def write_beat_prose(
             f"writing):\n{_beats_block(all_beats, beat_index)}\n\n"
         )
         if n < total:
-            position = (
+            stop_line = (
                 f"\nWrite ONLY beat {n}. {STOP_AT_NEXT_BEAT.format(next=n + 1)}; do "
                 "not anticipate it."
             )
         else:
-            position = f"\nWrite ONLY beat {n}, the last beat: {LAST_BEAT_ENDING}."
-    chapter = as_quoted_block(chapter_summary, CHAPTER_FENCE)
+            stop_line = f"\nWrite ONLY beat {n}, the last beat: {LAST_BEAT_ENDING}."
+    secondaries = f"\n\n{secondary_block}" if secondary_block else ""
     overrides = (
         "\nAuthor's style notes for THIS scene (they override the style guide):\n"
         + as_quoted_block(style_notes, "style_notes")
@@ -365,7 +309,7 @@ async def write_beat_prose(
 
 {canon_block}
 
-{chapter}
+{chapter_context(chapter_summary, story_position)}
 
 You are a skilled novelist writing one beat of a scene in THIS book. Stay
 faithful to the canon above: its people, places, terms, and its style guide
@@ -377,11 +321,11 @@ faithful to the canon above: its people, places, terms, and its style guide
 {plan}{CHARACTERS_SECTION} — write each one's dialogue in THEIR OWN voice,
 matching their voice samples:
 
-{cast_context}
+{cast_context}{secondaries}
 
 {prior_block}
 
-{BEAT_TO_WRITE_LABEL}: {clean_for_llm(beat["description"])}{position}
+{BEAT_TO_WRITE_LABEL}: {clean_for_llm(beat["description"])}{stop_line}
 
 {_style_section(style)}
 
@@ -407,10 +351,11 @@ async def run_prose_scene_workflow(
     scene_id: UUID,
     scene_request: dict,
     user_id: UUID,
-    chapter_summary: str = "",
-    prior_scene_tail: str = "",
-    book_id: Optional[UUID] = None,
     *,
+    chapter_summary: str,
+    story_position: Optional[StoryPosition],
+    prior_scene_tail: str = "",
+    book_id: Optional[UUID],
     checkpoint: Optional[dict] = None,
     save_checkpoint=None,
     on_restart=None,
@@ -422,6 +367,7 @@ async def run_prose_scene_workflow(
     `on_restart(note)` records why a checkpoint was discarded.
     """
     from app.planning.canon import build_canon
+    from app.planning.secondaries import render_secondaries, scene_secondaries
 
     started = datetime.now(timezone.utc)
     checkpoint = dict(checkpoint or {})
@@ -430,12 +376,20 @@ async def run_prose_scene_workflow(
             raise RuntimeError("scene generation needs its book (book is the root)")
         async with get_async_session() as session:
             canon = await build_canon(session, book_id)
+            secondaries = await scene_secondaries(
+                session, book_id, secondary_names(scene_request), canon
+            )
         canon_block = canon.full_block()
+        secondary_block = render_secondaries(secondaries)
         cast = scene_cast(canon, scene_request)
         names = [c.name for c in cast]
         request = {**scene_request, "characters": names}
         pov = resolve_pov(scene_request, canon)
-        canon_hash = _canon_hash(canon_block, chapter_summary, prior_scene_tail)
+        canon_hash = _canon_hash(
+            canon_block + secondary_block,
+            chapter_summary + story_position_line(story_position),
+            prior_scene_tail,
+        )
 
         if checkpoint.get("canon_hash") not in (None, canon_hash):
             # The canon changed while the job was paused: stages generated
@@ -455,6 +409,9 @@ async def run_prose_scene_workflow(
                 user_id,
                 canon_block=canon_block,
                 chapter_summary=chapter_summary,
+                pov=pov,
+                story_position=story_position,
+                secondary_block=secondary_block,
             )
             checkpoint = {
                 "canon_hash": canon_hash,
@@ -492,6 +449,8 @@ async def run_prose_scene_workflow(
                 target_words=per_beat_words,
                 canon_block=canon_block,
                 pov=pov,
+                story_position=story_position,
+                secondary_block=secondary_block,
                 all_beats=beats,
                 beat_index=idx,
                 style=getattr(canon, "style", None),
@@ -591,7 +550,8 @@ def _canon_hash(
     """Fingerprint of everything a checkpointed beat was written against: the
     canon, the chapter, and the prose of the scene before this one. Editing any
     of them while the job is paused restarts it rather than continuing from
-    beats that no longer follow."""
+    beats that no longer follow. Callers append the secondary block to the
+    canon and the story-position line to the chapter (SPEC-29/30)."""
     import hashlib
 
     # Hash the tail's last PREV_TAIL_WORDS words, whitespace-normalised: that

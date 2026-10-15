@@ -111,7 +111,7 @@ S9, PR-S2, eval finding 3, W1-S7).
 
 ### 24e — POV (P5, P6, P7)
 
-`app/orchestration/prose.py`.
+`app/orchestration/pov.py` (moved from `prose.py` in wave 3; see "Wave 3" below).
 
 - POV is a typed value (wave 2.5, review S6): `Pov(mode: str, who: str | None)`, a NamedTuple;
   `Pov.label` is `"<mode>, <who>"` or `"<mode>"`. Nothing joins it into a string and re-splits it
@@ -131,8 +131,8 @@ S9, PR-S2, eval finding 3, W1-S7).
   in POV; no summary of what follows.`
 - **P7** markers are unchanged: `CHARACTERS IN THIS BEAT`, `BEAT TO WRITE`, `<beats>`, `<prior>`,
   `Stop where beat N+1 begins`. The `build_cast_context` call is unchanged (E4 owns the callee).
-- The revise job calls `resolve_pov` directly (`revise.scene_pov` is gone) and the revise
-  prompt renders `Point of view: <pov.label>` (SPEC-19).
+- The revise job calls `resolve_pov` directly (`revise.scene_pov` is gone); the revise prompt
+  renders `pov_instruction(pov)` (wave 3, below).
 - **Tone (wave 2.5, review S7).** `scene_block` omits `Emotional tone:` only when the tone is
   blank. A tone the author chose, `neutral` included, is printed: the modal no longer defaults to
   `neutral` (SPEC-25), so a `neutral` that reaches the backend is a deliberate choice.
@@ -142,6 +142,30 @@ S9, PR-S2, eval finding 3, W1-S7).
   primary style reference"; with a tone alone it says to follow that tone; the generic craft text
   still appears only when the book has neither. A beat prompt carries the sample exactly once.
 - Ensemble mode builds its own prompts and is not covered (tpm-plan-wave2 §6 risk 4).
+
+**Wave 3 (W3-3; review B-1, S4).** The beat plan was written with no POV at all, and revise
+printed only the label:
+
+- `Pov.one_head` is the one wide-mode rule: every mode but omniscient and objective is held to one
+  head. `pov_instruction`, `plan_pov_instruction` and the grader's `check_pov_line` all read it.
+- The one-head name rule is "no naming people before <who> learns their name in the story; an
+  introduction in this scene counts" (no more name badges). The wide modes drop "after this beat",
+  which means nothing to the planner or to a multi-beat revise: omniscient is "The narrator may
+  move between characters' thoughts: no aftermath, no foreshadowing."
+- `plan_pov_instruction(pov)` is `pov_instruction(pov)` plus, when `one_head`, "Plan only what
+  <who> perceives. If a beat needs a person named, plan the moment <who> learns the name (an
+  introduction, a nameplate, a form)." `plan_scene_beats` takes the resolved `Pov` and prints it
+  after the scene brief; the ensemble planner passes `resolve_pov` too.
+- `build_revise_prompt` prints `pov_instruction(pov)`, limit included, instead of the bare label,
+  and every revise says "Keep the events, and the facts, people and objects the surrounding text
+  depends on." (no redo-only branch).
+- `parse_beats` is deleted: a non-JSON planner answer gives one whole-scene beat and logs
+  `plan_beats_unparsed`. The `last_beat_no_wrap_up` tripwire is deleted;
+  `pov_line_has_mode_and_character` now also grades `plan_beats` and `scene_revise`.
+- Tests: `test_pov_prompt.py` (`one_head`, the name rule, no "after this beat"),
+  `test_workflow.py` (a limited plan names its POV character and the learn-the-name sentence; an
+  omniscient plan has no "Plan only what"; the non-JSON answer), `test_scene_revise.py` (the POV
+  paragraph and the amended sentence).
 
 ### 24f — The offline stub
 
@@ -207,3 +231,9 @@ Routing stays a single text-sniffing path. The planner branch still parses `plan
 | Named secondaries allowed in the outline; suggestions to add them to the cast | R1.5a | ✅ | `app/planning/secondaries.py` (SPEC-24; API SPEC-23, UI SPEC-27) |
 | Planner treats the cast as available; no blank setting / neutral tone in prompts | R1.1c | ✅ | `app/orchestration/workflow.py` (SPEC-24) |
 | POV line with mode + character; last beat ends in POV | R1.1c | ✅ | `app/orchestration/prose.py::resolve_pov`, `pov_instruction` (SPEC-24) |
+
+**docs/BRD.md, §5.1, R1.1c, wave 3 (append):**
+
+> The beat planner and revise carry the same POV paragraph: the plan stays in the POV
+> character's head and has them learn a name before the prose uses it; a wide (omniscient,
+> objective) mode is not held to one head. *(SPEC-24 wave 3)*

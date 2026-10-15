@@ -1,5 +1,6 @@
 """Unit tests for the book domain: exports, prose call budget, planning."""
 
+import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -81,7 +82,7 @@ class TestProseCallBudget:
         calls = {"n": 0}
 
         class FakeResult:
-            text = "1. beat one\n2. beat two\n3. beat three\n4. beat four"
+            text = json.dumps([{"description": f"beat {i}"} for i in range(4)])
             tokens_in = 10
             tokens_out = 10
 
@@ -108,11 +109,15 @@ class TestProseCallBudget:
                 prose_module, "build_cast_context", AsyncMock(return_value="cast")
             ),
         ):
-            beats = await prose_module.plan_scene_beats(scene_request, None)
+            context = {"pov": prose_module.Pov("first person")}
+            context.update(story_position=None, secondary_block="")
+            beats = await prose_module.plan_scene_beats(
+                scene_request, None, canon_block="", chapter_summary="", **context
+            )
             assert len(beats) == 4
             for beat in beats:
                 await prose_module.write_beat_prose(
-                    beat, scene_request, "cast", "", user_id=None
+                    beat, scene_request, "cast", "", **context
                 )
 
         # 1 planning call + 4 beat calls = 5 <= 6

@@ -316,21 +316,16 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
     if "continuity editor" in prompt:
         return json.dumps({"findings": []}) if "findings" in prompt else "[]"
     if "narrative planner" in prompt:
-        if "character_ids" in prompt or '"characters"' in prompt:
-            return json.dumps(
-                [
-                    {
-                        "description": f"{lead} confronts {second}.",
-                        "characters": cast[:2],
-                    },
-                    {
-                        "description": f"{second} gives ground.",
-                        "characters": cast[1:2] or cast,
-                    },
-                    {"description": "The silence after.", "characters": cast},
-                ]
-            )
-        return f"1. {lead} confronts {second}.\n2. {second} gives ground.\n3. Silence."
+        return json.dumps(
+            [
+                {"description": f"{lead} confronts {second}.", "characters": cast[:2]},
+                {
+                    "description": f"{second} gives ground.",
+                    "characters": cast[1:2] or cast,
+                },
+                {"description": "The silence after.", "characters": cast},
+            ]
+        )
     if prompt.lstrip().startswith("You ARE") or "\nYou ARE " in prompt:
         m = re.search(r"You ARE (.+?)\.", prompt)
         who = m.group(1) if m else lead

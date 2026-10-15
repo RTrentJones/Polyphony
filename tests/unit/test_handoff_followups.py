@@ -98,6 +98,8 @@ async def test_prose_lists_unindexed_characters_with_a_reason(
             "target_word_count": 200,
         },
         duo.book.user_id,
+        chapter_summary="",
+        story_position=None,
         book_id=duo.book.id,
     )
     assert result["status"] == "completed", result
@@ -608,7 +610,11 @@ async def test_a_failed_scene_ends_the_chain(async_session, test_book, monkeypat
         "app.orchestration.prose.run_prose_scene_workflow",
         AsyncMock(return_value={"status": "failed", "error": "boom"}),
     )
-    monkeypatch.setattr(handlers_mod, "_scene_inputs", AsyncMock(return_value=("", "")))
+    monkeypatch.setattr(
+        handlers_mod,
+        "_scene_context",
+        AsyncMock(return_value={"chapter_summary": "", "story_position": None}),
+    )
     monkeypatch.setattr(
         handlers_mod,
         "current_job",

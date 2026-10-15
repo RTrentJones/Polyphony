@@ -246,6 +246,8 @@ async def test_prose_records_grounding_for_every_beat_and_cast_member(
             "target_word_count": 200,
         },
         duo.book.user_id,
+        chapter_summary="",
+        story_position=None,
         book_id=duo.book.id,
     )
     assert result["status"] == "completed", result
@@ -288,6 +290,8 @@ async def test_ensemble_records_grounding_the_same_way(async_session, duo, monke
         {"characters": ["Milo", "Zara"], "scene_description": "They meet."},
         duo.book.user_id,
         book_id=duo.book.id,
+        chapter_summary="",
+        story_position=None,
     )
     assert result["status"] == "completed", result
     assert scene.evaluation_scores["mode"] == "ensemble"

@@ -49,41 +49,23 @@ class Handler:
     on_cancel: Callable[[dict], Awaitable[None]] | None = None
 
 
-async def _scene_inputs(scene_id: UUID, payload: dict) -> tuple[str, str]:
-    """The chapter summary and prior-scene tail, recomputed from the DB at start.
-
-    Derived data goes stale across a pause (the author edits the chapter summary
-    or finishes the previous scene meanwhile), so it is not carried in the
-    payload (SPEC-08). Standalone scenes fall back to what the payload had.
-    """
-    from app.core.orm_models import Chapter
-    from app.exports.builder import scene_text
-    from app.orchestration.prose import prose_tail
+async def _scene_context(scene_id: UUID) -> dict:
+    """The scene's chapter summary, story position and prior-scene tail,
+    recomputed from the DB at start: derived data goes stale across a pause
+    (the author edits the chapter or finishes the previous scene meanwhile),
+    so it is not carried in the payload (SPEC-08)."""
+    from app.orchestration.prose import scene_chapter, scene_prior_tail
 
     async with get_async_session() as session:
         scene = await session.get(Scene, scene_id)
-        if scene is None or scene.chapter_id is None:
-            return payload.get("chapter_summary", ""), payload.get("prior_tail", "")
-        chapter = await session.get(Chapter, scene.chapter_id)
-        summary = (chapter.summary or "") if chapter is not None else ""
-        prev = (
-            await session.execute(
-                select(Scene)
-                .where(
-                    Scene.chapter_id == scene.chapter_id,
-                    Scene.status == "completed",
-                    Scene.position < scene.position,
-                    Scene.deleted_at.is_(None),  # trashed prose is not context
-                )
-                .order_by(Scene.position.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        tail = ""
-        if prev is not None:
-            # Paragraph breaks kept, never opened mid-sentence (SPEC-18).
-            tail = prose_tail(scene_text(prev))
-        return summary, tail
+        if scene is None:
+            return {"chapter_summary": "", "story_position": None}
+        summary, position = await scene_chapter(session, scene)
+        return {
+            "chapter_summary": summary,
+            "story_position": position,
+            "prior_scene_tail": await scene_prior_tail(session, scene),
+        }
 
 
 async def _run_generate_prose_scene(payload: dict) -> None:
@@ -92,13 +74,11 @@ async def _run_generate_prose_scene(payload: dict) -> None:
     book_id = payload.get("book_id")
     ctx = current_job()
     scene_id = UUID(payload["scene_id"])
-    chapter_summary, prior_tail = await _scene_inputs(scene_id, payload)
     result = await run_prose_scene_workflow(
         scene_id,
         payload["request"],
         UUID(payload["user_id"]),
-        chapter_summary=chapter_summary,
-        prior_scene_tail=prior_tail,
+        **await _scene_context(scene_id),
         book_id=UUID(book_id) if book_id else None,
         checkpoint=ctx.checkpoint,
         save_checkpoint=ctx.save,
@@ -115,14 +95,12 @@ async def _run_generate_ensemble_scene(payload: dict) -> None:
     book_id = payload.get("book_id")
     ctx = current_job()
     scene_id = UUID(payload["scene_id"])
-    chapter_summary, prior_tail = await _scene_inputs(scene_id, payload)
     result = await run_ensemble_scene_workflow(
         scene_id,
         payload["request"],
         UUID(payload["user_id"]),
         book_id=UUID(book_id) if book_id else None,
-        chapter_summary=chapter_summary,
-        prior_scene_tail=prior_tail,
+        **await _scene_context(scene_id),
         checkpoint=ctx.checkpoint,
         save_checkpoint=ctx.save,
         on_restart=ctx.note,
