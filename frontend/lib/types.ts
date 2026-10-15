@@ -179,6 +179,8 @@ export interface SceneRequest {
   /** 100–3000; backend default 500. */
   target_word_count: number
   style_notes?: string
+  /** The planned beat this scene was written from (SPEC-23). */
+  planned_beat_id?: string
 }
 
 export type SceneStatus =
@@ -384,6 +386,9 @@ export interface ChapterSceneRequest {
   /** 100–3000; backend default 800. */
   target_word_count: number
   style_notes?: string
+  /** The planned beat this scene is written from (SPEC-23): links the scene
+   *  to the beat, so generate-all-planned skips it. */
+  planned_beat_id?: string
 }
 
 /** POST /books/chapters/{id}/scenes/generate response — poll GET /scenes/{scene_id}. */

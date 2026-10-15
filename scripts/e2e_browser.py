@@ -578,16 +578,15 @@ async def journey(page: Page) -> None:
         await shot(page, "chapters")
 
     async def generate_all_planned_scenes():
+        """Beat 1 already has its scene (written from the modal, linked by
+        id), so the batch writes beat 2 only and skips beat 1: one scene per
+        beat, no duplicate (SPEC-23, review B3)."""
         await tab("Chapters")
-        rows = page.get_by_test_id("chapter-row")
         button_name = "Generate all planned scenes"
-        row = rows.filter(has=page.get_by_role("button", name=button_name)).first
-        name = await row.get_attribute("data-chapter-title")
-        STATE["planned_chapter"] = name
-        row = chapter_row(page, name)
+        row = chapter_row(page, STATE["planned_chapter"])
         await row.get_by_role("button", name=button_name).click()
-        await toast(re.compile(r"Writing 2 planned scenes in order"))
-        # The scenes are a chain: the second is created when the first completes.
+        await toast("Writing 1 planned scene in order (1 already written, skipped).")
+        # The scenes are a chain: each is created when the one before completes.
         edits = row.get_by_role("button", name="Edit", exact=True)
         await expect(edits).to_have_count(2, timeout=TIMEOUT)
         await expect(page.get_by_test_id("job-status")).to_have_count(
@@ -597,6 +596,17 @@ async def journey(page: Page) -> None:
         await row.get_by_role("button", name=button_name).click()
         await toast("Every planned beat in this chapter already has a scene.")
         await expect(edits).to_have_count(2)
+        book = await (await api_get(f"/books/{STATE['book_id']}")).json()
+        chapter = next(
+            c for c in book["chapters"] if c["title"] == STATE["planned_chapter"]
+        )
+        detail = await (await api_get(f"/books/chapters/{chapter['id']}")).json()
+        linked = []
+        for summary in detail["scenes"]:
+            scene = await (await api_get(f"/scenes/{summary['id']}")).json()
+            linked.append((scene.get("scene_request") or {}).get("planned_beat_id"))
+        ids = [b["node_id"] for b in chapter["planned_beats"]]
+        assert sorted(x for x in linked if x) == sorted(ids), (linked, ids)
         await shot(page, "planned-scenes")
 
     async def export_markdown(**params) -> str:
@@ -921,6 +931,129 @@ async def journey(page: Page) -> None:
         ]
         assert not neutral, f"{len(neutral)} planned-scene prompts defaulted to neutral"
 
+    async def scene_from_a_planned_beat():
+        """SPEC-23 (review S7): the single-scene modal picks beat 1 with its
+        tone and cast, and the scene is linked to the beat by its id."""
+        await tab("Chapters")
+        rows = page.get_by_test_id("chapter-row")
+        planned = rows.filter(
+            has=page.get_by_role("button", name="Generate all planned scenes")
+        ).first
+        STATE["planned_chapter"] = await planned.get_attribute("data-chapter-title")
+        book = await (await api_get(f"/books/{STATE['book_id']}")).json()
+        chapter = next(
+            c for c in book["chapters"] if c["title"] == STATE["planned_chapter"]
+        )
+        assert len(chapter["planned_beats"]) == 2, chapter["planned_beats"]
+        beat = chapter["planned_beats"][0]
+        cast = (await (await api_get("/characters/", book_id=STATE["book_id"])).json())[
+            "characters"
+        ]
+        names = {c["id"]: c["name"] for c in cast}
+        want = [i for i in beat.get("character_ids") or [] if i in names] or [
+            i for i in chapter.get("character_ids") or [] if i in names
+        ]
+        detail = await (await api_get(f"/books/chapters/{chapter['id']}")).json()
+        before = {s["id"] for s in detail["scenes"]}
+
+        await tab("Chapters")
+        row = chapter_row(page, STATE["planned_chapter"])
+        await row.get_by_role("button", name="Generate scene").click()
+        picker = page.get_by_test_id("cast-picker")
+        await expect(picker).to_be_visible()
+        await page.get_by_test_id("planned-beats").get_by_role("button").first.click()
+        tone = page.locator("select").filter(has=page.locator('option[value="tense"]'))
+        assert await tone.input_value() == (
+            beat.get("tone") or ""
+        ), f"tone {await tone.input_value()!r} is not beat 1's {beat.get('tone')!r}"
+        pressed = picker.locator('button[aria-pressed="true"]')
+        await expect(pressed).to_have_count(len(want))
+        for i in want:
+            await expect(
+                picker.get_by_role("button", name=re.compile(re.escape(names[i])))
+            ).to_have_attribute("aria-pressed", "true")
+        # Cast the chapter's POV too, as the batch does (beat cast + POV).
+        pov = chapter.get("pov_character_id")
+        if pov in names and pov not in want:
+            await picker.get_by_role(
+                "button", name=re.compile(re.escape(names[pov]))
+            ).click()
+        setting = page.get_by_placeholder(re.compile("dimly lit tavern"))
+        if not (await setting.input_value()).strip():
+            await setting.fill("Reconciliations")
+        await shot(page, "scene-from-beat")
+        await page.get_by_role("button", name="Generate", exact=True).click()
+        await expect(picker).to_have_count(0)
+
+        new: list = []
+        deadline = time.monotonic() + TIMEOUT / 1000
+        while not new and time.monotonic() < deadline:
+            detail = await (await api_get(f"/books/chapters/{chapter['id']}")).json()
+            new = [s for s in detail["scenes"] if s["id"] not in before]
+            if not new:
+                await asyncio.sleep(0.5)
+        assert new, "the modal created no scene"
+        await expect(page.get_by_test_id("job-status")).to_have_count(
+            0, timeout=TIMEOUT
+        )
+        scene = await (await api_get(f"/scenes/{new[0]['id']}")).json()
+        req = scene.get("scene_request") or {}
+        assert (
+            req.get("planned_beat_id") == beat["node_id"]
+        ), f"scene request {req} is not linked to beat {beat['node_id']}"
+        if beat.get("tone"):
+            assert req.get("emotional_tone") == beat["tone"], req
+        assert set(want) <= set(req.get("character_ids") or []), req
+
+    async def redo_a_planned_beat():
+        """SPEC-25 / review eval finding 7: "Redo beat 2" on a planned scene
+        asks for a revision of that beat and opens a proposal."""
+        book = await (await api_get(f"/books/{STATE['book_id']}")).json()
+        chapter = next(
+            c for c in book["chapters"] if c["title"] == STATE["planned_chapter"]
+        )
+        detail = await (await api_get(f"/books/chapters/{chapter['id']}")).json()
+        scene_id = None
+        for summary in detail["scenes"]:
+            scene = await (await api_get(f"/scenes/{summary['id']}")).json()
+            if (scene.get("scene_request") or {}).get("planned_beat_id"):
+                scene_id = summary["id"]
+                break
+        assert scene_id, "no planned scene to redo a beat of"
+        await page.goto(f"{BASE}/books/editor/?scene={scene_id}")
+        await page.wait_for_load_state("networkidle")
+        panel = page.get_by_test_id("revise-panel")
+        review = panel.get_by_test_id("revise-review")
+        await panel.get_by_role("button", name="Redo beat 2", exact=True).click()
+        await panel.get_by_label("What should change?").fill("Make it colder.")
+        await panel.get_by_role("button", name="Ask for a revision").click()
+        alert = panel.get_by_role("alert")
+        await expect(review.or_(alert)).to_be_visible(timeout=TIMEOUT)
+        if await alert.is_visible():
+            # The stub may write identical prose for two beats; the server then
+            # refuses to guess which copy is beat 2 (SPEC-19), and says so.
+            await expect(alert).to_contain_text("appears more than once")
+            print("  redo beat 2: refused, the beat's prose appears more than once")
+            await panel.get_by_role("button", name="Cancel", exact=True).click()
+        else:
+            await expect(review).to_contain_text("(beat 2)")
+            data = await (await api_get(f"/books/scenes/{scene_id}/proposals")).json()
+            assert data["proposals"][0].get("beat_index") == 1, data["proposals"][0]
+            # E (eval finding 7): the revise prompt names the beat's plan.
+            scene = await (await api_get(f"/scenes/{scene_id}")).json()
+            second = sorted(scene["beats"], key=lambda b: b["beat_number"])[1]
+            plan = " ".join((second.get("description") or "").split())
+            r = await page.request.get(f"{STUB}/__stub/requests", params={"limit": 200})
+            prompts = [x.get("prompt", "") for x in (await r.json())["requests"]]
+            line = f"Beat 2 of this scene's plan: {plan}"
+            assert any(line in p for p in prompts), f"no revise prompt has {line!r}"
+            print("  redo beat 2: proposal opened; the prompt names beat 2's plan")
+            await shot(page, "redo-beat")
+            await review.get_by_role("button", name="Discard").click()
+            await expect(review).to_have_count(0)
+        await page.goto(STATE["book_url"])
+        await page.wait_for_load_state("networkidle")
+
     # An emoji (two UTF-16 units, one code point) and an em dash sit before the
     # phrase, so a selection offset sent in the wrong unit lands on wrong words.
     REVISE_TEXT = (
@@ -1149,10 +1282,20 @@ async def journey(page: Page) -> None:
     await step(
         "reorder, delete and restore a chapter", reorder_delete_and_restore_chapter()
     )
-    await step("generate all planned scenes", generate_all_planned_scenes())
+    await step(
+        "a scene from a planned beat: its tone, cast and id",
+        scene_from_a_planned_beat(),
+    )
+    await step(
+        "generate all planned scenes: the modal's beat is skipped",
+        generate_all_planned_scenes(),
+    )
     await step(
         "planned scenes: beat cast plus POV, no default tone",
         planned_scenes_follow_their_beats(),
+    )
+    await step(
+        '"Redo beat 2" on a planned scene opens a proposal', redo_a_planned_beat()
     )
     await step(
         "export: clean headings, scene breaks, a chapter range",

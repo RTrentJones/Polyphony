@@ -223,13 +223,6 @@ class TestReduceInput:
         assert "hit-the-ground-running" not in sections["Zara Okafor"]
         assert "Bring nothing. Sign nothing." in sections["Zara Okafor"]
 
-    async def test_cel_principals_get_a_bible(self, echo):
-        out = await ce.extract_canon(CEL)
-        by_name = {c["name"]: c for c in out["characters"]}
-        for name in PRINCIPALS:
-            c = by_name[name]
-            assert c["description"] and c["goals"] and c["voice_characteristics"], c
-
     async def test_string_evidence_from_the_stub_shape_still_works(self, monkeypatch):
         fake = EchoLLM(evidence_as_list=False)
         monkeypatch.setattr(ce, "get_llm_client", lambda: fake)

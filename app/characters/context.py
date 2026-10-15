@@ -242,34 +242,33 @@ _LEAD_NAME = re.compile(
 def _centres(
     text: str, name: str, cast: Optional[Iterable] = None, aliases=None
 ) -> bool:
-    """Does this narration centre the character? Yes when they are the subject
-    of its first sentence, or when no one else from the cast — and no other
-    proper name — appears in it. "Milo Voss read the appendices. Zara Okafor
-    watched him read them." centres Milo, not Zara (SPEC-17)."""
+    """Does this narration centre the character (SPEC-17)? When its first
+    sentence opens with them, or with another cast member, that subject
+    decides: "Milo Voss read the appendices. Zara Okafor watched him read
+    them." centres Milo, not Zara. Otherwise it centres them unless it names
+    another cast member. Places and other proper names never disqualify it:
+    "Milo walked the Marrow District at dusk" is Milo's (wave-1 review S2)."""
     from app.parsing.names import match
 
     own = _forms({"name": name, "aliases": aliases or []})
+    own_low = {f.lower() for f in own}
+    others = [
+        f
+        for member in cast or []
+        if (member.get("name") if isinstance(member, dict) else member.name) != name
+        for f in _forms(member)
+        if f.lower() not in own_low
+    ]
     first = re.split(r"(?<=[.!?])\s+", text.strip(), maxsplit=1)[0]
     lead = _LEAD_NAME.match(first)
     if lead:
         words = lead.group(1).split()
         # "Then Milo …": try the name with leading words dropped as well.
-        if any(match(" ".join(words[i:]), f) for i in range(len(words)) for f in own):
-            return True
-    own_low = {f.lower() for f in own}
-    for member in cast or []:
-        m_name = member.get("name") if isinstance(member, dict) else member.name
-        if m_name == name:
-            continue
-        if any(f.lower() not in own_low and _names_in(text, f) for f in _forms(member)):
-            return False
-    # A proper name that is not theirs, past a sentence's first word, is
-    # someone (or somewhere) else the passage may be about.
-    for sentence in re.split(r"(?<=[.!?])\s+", text.strip()):
-        for word in re.findall(r"(?<=\s)[A-Z][\w'-]*", sentence):
-            if word != "I" and word.lower() not in own_low:
-                return False
-    return True
+        tails = [" ".join(words[i:]) for i in range(len(words))]
+        for forms, centred in ((own, True), (others, False)):
+            if any(match(t, f) for t in tails for f in forms):
+                return centred
+    return not any(_names_in(text, f) for f in others)
 
 
 async def _voice_and_movement(
@@ -403,10 +402,12 @@ async def build_agent_context(
     *,
     k: int = 3,
     grounding: Optional[list] = None,
+    cast: Optional[Iterable] = None,
 ) -> str:
     """A character agent's fenced context: bible, then <voice> (their own words)
     and <physicality> (action/description) samples retrieved separately
-    (SPEC-14, SPEC-17). <voice> never falls back to narration."""
+    (SPEC-14, SPEC-17). <voice> never falls back to narration. `cast` is the
+    scene's cast: physicality that centres another member is left out."""
     # The ensemble prompt has no canon block, so the agent keeps its bible.
     bio = await build_character_context(
         character, name, beat_description, 0, bible=True
@@ -415,7 +416,9 @@ async def build_agent_context(
     if character is None:
         return "\n\n".join(b for b in blocks if b)
 
-    voice, body = await _voice_and_movement(character, beat_description, k, k)
+    voice, body = await _voice_and_movement(
+        character, beat_description, k, k, cast=cast
+    )
     if grounding is not None:
         grounding.extend(grounding_entries(character, [*voice, *body]))
     if voice:

@@ -27,65 +27,22 @@ import type {
 } from '@/lib/types'
 import type { Estimate } from '@/lib/usage-api'
 
-/** The planned scenes of a chapter (SPEC-23): `chapter.planned_beats` when the
- *  server sends them, else the legacy "Planned beats:" lines of the summary
- *  (SPEC-10; a chapter promoted before the migration, or a server without it),
- *  parsed into the same shape with the other fields empty. */
-export function plannedBeats(
-  chapter?: Pick<BookChapter, 'summary' | 'planned_beats'> | null
-): PlannedBeat[] {
-  if (!chapter) return []
-  const stored = (chapter.planned_beats ?? []).filter(
-    (b) => b && typeof b.title === 'string' && b.title.trim()
-  )
-  if (stored.length > 0) return stored
-  return legacyPlannedBeats(chapter.summary)
-}
-
-/** Each "- title: summary" line after "Planned beats:" (split on the first
- *  ": "; a line without one is a title with an empty summary). */
-export function legacyPlannedBeats(summary?: string | null): PlannedBeat[] {
-  if (!summary) return []
-  const at = summary.indexOf('Planned beats:')
-  if (at < 0) return []
-  return summary
-    .slice(at + 'Planned beats:'.length)
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith('- '))
-    .map((line) => line.slice(2).trim())
-    .map((line, i): PlannedBeat => {
-      const sep = line.indexOf(': ')
-      const title = (sep >= 0 ? line.slice(0, sep) : line.replace(/:$/, '')).trim()
-      const beatSummary = sep >= 0 ? line.slice(sep + 2).trim() : ''
-      return {
-        node_id: `legacy-${i}`,
-        title,
-        summary: beatSummary,
-        character_ids: [],
-        secondary_names: [],
-        setting: '',
-        tone: '',
-      }
-    })
-    .filter((beat) => beat.title.length > 0)
-}
-
 /** The scene description a planned beat generates with: "title: summary",
  *  byte-identical to the server's beat_scene_description (planned_beat.py). */
 export function beatDescription(beat: Pick<PlannedBeat, 'title' | 'summary'>): string {
   return `${beat.title ?? ''}: ${beat.summary ?? ''}`.trim()
 }
 
+/** '' is "Book's tone": the backend leaves the tone to the canon's style. */
 const TONES = [
-  'neutral',
+  '',
   'tense',
   'joyful',
   'melancholic',
   'suspenseful',
   'romantic',
   'wry',
-] as const
+]
 
 export interface GenerateSceneModalProps {
   bookId: string
@@ -121,7 +78,8 @@ export default function GenerateSceneModal({
   const [selected, setSelected] = useState<string[]>([])
   const [description, setDescription] = useState(initialDescription ?? '')
   const [setting, setSetting] = useState('')
-  const [tone, setTone] = useState<string>('neutral')
+  const [tone, setTone] = useState<string>('')
+  const [beatId, setBeatId] = useState<string | null>(null)
   const [povId, setPovId] = useState('')
   const [wordCount, setWordCount] = useState(800)
   const [styleNotes, setStyleNotes] = useState('')
@@ -158,10 +116,8 @@ export default function GenerateSceneModal({
 
   const activeChapter =
     chapter ?? chapters?.find((c) => c.id === chapterId) ?? undefined
-  const beats = useMemo(
-    () => plannedBeats(activeChapter),
-    [activeChapter]
-  )
+  // The server's planned beats are the only source (SPEC-23).
+  const beats = activeChapter?.planned_beats ?? []
 
   // A chapter promoted from the outline carries its cast and POV (SPEC-10):
   // pre-select them when the cast loads or the target chapter changes. Only
@@ -176,11 +132,19 @@ export default function GenerateSceneModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingCast, activeChapter?.id])
 
-  // A planned beat fills the description, and its setting when that field is
-  // still empty (the beat itself is read-only here; editing beats is W2-7).
+  // A planned beat fills the description, setting and tone, preselects its own
+  // cast (an empty cast means the chapter's), and links the scene to the beat
+  // by id (SPEC-23), so generate-all-planned never writes it twice.
   const pickBeat = (beat: PlannedBeat) => {
     setDescription(beatDescription(beat))
-    if (beat.setting && !setting.trim()) setSetting(beat.setting)
+    if (beat.setting) setSetting(beat.setting)
+    setTone(beat.tone ?? '')
+    const ids = beat.character_ids.filter((id) => byId.has(id))
+    if (ids.length > 0) {
+      setSelected(ids)
+      if (!ids.includes(povId)) setPovId('')
+    }
+    setBeatId(beat.node_id)
   }
 
   const toggle = (id: string) =>
@@ -208,6 +172,7 @@ export default function GenerateSceneModal({
       scene_description: description.trim(),
       setting: setting.trim(),
       emotional_tone: tone,
+      ...(beatId ? { planned_beat_id: beatId } : {}),
       ...(pov ? { pov_character: pov } : {}),
       target_word_count: Math.min(3000, Math.max(100, wordCount || 800)),
       ...(styleNotes.trim() ? { style_notes: styleNotes.trim() } : {}),
@@ -250,7 +215,10 @@ export default function GenerateSceneModal({
             </label>
             <select
               value={chapterId}
-              onChange={(e) => setChapterId(e.target.value)}
+              onChange={(e) => {
+                setChapterId(e.target.value)
+                setBeatId(null)
+              }}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             >
               {chapters.map((c) => (
@@ -315,6 +283,7 @@ export default function GenerateSceneModal({
                     key={beat.node_id}
                     type="button"
                     onClick={() => pickBeat(beat)}
+                    aria-pressed={beatId === beat.node_id}
                     title={extra ? `${text}\n${extra}` : text}
                     className="px-2 py-0.5 text-xs rounded border border-gray-300 text-gray-700 hover:border-primary-300 text-left"
                   >
@@ -356,9 +325,9 @@ export default function GenerateSceneModal({
               onChange={(e) => setTone(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             >
-              {TONES.map((t) => (
+              {(TONES.includes(tone) ? TONES : [...TONES, tone]).map((t) => (
                 <option key={t} value={t}>
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
+                  {t ? t.charAt(0).toUpperCase() + t.slice(1) : "Book's tone"}
                 </option>
               ))}
             </select>
