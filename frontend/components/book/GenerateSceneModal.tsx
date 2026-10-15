@@ -134,12 +134,21 @@ export default function GenerateSceneModal({
 
   // A planned beat fills the description, setting and tone, preselects its own
   // cast (an empty cast means the chapter's), and links the scene to the beat
-  // by id (SPEC-23), so generate-all-planned never writes it twice.
+  // by id (SPEC-23), so generate-all-planned never writes it twice. Its cast is
+  // its character ids plus any named person since added to the book, as the
+  // batch casts it.
   const pickBeat = (beat: PlannedBeat) => {
     setDescription(beatDescription(beat))
     if (beat.setting) setSetting(beat.setting)
     setTone(beat.tone ?? '')
-    const ids = beat.character_ids.filter((id) => byId.has(id))
+    const named = new Set(beat.secondary_names.map((n) => n.trim().toLowerCase()))
+    const ids = [
+      ...beat.character_ids.filter((id) => byId.has(id)),
+      ...cast
+        .filter((c) => named.has(c.name.trim().toLowerCase()))
+        .map((c) => c.id)
+        .filter((id) => !beat.character_ids.includes(id)),
+    ]
     if (ids.length > 0) {
       setSelected(ids)
       if (!ids.includes(povId)) setPovId('')

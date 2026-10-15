@@ -950,9 +950,11 @@ async def journey(page: Page) -> None:
             "characters"
         ]
         names = {c["id"]: c["name"] for c in cast}
-        want = [i for i in beat.get("character_ids") or [] if i in names] or [
-            i for i in chapter.get("character_ids") or [] if i in names
-        ]
+        # The beat's cast: its ids plus named people since added to the book.
+        named = {n.casefold() for n in beat.get("secondary_names") or []}
+        want = [i for i in beat.get("character_ids") or [] if i in names]
+        want += [i for i, n in names.items() if n.casefold() in named and i not in want]
+        want = want or [i for i in chapter.get("character_ids") or [] if i in names]
         detail = await (await api_get(f"/books/chapters/{chapter['id']}")).json()
         before = {s["id"] for s in detail["scenes"]}
 

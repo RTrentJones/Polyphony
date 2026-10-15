@@ -210,6 +210,25 @@ describe('GenerateSceneModal defaults from a promoted chapter (SPEC-10)', () => 
     expect(request).not.toHaveProperty('pov_character')
   })
 
+  it('casts a named person the book has since added, as the batch does', async () => {
+    listCharacters.mockResolvedValue(cast)
+    generateScene.mockResolvedValue({ scene_id: 's-1' })
+    renderModal({
+      chapter: {
+        ...promoted,
+        planned_beats: [
+          { ...promoted.planned_beats![0], secondary_names: ['bram', 'Prava'] },
+        ],
+      },
+    })
+    const beats = await screen.findByTestId('planned-beats')
+    await waitFor(() => expect(screen.getByDisplayValue('Bram')).toBeInTheDocument())
+    fireEvent.click(beats.querySelector('button')!)
+    fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
+    await waitFor(() => expect(generateScene).toHaveBeenCalledTimes(1))
+    expect(generateScene.mock.calls[0][1].character_ids).toEqual(['c-ada', 'c-bram'])
+  })
+
   it("a beat with no cast of its own keeps the chapter's cast and the book's tone", async () => {
     listCharacters.mockResolvedValue(cast)
     generateScene.mockResolvedValue({ scene_id: 's-1' })
