@@ -6,9 +6,10 @@ import { draftKey, hashText, readDraft, writeDraft } from '@/lib/draft-store'
 import type { Scene, SceneRevision } from '@/lib/types'
 
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }))
+const nav = vi.hoisted(() => ({ query: 'scene=s1&book=b1' }))
 vi.mock('next/navigation', () => ({
   useRouter: () => router,
-  useSearchParams: () => new URLSearchParams('scene=s1&book=b1'),
+  useSearchParams: () => new URLSearchParams(nav.query),
 }))
 
 const booksApi = vi.hoisted(() => ({
@@ -49,6 +50,7 @@ describe('Scene editor safety net (SPEC-16, B1)', () => {
   let confirmSpy: MockInstance<(message?: string) => boolean>
 
   beforeEach(() => {
+    nav.query = 'scene=s1&book=b1'
     window.localStorage.clear()
     router.push.mockReset()
     router.replace.mockReset()
@@ -189,6 +191,27 @@ describe('Scene editor safety net (SPEC-16, B1)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }))
     expect(editor.value).toBe(ORIGINAL)
     expect(window.localStorage.getItem(draftKey('s1'))).toBeNull()
+  })
+
+  it('drops the previous scene\'s draft offer when only ?scene= changes', async () => {
+    writeDraft('s1', {
+      text: 'Typed in s1.',
+      savedAt: new Date().toISOString(),
+      baseUpdatedAt: null,
+      baseHash: hashText(ORIGINAL),
+    })
+    booksApi.getScene.mockImplementation(async (id: string) =>
+      id === 's2' ? { ...scene, id: 's2', content: 'Scene two.' } : scene
+    )
+    const view = render(<SceneEditorPage />)
+    await screen.findByText(/Restore unsaved draft/)
+    // Next reuses the page for another scene that has no local draft.
+    nav.query = 'scene=s2&book=b1'
+    view.rerender(<SceneEditorPage />)
+    const editor = (await screen.findByDisplayValue('Scene two.')) as HTMLTextAreaElement
+    expect(editor.value).toBe('Scene two.')
+    expect(screen.queryByText(/Restore unsaved draft/)).not.toBeInTheDocument()
+    expect(readDraft('s1')?.text).toBe('Typed in s1.')
   })
 
   it('silently drops a draft identical to the saved text', async () => {
