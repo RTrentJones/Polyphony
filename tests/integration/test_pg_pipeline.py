@@ -358,7 +358,7 @@ async def test_index_source_voices_indexes_committed_characters(pg, monkeypatch)
     monkeypatch.setattr(
         pipeline.char_extractor,
         "extract_character_content",
-        lambda body, name: [
+        lambda body, name, **kw: [
             {
                 "chunk_type": "dialogue",
                 "text": "The dead travel fast.",

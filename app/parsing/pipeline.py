@@ -144,7 +144,9 @@ async def index_characters_voice(
 
     store = get_chunk_store()
     for character_id, name, aliases, is_narrator in targets:
-        chunks = char_extractor.extract_character_content(source_text, name)
+        chunks = char_extractor.extract_character_content(
+            source_text, name, aliases=aliases, cast=cast
+        )
         # Alias mentions + first-person narration the name gate misses (SPEC-09).
         seen = {c["text"] for c in chunks}
         for extra in char_extractor.extract_narration(
