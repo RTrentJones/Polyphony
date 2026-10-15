@@ -640,6 +640,9 @@ def portable_outline(nodes: list, character_ids: dict[str, str]) -> list:
         ids = node.pop("character_ids", None)
         if isinstance(ids, list):
             node["characters"] = [names[c] for c in ids if c in names]
+        # Beat children carry their own cast since wave 2 (SPEC-24).
+        if isinstance(node.get("children"), list):
+            node["children"] = portable_outline(node["children"], character_ids)
         out.append(node)
     return out
 

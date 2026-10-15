@@ -942,3 +942,23 @@ async def test_revise_step_scores_a_refused_revision_zero_and_goes_on(tmp_path):
     assert colder["score"] == 0.0 and "409" in colder["error"]
     assert tighten["outside_identical"] is True
     assert out["score"] == pytest.approx((0.75 + 0.0) / 2)
+
+
+def test_portable_outline_swaps_ids_in_beat_children_too():
+    """Beats carry their own cast since wave 2; ids from another book must not
+    reach a strict outline PUT (it 400s: 'Not in this book's cast')."""
+    from evals.steps.pipeline import portable_outline
+
+    ids = {"Milo Voss": "m1", "Zara Okafor": "z1"}
+    nodes = [
+        {
+            "title": "One",
+            "character_ids": ["m1", "foreign"],
+            "children": [{"title": "Intake", "character_ids": ["z1", "foreign"]}],
+        }
+    ]
+    out = portable_outline(nodes, ids)
+    assert out[0]["characters"] == ["Milo Voss"]
+    child = out[0]["children"][0]
+    assert "character_ids" not in child and child["characters"] == ["Zara Okafor"]
+    assert nodes[0]["children"][0]["character_ids"] == ["z1", "foreign"]  # input kept
