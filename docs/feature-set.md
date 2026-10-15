@@ -4,7 +4,7 @@ The catalogue behind [BRD.md](BRD.md). Requirement IDs (`R1.1`…) refer to BRD 
 refer to [ADR-002](ADR-002-book-as-root.md). Status reflects the book-as-root effort, not the
 product's whole history.
 
-**Status as of 2026-10-12** (reconciled against the code; see [docs/specs](specs/README.md)).
+**Status as of 2026-10-15** (reconciled against the code; see [docs/specs](specs/README.md)).
 
 **Legend** — ✅ shipped · 🚧 in flight · ⬜ planned · ❌ deliberately not doing
 
@@ -29,7 +29,7 @@ product's whole history.
 
 | Feature | Req | Status | Notes |
 |---|---|---|---|
-| Upload a document (docx/pdf/txt/md) | — | ✅ | Currently `Manuscript`, user-scoped |
+| Upload a document (docx/pdf/txt/html) | — | ✅ | The dialog reads `GET /sources/config` (accepted types, max size); an unsupported type is a 415 before the body is read, and `.doc` gets "save as .docx". Markdown is not supported: the parser has no `.md` path (SPEC-21) |
 | `Manuscript` → `Source`, scoped to a book | — | ✅ | ADR-002 §2; you upload **into a book** (PR #19, #29) |
 | Paste raw text as a source | — | ✅ | `kind='paste'` (PR #23) |
 | Deleting a source never deletes the cast | — | ✅ | `characters.source_id ON DELETE SET NULL` and no ORM cascade; deletes are soft and restorable (SPEC-13) |
@@ -48,10 +48,15 @@ product's whole history.
 |---|---|---|---|
 | Whole canon reaches the model, untruncated | R1.1 | ✅ | Every generator assembles `Canon.full_block()`; pinned by unit tests and the stub e2e (SPEC-01, -02, -06) |
 | Staged outline (skeleton → chapters → beats) | R1.2 | ✅ | `app/planning/staged_outline.py`, checkpointed per stage (SPEC-08) |
+| Outline beats stage sees premise, conflict and act goal/turn; JSON, acts from 1 | R1.2a | ✅ | `app/planning/staged_outline.py::_stage_beats_for_act`; the chapters stage embeds acts as JSON too (SPEC-18) |
+| Beat prompt sees the whole beat plan (current beat marked, stop line) | R1.1a | ✅ | `app/orchestration/prose.py::write_beat_prose` (SPEC-18) |
+| Paragraph-preserving prior tail, never mid-sentence | R1.1a | ✅ | `prose.py::prose_tail`, used by prose, ensemble and `handlers._scene_inputs`; checkpoint hash unchanged, so paused jobs still resume (SPEC-18) |
+| Sample prose leads style; house style only when the guide is empty | R1.1a | ✅ | `prose.py::_style_section` (SPEC-18) |
+| Deterministic seam-repeat trim between beats | R1.1a | ✅ | `prose.py::trim_seam_repeat`, in prose and ensemble; the trimmed text is what is stored (SPEC-18) |
 | Premise restatement before structuring | R1.3 | ✅ | Restated at S1 and shown for confirmation (`awaiting_confirmation`); an edit is authoritative for S2-S4 (SPEC-10) |
 | Beats batched by act, not per chapter | — | ✅ | One call per act |
 | Hard gate: principal-cast recall | R1.4 | ✅ | `app/planning/fidelity.py`; aliases honoured (SPEC-09) |
-| Soft warning: unknown proper nouns | R1.5 | ✅ | Plan `warnings`, shown in the Outline tab |
+| Soft warning: unknown proper nouns | R1.5 | ✅ | Plan `warnings`, shown in the Outline tab. Reads non-title text only; fragments, sentence openers and common words are not names; the staged outline passes `canon_text=canon_known_text(canon)` so synopsis/bible names are known (SPEC-21) |
 | Never hard-fail an expensive job on a heuristic | R1.6 | ✅ | One repair, then save with warnings |
 | Outline runs as a job with progress | — | ✅ | Staged and single-call are both jobs; progress by stage (SPEC-07/08) |
 | Single-call outline | — | ✅ | Retained for beat sheets, the offline eval, and degraded mode |
@@ -60,10 +65,11 @@ product's whole history.
 | Structured outline nodes (POV, cast IDs, act, threads) | R1.5 | ✅ | Validated against the book's cast; the fidelity audit reads them strictly (SPEC-10) |
 | Scene defaults from a promoted chapter | — | ✅ | The generate-scene modal pre-selects the chapter's cast and POV and offers its planned beats (SPEC-10) |
 | Generate all planned scenes of a chapter | — | ✅ | `POST /books/chapters/{id}/scenes/generate-planned`: one scene per planned beat with the chapter's cast/POV, preflighted for the whole batch, "llm" rate class, one batch in flight per chapter; the jobs run as a chain so each scene starts from the previous one's tail; beats already written are skipped (SPEC-10 follow-up) |
-| Scene prose generation | — | ✅ | Currently canon-blind: `characters` is a list of name *strings* |
+| Scene prose generation | R1.1 | ✅ | Whole canon and cast by ID (SPEC-01). Per character, voice samples (dialogue + own first-person narration) and movement (action / description / thought, centred on the character) as separate blocks (SPEC-17) |
+| AI revision of a range / beat / scene | R4.9 | ✅ (API) | `POST /books/scenes/{id}/revise` → `revise_scene` job → proposal; `GET …/proposals`, `POST …/revisions/{rid}/accept\|discard`; `estimate` action `revise`; migration `0018_b3_scene_revise` adds `scene_revisions.meta`. Editor UI: W2-A (SPEC-19) |
 | Continuity checking | — | ✅ | Ships an **empty cast** today — same dead `book_id` query as the outline |
 | Plot threads + events | — | ✅ | |
-| Export | — | ✅ | |
+| Export | — | ✅ | Export dialog: format, include synopsis (default off), skip empty chapters (default on), chapter range (1-based, by book position) (SPEC-20). Clean manuscript: "Chapter N: Title" by book position, scene breaks, empty chapters skipped by default, `from_chapter`/`to_chapter` range (SPEC-21) |
 
 ## 4. Ensemble (multi-agent scenes)
 
@@ -74,7 +80,7 @@ product's whole history.
 | Per-character proposals | — | ✅ | |
 | Collapsed cross-character review | — | ✅ | One editor call per round |
 | Characters narrate **actions** | R6.1 | ✅ | `actions` required, non-empty |
-| Action grounding retrieved separately | R6.2 | ✅ | `<voice>` + `<physicality>` per agent, untyped fallback (SPEC-14) |
+| Action grounding retrieved separately | R6.2 | ✅ | `<voice>` + `<physicality>` per agent (SPEC-14); `<voice>` is their own words and never falls back, `<physicality>` falls back to untyped retrieval (SPEC-17) |
 | Editor verifies every present character acted | R6.3 | ✅ | Missing actors become blocking objections in code |
 | Measured convergence (explicit `satisfied` booleans) | — | ✅ | |
 | Anti-oscillation | — | ✅ | |
@@ -89,6 +95,7 @@ product's whole history.
 | Regeneration appends, never overwrites | R4.2 | ✅ | |
 | Forward-only restore | R4.3 | ✅ | |
 | Version history + restore UI | — | ✅ | `VersionHistory`; deleted entities in the Trash tab (SPEC-13) |
+| Scene editor safety net (unsaved-changes guard, local draft autosave + restore) | R5.5 | ✅ | `frontend/lib/useUnsavedChangesGuard.ts`, `frontend/lib/draft-store.ts`; local only, never a `scene_revisions` row (SPEC-16) |
 | `scene_revisions` unified into `entity_versions` | — | ❌ | Different shape and access pattern; two mechanisms is deliberate (ADR-002 §5) |
 | Voice-chunk versioning | — | ❌ | Derived; re-embed is idempotent. Chunk text edits are destructive — accepted |
 | Version pruning | — | ❌ | None initially ⇒ **the ensemble must never snapshot per agent turn**, only the final scene |
@@ -98,6 +105,8 @@ product's whole history.
 | Feature | Req | Status | Notes |
 |---|---|---|---|
 | Voice chunks embedded per character | — | ✅ | fastembed/ONNX, 384-dim, pgvector HNSW cosine |
+| Quote-span speech attribution | R6.4 | ✅ | `app/parsing/character_extractor.py::attribute_speech`: a quote is credited only from an adjacent tag in the same paragraph, an unambiguous action beat or a two-speaker exchange; aliases and cast honoured, an ambiguous name credits nobody. Precision ≥ 0.95 on `tests/fixtures/dialogue_attribution.json` gates CI (SPEC-17) |
+| `reindex-voice --book <id>` admin command | R6.4 | ✅ | `python -m app.cli reindex-voice --book <id>`: re-runs voice indexing per source for its cast; manual samples and other sources' chunks untouched; idempotent (SPEC-17) |
 | Chunks carry `book_id`; retrieval filters by book | R3.3 | ✅ | `index_chunks` requires it; retrieval scopes by user and book |
 | Chunk browser / editor with re-embed | R5.2 | ✅ | Canon tab → character → **Voice** (`VoicePanel`): paged list (type, source, words) with type filter, inline edit (re-embeds via PATCH), delete, and "Add samples" (one per paragraph). API pages with `skip/limit` and filters by `source_id`/`chunk_type` (SPEC-11) |
 | Retrieval inspector (chunks + scores) | R5.3 | ✅ | Voice → "Test retrieval": ranked hits with scores and the `RAG_SCORE_THRESHOLD` line drawn; "Test a line" shows the samples that grounded it (SPEC-11) |
@@ -150,6 +159,7 @@ product's whole history.
 | "Elara outline" regression fixture | — | ✅ | `tests/unit/test_fidelity_gate.py`, zero API cost |
 | Judge rubric mentions fidelity | — | ✅ | |
 | Attribution / continuity / extraction / retrieval graders | — | ✅ | |
+| Eval harness v2 | — | ✅ | Rubric judge (R1–R6) with a separate judge endpoint (`EVAL_JUDGE_BASE_URL`); prompt-contract grader; seam grader; cel corpus with canon, style guide, voice excerpt and planted contradictions; the prose step runs the product path (SPEC-22) |
 
 ## 10. Platform
 
@@ -163,5 +173,7 @@ product's whole history.
 | One container, one Postgres (+pgvector) | ✅ | ADR-001 |
 | Explicit-DDL migration baseline | ✅ | Frozen DDL in `0001_book_as_root_baseline` (the sqlite branch is a test-only safety net) |
 | Book-scoped UI (characters + sources + scenes under the book) | ✅ | Scenes are book-rooted and listed per book (SPEC-04); deleting a chapter asks where its scenes go. `/scenes/` stays only as an authenticated list of scenes reachable through the user's books |
+| Book page usable at phone width | ✅ | Chapter rows stack title over actions below `sm:`, secondary actions in a "⋯" menu; tab strip shows a scroll affordance and keeps the active tab in view (SPEC-20) |
+| Accessibility (B13) | 🚧 | Revision preview is a modal dialog with focus trap, Escape and focus return (SPEC-16); the row "⋯" menu follows the WAI-ARIA menu-button pattern (SPEC-20). Form labels, review labels and an axe gate are not covered yet |
 | `BookProvider` in the frontend | ⬜ | Minimal — `?id=` is prop-drilled today; resist a grand refactor |
 | Prometheus metrics, health, `/__version` SHA gate | ✅ | |

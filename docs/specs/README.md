@@ -35,6 +35,17 @@ route, change the spec in the same PR so it stays true. The acceptance criteria 
 | [SPEC-13](SPEC-13-versioning-completeness.md) | Versioning completeness and a trash | F16 | M | SPEC-04 | ✅ |
 | [SPEC-14](SPEC-14-ensemble-v2.md) | Ensemble v2 | F17 | L | SPEC-01, SPEC-03, SPEC-08, SPEC-12 | ✅ |
 | [SPEC-15](SPEC-15-hygiene.md) | Hygiene and catalogue reconciliation | F18, F19, F20 | S–M | — | ✅ (15c shim removal pending prod confirmation) |
+| [SPEC-16](SPEC-16-editor-safety.md) | Editor safety net: unsaved-changes guard, local draft autosave, modal revision preview | B1, B13 (editor) | S | — | ✅ |
+| [SPEC-17](SPEC-17-voice-attribution.md) | Voice samples are the character's own words | B2 | M | SPEC-09, SPEC-11, SPEC-14 | ✅ |
+| [SPEC-18](SPEC-18-beat-prose-and-outline-beats.md) | Beat-level prose prompt and outline beats prompt | B5, B11, relay prior-tail finding | M | — | ✅ |
+| [SPEC-19](SPEC-19-scene-revise.md) | AI revision of a scene (backend) | B3 (API + job) | L | SPEC-07, SPEC-08, SPEC-12 | ✅ (API; editor UI is W2-A) |
+| [SPEC-20](SPEC-20-book-page-phone-and-export.md) | Book page at phone width, and the export dialog | B4, B9 (UI) | S | SPEC-21 | ✅ |
+| [SPEC-21](SPEC-21-manuscript-hygiene.md) | Manuscript hygiene: clean export, honest outline warnings, upload types | B9 (backend), B14, relay invented-names finding | S | — | ✅ (promote-time title cleanup waits for wave 2) |
+| [SPEC-22](SPEC-22-eval-harness-v2.md) | Eval harness v2: an eval that tests the product | eval plan §3.5 fixes 1–8 | M | — | ✅ |
+
+SPEC-01 to SPEC-15 close review findings (`F…`). SPEC-16 to SPEC-22 are wave 1 of the 2026-10
+cycle: they close product-backlog items (`B…`) and findings from the relay eval run, and SPEC-22
+merged first so the "before" and "after" evals share one harness.
 
 ## Sequencing
 
