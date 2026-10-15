@@ -21,7 +21,7 @@ from sqlalchemy import select
 
 from app.core.database import get_async_session
 from app.core.logging_config import log_business_event, setup_logging
-from app.core.orm_models import Chapter, Scene, SceneRevision
+from app.core.orm_models import Scene, SceneRevision
 from app.jobs.context import current_job
 from app.orchestration.revise import JOB_KIND
 
@@ -41,9 +41,11 @@ class RevisionConflict(RuntimeError):
 async def run(payload: dict) -> None:
     from app.characters.context import SceneScope, build_cast_context
     from app.orchestration import revise as rv
-    from app.orchestration.prose import resolve_pov, scene_cast
+    from app.orchestration.pov import resolve_pov
+    from app.orchestration.prose import scene_cast, scene_chapter
     from app.orchestration.workflow import secondary_names
     from app.planning.canon import build_canon
+    from app.planning.secondaries import render_secondaries, scene_secondaries
 
     scene_id = UUID(payload["scene_id"])
     book_id = UUID(payload["book_id"])
@@ -57,11 +59,11 @@ async def run(payload: dict) -> None:
             raise RevisionConflict("The scene was deleted.")
         draft = scene.draft
         request = rv.cast_request(scene)
-        summary = ""
-        if scene.chapter_id is not None:
-            chapter = await session.get(Chapter, scene.chapter_id)
-            summary = (chapter.summary or "") if chapter is not None else ""
+        summary, position = await scene_chapter(session, scene)
         canon = await build_canon(session, book_id)
+        secondaries = await scene_secondaries(
+            session, book_id, secondary_names(request), canon
+        )
     if rv.text_hash(draft) != base_hash:
         raise RevisionConflict(DRAFT_EDITED)
 
@@ -84,6 +86,8 @@ async def run(payload: dict) -> None:
             after=after,
             instruction=instruction,
             pov=resolve_pov(request, canon),
+            story_position=position,
+            secondary_block=render_secondaries(secondaries),
             beat=(
                 (payload["beat_index"], payload.get("beat_description"))
                 if payload.get("beat_index") is not None

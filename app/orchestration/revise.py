@@ -25,9 +25,10 @@ from sqlalchemy import select
 
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.orm_models import Scene, SceneBeat
-from app.core.prompt_markers import POV_LABEL
+from app.core.prompt_markers import PRIOR_FENCE
 from app.llm.client import get_llm_client
-from app.orchestration.prose import Pov
+from app.orchestration.pov import Pov, pov_instruction
+from app.orchestration.workflow import StoryPosition, chapter_context
 from app.planning.fidelity import unknown_proper_nouns
 
 # The stub LLM (evals/stub_llm.py) recognises the revise family by this line.
@@ -206,11 +207,14 @@ def build_revise_prompt(
     after: str,
     instruction: str,
     pov: Pov,
+    story_position: Optional[StoryPosition],
+    secondary_block: str,
     beat: Optional[tuple[int, Optional[str]]] = None,
 ) -> str:
     """The revise prompt. Everything the author wrote reaches the model whole:
-    the canon, the chapter, the cast's voice context and the entire draft
-    (prior + target + after) — nothing is cut to fit (canon invariant 1).
+    the canon, the chapter and its place in the book, the cast's and the
+    secondaries' voice context and the entire draft (prior + target + after) —
+    nothing is cut to fit (canon invariant 1).
 
     `beat` is (beat_index, its plan line) when the author asked to redo a
     beat: the prompt says which beat of the scene's plan the target is."""
@@ -218,10 +222,9 @@ def build_revise_prompt(
     description = " ".join(clean_for_llm(beat[1] if beat else "").split())
     if description:
         plan_line = f"\nBeat {beat[0] + 1} of this scene's plan: {description}"
-    chapter = as_quoted_block(chapter_summary, "chapter")
     prior_block = (
         "The scene BEFORE the target (read-only: do not rewrite, repeat or "
-        "summarise it):\n" + as_quoted_block(prior, "prior")
+        "summarise it):\n" + as_quoted_block(prior, PRIOR_FENCE)
         if prior.strip()
         else "The target opens the scene."
     )
@@ -231,10 +234,11 @@ def build_revise_prompt(
         if after.strip()
         else "The target ends the scene."
     )
+    voices = "\n\n".join(p for p in (cast_context, secondary_block) if p)
     cast_block = (
         "CHARACTERS IN THIS SCENE — keep each one's dialogue in THEIR OWN voice, "
-        "matching their voice samples:\n\n" + cast_context
-        if cast_context
+        "matching their voice samples:\n\n" + voices
+        if voices
         else ""
     )
     return f"""{OPENING}
@@ -245,11 +249,11 @@ to you about the TARGET passage. Follow it for the TARGET only.
 
 {canon_block}
 
-{chapter}
+{chapter_context(chapter_summary, story_position)}
 
 {cast_block}
 
-{POV_LABEL}: {pov.label}{plan_line}
+{pov_instruction(pov)}{plan_line}
 
 {prior_block}
 
@@ -263,10 +267,11 @@ The author's instruction:
 
 Rewrite ONLY the TARGET passage so that it follows the instruction. Stay
 faithful to the canon above: its people, places, terms and its style guide
-(point of view, tense, tone). Keep the facts the surrounding text depends on.
-Do not introduce named characters who are not in the canon or the scene. Do
-not add headings, labels, quotation of the instruction, or commentary — return
-the revised passage itself, and nothing else.
+(point of view, tense, tone). Keep the events, and the facts, people and
+objects the surrounding text depends on. Do not introduce named characters who
+are not in the canon or the scene. Do not add headings, labels, quotation of
+the instruction, or commentary — return the revised passage itself, and
+nothing else.
 
 Revised passage:"""
 

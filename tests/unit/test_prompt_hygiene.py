@@ -181,6 +181,9 @@ class TestBeatPrompt:
             cast_context,
             "",
             canon_block=canon.full_block(),
+            pov=prose_module.Pov("first person"),
+            story_position=None,
+            secondary_block="",
         )
         (prompt,) = prompts
         section = prompt.split("CHARACTERS IN THIS BEAT", 1)[1].split(

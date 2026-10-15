@@ -9,7 +9,7 @@ migration 0019 linked the scenes written before SPEC-23), and that id is the
 only thing that says a beat is written.
 
 The scenes must run IN ORDER, each seeing the one before: a scene job reads its
-prior scene's tail from the DB when it starts (`handlers._scene_inputs`). The
+prior scene's tail from the DB when it starts (`prose.scene_prior_tail`). The
 worker is single-consumer, but enqueueing every job up front would still not
 guarantee that — a quota pause re-queues job 1 for later while job 2 is already
 claimable, and a failed job 1 would leave job 2 writing on a gap. So the batch

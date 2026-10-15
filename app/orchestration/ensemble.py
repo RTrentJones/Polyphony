@@ -39,6 +39,7 @@ from app.core.logging_config import setup_logging
 from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_object
 from app.llm.tier import get_tier
+from app.orchestration.workflow import StoryPosition
 
 logger = setup_logging("orchestration.ensemble")
 
@@ -411,8 +412,9 @@ async def run_ensemble_scene_workflow(
     scene_request: dict,
     user_id: UUID,
     *,
-    book_id: Optional[UUID] = None,
-    chapter_summary: str = "",
+    book_id: Optional[UUID],
+    chapter_summary: str,
+    story_position: Optional[StoryPosition],
     prior_scene_tail: str = "",
     checkpoint: Optional[dict] = None,
     save_checkpoint=None,
@@ -441,22 +443,33 @@ async def run_ensemble_scene_workflow(
         scene_cast,
         trim_seam_repeat,
     )
-    from app.orchestration.workflow import secondary_names
-    from app.planning.canon import Canon, build_canon
+    from app.orchestration.pov import resolve_pov
+    from app.orchestration.workflow import secondary_names, story_position_line
+    from app.planning.canon import build_canon
+    from app.planning.secondaries import render_secondaries, scene_secondaries
 
     started = datetime.now(timezone.utc)
     checkpoint = dict(checkpoint or {})
     try:
-        if book_id is not None:
-            async with get_async_session() as session:
-                canon = await build_canon(session, book_id)
-            canon_context = canon.full_block()
-        else:
-            canon, canon_context = Canon(title=""), ""
+        if book_id is None:
+            raise RuntimeError("scene generation needs its book (book is the root)")
+        async with get_async_session() as session:
+            canon = await build_canon(session, book_id)
+            secondaries = await scene_secondaries(
+                session, book_id, secondary_names(scene_request), canon
+            )
+        canon_context = canon.full_block()
+        # The planner sees the secondaries; the narrator and agent prompts do
+        # not yet (W3-10).
+        secondary_block = render_secondaries(secondaries)
         scope = SceneScope.of(
             canon, scene_cast(canon, scene_request), secondary_names(scene_request)
         )
-        canon_hash = _canon_hash(canon_context, chapter_summary, prior_scene_tail)
+        canon_hash = _canon_hash(
+            canon_context + secondary_block,
+            chapter_summary + story_position_line(story_position),
+            prior_scene_tail,
+        )
         if checkpoint.get("canon_hash") not in (None, canon_hash):
             checkpoint = {}
             if on_restart is not None:
@@ -473,6 +486,9 @@ async def run_ensemble_scene_workflow(
                 user_id,
                 canon_block=canon_context,
                 chapter_summary=chapter_summary,
+                pov=resolve_pov(scene_request, canon),
+                story_position=story_position,
+                secondary_block=secondary_block,
             )
             checkpoint = {
                 "canon_hash": canon_hash,

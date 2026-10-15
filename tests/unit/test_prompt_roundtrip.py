@@ -4,8 +4,8 @@ A capturing fake LLM records every `(messages, purpose)` the app sends and
 answers with the stub LLM (`evals.stub_llm._answer`), which also proves the
 stub parses the real prompts. The prompts are built through public entry
 points only, for a cel-like book: the staged outline, the beat planner, a
-whole planned scene (so `resolve_pov` and the first and last beat prompts
-run) and the extraction reduce. Written as an archive, every prompt_contract
+whole planned scene (so `resolve_pov`, `scene_chapter` and the first and
+last beat prompts run), a beat revise of it and the extraction reduce. Written as an archive, every prompt_contract
 check must run and pass.
 
 A failure here is a contract break between the app's prompts and the grader:
@@ -115,8 +115,11 @@ async def test_the_apps_prompts_pass_every_contract_check(
     async_session, test_book, monkeypatch, tmp_path
 ):
     import app.characters.context as ctx_mod
+    import app.jobs.revise as revise_job
     import app.orchestration.prose as prose_mod
-    from app.orchestration.workflow import plan_scene_beats
+    import app.orchestration.revise as rv
+    from app.orchestration.pov import resolve_pov
+    from app.orchestration.workflow import StoryPosition, plan_scene_beats
     from app.parsing.canon_extractor import extract_canon
     from app.planning.canon import build_canon
     from app.planning.planned_beat import beat_scene_description
@@ -142,41 +145,83 @@ async def test_the_apps_prompts_pass_every_contract_check(
     beat_cast = [names[i] for i in beat.get("character_ids") or [] if i in names]
     assert beat_cast, beat
 
-    # 2. The beat planner, for a planned beat with its setting and tone.
+    # 2. The beat planner, for a planned beat with its setting, tone and
+    # named secondaries (the synopsis' Prava).
     request = {
         "scene_description": beat_scene_description(beat),
         "characters": beat_cast,
         "setting": beat.get("setting") or "",
         "emotional_tone": beat.get("tone") or "",
+        "secondary_names": beat.get("secondary_names") or [],
     }
+    assert request["secondary_names"], beat
     await plan_scene_beats(
-        request, canon_block=canon.full_block(), chapter_summary=chapter["summary"]
+        request,
+        canon_block=canon.full_block(),
+        chapter_summary=chapter["summary"],
+        pov=resolve_pov(request, canon),
+        story_position=StoryPosition(1, 2),
+        secondary_block="",
     )
 
-    # 3. A whole planned scene: the POV comes from the style guide.
-    row = Chapter(book_id=test_book.id, title=chapter["title"], position=0, summary="")
+    # 3. A whole planned scene: the POV comes from the style guide, the
+    # position from the chapter rows (B-4: computed, not typed in).
+    row = Chapter(
+        book_id=test_book.id,
+        title=chapter["title"],
+        position=0,
+        summary=chapter["summary"],
+    )
     async_session.add(row)
     await async_session.commit()
     assert row.number == 1
+    scene_request = {
+        **request,
+        "characters": [],
+        "character_ids": [str(cast[n].id) for n in beat_cast],
+        "target_word_count": 300,
+    }
     scene = Scene(
-        user_id=test_book.user_id, chapter_id=row.id, position=0, status="processing"
+        user_id=test_book.user_id,
+        chapter_id=row.id,
+        position=0,
+        status="processing",
+        scene_request=scene_request,
     )
     async_session.add(scene)
     await async_session.commit()
+    summary, position = await prose_mod.scene_chapter(async_session, scene)
+    assert (summary, position) == (chapter["summary"], StoryPosition(1, 2))
     result = await prose_mod.run_prose_scene_workflow(
         scene.id,
-        {
-            **request,
-            "characters": [],
-            "character_ids": [str(cast[n].id) for n in beat_cast],
-            "target_word_count": 300,
-        },
+        scene_request,
         test_book.user_id,
-        chapter_summary=chapter["summary"],
+        chapter_summary=summary,
+        story_position=position,
         book_id=test_book.id,
     )
     assert result["status"] == "completed", result
     assert sum(r["purpose"] == "beat_prose" for r in fake.records) >= 2
+
+    # 3b. Redo beat 2 of that scene (the revise job, as the worker runs it).
+    monkeypatch.setattr(
+        revise_job, "get_async_session", lambda: _Session(async_session)
+    )
+    await async_session.refresh(scene)
+    span = await rv.resolve_scene_span(async_session, scene, rv.SpanSpec(beat_index=1))
+    await revise_job.run(
+        {
+            "scene_id": str(scene.id),
+            "book_id": str(test_book.id),
+            "user_id": str(test_book.user_id),
+            "base_text_hash": rv.text_hash(scene.draft),
+            "instruction": "Redo beat 2.",
+            "range": [span.start, span.end],
+            "beat_index": 1,
+            "beat_description": span.beat,
+        }
+    )
+    assert fake.records[-1]["purpose"] == "scene_revise"
 
     # 4. Extraction over the cel excerpt, for the reduce prompt.
     await extract_canon(pipeline.load_corpus("cel")[0])

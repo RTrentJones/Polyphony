@@ -54,13 +54,16 @@ FAILING = [
     (
         "beat_prose",
         "<chapter>\nMilo dies and is onboarded.\n</chapter>\n"
+        "This scene is in chapter 5 of 4.\n"
+        "Also named (secondary, not in the cast): Prava, Old Fen\n"
         "<beats>\n1. He arrives.\n→ 2. He signs.\n</beats>\n"
         "Point of view: third person limited, Zara Okafor. Narrate only what "
         "Zara Okafor perceives or knows.\n"
         "<canon>\n### Milo Voss\n" + f"Description: {MILO_DESC}\n</canon>\n"
         "CHARACTERS IN THIS BEAT\n### Milo Voss\n" + f"Description: {MILO_DESC}\n"
         'Voice samples (their own words):\n- "Don\'t thank her,"\n'
-        "BEAT TO WRITE: the last beat. End the scene here.\n"
+        "<secondary>\n### Old Fen\nIntroduced: Old Fen files.\n</secondary>\n"
+        "BEAT TO WRITE: the last beat.\n"
         "<prior>\nand then he left.\n</prior>\n"
         "description and action carry the scene.",
         "He signed.",
@@ -96,7 +99,8 @@ REASONS = {
     "no_neutral_tone": '"Emotional tone: neutral" line',
     "pov_line_has_mode_and_character": "POV is 'Zara Okafor', not the chapter POV "
     "'Milo Voss'",
-    "last_beat_no_wrap_up": '"end the scene here"',
+    "secondary_has_context": "Prava: no '### Prava' in <secondary>",
+    "story_position_line": "chapter 5 of 4",
     "no_duplicate_bible": "bible fields in CHARACTERS IN THIS BEAT: Description",
     "no_doubled_voice_label": 'doubled label "Voice: voice:"',
     "reduce_evidence_depth": "Milo Voss: 1 evidence/quote line(s) (< 3)",
@@ -136,6 +140,10 @@ def test_every_check_fails_its_failing_fixture(tmp_path):
         reasons = [r for f in out[check]["failures"] for r in f["reasons"]]
         assert reason in reasons, (check, out[check])
     assert out["n_calls"] == len(FAILING)
+    # W3-3: the planner's POV line is graded too (record 2 has none); the
+    # movement fixture appended last is a fourth beat_prose prompt.
+    pov = out["pov_line_has_mode_and_character"]
+    assert pov["n"] == 4 and "2" in [f["id"] for f in pov["failures"]]
 
 
 def test_prior_keeps_its_paragraphs_and_starts_a_sentence():

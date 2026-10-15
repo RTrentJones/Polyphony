@@ -29,15 +29,19 @@ Wave 2 (SPEC-28; the strings are tpm-plan-wave2 §1.3 P1-P10):
                        matching no beat is listed in ``unmatched`` (F2, S5).
 * ``no_blank_setting`` / ``no_neutral_tone``  plan_beats, beat_prose (F3); a
                        "neutral" the outline beat chose is the author's (S7).
-* ``pov_line_has_mode_and_character``  beat_prose: ``POV_LINE_RE`` parses, it
-                       names the chapter POV (else the corpus ``pov``), and the
-                       "Narrate only what" limit names them too (F9, S5).
-* ``last_beat_no_wrap_up``  beat_prose, last beat: no "end the scene here".
+* ``pov_line_has_mode_and_character``  beat_prose, plan_beats, scene_revise:
+                       ``POV_LINE_RE`` parses, it names the chapter POV (else
+                       the corpus ``pov``), and in a one-head mode the "Narrate
+                       only what" limit names them too (F9, S5, W3-3).
 * ``no_duplicate_bible``  beat_prose: no bible fields in CHARACTERS IN THIS
                        BEAT; each canon description exactly once (F4).
 * ``no_doubled_voice_label``  every call: no "Voice: voice:" (F7).
 * ``reduce_evidence_depth``  extraction_reduce: >= 3 evidence/quote lines per
                        principal (F1).
+* ``secondary_has_context``  beat_prose: each "Also named" name has context in
+                       ``<secondary>`` (W3-1).
+* ``story_position_line``  beat_prose, plan_beats, scene_revise with a
+                       ``<chapter>``: one "chapter N of M", 1 <= N <= M (W3-2).
 
 Wave 3: ``movement_names_in_scene``  beat_prose: no "How they move" line names
 a principal or ``secondary_cast`` member outside the scene (SPEC-30); reports
@@ -66,18 +70,22 @@ from app.core.prompt_markers import (
     CONFIRMED_PREMISE_NOTE,
     CURRENT_BEAT_MARK,
     EMOTIONAL_TONE_LABEL,
+    INTRODUCED_LABEL,
     NAME_HEADING,
     POV_LIMIT_CLOSE,
     POV_LIMIT_OPEN,
     POV_LINE_RE,
     PRIOR_FENCE,
     SCENE_DESCRIPTION_LABEL,
+    SECONDARY_FENCE,
     SETTING_LABEL,
     STOP_AT_NEXT_BEAT,
+    STORY_POSITION_RE,
     labelled_line,
     ALSO_NAMED_LABEL,
     MOVEMENT_LABEL,
 )
+from app.orchestration.pov import Pov
 from app.parsing.names import NON_NAME_TOKENS, mentions, norm
 
 # The house-style paragraph the beat prompt hard-codes today; it must not
@@ -328,12 +336,11 @@ _BLANK_SETTING = re.compile(rf"(?m)^\s*{re.escape(SETTING_LABEL)}:\s*$")
 _NEUTRAL_TONE = re.compile(
     rf"(?im)^\s*{re.escape(EMOTIONAL_TONE_LABEL)}:\s*neutral\s*$"
 )
-# tripwire: delete in wave 3 (the old P6 wording; S5).
-_WRAP_UP = "end the scene here"
 _BIBLE_LABELS = re.compile(r"^(Role|Description|Goals|Arc|Voice):")
 _DOUBLED_VOICE = re.compile(r"(?i)\bvoice:\s*voice:")
 _EVIDENCE_LINE = re.compile(r"^\s*-\s*(\(part\s+\d+\)|[\"“])")
 _SCENE_DESCRIPTION = labelled_line(SCENE_DESCRIPTION_LABEL)
+_ALSO_NAMED = labelled_line(ALSO_NAMED_LABEL)
 # "Premise (confirmed by the author...): ..." (CONFIRMED_PREMISE_NOTE).
 _CONFIRMED_PREMISE = re.compile(
     rf"(?m)^Premise{re.escape(CONFIRMED_PREMISE_NOTE.split(':')[0])}[^)]*\): (.+)$"
@@ -387,8 +394,8 @@ def check_pov_line(prompt: str, expected_who: str | None) -> list[str]:
         return []
     if who.lower() != expected_who.lower():
         return [f"POV is {who or '(none)'!r}, not the chapter POV {expected_who!r}"]
-    if m.group("mode").endswith(("omniscient", "objective")):
-        return []  # not held to one head (pov_instruction)
+    if not Pov(m.group("mode")).one_head:
+        return []  # a wide mode is not held to one head (pov_instruction)
     if not re.search(
         rf"{re.escape(POV_LIMIT_OPEN)}\s+{re.escape(who)}\b[^\n]*?"
         rf"{re.escape(POV_LIMIT_CLOSE)}",
@@ -398,9 +405,30 @@ def check_pov_line(prompt: str, expected_who: str | None) -> list[str]:
     return []
 
 
-def check_last_beat_no_wrap_up(prompt: str) -> list[str]:
-    """F9: the last beat is not told to wrap the scene up."""
-    return ['"end the scene here"'] if _WRAP_UP in prompt.lower() else []
+def check_secondary_has_context(prompt: str) -> list[str]:
+    """W3-1: each "Also named" secondary has a `### name` in `<secondary>`,
+    with an "Introduced:" line or a voice-samples list."""
+    fence = block(prompt, SECONDARY_FENCE) or ""
+    sections, samples = candidate_sections(fence), voice_samples(fence)
+    reasons = []
+    for name in _names(_ALSO_NAMED.search(prompt).group(1)):
+        lines = sections.get(name)
+        if lines is None:
+            reasons.append(f"{name}: no '{NAME_HEADING}{name}' in <{SECONDARY_FENCE}>")
+        elif not samples.get(name) and not any(
+            ln.strip().startswith(INTRODUCED_LABEL) for ln in lines
+        ):
+            reasons.append(f"{name}: neither {INTRODUCED_LABEL} nor voice samples")
+    return reasons
+
+
+def check_story_position(prompt: str) -> list[str]:
+    """W3-2: one "This scene is in chapter N of M." line, 1 <= N <= M."""
+    found = list(STORY_POSITION_RE.finditer(prompt))
+    if len(found) != 1:
+        return [f"{len(found)} story-position lines"]
+    n, m = int(found[0].group("n")), int(found[0].group("m"))
+    return [] if 1 <= n <= m else [f"chapter {n} of {m}"]
 
 
 def characters_section(prompt: str) -> str | None:
@@ -675,12 +703,13 @@ CHECKS = (
     "no_blank_setting",
     "no_neutral_tone",
     "pov_line_has_mode_and_character",
-    "last_beat_no_wrap_up",
     "no_duplicate_bible",
     "no_doubled_voice_label",
     "reduce_evidence_depth",
     # wave 3
     "movement_names_in_scene",
+    "secondary_has_context",
+    "story_position_line",
 )
 
 
@@ -763,16 +792,18 @@ def grade(
                 tallies["no_neutral_tone"].add(
                     rec, check_no_neutral_tone(prompt, planned.get("tone") or "")
                 )
-        if pur == "beat_prose":
-            beat_prompt_chars.append(len(prompt))
-            chapter = outline.chapter_for(prompt)
-            who = (chapter or {}).get("pov") or pov
+        if pur in ("beat_prose", "plan_beats", "scene_revise"):
+            who = (outline.chapter_for(prompt) or {}).get("pov") or pov
             tallies["pov_line_has_mode_and_character"].add(
                 rec, check_pov_line(prompt, who or None)
             )
-            if _is_last_beat(block(prompt, BEATS_FENCE)):
-                tallies["last_beat_no_wrap_up"].add(
-                    rec, check_last_beat_no_wrap_up(prompt)
+            if block(prompt, CHAPTER_FENCE) is not None:
+                tallies["story_position_line"].add(rec, check_story_position(prompt))
+        if pur == "beat_prose":
+            beat_prompt_chars.append(len(prompt))
+            if _ALSO_NAMED.search(prompt):
+                tallies["secondary_has_context"].add(
+                    rec, check_secondary_has_context(prompt)
                 )
             tallies["no_duplicate_bible"].add(
                 rec, check_no_duplicate_bible(prompt, descriptions or [])
