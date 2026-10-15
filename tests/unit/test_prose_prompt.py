@@ -166,7 +166,8 @@ class TestBeatPrompt:
             _BEATS[2], _REQUEST, "cast", "", all_beats=_BEATS, beat_index=2
         )
         assert (
-            "Write ONLY beat 3, the last beat: end the scene here." in fake.prompts[0]
+            "Write ONLY beat 3, the last beat: end the scene inside the moment, "
+            "in POV; no summary of what follows." in fake.prompts[0]
         )
         assert "Stop where beat" not in fake.prompts[0]
 
