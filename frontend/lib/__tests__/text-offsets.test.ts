@@ -26,19 +26,20 @@ describe('UTF-16 <-> code point offsets (SPEC-25)', () => {
     }
   })
 
-  it('turns a textarea selection into a code-point range of the stripped draft', () => {
+  it('turns a textarea selection into a code-point range of the raw draft', () => {
+    // Edge whitespace is part of the draft (the server revises the raw text).
     const editor = `\n  ${text}\n\n`
     const from = editor.indexOf('then')
     const to = from + 'then Bram'.length
     const sel = selectionToDraftRange(editor, from, to)
-    expect(sel).toEqual({ start: 8, end: 17, text: 'then Bram' })
+    expect(sel).toEqual({ start: 11, end: 20, text: 'then Bram' })
     // What Python's draft[start:end] would slice:
     expect(Array.from(serverDraft(editor)).slice(sel!.start, sel!.end).join('')).toBe(
       'then Bram'
     )
   })
 
-  it('accepts a backwards selection and refuses an empty or all-padding one', () => {
+  it('accepts a backwards selection and refuses an empty or all-whitespace one', () => {
     const from = text.indexOf('Bram')
     expect(selectionToDraftRange(text, from + 4, from)?.text).toBe('Bram')
     expect(selectionToDraftRange(text, 3, 3)).toBeNull()

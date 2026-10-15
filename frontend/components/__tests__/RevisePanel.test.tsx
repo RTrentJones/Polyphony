@@ -43,7 +43,7 @@ vi.mock('@/lib/voice-api', () => ({ voiceApi: { sceneGrounding } }))
 // the editor text also has trailing whitespace the server's draft strips.
 const DRAFT = 'Ada 😀 — Zara smiled warmly at him. Then she left.'
 const EDITOR_TEXT = `${DRAFT}\n`
-const REVISED = 'Ada 😀 — Zara stared coldly at him. Then she left.'
+const REVISED = 'Ada 😀 — Zara stared coldly at him. Then she left.\n'
 
 const scene: Scene = {
   id: 's1',
@@ -105,8 +105,8 @@ describe('Revise from the scene editor (SPEC-25, W2-3)', () => {
     })
     reviseApi.proposals
       .mockReset()
-      .mockResolvedValueOnce({ scene_id: 's1', draft: DRAFT, draft_hash: 'h', proposals: [] })
-      .mockResolvedValue({ scene_id: 's1', draft: DRAFT, draft_hash: 'h', proposals: [proposal] })
+      .mockResolvedValueOnce({ scene_id: 's1', draft: EDITOR_TEXT, draft_hash: 'h', proposals: [] })
+      .mockResolvedValue({ scene_id: 's1', draft: EDITOR_TEXT, draft_hash: 'h', proposals: [proposal] })
     reviseApi.accept.mockReset()
     reviseApi.discard.mockReset()
     getJob.mockReset().mockResolvedValue({ id: 'job-1', status: 'succeeded', error: null })
@@ -133,7 +133,7 @@ describe('Revise from the scene editor (SPEC-25, W2-3)', () => {
     expect(request.range).toEqual({ start: 8, end: 34 })
     expect(Array.from(DRAFT).slice(8, 34).join('')).toBe('Zara smiled warmly at him.')
     expect(request.selected_text).toBe('Zara smiled warmly at him.')
-    expect(request.base_text_hash).toBe(await sha256Hex(DRAFT))
+    expect(request.base_text_hash).toBe(await sha256Hex(EDITOR_TEXT))
     expect(request.instruction).toBe('Make Zara colder')
     expect(request.beat_index).toBeUndefined()
   })
@@ -213,7 +213,7 @@ describe('Revise from the scene editor (SPEC-25, W2-3)', () => {
     const request = reviseApi.revise.mock.calls[0][1]
     expect(request.beat_index).toBe(1)
     expect(request.range).toBeUndefined()
-    expect(request.base_text_hash).toBe(await sha256Hex(DRAFT))
+    expect(request.base_text_hash).toBe(await sha256Hex(EDITOR_TEXT))
   })
 
   it('asks for a selection, and refuses to revise unsaved edits', async () => {

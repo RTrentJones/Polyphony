@@ -44,10 +44,10 @@ export function codePointToUtf16(text: string, cpIndex: number): number {
   return i
 }
 
-/** Python's `str.strip()` is what the server's draft is (exports.builder.
- *  scene_text); JS `trim()` strips the same whitespace for prose. */
+/** The server's revise draft is the raw editable text (app/jobs/revise.py
+ *  draft_of), edge whitespace included, so it is the editor text as is. */
 export function serverDraft(text: string): string {
-  return (text || '').trim()
+  return text || ''
 }
 
 export interface DraftSelection {
@@ -60,8 +60,8 @@ export interface DraftSelection {
 
 /**
  * A textarea selection (UTF-16, over the editor text) as a range into the
- * server draft (code points, over the stripped text). Null when nothing (or
- * only whitespace outside the draft) is selected.
+ * server draft (code points). Null when nothing, or only whitespace, is
+ * selected.
  */
 export function selectionToDraftRange(
   editorText: string,
@@ -69,18 +69,15 @@ export function selectionToDraftRange(
   selectionEnd: number
 ): DraftSelection | null {
   const draft = serverDraft(editorText)
-  const lead = editorText.length - editorText.trimStart().length
-  const from = Math.max(0, Math.min(selectionStart, selectionEnd) - lead)
-  const to = Math.min(draft.length, Math.max(selectionStart, selectionEnd) - lead)
+  const from = Math.max(0, Math.min(selectionStart, selectionEnd))
+  const to = Math.min(draft.length, Math.max(selectionStart, selectionEnd))
   if (to <= from) return null
   const start = utf16ToCodePoint(draft, from)
   const end = utf16ToCodePoint(draft, to)
   if (end <= start) return null
-  return {
-    start,
-    end,
-    text: draft.slice(codePointToUtf16(draft, start), codePointToUtf16(draft, end)),
-  }
+  const text = draft.slice(codePointToUtf16(draft, start), codePointToUtf16(draft, end))
+  if (!text.trim()) return null
+  return { start, end, text }
 }
 
 /** SHA-256 hex of the UTF-8 bytes of `text` (Web Crypto; async). */
