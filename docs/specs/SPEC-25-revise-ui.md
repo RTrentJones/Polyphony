@@ -31,10 +31,9 @@ menu entry and the modal's beat chips would all disappear.
 - **Target.**
   - *Selection.* The textarea's `selectionStart/End` at the moment the author clicks.
   - *Beat.* The buttons are built from `GET /books/scenes/{id}/grounding` → `beats[].beat_index`
-    and labelled 1-based. The server locates the beat's own prose. `/grounding` lists only the
-    beats whose grounding was recorded (`evaluation_scores.grounding`), so a scene generated
-    without it shows no "Redo beat" buttons; building the list from `SceneBeat` rows instead is an
-    open follow-up.
+    and labelled 1-based. The server locates the beat's own prose. `/grounding` lists every stored
+    `SceneBeat` (beats without a recorded grounding come back with no characters), so any scene
+    with stored beats offers "Redo beat"; `GET /scenes/{id}` also returns `beats`.
   - *Whole scene.*
 - **Offsets** (`lib/text-offsets.ts`).
   - The server's draft is the raw editable text, edge whitespace included (since `be0bc9d`), so

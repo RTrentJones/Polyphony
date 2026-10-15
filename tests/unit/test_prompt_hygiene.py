@@ -56,7 +56,7 @@ class Store:
 @pytest.fixture
 def cast(monkeypatch):
     milo = _char("Milo Voss", "A new analyst, dead.", {"voice": "corporate, eager"})
-    zara = _char("Zara Okafor", "A veteran clerk.", {"Voice": "voice: dry"})
+    zara = _char("Zara Okafor", "A veteran clerk.", {"Voice": "dry"})
     store = Store(
         [
             {
@@ -86,10 +86,10 @@ class TestRenderJsonField:
             "dry; rhythm: clipped"
         )
 
-    def test_string_and_list_values_lose_a_repeated_label(self):
-        assert _render_json_field("Voice: voice: dry", "Voice") == "dry"
-        assert _render_json_field(["voice: dry", "terse"], "Voice") == "dry; terse"
-        assert _render_json_field({"voice": "Voice: dry"}, "Voice") == "dry"
+    def test_string_and_list_values_are_kept_as_written(self):
+        # Review Could 3: only the dict key is dropped (SPEC-26 26e).
+        assert _render_json_field("dry", "Voice") == "dry"
+        assert _render_json_field(["dry", "terse"], "Voice") == "dry; terse"
 
     def test_without_label_unchanged(self):
         assert _render_json_field({"voice": "dry"}) == "voice: dry"
