@@ -312,6 +312,15 @@ async def journey(page: Page) -> None:
         await expect(
             page.get_by_text("Every outline node already has a chapter")
         ).to_be_visible()
+        # SPEC-23: promoted chapters carry their beats as data, a summary with
+        # no "Planned beats:" text, and a title with no "Chapter N:" prefix.
+        book = await (await api_get(f"/books/{STATE['book_id']}")).json()
+        promoted = [c for c in book["chapters"] if c.get("plan_node_id")]
+        assert promoted, "promote created no chapters"
+        for c in promoted:
+            assert "Planned beats:" not in (c.get("summary") or ""), c
+            assert not re.match(r"^Chapter\s+\d+\s*[:.\-–]", c["title"]), c
+        assert any(c.get("planned_beats") for c in promoted), "no planned_beats"
 
     async def continuity():
         await page.get_by_role("button", name="Continuity").click()
@@ -920,13 +929,15 @@ async def journey(page: Page) -> None:
     )
     REVISE_PHRASE = "The second time, they read him."
 
-    async def ask_to_revise(editor, panel, instruction: str, click: bool = True):
-        """Select REVISE_PHRASE in the textarea, open "Revise selection…" on it,
-        and (unless `click` is False) ask for the revision."""
+    async def ask_to_revise(
+        editor, panel, instruction: str, click: bool = True, phrase=REVISE_PHRASE
+    ):
+        """Select `phrase` in the textarea, open "Revise selection…" on it, and
+        (unless `click` is False) ask for the revision."""
         await editor.evaluate(
             "(el, p) => { const i = el.value.indexOf(p); el.focus();"
             " el.setSelectionRange(i, i + p.length) }",
-            REVISE_PHRASE,
+            phrase,
         )
         await panel.get_by_role("button", name=re.compile("^Revise selection")).click()
         await panel.get_by_label("What should change?").fill(instruction)
@@ -1003,7 +1014,8 @@ async def journey(page: Page) -> None:
                 "The beat was edited; select the text instead."
             )
             await panel.get_by_role("button", name="Cancel", exact=True).click()
-        await ask_to_revise(editor, panel, "Make it warmer.", click=False)
+        # The accepted revision rewrote REVISE_PHRASE; "Milo" is still there.
+        await ask_to_revise(editor, panel, "Make it warmer.", False, "Milo")
         # Another tab saves a different draft meanwhile.
         r = await page.request.put(
             f"{BASE}/api/v1/books/scenes/{STATE['scene_id']}/content",
