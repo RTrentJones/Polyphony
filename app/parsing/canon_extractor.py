@@ -607,8 +607,17 @@ def merge_characters(window_answers: list[tuple[int, dict]], text: str = "") -> 
     for host, root in joins:
         uf.union(host, root)
 
+    # One source scan per distinct surface, however many groups rank it (W-5).
+    titles: dict[str, bool] = {}
+
+    def is_title(form: str) -> bool:
+        if form not in titles:
+            titles[form] = _used_as_title(form, text)
+        return titles[form]
+
     merged = [
-        _fold_group([cands[i] for i in members], text) for members in groups().values()
+        _fold_group([cands[i] for i in members], is_title)
+        for members in groups().values()
     ]
     _count_group_mentions(merged, text)
     merged.sort(key=lambda g: (-len(g["windows"]), -g["mentions"], g["name"]))
@@ -671,10 +680,12 @@ def _used_as_title(form: str, text: str) -> bool:
     return sum(1 for det in hits if det) * 2 > len(hits)
 
 
-def _fold_group(members: list[dict], text: str = "") -> dict:
+def _fold_group(members: list[dict], is_title: Callable[[str], bool]) -> dict:
     """One merged candidate: best name, the rest as aliases, windows, and its
     appearances as the mention floor (`_count_group_mentions` counts the text).
-    A form the source mostly uses as a title ranks below every other form."""
+    A form the source mostly uses as a title (`is_title`, a memoised
+    _used_as_title) ranks below every other form; a one-form group is never
+    checked, since it has nothing to rank."""
     primary_counts = Counter(norm(m["name"]) for m in members)
     surfaces: dict[str, Counter] = defaultdict(Counter)
     for m in members:
@@ -689,7 +700,7 @@ def _fold_group(members: list[dict], text: str = "") -> dict:
         # "Vasska"); a full name drops it ("Nora Vance" over "Miss Nora Vance").
         sig = len(significant(key))
         n_tok = len(tokens(key))
-        title = _used_as_title(surfaces[key].most_common(1)[0][0], text)
+        title = len(surfaces) > 1 and is_title(surfaces[key].most_common(1)[0][0])
         return (
             not title,
             sig,

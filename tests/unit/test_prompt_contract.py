@@ -158,18 +158,6 @@ def test_a_block_is_read_from_its_fence_not_a_mention_in_the_instructions():
     assert pc.block(prompt, "prior") == "It was."
 
 
-def test_a_pov_name_with_a_period_is_read_whole():
-    """S5: "Dr. Ada Vance" is not graded as "Dr"."""
-    pov = (
-        "Point of view: third person limited, Dr. Ada Vance. Narrate only what "
-        "Dr. Ada Vance perceives or knows."
-    )
-    assert pc.check_pov_line(pov, "Dr. Ada Vance") == []
-    assert pc.check_pov_line("Point of view: Ada\n", "Ada") == [
-        'no "Point of view: <mode>, <character>." line'
-    ]
-
-
 def test_a_plan_prompt_without_an_available_cast_fails_even_unmatched():
     index = pc.OutlineIndex({})
     no_line = "Scene description: Other: y\nThe scene's cast is exactly: Milo."

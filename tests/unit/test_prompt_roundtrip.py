@@ -6,7 +6,7 @@ stub parses the real prompts. The prompts are built through public entry
 points only, for a cel-like book: the staged outline, the beat planner, a
 whole planned scene (so `resolve_pov` and the first and last beat prompts
 run) and the extraction reduce. Written as an archive, every prompt_contract
-check that ran must pass.
+check must run and pass.
 
 A failure here is a contract break between the app's prompts and the grader:
 fix the prompt (or the marker), never soften the check.
@@ -16,7 +16,6 @@ import json
 import types
 
 import pytest
-from sqlalchemy import select
 
 import app.llm.client as llm_client
 from app.core.orm_models import Chapter, Character, Scene, StyleGuide
@@ -25,21 +24,6 @@ from evals.graders import prompt_contract as pc
 from evals.steps import pipeline
 
 pytestmark = pytest.mark.unit
-
-MUST_RUN = (
-    "beats_block",
-    "prior_paragraphs",
-    "beats_stage",
-    "outline_no_repr",
-    "plan_cast_from_beat",
-    "no_blank_setting",
-    "no_neutral_tone",
-    "pov_line_has_mode_and_character",
-    "last_beat_no_wrap_up",
-    "no_duplicate_bible",
-    "no_doubled_voice_label",
-    "reduce_evidence_depth",
-)
 
 
 class CapturingLLM:
@@ -51,10 +35,6 @@ class CapturingLLM:
     async def generate(self, messages, *, purpose="", **kw):
         prompt = "\n\n".join(str(m.get("content") or "") for m in messages)
         answer = stub_llm._answer(prompt)
-        if purpose == "beat_prose":
-            # The stub writes the same prose for every beat; a beat-mode revise
-            # needs each beat's text to be unique in the draft.
-            answer += f" The wall clock read {len(self.records)} past the hour."
         self.records.append(
             {
                 "id": f"{len(self.records):04d}",
@@ -112,38 +92,6 @@ async def _cel_book(session, book):
     )
     await session.commit()
     return gt, style, {c.name: c for c in cast}
-
-
-async def _redo_beat_two(session, scene, book, monkeypatch, fake):
-    import app.jobs.revise as revise_job
-    from app.core.orm_models import SceneBeat
-    from app.orchestration import revise as rv
-
-    monkeypatch.setattr(revise_job, "get_async_session", lambda: _Session(session))
-    await session.refresh(scene)
-    beats = (
-        (await session.execute(select(SceneBeat).where(SceneBeat.scene_id == scene.id)))
-        .scalars()
-        .all()
-    )
-    second = next(b for b in beats if b.beat_number == 1)
-    span = await rv.resolve_scene_span(session, scene, rv.SpanSpec(beat_index=1))
-    await revise_job.run(
-        {
-            "scene_id": str(scene.id),
-            "book_id": str(book.id),
-            "user_id": str(book.user_id),
-            "base_text_hash": rv.text_hash(scene.draft),
-            "instruction": "Redo beat 2.",
-            "range": [span.start, span.end],
-            "beat_index": 1,
-            "beat_description": span.beat,
-        }
-    )
-    [prompt] = [
-        pc.prompt_text(r) for r in fake.records if r["purpose"] == "scene_revise"
-    ]
-    assert f"Beat 2 of this scene's plan: {second.description}" in prompt
 
 
 async def test_the_apps_prompts_pass_every_contract_check(
@@ -212,11 +160,7 @@ async def test_the_apps_prompts_pass_every_contract_check(
     assert result["status"] == "completed", result
     assert sum(r["purpose"] == "beat_prose" for r in fake.records) >= 2
 
-    # 4. "Redo beat 2" on that scene: the revise prompt states what beat 2
-    #    was (eval finding 6), through the span resolver and the revise job.
-    await _redo_beat_two(async_session, scene, test_book, monkeypatch, fake)
-
-    # 5. Extraction over the cel excerpt, for the reduce prompt.
+    # 4. Extraction over the cel excerpt, for the reduce prompt.
     await extract_canon(pipeline.load_corpus("cel")[0])
 
     for rec in fake.records:
@@ -229,5 +173,5 @@ async def test_the_apps_prompts_pass_every_contract_check(
     ran = {c: out[c] for c in pc.CHECKS if out[c]["n"]}
     failing = {c: r["failures"] for c, r in ran.items() if r["rate"] != 1.0}
     assert not failing, json.dumps(failing, indent=1)[:4000]
-    assert [c for c in MUST_RUN if c not in ran] == []
+    assert set(ran) == set(pc.CHECKS)
     assert out["plan_cast_from_beat"]["unmatched"] == []

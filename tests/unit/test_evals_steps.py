@@ -532,7 +532,7 @@ async def test_outline_confirms_the_authors_premise_and_caps_r1(tmp_path):
         outline_nodes=[
             {
                 "title": "Elara arrives",
-                "summary": "Elara meets Milo Voss, Zara Okafor and Prava.",
+                "summary": "Milo Voss meets Elara, Zara Okafor and Prava.",
                 "children": [],
             }
         ]
@@ -798,7 +798,12 @@ def test_revision_checks_outside_bytes_and_new_names():
     good = REVISE_DRAFT[:start] + "Zara did not look up." + REVISE_DRAFT[end:]
     checks, caps = pipeline.revision_checks(REVISE_DRAFT, good, start, end, gt)
     assert checks["outside_identical"] and checks["new_names"] == [] and caps == {}
-    invented = REVISE_DRAFT[:start] + "Gorvath did not look up." + REVISE_DRAFT[end:]
+    # A one-word name that only opens a sentence is not reported (NB-1).
+    opener = (
+        REVISE_DRAFT[:start] + "Silence. Zara did not look up." + REVISE_DRAFT[end:]
+    )
+    assert pipeline.revision_checks(REVISE_DRAFT, opener, start, end, gt)[1] == {}
+    invented = REVISE_DRAFT[:start] + "Zara ignored Gorvath." + REVISE_DRAFT[end:]
     checks, caps = pipeline.revision_checks(REVISE_DRAFT, invented, start, end, gt)
     assert checks["new_names"] == ["Gorvath"] and "Gorvath" in caps["R5"]
     leaked = good.replace("Milo initialled", "Milo signed")
