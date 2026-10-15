@@ -157,9 +157,12 @@ export default function GenerateSceneModal({
     )
   }
 
+  // A picked beat whose cast the author has not touched is cast by the server
+  // (beat_people), which may resolve people the picker does not preselect.
+  const serverCast = Boolean(beatId) && castFromBeat
+
   const handleSubmit = async () => {
     setError(null)
-    const serverCast = Boolean(beatId) && castFromBeat
     if (selected.length === 0 && !serverCast) {
       setError('Pick at least one character from the cast')
       return
@@ -431,7 +434,7 @@ export default function GenerateSceneModal({
             isLoading={submitting}
             disabled={
               (est !== null && !est.allowed) ||
-              selected.length === 0 ||
+              (selected.length === 0 && !serverCast) ||
               description.trim().length < 10 ||
               !setting.trim()
             }

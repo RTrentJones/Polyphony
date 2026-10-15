@@ -263,6 +263,38 @@ describe('GenerateSceneModal defaults from a promoted chapter (SPEC-10)', () => 
     expect(request.planned_beat_id).toBe('n-2')
     expect(request.pov_character).toBe('Bram')
   })
+  it('a beat cast only by the server can be generated from an empty picker', async () => {
+    listCharacters.mockResolvedValue(cast)
+    generateScene.mockResolvedValue({ scene_id: 's-1' })
+    // No chapter cast to preselect; the beat names Bram only as a secondary,
+    // whom the server resolves against the book (beat_people).
+    renderModal({
+      chapter: {
+        ...chapter,
+        planned_beats: [
+          {
+            node_id: 'n-3',
+            title: 'Watch',
+            summary: 'Bram keeps the gate',
+            character_ids: [],
+            secondary_names: ['Bram'],
+            setting: 'The gatehouse',
+            tone: '',
+          },
+        ],
+      },
+    })
+    const beats = await screen.findByTestId('planned-beats')
+    await screen.findByRole('button', { name: 'Bram' })
+    fireEvent.click(beats.querySelector('button')!)
+    const generate = screen.getByRole('button', { name: 'Generate' })
+    expect(generate).toBeEnabled()
+    fireEvent.click(generate)
+    await waitFor(() => expect(generateScene).toHaveBeenCalledTimes(1))
+    const [, request] = generateScene.mock.calls[0]
+    expect(request.character_ids).toEqual([])
+    expect(request.planned_beat_id).toBe('n-3')
+  })
 })
 
 describe('GenerateSceneModal says when the scene runs differently (SPEC-12)', () => {
