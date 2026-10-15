@@ -35,8 +35,22 @@ purpose-built to make that failure *visible to an eval*:
   reads.
 - **`spec.json`** — the authoring spec (synthetic flag, cast, beats, fidelity).
 - **`aliases.json`** — the human-readable canon reference / allowlist.
-- **`excerpts.txt`** — a short representative scene so `load_corpus` has a text to
-  return; `cel` is an outline/fidelity corpus and carries no gold voice lines.
+- **`excerpts.txt`** — ~4.7k chars of synthetic *Bored to Undeath* prose (SPEC-22),
+  written here like the synopsis. It opens with the original three-paragraph
+  intake scene and continues through Milo's first week: at least six tagged lines
+  for each principal (Milo, Zara, Edric), inverted tags ("said Zara"), action
+  beats before a line, an untagged multi-paragraph exchange, and two non-canon
+  speakers (the caseworker, Old Fen) whose lines must be attributed to no canon
+  character. It is the voice-bearing source the prose eval uploads, and the
+  window the continuity eval plants its five contradictions in. The speaker of
+  every quoted line is recorded in `ground_truth.json` (`gold_lines`,
+  `other_lines`).
+- **`style.json`** — the book's style guide (third person limited on Milo, past
+  tense, dry deadpan tone, dialogue-forward, two paragraphs of sample prose),
+  also synthetic, set on every eval book through `PUT /books/{id}/canon/style`.
+- **`ground_truth.json`** also carries the canon cast entries (`characters`: role,
+  description, goals, voice, aliases), the author's premise edit
+  (`premise_edit`) and the planted `continuity_injections`; all hand-authored.
 
 ## The acceptance test this corpus anchors
 Load *Bored to Undeath*, generate a 12-chapter outline, and assert it stars

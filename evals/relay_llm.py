@@ -61,8 +61,14 @@ def _paths(rid: str) -> tuple[Path, Path, Path]:
     )
 
 
-def _purpose(messages: list[dict]) -> str:
-    """A one-line hint of what the call is for (the system prompt's start)."""
+def _purpose(messages: list[dict], header: str | None = None) -> str:
+    """What the call is for: the app's X-Polyphony-Purpose header (app/llm/
+    client.py sends it on every call), else the system prompt's first line.
+
+    Generation calls carry no system message, so before the header every one
+    of them was filed under an empty purpose."""
+    if header and header.strip():
+        return header.strip()[:120]
     for m in messages:
         if m.get("role") == "system" and m.get("content"):
             return str(m["content"]).strip().splitlines()[0][:120]
@@ -80,7 +86,9 @@ async def chat(request: Request):
             {
                 "id": rid,
                 "model": body.get("model"),
-                "purpose": _purpose(messages),
+                "purpose": _purpose(
+                    messages, request.headers.get("x-polyphony-purpose")
+                ),
                 "messages": messages,
                 "max_tokens": body.get("max_tokens"),
                 "response_format": body.get("response_format"),

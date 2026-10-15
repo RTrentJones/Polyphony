@@ -13,6 +13,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import subprocess
+import time
+from pathlib import Path
 
 import httpx
 
@@ -50,13 +53,34 @@ def _record_judge_failover(result: dict, judge) -> None:
         result["judge"]["mixed"] = True
 
 
+def _git_sha() -> str:
+    """HEAD of the checkout the harness runs from ("" outside a git tree)."""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=Path(__file__).resolve().parent,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return out.stdout.strip() if out.returncode == 0 else ""
+
+
 async def _app_sha(base_url: str) -> str:
+    """The app's /__version sha; else (a local stack reports none) the git
+    HEAD the harness runs from, which is the app's when both share a tree."""
+    sha = ""
     try:
         async with httpx.AsyncClient(timeout=10) as h:
             r = await h.get(f"{base_url}/__version")
-            return r.json().get("sha", "unknown")
+            sha = str(r.json().get("sha") or "")
     except Exception:
-        return "unknown"
+        sha = ""
+    if sha and sha != "unknown":
+        return sha
+    return _git_sha() or "unknown"
 
 
 def _is_quota_error(msg: str) -> bool:
@@ -114,6 +138,7 @@ def _aggregate(passes: list[dict]) -> dict:
 async def run(book: str, step_names: list[str], out: str, repeat: int = 1) -> dict:
     cfg = load_config()
     text, gt = pipeline.load_corpus(book)
+    started = time.time()
     app_sha = await _app_sha(cfg.base_url)
     ctx = StepContext(
         book=book,
@@ -122,10 +147,14 @@ async def run(book: str, step_names: list[str], out: str, repeat: int = 1) -> di
         cache=Cache(cfg.cache_dir, app_sha),
         judge=Judge(cfg),
     )
+    # When the run began: the prompt contract grades only exchanges the relay
+    # archived after this (a reused relay dir holds earlier runs too).
+    ctx.run_started = started
 
     result = {
         "book": book,
         "app_sha": app_sha,
+        "harness_sha": _git_sha(),
         # Label of the model under test — what Tracer trends. The app's own
         # LLM_MODEL if set, else the provider's flash default.
         "model": os.getenv("EVAL_MODEL_LABEL")
@@ -140,6 +169,8 @@ async def run(book: str, step_names: list[str], out: str, repeat: int = 1) -> di
             "self": ctx.judge.is_self,
             "requested": cfg.judge_provider,
             "fell_back": ctx.judge.fell_back,
+            # A judge at its own URL (a separate relay queue), or None.
+            "endpoint": ctx.judge.endpoint,
         },
         "repeat": repeat,
         "steps": {},
@@ -185,6 +216,13 @@ async def run(book: str, step_names: list[str], out: str, repeat: int = 1) -> di
                         quota_exhausted = True
             passes.append(one)
         result["steps"] = _aggregate(passes)
+        if cfg.relay_archive:
+            # Over the whole run's archive, once (not per pass).
+            try:
+                contract = await pipeline.prompt_contract_result(ctx)
+            except Exception as e:  # a grader bug never loses the run's scores
+                contract = {"error": f"{type(e).__name__}: {e}"}
+            result["steps"]["prompt_contract"] = contract
         _record_judge_failover(result, ctx.judge)
     finally:
         if ctx.client:

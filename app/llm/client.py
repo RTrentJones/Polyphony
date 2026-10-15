@@ -165,6 +165,11 @@ class LLMClient:
         # Only include response_format when requested — passing null breaks
         # some OpenAI-compatible vendors.
         extra_kwargs = {"response_format": response_format} if response_format else {}
+        if purpose:
+            # Names the call for whoever serves it: the eval relay files each
+            # request under this purpose, which the prompt no longer has to
+            # spell out (evals/relay_llm.py). Vendors ignore unknown headers.
+            extra_kwargs["extra_headers"] = {"X-Polyphony-Purpose": purpose}
         extra_body, max_tokens = _thinking_guard(
             self.provider, resolved_model, max_tokens
         )

@@ -47,6 +47,46 @@ async def test_a_request_waits_for_its_answer(tmp_path, monkeypatch):
     assert json.loads(archived.read_text())["answer"] == '{"score": 0.7}'
 
 
+async def test_the_purpose_header_names_the_request(tmp_path, monkeypatch):
+    """A generation call has no system line; the app's X-Polyphony-Purpose
+    header is what files it (it used to be filed under an empty purpose)."""
+    from evals import relay_llm
+
+    monkeypatch.setenv("RELAY_DIR", str(tmp_path))
+    transport = httpx.ASGITransport(app=relay_llm.app)
+    seen = {}
+
+    async def answerer():
+        while not relay_llm._pending():
+            await asyncio.sleep(0.05)
+        (req,) = relay_llm._pending()
+        seen["purpose"] = req["purpose"]
+        (tmp_path / "done" / f"{req['id']}.json").write_text(
+            json.dumps({"content": "prose"})
+        )
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://relay") as c:
+        task = asyncio.create_task(answerer())
+        r = await c.post(
+            "/v1/chat/completions",
+            json={"messages": [{"role": "user", "content": "write the beat"}]},
+            headers={"X-Polyphony-Purpose": "beat_prose"},
+        )
+        await task
+    assert r.status_code == 200 and seen["purpose"] == "beat_prose"
+    (archived,) = (tmp_path / "answered").glob("*.json")
+    assert json.loads(archived.read_text())["purpose"] == "beat_prose"
+
+
+def test_purpose_prefers_the_header_then_the_system_line():
+    from evals.relay_llm import _purpose
+
+    msgs = [{"role": "system", "content": "You are a judge.\nmore"}]
+    assert _purpose(msgs, "eval_judge") == "eval_judge"
+    assert _purpose(msgs, "  ") == "You are a judge."
+    assert _purpose([{"role": "user", "content": "x"}]) == ""
+
+
 async def test_an_unanswered_request_times_out(tmp_path, monkeypatch):
     from evals import relay_llm
 

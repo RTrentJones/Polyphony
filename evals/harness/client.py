@@ -32,6 +32,9 @@ class PolyphonyClient:
 
     async def aclose(self) -> None:
         await self._http.aclose()
+        while _ENGINES:
+            _, engine = _ENGINES.popitem()
+            await engine.dispose()
 
     # -- auth ---------------------------------------------------------------
     def _auth(self) -> dict:
@@ -266,19 +269,54 @@ class PolyphonyClient:
             )
         return r.json()
 
+    async def get_book(self, book_id: str) -> dict:
+        r = await self._get(f"/api/v1/books/{book_id}")
+        r.raise_for_status()
+        return r.json()
+
+    async def list_characters(self, book_id: str) -> list[dict]:
+        r = await self._get("/api/v1/characters/", params={"book_id": book_id})
+        r.raise_for_status()
+        return r.json()["characters"]
+
+    async def get_canon(self, book_id: str) -> dict:
+        """{entries, style}: the book's Canon surface."""
+        r = await self._get(f"/api/v1/books/{book_id}/canon")
+        r.raise_for_status()
+        return r.json()
+
+    async def set_style(self, book_id: str, style: dict) -> dict:
+        """Create or replace the book's style guide (pov, tense, tone, comps,
+        sample_prose); keys starting with "_" (corpus comments) are dropped."""
+        body = {k: v for k, v in style.items() if not k.startswith("_")}
+        r = await self._put(f"/api/v1/books/{book_id}/canon/style", json=body)
+        if r.status_code not in (200, 201):
+            raise EvalClientError(f"set style failed ({r.status_code}): {r.text[:400]}")
+        return r.json()
+
     async def generate_outline(
-        self, book_id: str, chapters_target: int = 8, timeout: float = 900
+        self,
+        book_id: str,
+        chapters_target: int = 8,
+        timeout: float = 900,
+        *,
+        premise: dict | None = None,
     ) -> dict:
         """Generate an outline and return the finished plan.
 
         The staged generator runs as a background job and answers with a job
         handle, so poll the book's plans until the outline is no longer
         generating. (Reading `content` straight off the POST response is what
-        pinned the outline eval at 0 after the staged generator shipped.)"""
-        r = await self._post(
-            f"/api/v1/books/{book_id}/plans/generate",
-            json={"kind": "outline", "chapters_target": chapters_target},
-        )
+        pinned the outline eval at 0 after the staged generator shipped.)
+
+        `premise` ({premise_restated, central_conflict}) is the author's edit:
+        the run stops at the premise checkpoint and is confirmed WITH it, the
+        "author-edited premise" path R6 grades. Without it the checkpoint (when
+        the tier stops there) is confirmed as the model wrote it."""
+        body: dict = {"kind": "outline", "chapters_target": chapters_target}
+        if premise:
+            body["confirm_premise"] = True
+        r = await self._post(f"/api/v1/books/{book_id}/plans/generate", json=body)
         if r.status_code != 200:
             raise EvalClientError(f"outline failed ({r.status_code}): {r.text[:400]}")
         started = r.json()
@@ -295,11 +333,34 @@ class PolyphonyClient:
         )
         plan = next(p for p in plans["plans"] if p.get("kind") == "outline")
         if plan.get("status") == "awaiting_confirmation":
-            await self._post(
-                f"/api/v1/books/{book_id}/plans/{plan['id']}/confirm-premise", json={}
-            )
+            await self.confirm_premise(book_id, plan["id"], **(premise or {}))
             return await self.generate_outline_wait(book_id, timeout)
         return plan
+
+    async def confirm_premise(
+        self,
+        book_id: str,
+        plan_id: str,
+        premise_restated: str | None = None,
+        central_conflict: str | None = None,
+    ) -> dict:
+        """Confirm the restated premise; an edited field is authoritative."""
+        body = {
+            k: v
+            for k, v in (
+                ("premise_restated", premise_restated),
+                ("central_conflict", central_conflict),
+            )
+            if v
+        }
+        r = await self._post(
+            f"/api/v1/books/{book_id}/plans/{plan_id}/confirm-premise", json=body
+        )
+        if r.status_code != 200:
+            raise EvalClientError(
+                f"confirm premise failed ({r.status_code}): {r.text[:400]}"
+            )
+        return r.json()
 
     async def generate_outline_wait(self, book_id: str, timeout: float = 900) -> dict:
         plans = await self.poll(
@@ -311,6 +372,108 @@ class PolyphonyClient:
             timeout=timeout,
         )
         return next(p for p in plans["plans"] if p.get("kind") == "outline")
+
+    async def put_outline(self, book_id: str, content: list) -> dict:
+        """Store an outline as the author's plan (PUT /books/{id}/plans): how a
+        memoised outline reaches a fresh book without paying for it again."""
+        r = await self._put(
+            f"/api/v1/books/{book_id}/plans",
+            json={"kind": "outline", "content": content},
+        )
+        if r.status_code not in (200, 201):
+            raise EvalClientError(f"put plan failed ({r.status_code}): {r.text[:400]}")
+        return r.json()
+
+    async def promote_all(self, book_id: str) -> dict:
+        """Promote every outline node into a chapter: {chapters: [...], created}."""
+        r = await self._post(f"/api/v1/books/{book_id}/plans/promote-all")
+        if r.status_code != 200:
+            raise EvalClientError(f"promote failed ({r.status_code}): {r.text[:400]}")
+        return r.json()
+
+    async def get_chapter(self, chapter_id: str) -> dict:
+        """The chapter (summary, cast ids) and its scenes (id, status, position)."""
+        r = await self._get(f"/api/v1/books/chapters/{chapter_id}")
+        r.raise_for_status()
+        return r.json()
+
+    async def generate_planned(
+        self, chapter_id: str, body: dict | None = None, timeout: float = 1800
+    ) -> dict:
+        """One scene per planned beat (POST .../scenes/generate-planned), then
+        wait until the chain has written them all, or stopped on a failure.
+
+        Returns the start response plus `scenes`: the chapter's scenes in
+        position order once settled."""
+        r = await self._post(
+            f"/api/v1/books/chapters/{chapter_id}/scenes/generate-planned",
+            json=body or {},
+        )
+        if r.status_code != 200:
+            raise EvalClientError(
+                f"generate-planned failed ({r.status_code}): {r.text[:400]}"
+            )
+        started = r.json()
+        total = int(started.get("total") or 0)
+        streak = {"n": 0}
+
+        def settled(ch: dict) -> bool:
+            scenes = ch.get("scenes") or []
+            terminal = all(
+                s.get("status") in ("completed", "failed", "cancelled") for s in scenes
+            )
+            done = sum(1 for s in scenes if s.get("status") == "completed")
+            stopped = any(s.get("status") in ("failed", "cancelled") for s in scenes)
+            # The chain creates scene k+1 when scene k completes, so "all
+            # terminal" must hold on two polls in a row to rule out that gap.
+            ok = bool(scenes) and terminal and (done >= total or stopped)
+            streak["n"] = streak["n"] + 1 if ok else 0
+            return streak["n"] >= 2
+
+        chapter = await self.poll(
+            f"/api/v1/books/chapters/{chapter_id}", settled, timeout=timeout
+        )
+        started["scenes"] = sorted(
+            chapter.get("scenes") or [], key=lambda s: s.get("position") or 0
+        )
+        return started
+
+    async def get_scene(self, scene_id: str) -> dict:
+        r = await self._get(f"/api/v1/scenes/{scene_id}")
+        r.raise_for_status()
+        return r.json()
+
+    async def scene_beats(
+        self, scene_id: str, database_url: str | None = None
+    ) -> tuple[list[dict], str]:
+        """A scene's beats as [{beat_number, description, content}] and where
+        they came from: "api" (the scene payload carries them), "db" (a
+        read-only SELECT on scene_beats, when the harness can reach the app's
+        database), "grounding" (descriptions only) or "none".
+
+        The API does not expose a beat's prose today, and the seam grader needs
+        exactly that (adjacent beat contents)."""
+        scene = await self.get_scene(scene_id)
+        if isinstance(scene.get("beats"), list) and scene["beats"]:
+            return scene["beats"], "api"
+        if database_url:
+            rows = await _read_beats(database_url, scene_id)
+            if rows:
+                return rows, "db"
+        r = await self._get(f"/api/v1/books/scenes/{scene_id}/grounding")
+        if r.status_code == 200:
+            beats = [
+                {
+                    "beat_number": b.get("beat_index"),
+                    "description": b.get("description"),
+                    "content": None,
+                }
+                for b in r.json().get("beats") or []
+                if b.get("description")
+            ]
+            if beats:
+                return beats, "grounding"
+        return [], "none"
 
     async def create_chapter(self, book_id: str, title: str, summary: str = "") -> dict:
         r = await self._post(
@@ -405,3 +568,31 @@ def _state(body) -> str:
         if isinstance(item, dict)
     ]
     return json.dumps(out, default=str)[:600]
+
+
+_ENGINES: dict = {}
+
+
+async def _read_beats(database_url: str, scene_id: str) -> list[dict]:
+    """scene_beats rows for one scene, in beat order; [] on any failure (a
+    deployed app's database is out of reach, and that is fine)."""
+    try:
+        from sqlalchemy import text
+        from sqlalchemy.ext.asyncio import create_async_engine
+
+        engine = _ENGINES.get(database_url)
+        if engine is None:
+            engine = _ENGINES[database_url] = create_async_engine(database_url)
+        async with engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    text(
+                        "SELECT beat_number, description, content FROM scene_beats "
+                        "WHERE CAST(scene_id AS TEXT) = :sid ORDER BY beat_number"
+                    ),
+                    {"sid": str(scene_id)},
+                )
+            ).all()
+    except Exception:  # noqa: BLE001 - optional evidence, never fatal
+        return []
+    return [{"beat_number": r[0], "description": r[1], "content": r[2]} for r in rows]

@@ -1,0 +1,8 @@
+{
+  "_comment": "The cel book's style guide, set through PUT /books/{id}/canon/style by the eval harness (R4).",
+  "pov": "third person limited, on Milo Voss",
+  "tense": "past",
+  "tone": "Dry, deadpan workplace satire that curdles into dread. Dialogue-forward: scenes move through talk, with short action beats between lines. The horror is administrative and specific, never gothic.",
+  "comps": "Terry Pratchett's Going Postal; Severance; Kafka's office stories",
+  "sample_prose": "Milo initialled the form in the box marked INITIAL HERE, which was the only box on the form that anyone had ever explained to him. Across the partition Zara did not look up. She never looked up. It was, he was beginning to understand, a kind of answer.\n\n\"Is it always this quiet?\" he asked.\n\n\"No,\" Zara said. \"Sometimes it's quieter.\"\n\nThe coffee station dispensed something gray into a cup that said WORLD'S OKAYEST SOUL. Milo drank it anyway. The dead drank out of habit, and habit, in the Marrow District, was the closest thing anyone had to a pulse."
+}
