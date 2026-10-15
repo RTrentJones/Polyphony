@@ -46,6 +46,11 @@ SHOTS = Path(os.getenv("E2E_SHOTS", "e2e-shots"))
 STUB = os.getenv("STUB_URL", "http://127.0.0.1:8099").rstrip("/")
 TIMEOUT = 90_000
 STATE: dict = {}
+# KNOWN_AFTER_MERGE (W1-E/W1-F, B9): the clean-heading assertion in the export
+# step needs W1-F's builder. It is on by default (the merged tree must pass
+# it); a worktree without W1-F runs with E2E_KNOWN_AFTER_MERGE=0. The
+# orchestrator removes this switch once both packages are merged.
+KNOWN_AFTER_MERGE = os.getenv("E2E_KNOWN_AFTER_MERGE", "1") != "0"
 
 SYNOPSIS = (
     "Bored to Undeath. Milo Voss, a lich systems analyst, is retained by Aeon "
@@ -204,14 +209,43 @@ async def journey(page: Page) -> None:
         ).to_be_visible(timeout=TIMEOUT)
         await shot(page, "continuity")
 
-    async def export():
+    async def export_md(name: str, include_synopsis: bool = False) -> str:
+        """Export through the dialog (B9) and return the Markdown."""
+        await page.get_by_role("button", name="Export", exact=True).click()
+        dialog = page.get_by_test_id("export-dialog")
+        await expect(dialog).to_be_visible()
+        await dialog.get_by_role("radio", name=re.compile("Markdown")).check()
+        # The defaults an author gets: no synopsis, empty chapters skipped.
+        synopsis = dialog.get_by_role("checkbox", name=re.compile("Include synopsis"))
+        await expect(synopsis).not_to_be_checked()
+        await expect(
+            dialog.get_by_role("checkbox", name=re.compile("Skip empty chapters"))
+        ).to_be_checked()
+        if include_synopsis:
+            await synopsis.check()
+        await shot(page, f"export-dialog-{name}")
         async with page.expect_download() as dl:
-            await page.get_by_role("button", name="MD", exact=True).click()
+            await dialog.get_by_role("button", name="Download").click()
         download = await dl.value
-        path = SHOTS / download.suggested_filename
+        await expect(dialog).to_have_count(0)
+        path = SHOTS / f"{name}-{download.suggested_filename}"
         await download.save_as(path)
-        text = path.read_text(encoding="utf-8", errors="replace")
+        return path.read_text(encoding="utf-8", errors="replace")
+
+    async def export():
+        text = await export_md("default")
         assert "Onboarding" in text, "export is missing the chapter"
+        assert "a lich systems analyst" not in text, "synopsis exported by default"
+        if KNOWN_AFTER_MERGE:
+            # "## Chapter 2: Chapter 1: Edric Thane" is the bug (B9).
+            doubled = [
+                line
+                for line in text.splitlines()
+                if line.startswith("#") and len(re.findall(r"\bChapter\b", line)) > 1
+            ]
+            assert not doubled, f"headings repeat 'Chapter': {doubled}"
+        text = await export_md("with-synopsis", include_synopsis=True)
+        assert "a lich systems analyst" in text, "synopsis missing when asked for"
 
     async def tab(name: str):
         await page.get_by_role("button", name=name, exact=True).first.click()
@@ -314,12 +348,13 @@ async def journey(page: Page) -> None:
         rows = page.get_by_test_id("chapter-row")
 
         async def title(row) -> str:
-            text = await row.locator("p.font-medium").first.inner_text()
-            return text.split(". ", 1)[1]
+            # The stored title: the row shows it without a stale "Chapter N:"
+            # prefix (B4), while its buttons and the Trash use it as stored.
+            return await row.get_attribute("data-chapter-title")
 
         first = await title(rows.first)
         await page.get_by_role("button", name=f"Move {first} down").click()
-        await expect(rows.nth(1)).to_contain_text(first)
+        await expect(rows.nth(1)).to_have_attribute("data-chapter-title", first)
         # Delete the last chapter (a promoted one, no scenes) and restore it.
         count = await rows.count()
         last = await title(rows.last)
@@ -333,7 +368,9 @@ async def journey(page: Page) -> None:
         await toast(f'Restored "{last}"')
         await tab("Chapters")
         await expect(rows).to_have_count(count)
-        await expect(rows.filter(has_text=last)).to_have_count(1)
+        await expect(
+            page.locator(f'[data-testid=chapter-row][data-chapter-title="{last}"]')
+        ).to_have_count(1)
         await shot(page, "chapters")
 
     async def generate_all_planned_scenes():
@@ -341,8 +378,8 @@ async def journey(page: Page) -> None:
         rows = page.get_by_test_id("chapter-row")
         button_name = "Generate all planned scenes"
         row = rows.filter(has=page.get_by_role("button", name=button_name)).first
-        name = await row.locator("p.font-medium").first.inner_text()
-        row = rows.filter(has_text=name)
+        name = await row.get_attribute("data-chapter-title")
+        row = page.locator(f'[data-testid=chapter-row][data-chapter-title="{name}"]')
         await row.get_by_role("button", name=button_name).click()
         await toast(re.compile(r"Writing 2 planned scenes in order"))
         # The scenes are a chain: the second is created when the first completes.
@@ -477,6 +514,31 @@ async def journey(page: Page) -> None:
         try:
             await p3.goto(STATE["book_url"])
             await expect(p3.get_by_text("Bored to Undeath").first).to_be_visible()
+            # The tab strip says it scrolls (B4).
+            await expect(p3.get_by_test_id("tabs-more-right")).to_be_visible()
+            await p3.get_by_role("button", name="Expand Onboarding").click()
+            await expect(p3.get_by_test_id("scene-row").first).to_be_visible()
+            await shot(p3, "phone-chapters")
+            problems = await p3.evaluate(PHONE_CHAPTER_CHECK)
+            assert not problems, "phone chapter rows:\n  " + "\n  ".join(problems)
+            # Secondary row actions live in a "⋯" menu that fits on screen.
+            row = p3.get_by_test_id("chapter-row").last
+            await row.get_by_role(
+                "button", name=re.compile("^More actions for")
+            ).click()
+            menu = p3.get_by_role("menu")
+            await expect(menu.get_by_role("menuitem").first).to_be_focused()
+            await expect(
+                menu.get_by_role("menuitem", name="Delete chapter")
+            ).to_be_visible()
+            box = await menu.bounding_box()
+            assert (
+                box and box["x"] >= 0 and box["x"] + box["width"] <= 390 + 1
+            ), f"row menu is off screen: {box}"
+            await shot(p3, "phone-row-menu")
+            await p3.keyboard.press("Escape")
+            await expect(menu).to_have_count(0)
+
             tabs = ("Chapters", "Scenes", "Sources", "Canon", "Outline", "Threads")
             for name in (*tabs, "Continuity", "Trash", "Usage"):
                 if name == "Usage":
@@ -484,10 +546,16 @@ async def journey(page: Page) -> None:
                     await expect(p3.get_by_test_id("usage-page")).to_be_visible()
                 else:
                     await p3.get_by_role("button", name=name, exact=True).first.click()
+                    await assert_active_tab_in_view(p3, name)
                 overflow = await p3.evaluate(
                     "document.documentElement.scrollWidth - window.innerWidth"
                 )
                 assert overflow <= 1, f"{name}: page scrolls sideways by {overflow}px"
+            # A deep link to the last tab opens with that tab scrolled into view.
+            await p3.goto(STATE["book_url"] + "&tab=trash")
+            await expect(p3.get_by_text("Bored to Undeath").first).to_be_visible()
+            await assert_active_tab_in_view(p3, "Trash")
+            await expect(p3.get_by_test_id("tabs-more-left")).to_be_visible()
             await p3.screenshot(path=str(SHOTS / "phone.png"), full_page=True)
         finally:
             await phone.close()
@@ -526,6 +594,67 @@ async def journey(page: Page) -> None:
     )
     await step("a second author cannot see the book", second_author_is_isolated())
     await step("the book at phone width", book_page_at_phone_width())
+
+
+# Every chapter row at phone width (B4): its title is visible with at least 20
+# characters (or all of a shorter title) actually rendered, i.e. not clipped by
+# line-clamp, overflow or the card; and every visible button sits inside its
+# row and inside the viewport. Returns the problems found ([] when clean).
+PHONE_CHAPTER_CHECK = """
+() => {
+  const vw = window.innerWidth
+  const problems = []
+  const inside = (r, o) =>
+    r.left >= o.left - 1 && r.right <= o.right + 1 &&
+    r.top >= o.top - 1 && r.bottom <= o.bottom + 1
+  document.querySelectorAll('[data-testid=chapter-row]').forEach((row, i) => {
+    const name = row.getAttribute('data-chapter-title') || `row ${i + 1}`
+    const card = row.getBoundingClientRect()
+    const title = row.querySelector('[data-testid=chapter-title]')
+    if (!title) { problems.push(`${name}: no title element`); return }
+    const box = title.getBoundingClientRect()
+    if (box.width < 1 || box.height < 1) problems.push(`${name}: title not visible`)
+    if (box.left < 0 || box.right > vw + 1) problems.push(`${name}: title off screen`)
+    // Count the characters whose glyphs fall inside the title's own box.
+    const text = title.textContent || ''
+    const walker = document.createTreeWalker(title, NodeFilter.SHOW_TEXT)
+    let shown = 0
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      for (let k = 0; k < node.length; k++) {
+        if (!node.data[k].trim()) continue
+        const range = document.createRange()
+        range.setStart(node, k)
+        range.setEnd(node, k + 1)
+        const r = range.getBoundingClientRect()
+        if (r.width > 0 && inside(r, box) && r.right <= vw + 1) shown++
+      }
+    }
+    const want = Math.min(20, text.replace(/\s/g, '').length)
+    if (shown < want) problems.push(`${name}: only ${shown} title characters shown`)
+    row.querySelectorAll('button').forEach((b) => {
+      if (b.getClientRects().length === 0) return  // display:none (other width)
+      const r = b.getBoundingClientRect()
+      const label = b.getAttribute('aria-label') || b.textContent.trim()
+      if (!inside(r, card)) problems.push(`${name}: "${label}" spills out of its row`)
+      if (r.left < 0 || r.right > vw + 1) problems.push(`${name}: "${label}" off screen`)
+    })
+  })
+  return problems
+}
+"""
+
+
+async def assert_active_tab_in_view(page: Page, name: str) -> None:
+    """The active tab is the one named, and it is fully on screen (B4)."""
+    active = page.get_by_test_id("book-tabs").locator("[aria-current=page]")
+    await expect(active).to_have_text(name)
+    # scrollIntoView is smooth on some engines: let it settle.
+    await page.wait_for_timeout(300)
+    box = await active.bounding_box()
+    width = page.viewport_size["width"]
+    assert (
+        box and box["x"] >= -1 and box["x"] + box["width"] <= width + 1
+    ), f"active tab {name!r} is not in view: {box}"
 
 
 async def main() -> int:
