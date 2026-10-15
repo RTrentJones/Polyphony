@@ -135,6 +135,36 @@ describe('GenerateSceneModal defaults from a promoted chapter (SPEC-10)', () => 
       screen.getByPlaceholderText('What happens in this scene...')
     ).toHaveValue('Refusal: Bram will not open it')
   })
+
+  it('reads chapter.planned_beats (SPEC-23), showing setting and tone and filling the setting', async () => {
+    listCharacters.mockResolvedValue(cast)
+    renderModal({
+      chapter: {
+        ...promoted,
+        summary: 'Ada meets Bram.',
+        planned_beats: [
+          {
+            node_id: 'n-1',
+            title: 'Arrival',
+            summary: 'Ada reaches the gate',
+            character_ids: ['c-ada'],
+            secondary_names: [],
+            setting: 'The north gate',
+            tone: 'wary',
+          },
+        ],
+      },
+    })
+
+    const beats = await screen.findByTestId('planned-beats')
+    expect(beats).toHaveTextContent('Arrival: Ada reaches the gate')
+    expect(screen.getByTestId('beat-meta')).toHaveTextContent('The north gate · wary')
+    fireEvent.click(beats.querySelector('button')!)
+    expect(
+      screen.getByPlaceholderText('What happens in this scene...')
+    ).toHaveValue('Arrival: Ada reaches the gate')
+    expect(screen.getByPlaceholderText(/dimly lit tavern/)).toHaveValue('The north gate')
+  })
 })
 
 describe('GenerateSceneModal says when the scene runs differently (SPEC-12)', () => {

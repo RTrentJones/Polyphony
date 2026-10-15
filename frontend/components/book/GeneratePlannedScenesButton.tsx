@@ -8,7 +8,8 @@
  * before it, and preflights the whole batch: a batch the budget cannot cover
  * is refused with the estimate rather than stopping halfway. Beats that
  * already have a scene are skipped, so clicking again after a failure picks
- * up where it stopped. Shown only when the chapter has planned beats.
+ * up where it stopped. Shown only when the chapter has planned beats (`chapter.planned_beats`,
+ * or the legacy summary lines; see plannedBeats).
  */
 
 import { useState } from 'react'
@@ -42,7 +43,7 @@ export default function GeneratePlannedScenesButton({
 }) {
   const { generatePlannedScenes } = useBookStore()
   const [busy, setBusy] = useState(false)
-  const beats = plannedBeats(chapter.summary)
+  const beats = plannedBeats(chapter)
   if (beats.length === 0) return null
 
   const run = async () => {

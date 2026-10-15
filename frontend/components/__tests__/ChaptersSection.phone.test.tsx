@@ -50,7 +50,12 @@ const promoted: BookChapter = {
   book_id: 'book-1',
   position: 2,
   title: 'Chapter 2: Milo Voss, who audits the afterlife and finds it insolvent',
-  summary: 'Milo arrives\n\nPlanned beats:\n- Badge photo\n- Lunch',
+  // After the SPEC-23 migration: the beats are data, the summary is just prose.
+  summary: 'Milo arrives',
+  planned_beats: [
+    { node_id: 'n-1', title: 'Badge photo', summary: '', character_ids: [], secondary_names: [], setting: '', tone: '' },
+    { node_id: 'n-2', title: 'Lunch', summary: '', character_ids: [], secondary_names: [], setting: '', tone: '' },
+  ],
 }
 const plain: BookChapter = { id: 'ch-1', book_id: 'book-1', position: 0, title: 'Onboarding' }
 

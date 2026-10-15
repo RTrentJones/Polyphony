@@ -19,12 +19,32 @@ import EstimateHint from '@/components/EstimateHint'
 import Modal from '@/components/Modal'
 import { canonApi } from '@/lib/canon-store'
 import { useBookStore } from '@/lib/books-store'
-import type { BookChapter, Character, ChapterSceneRequest } from '@/lib/types'
+import type {
+  BookChapter,
+  Character,
+  ChapterSceneRequest,
+  PlannedBeat,
+} from '@/lib/types'
 import type { Estimate } from '@/lib/usage-api'
 
-/** The planned beats a promoted chapter carries in its summary (SPEC-10):
- *  each "- title: summary" line after "Planned beats:". */
-export function plannedBeats(summary?: string | null): string[] {
+/** The planned scenes of a chapter (SPEC-23): `chapter.planned_beats` when the
+ *  server sends them, else the legacy "Planned beats:" lines of the summary
+ *  (SPEC-10; a chapter promoted before the migration, or a server without it),
+ *  parsed into the same shape with the other fields empty. */
+export function plannedBeats(
+  chapter?: Pick<BookChapter, 'summary' | 'planned_beats'> | null
+): PlannedBeat[] {
+  if (!chapter) return []
+  const stored = (chapter.planned_beats ?? []).filter(
+    (b) => b && typeof b.title === 'string' && b.title.trim()
+  )
+  if (stored.length > 0) return stored
+  return legacyPlannedBeats(chapter.summary)
+}
+
+/** Each "- title: summary" line after "Planned beats:" (split on the first
+ *  ": "; a line without one is a title with an empty summary). */
+export function legacyPlannedBeats(summary?: string | null): PlannedBeat[] {
   if (!summary) return []
   const at = summary.indexOf('Planned beats:')
   if (at < 0) return []
@@ -34,7 +54,27 @@ export function plannedBeats(summary?: string | null): string[] {
     .map((line) => line.trim())
     .filter((line) => line.startsWith('- '))
     .map((line) => line.slice(2).trim())
-    .filter((line) => line.replace(/:$/, '').length > 0)
+    .map((line, i): PlannedBeat => {
+      const sep = line.indexOf(': ')
+      const title = (sep >= 0 ? line.slice(0, sep) : line.replace(/:$/, '')).trim()
+      const beatSummary = sep >= 0 ? line.slice(sep + 2).trim() : ''
+      return {
+        node_id: `legacy-${i}`,
+        title,
+        summary: beatSummary,
+        character_ids: [],
+        secondary_names: [],
+        setting: '',
+        tone: '',
+      }
+    })
+    .filter((beat) => beat.title.length > 0)
+}
+
+/** The scene description a planned beat generates with: "title: summary",
+ *  byte-identical to the server's beat_scene_description (planned_beat.py). */
+export function beatDescription(beat: Pick<PlannedBeat, 'title' | 'summary'>): string {
+  return `${beat.title ?? ''}: ${beat.summary ?? ''}`.trim()
 }
 
 const TONES = [
@@ -119,8 +159,8 @@ export default function GenerateSceneModal({
   const activeChapter =
     chapter ?? chapters?.find((c) => c.id === chapterId) ?? undefined
   const beats = useMemo(
-    () => plannedBeats(activeChapter?.summary),
-    [activeChapter?.summary]
+    () => plannedBeats(activeChapter),
+    [activeChapter]
   )
 
   // A chapter promoted from the outline carries its cast and POV (SPEC-10):
@@ -135,6 +175,13 @@ export default function GenerateSceneModal({
     setPovId(pov && ids.includes(pov) ? pov : '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingCast, activeChapter?.id])
+
+  // A planned beat fills the description, and its setting when that field is
+  // still empty (the beat itself is read-only here; editing beats is W2-7).
+  const pickBeat = (beat: PlannedBeat) => {
+    setDescription(beatDescription(beat))
+    if (beat.setting && !setting.trim()) setSetting(beat.setting)
+  }
 
   const toggle = (id: string) =>
     setSelected((prev) =>
@@ -260,16 +307,26 @@ export default function GenerateSceneModal({
               <span className="text-xs text-gray-500 self-center">
                 Planned beats:
               </span>
-              {beats.map((beat, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => setDescription(beat)}
-                  className="px-2 py-0.5 text-xs rounded border border-gray-300 text-gray-700 hover:border-primary-300 text-left"
-                >
-                  {beat.length > 60 ? `${beat.slice(0, 57)}…` : beat}
-                </button>
-              ))}
+              {beats.map((beat) => {
+                const text = beatDescription(beat)
+                const extra = [beat.setting, beat.tone].filter(Boolean).join(' · ')
+                return (
+                  <button
+                    key={beat.node_id}
+                    type="button"
+                    onClick={() => pickBeat(beat)}
+                    title={extra ? `${text}\n${extra}` : text}
+                    className="px-2 py-0.5 text-xs rounded border border-gray-300 text-gray-700 hover:border-primary-300 text-left"
+                  >
+                    {text.length > 60 ? `${text.slice(0, 57)}…` : text}
+                    {extra && (
+                      <span className="block text-[11px] text-gray-400" data-testid="beat-meta">
+                        {extra}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           )}
           <textarea
