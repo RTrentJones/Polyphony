@@ -291,6 +291,44 @@ class TestMerge:
         assert merged["Elias Ward"]["aliases"] == ["Dr. Ward"]
         assert merged["Edric Thane"]["aliases"] in (["the CEL"], ["The CEL"])
 
+    def test_a_title_the_source_uses_with_the_is_an_alias(self):
+        # Eval finding 4: on cel the reducer headed Edric Thane as "Chief
+        # Executive Lich" (three significant tokens beat two). The synopsis
+        # says "the Chief Executive Lich" in most of its uses: a title.
+        from pathlib import Path
+
+        cel = Path(__file__).resolve().parents[2] / "evals" / "corpora" / "cel"
+        text = (cel / "synopsis.txt").read_text(encoding="utf-8")
+        answers = [
+            (0, {"characters": [_cand("Chief Executive Lich", ["Edric Thane"])]}),
+            (1, {"characters": [_cand("Edric Thane", ["the CEL"])]}),
+            (2, {"characters": [_cand("Chief Executive Lich")]}),
+            (3, {"characters": [_cand("Count Vasska", ["Vasska"])]}),
+        ]
+        merged = {g["name"]: g for g in ce.merge_characters(answers, text)}
+        assert set(merged) == {"Edric Thane", "Count Vasska"}
+        assert "Chief Executive Lich" in merged["Edric Thane"]["aliases"]
+        # A title the text never puts after a determiner stays the name.
+        text += " The mysterious Count Vasska bowed. Count Vasska smiled."
+        merged = {g["name"]: g for g in ce.merge_characters(answers, text)}
+        assert "Count Vasska" in merged
+
+    def test_a_surface_is_checked_as_a_title_once_per_source(self, monkeypatch):
+        # W-5: one source scan per distinct surface; a one-form group has
+        # nothing to rank and is never scanned.
+        seen: list[str] = []
+        real = ce._used_as_title
+        monkeypatch.setattr(
+            ce, "_used_as_title", lambda f, t: seen.append(f) or real(f, t)
+        )
+        answers = [
+            (0, {"characters": [_cand("Edric Thane", ["the CEL"])]}),
+            (1, {"characters": [_cand("Edric Thane", ["the CEL"])]}),
+            (2, {"characters": [_cand("Milo Voss")]}),
+        ]
+        ce.merge_characters(answers, "Edric Thane runs the CEL. Milo Voss.")
+        assert sorted(seen) == ["Edric Thane", "the CEL"]
+
     def test_bare_honorific_is_not_an_alias(self):
         out = ce._normalize_window(
             {"characters": [{"name": "Count Vasska", "aliases": ["Count", "Vasska"]}]}
@@ -583,6 +621,17 @@ class TestPreflight:
         assert 9 <= est["windows"] <= 12
         assert est["requests"] == est["windows"] + est["reduce_calls"] + 1
         assert est["estimated_tokens"] > 120_000
+
+    def test_a_one_window_source_is_counted_in_every_reduce_call(self):
+        """The reduce prompt carries a one-window source whole (single_source),
+        so each reduce call costs the source again."""
+        text = "\n\n".join(
+            f"Ada walked to the gate in part {i}. " * 40 for i in range(30)
+        )
+        est = ce.plan_estimate(text)
+        assert est["windows"] == 1 and est["reduce_calls"] >= 2
+        source = ce.estimate_tokens(text)
+        assert est["estimated_tokens"] >= source * (1 + est["reduce_calls"])
 
     async def _setup(self, monkeypatch, async_session, test_source, text, limit):
         from dataclasses import replace

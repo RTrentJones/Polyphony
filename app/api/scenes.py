@@ -9,6 +9,7 @@ structurally here.)
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from uuid import UUID
 
 from app.core.database import get_db
@@ -36,8 +37,8 @@ router = APIRouter()
 # because the eval harness and the frontend poll them.
 
 
-def _preview(text: str | None) -> str | None:
-    return text[:200] + "..." if text and len(text) > 200 else text
+def _preview(text: str) -> str | None:
+    return text[:200] + "..." if len(text) > 200 else (text or None)
 
 
 @router.get("/", response_model=dict)
@@ -76,8 +77,7 @@ async def list_scenes(
                 "source_id": str(s.source_id) if s.source_id else None,
                 "characters": s.characters,
                 "status": s.status,
-                # The author's saved edit wins over the generated draft.
-                "preview": _preview(s.content or s.generated_content),
+                "preview": _preview(s.draft),
                 "generation_time_ms": s.generation_time_ms,
                 "created_at": s.created_at.isoformat() if s.created_at else None,
             }
@@ -95,23 +95,33 @@ async def get_scene(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get full scene details."""
-    scene = await owned_scene(scene_id, current_user, db)
+    """Get full scene details, with the beats the scene was written in
+    (`beats`: [{beat_number, description, content}] by beat_number; [] for a
+    scene without beats)."""
+    scene = await owned_scene(scene_id, current_user, db, selectinload(SceneORM.beats))
     return {
         "id": str(scene.id),
         "book_id": str(scene.book_id),
         "chapter_id": str(scene.chapter_id) if scene.chapter_id else None,
         "source_id": str(scene.source_id) if scene.source_id else None,
         "status": scene.status,
-        # The author's saved edit (PUT /books/scenes/{id}/content) wins: the
-        # editor loads this, and reloading must not show the stale draft.
-        "content": scene.content or scene.generated_content,
+        # The draft (Scene.draft): the editor loads this, so the author's
+        # saved edit wins and reloading never shows the stale generation.
+        "content": scene.draft or None,
         "characters": scene.characters,
         "scene_request": scene.scene_request,
         "word_count": scene.word_count,
         "generation_time_ms": scene.generation_time_ms,
         "evaluation_scores": scene.evaluation_scores,
         "created_at": scene.created_at.isoformat() if scene.created_at else None,
+        "beats": [
+            {
+                "beat_number": b.beat_number,
+                "description": b.description,
+                "content": b.content,
+            }
+            for b in sorted(scene.beats, key=lambda b: b.beat_number)
+        ],
     }
 
 

@@ -1,24 +1,49 @@
 /**
  * Dashboard — a book-centric overview. The book is the root, so the dashboard
  * leads with your books; sources/characters/scenes are reached inside them.
+ * Each card shows the book's progress (words, scenes drafted out of planned)
+ * and a "Resume" link to the last-edited scene (SPEC-27, B12).
  */
 
 'use client'
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { BookMarked, FileText, Film, Plus } from 'lucide-react'
+import { BookMarked, FileText, Film, PenLine, Plus } from 'lucide-react'
 import Card from '@/components/Card'
 import Button from '@/components/Button'
 import Loading from '@/components/Loading'
 import { useBookStore } from '@/lib/books-store'
 import { useSourceStore, useSceneStore } from '@/lib/store'
 import { formatRelativeTime } from '@/lib/utils'
+import type { BookSummary } from '@/lib/types'
 
 const BOOK_STATUS_STYLES: Record<string, string> = {
   drafting: 'bg-yellow-100 text-yellow-700',
   revising: 'bg-blue-100 text-blue-700',
   complete: 'bg-green-100 text-green-700',
+}
+
+const plural = (n: number, word: string) =>
+  `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`
+
+/** "1,234 words · 3/8 scenes drafted · 2 chapters", from the list's progress
+ *  fields; null when the API predates them. */
+function bookProgressLine(book: BookSummary): string | null {
+  if (book.word_count == null) return null
+  const parts = [plural(book.word_count, 'word')]
+  const drafted = book.scenes_drafted ?? 0
+  const planned = book.scenes_planned ?? 0
+  parts.push(
+    planned > 0
+      ? `${drafted}/${planned} planned scenes drafted`
+      : `${plural(drafted, 'scene')} drafted`
+  )
+  if (book.chapter_count != null)
+    parts.push(
+      `${book.chapters_drafted ?? 0}/${plural(book.chapter_count, 'chapter')} drafted`
+    )
+  return parts.join(' · ')
 }
 
 export default function DashboardPage() {
@@ -74,7 +99,8 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
           <p className="text-gray-600">
-            Your books — sources, characters, canon, and scenes live inside each one.
+            Your books — sources, characters, canon, and scenes live inside each
+            one.
           </p>
         </div>
         <Button onClick={() => router.push('/books')}>
@@ -91,7 +117,9 @@ export default function DashboardPage() {
             <Card key={stat.title} padding="md">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-600">{stat.title}</p>
+                  <p className="text-sm font-medium text-gray-600">
+                    {stat.title}
+                  </p>
                   <p className="text-2xl font-bold text-gray-900 mt-1">
                     {stat.value}
                   </p>
@@ -109,7 +137,11 @@ export default function DashboardPage() {
       <Card>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold text-gray-900">Your Books</h2>
-          <Button variant="ghost" size="sm" onClick={() => router.push('/books')}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => router.push('/books')}
+          >
             View All
           </Button>
         </div>
@@ -125,35 +157,67 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {recentBooks.map((book) => (
-              <button
-                key={book.id}
-                onClick={() => router.push(`/books/detail?id=${book.id}`)}
-                className="text-left p-4 rounded-lg border border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-colors"
-              >
-                <div className="flex items-start justify-between mb-2 gap-2">
-                  <h3 className="font-semibold text-gray-900 truncate">
-                    {book.title}
-                  </h3>
-                  <span
-                    className={`px-2 py-0.5 text-xs font-medium rounded-full shrink-0 ${
-                      BOOK_STATUS_STYLES[book.status] || 'bg-gray-100 text-gray-600'
-                    }`}
+            {recentBooks.map((book) => {
+              const progress = bookProgressLine(book)
+              const resume = book.last_edited_scene
+              return (
+                <div
+                  key={book.id}
+                  className="flex flex-col rounded-lg border border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-colors"
+                  data-testid="dashboard-book"
+                >
+                  <button
+                    onClick={() => router.push(`/books/detail?id=${book.id}`)}
+                    className="flex-1 text-left p-4"
                   >
-                    {book.status}
-                  </span>
+                    <div className="flex items-start justify-between mb-2 gap-2">
+                      <h3 className="font-semibold text-gray-900 truncate">
+                        {book.title}
+                      </h3>
+                      <span
+                        className={`px-2 py-0.5 text-xs font-medium rounded-full shrink-0 ${
+                          BOOK_STATUS_STYLES[book.status] ||
+                          'bg-gray-100 text-gray-600'
+                        }`}
+                      >
+                        {book.status}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-500">
+                      {book.genre || 'No genre'}
+                      {book.author ? ` • ${book.author}` : ''}
+                    </p>
+                    {progress && (
+                      <p className="text-xs text-gray-600 mt-2">{progress}</p>
+                    )}
+                    {book.created_at && (
+                      <p className="text-xs text-gray-400 mt-2">
+                        {formatRelativeTime(new Date(book.created_at))}
+                      </p>
+                    )}
+                  </button>
+                  {resume && (
+                    <button
+                      onClick={() =>
+                        router.push(
+                          `/books/editor?scene=${resume.id}&book=${book.id}`
+                        )
+                      }
+                      className="mx-4 mb-3 inline-flex items-center gap-1 self-start text-sm font-medium text-primary-700 hover:underline"
+                    >
+                      <PenLine className="h-3.5 w-3.5" aria-hidden="true" />
+                      Resume: {resume.title || 'Untitled scene'}
+                      {resume.chapter_title ? (
+                        <span className="text-gray-500 font-normal">
+                          {' '}
+                          ({resume.chapter_title})
+                        </span>
+                      ) : null}
+                    </button>
+                  )}
                 </div>
-                <p className="text-sm text-gray-500">
-                  {book.genre || 'No genre'}
-                  {book.author ? ` • ${book.author}` : ''}
-                </p>
-                {book.created_at && (
-                  <p className="text-xs text-gray-400 mt-2">
-                    {formatRelativeTime(new Date(book.created_at))}
-                  </p>
-                )}
-              </button>
-            ))}
+              )
+            })}
           </div>
         )}
       </Card>

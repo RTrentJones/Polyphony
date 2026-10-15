@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import GeneratePlannedScenesButton, {
   plannedScenesMessage,
 } from '@/components/book/GeneratePlannedScenesButton'
+import { beatDescription } from '@/components/book/GenerateSceneModal'
 import type { BookChapter } from '@/lib/types'
 
 const { generatePlannedScenes } = vi.hoisted(() => ({
@@ -15,25 +16,44 @@ vi.mock('@/lib/books-store', () => ({
   useBookStore: () => ({ generatePlannedScenes }),
 }))
 
+const beat = (title: string, summary = '') => ({
+  node_id: `n-${title}`,
+  title,
+  summary,
+  character_ids: [],
+  secondary_names: [],
+  setting: '',
+  tone: '',
+})
+
 const promoted: BookChapter = {
   id: 'ch-1',
   book_id: 'b',
   position: 0,
   title: 'Onboarding',
-  summary: 'Milo arrives\n\nPlanned beats:\n- Badge photo: he is dead\n- Lunch: Zara explains',
+  summary: 'Milo arrives',
+  planned_beats: [beat('Badge photo', 'he is dead'), beat('Lunch', 'Zara explains')],
 }
 
 describe('GeneratePlannedScenesButton (SPEC-10)', () => {
   beforeEach(() => generatePlannedScenes.mockReset())
 
-  it('is hidden for a chapter with no planned beats', () => {
-    const { container } = render(
-      <GeneratePlannedScenesButton
-        chapter={{ ...promoted, summary: 'Just a summary' }}
-        onDone={vi.fn()}
-      />
-    )
-    expect(container).toBeEmptyDOMElement()
+  it('is hidden for a chapter with no planned beats, whatever its summary says', () => {
+    // The server's planned_beats is the only source (SPEC-23): a summary that
+    // still reads like the pre-SPEC-23 block plans nothing.
+    for (const planned_beats of [undefined, []]) {
+      const { container } = render(
+        <GeneratePlannedScenesButton
+          chapter={{
+            ...promoted,
+            summary: 'Milo arrives\n\nPlanned beats:\n- Badge photo: he is dead',
+            planned_beats,
+          }}
+          onDone={vi.fn()}
+        />
+      )
+      expect(container).toBeEmptyDOMElement()
+    }
   })
 
   it('starts the batch and reports how many scenes will be written', async () => {
@@ -76,5 +96,25 @@ describe('GeneratePlannedScenesButton (SPEC-10)', () => {
     expect(plannedScenesMessage({ ...base, queued: 0, skipped: 3 })).toMatch(
       /already has a scene/
     )
+  })
+})
+
+describe('planned beats come from the server (SPEC-23/25)', () => {
+  it('describes a beat byte-identically to beat_scene_description', () => {
+    expect(beatDescription(beat('Intake', 'Milo is processed'))).toBe(
+      'Intake: Milo is processed'
+    )
+    expect(beatDescription(beat('Lunch'))).toBe('Lunch:')
+  })
+
+  it('renders the button for a chapter with planned_beats and an empty summary', () => {
+    render(
+      <GeneratePlannedScenesButton
+        chapter={{ ...promoted, summary: '', planned_beats: [beat('Intake'), beat('Lunch')] }}
+        onDone={vi.fn()}
+      />
+    )
+    const button = screen.getByRole('button', { name: /Generate all planned scenes/ })
+    expect(button).toHaveAttribute('title', 'One scene per planned beat (2), written in order')
   })
 })

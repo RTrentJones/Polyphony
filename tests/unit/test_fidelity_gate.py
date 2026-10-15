@@ -31,7 +31,7 @@ _SKELETON = json.dumps(
     }
 )
 _CHAPTERS = json.dumps(
-    [{"title": "One", "summary": "s", "act_index": 0, "pov": "", "characters": []}]
+    [{"title": "One", "summary": "s", "act_index": 0, "pov": "", "people": []}]
 )
 _ELARA = json.dumps(
     [
@@ -236,3 +236,52 @@ def test_title_case_fragments_and_sentence_openers_are_not_names():
         "Been An Email. Suddenly, Brannoch Vale arrives."
     )
     assert unknown_proper_nouns(text, {"Milo"}) == ["Brannoch Vale"]
+
+
+# NB-1: the reviewer's probe. A one-word capital that only ever opens a
+# sentence is not a name; a two-word name, or one used mid-sentence, is.
+PROBE_DRAFT = (
+    "Milo walked into the office. The caseworker looked up from her desk and sighed."
+)
+PROBE_QUIET = [
+    "Silence fell. Milo crossed the room.",
+    "Rain hammered the glass. Milo waited.",
+    "Somewhere a phone rang. Nobody answered.",
+    "Dust hung in the air. Perhaps Milo was wrong.",
+    "Outside, Milo paused.",
+    '"Fine," Milo said. "Whatever."',
+]
+PROBE_FLAGGED = {
+    "Milo nodded. Bartholomew Quince smiled.": ["Bartholomew Quince"],
+    "Milo nodded to Quince.": ["Quince"],
+}
+
+
+@pytest.mark.parametrize("text", PROBE_QUIET)
+def test_a_word_that_only_opens_sentences_is_not_a_name(text):
+    from app.planning.fidelity import unknown_proper_nouns
+
+    assert unknown_proper_nouns(text, {"Milo"}, canon_text=PROBE_DRAFT) == []
+
+
+@pytest.mark.parametrize("text, flagged", PROBE_FLAGGED.items())
+def test_a_two_word_or_mid_sentence_name_is_still_reported(text, flagged):
+    from app.planning.fidelity import unknown_proper_nouns
+
+    assert unknown_proper_nouns(text, {"Milo"}, canon_text=PROBE_DRAFT) == flagged
+
+
+def test_a_name_that_only_opens_an_outline_sentence_stays_quiet(cel_canon):
+    beat = {"title": "Arrival", "summary": "Prava arrives. Milo files a memo."}
+    assert _audit(cel_canon, _chapter(beat)).unknown == []
+
+
+def test_principal_recall_finds_a_punctuated_alias():
+    """PR-S2: recall and classify_people share names.norm / names.mentions,
+    so "Voss," counts as a mention in both."""
+    from app.planning.fidelity import principal_recall
+
+    recall, present, missing = principal_recall(
+        "Then Voss, alone, signs.", [{"name": "Milo Voss", "aliases": ["Voss,"]}]
+    )
+    assert recall == 1.0 and present == ["Milo Voss"] and missing == []

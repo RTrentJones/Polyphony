@@ -34,11 +34,13 @@ from app.core.orm_models import (
     User as UserORM,
 )
 from app.core.security import get_current_active_user
-from app.exports.builder import scene_text
+from app.exports.builder import clean_chapter_title, scene_text
 from app.jobs import repository as jobs_repo
 from app.llm.tier import get_tier
+from app.planning import secondaries
 from app.planning.canon import render_bible
-from app.planning.outline import CastIndex, validate_outline_nodes
+from app.planning.outline import CastIndex, classify_people, validate_outline_nodes
+from app.planning.planned_beat import normalize_planned_beats
 from app.versioning import entities as entity_versions
 from app.versioning import repository as versions_repo
 
@@ -144,11 +146,11 @@ def _plan_dict(p: BookPlanORM) -> dict:
         "book_id": str(p.book_id),
         "kind": p.kind,
         "content": p.content or [],
-        "status": getattr(p, "status", "ready"),
-        "stage": getattr(p, "stage", None),
-        "warnings": getattr(p, "warnings", None) or [],
-        "error": getattr(p, "error", None),
-        "premise": getattr(p, "premise", None),
+        "status": p.status,
+        "stage": p.stage,
+        "warnings": p.warnings or [],
+        "error": p.error,
+        "premise": p.premise,
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
     }
 
@@ -168,7 +170,66 @@ async def list_plans(
     from app.api.jobs import latest_jobs
 
     jobs = await latest_jobs(db, "book_plan", [p.id for p in plans])
-    return {"plans": [{**_plan_dict(p), "job": jobs.get(str(p.id))} for p in plans]}
+    # Computed at read time against the CURRENT cast, so a suggestion goes away
+    # once the author adds that person. A book has one outline, so this is one
+    # canon build per request (SPEC-23).
+    return {
+        "plans": [
+            {
+                **_plan_dict(p),
+                "job": jobs.get(str(p.id)),
+                "suggested_characters": (
+                    await _suggestions(db, book.id, p.content)
+                    if p.kind == "outline" and p.status == "ready"
+                    else []
+                ),
+            }
+            for p in plans
+        ]
+    }
+
+
+def _suggested_characters(nodes, canon, promoted: Optional[dict] = None) -> list[dict]:
+    """People the outline names who are in the synopsis/canon but not the cast
+    (SPEC-24 computes them; SPEC-23 exposes them): each node's
+    `secondary_names`, then those of its beats. `promoted` maps a node id to
+    its chapter's stored `planned_beats`, which replace the outline children
+    (they are what generation uses). Always a list: an expected failure here
+    must not take the plans or a promote down with it."""
+    try:
+        names: list = []
+        for node in (n for n in nodes or [] if isinstance(n, dict)):
+            node_id = str(node.get("node_id"))
+            beats = (
+                normalize_planned_beats(promoted[node_id])
+                if node_id in (promoted or {})
+                else [c for c in node.get("children") or [] if isinstance(c, dict)]
+            )
+            for item in (node, *beats):
+                declared = item.get("secondary_names")
+                names.extend(declared if isinstance(declared, list) else [])
+        return list(secondaries.suggested_characters(names, canon) or [])
+    except (ValueError, TypeError, KeyError) as e:
+        logger.warning(
+            f"suggested_characters failed: {e}",
+            extra_fields={"event": "suggested_characters_failed"},
+        )
+        return []
+
+
+async def _suggestions(db: AsyncSession, book_id: UUID, nodes) -> list[dict]:
+    """`_suggested_characters` against the book's canon and promoted chapters."""
+    from app.planning.canon import build_canon
+
+    chapters = await db.execute(
+        select(ChapterORM).where(
+            ChapterORM.book_id == book_id,
+            ChapterORM.deleted_at.is_(None),
+            ChapterORM.plan_node_id.is_not(None),
+        )
+    )
+    promoted = {str(c.plan_node_id): c.planned_beats for c in chapters.scalars()}
+    return _suggested_characters(nodes, await build_canon(db, book_id), promoted)
 
 
 @router.put("/books/{book_id}/plans", response_model=dict)
@@ -475,6 +536,40 @@ async def _chapter_for_node(
     return (await db.execute(query.limit(1))).scalar_one_or_none()
 
 
+def promoted_beats(children, cast: CastIndex) -> list[dict]:
+    """An outline node's children -> the chapter's `planned_beats` (SPEC-23).
+
+    Each beat keeps its child's node_id, title, summary, setting, tone and
+    secondary names. Its people are classified against the book's CURRENT cast
+    (classify_people): an id no longer live is dropped, and a secondary name
+    that now resolves (the author added that person) moves into
+    `character_ids`. A stored outline's legacy `characters` count the same.
+    """
+    raw: list[dict] = []
+    for child in children if isinstance(children, list) else []:
+        if not isinstance(child, dict):
+            continue
+        refs = [
+            ref
+            for key in ("character_ids", "characters", "secondary_names")
+            if isinstance(child.get(key), list)
+            for ref in child[key]
+        ]
+        people = classify_people(refs, cast, None)
+        raw.append(
+            {
+                "node_id": child.get("node_id"),
+                "title": child.get("title"),
+                "summary": child.get("summary"),
+                "character_ids": people.ids,
+                "secondary_names": people.secondary,
+                "setting": child.get("setting"),
+                "tone": child.get("tone"),
+            }
+        )
+    return normalize_planned_beats(raw)
+
+
 async def _promote_node(
     db: AsyncSession, book_pk: UUID, node: dict, cast: CastIndex, user_id: UUID
 ) -> tuple[ChapterORM, bool]:
@@ -482,7 +577,9 @@ async def _promote_node(
 
     Returns (chapter, created). The chapter carries the node's structural cast
     (resolved against the book's CURRENT cast: a character removed since the
-    outline was drafted is dropped, not dangled) so a new scene defaults to it.
+    outline was drafted is dropped, not dangled) so a new scene defaults to it,
+    and its children as `planned_beats` (SPEC-23). The title loses an outline
+    "Chapter N:" prefix: the book position numbers chapters.
     """
     node_id = None
     try:
@@ -494,22 +591,16 @@ async def _promote_node(
         if existing is not None:
             return existing, False
 
-    character_ids: list[str] = []
-    for ref in node.get("character_ids") or []:
-        cid = cast.resolve(ref)
-        if cid is not None and cid not in character_ids:
-            character_ids.append(cid)
+    character_ids = classify_people(node.get("character_ids") or [], cast, None).ids
     pov_id = cast.resolve(node.get("pov")) if node.get("pov") else None
     if pov_id is not None and pov_id not in character_ids:
         character_ids.insert(0, pov_id)
 
-    child_summaries = "\n".join(
-        f"- {child.get('title', '')}: {child.get('summary', '')}"
-        for child in node.get("children", [])
-    )
-    summary = node.get("summary", "")
-    if child_summaries:
-        summary = f"{summary}\n\nPlanned beats:\n{child_summaries}".strip()
+    # The children are the chapter's planned beats, as data (SPEC-23); the
+    # summary is the node's own and no longer carries them.
+    planned_beats = promoted_beats(node.get("children"), cast)
+    summary = str(node.get("summary") or "").strip()
+    title = clean_chapter_title(str(node.get("title") or ""))
 
     # Same as create_chapter's append: a concurrent append can take max+1 first;
     # the UNIQUE (book_id, position) constraint turns that into an
@@ -524,8 +615,9 @@ async def _promote_node(
         ).scalar_one() + 1
         chapter = ChapterORM(
             book_id=book_pk,
-            title=node.get("title", f"Chapter {next_pos + 1}"),
+            title=title or f"Chapter {next_pos + 1}",
             summary=summary,
+            planned_beats=planned_beats,
             position=next_pos,
             plan_node_id=node_id,
             pov_character_id=UUID(pov_id) if pov_id else None,
@@ -605,7 +697,11 @@ async def promote_plan_node(
     book_pk, user_id = book.id, current_user.id
     cast = await _book_cast(db, book_pk)
     chapter, created = await _promote_node(db, book_pk, node, cast, user_id)
-    return _promoted_dict(chapter, created)
+    return {
+        **_promoted_dict(chapter, created),
+        # This chapter's named people not yet in the cast (SPEC-23 §1.2).
+        "suggested_characters": await _suggestions(db, book_pk, [node]),
+    }
 
 
 @router.post("/books/{book_id}/plans/promote-all", response_model=dict)
@@ -628,6 +724,7 @@ async def promote_all_plan_nodes(
     return {
         "chapters": results,
         "created": sum(1 for r in results if r["created"]),
+        "suggested_characters": await _suggestions(db, book_pk, nodes),
     }
 
 

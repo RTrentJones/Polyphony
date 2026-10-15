@@ -136,6 +136,15 @@ async def get_scene_grounding(
                 "characters": list(by_character.values()),
             }
         )
+    # A beat stored without recorded grounding still exists, and the editor's
+    # "Redo beat N" (SPEC-25) needs it listed.
+    listed = {b["beat_index"] for b in beats}
+    beats.extend(
+        {"beat_index": n, "description": d, "characters": []}
+        for n, d in descriptions.items()
+        if n not in listed
+    )
+    beats.sort(key=lambda b: b["beat_index"])
 
     return {
         "scene_id": str(scene.id),

@@ -29,6 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm_text import MAX_CANON_CHARS, as_quoted_block, clean_for_llm
+from app.core.prompt_markers import NAME_HEADING
 
 # Roles that make a character a PRINCIPAL — the hard-gate cast that must appear
 # in a faithful outline (docs/BRD.md R1.4).
@@ -60,29 +61,42 @@ _CHARACTER_JSON_FIELDS: list[tuple[str, str]] = [
 ]
 
 
-def _render_json_field(value: Any) -> Optional[str]:
+def _render_json_field(value: Any, label: Optional[str] = None) -> Optional[str]:
     """Render a JSON bible field as readable prose, not a Python repr.
 
     These columns are free-form JSON in practice: dicts from the manual create
     path, lists from extraction, occasionally a bare string. Feeding the model
     `{'wry': True}` teaches it Python; feeding it `wry` teaches it the character.
+
+    `label` is the line's own label ("Voice"). A dict key equal to it would
+    print "Voice: voice: dry" (SPEC-26 P9), so that key is dropped and only its
+    value is kept.
     """
     if not value:
         return None
     if isinstance(value, str):
         return clean_for_llm(value) or None
     if isinstance(value, dict):
-        # A bare key ({"wry": ""} / {"wry": True}) renders as just the key.
-        parts = [
-            f"{k}: {v}" if not isinstance(v, bool) and v != "" else str(k)
-            for k, v in value.items()
-            if v is not None and v is not False
-        ]
+        parts = []
+        for k, v in value.items():
+            if v is None or v is False:
+                continue
+            if _is_label(k, label):
+                # {"voice": "dry"} under "Voice:" is just "dry".
+                text = "" if isinstance(v, bool) else str(v)
+                if text.strip():
+                    parts.append(text.strip())
+                continue
+            # A bare key ({"wry": ""} / {"wry": True}) renders as just the key.
+            parts.append(f"{k}: {v}" if not isinstance(v, bool) and v != "" else str(k))
         return "; ".join(parts) or None
     if isinstance(value, (list, tuple, set)):
-        parts = [str(v) for v in value if v]
-        return "; ".join(parts) or None
+        return "; ".join(str(v) for v in value if v and str(v).strip()) or None
     return str(value)
+
+
+def _is_label(key: Any, label: Optional[str]) -> bool:
+    return bool(label) and str(key).strip().casefold() == label.strip().casefold()
 
 
 def _aliases(character: Any) -> list[str]:
@@ -95,7 +109,7 @@ def _aliases(character: Any) -> list[str]:
 
 def render_character(character: Any) -> str:
     """One character's full bible entry as markdown."""
-    lines = [f"### {character.name}"]
+    lines = [f"{NAME_HEADING}{character.name}"]
     aliases = _aliases(character)
     if aliases:
         # "the CEL" read as a company name because nothing told the model it
@@ -108,7 +122,7 @@ def render_character(character: Any) -> str:
             lines.append(f"{label}: {value}")
 
     for attr, label in _CHARACTER_JSON_FIELDS:
-        rendered = _render_json_field(getattr(character, attr, None))
+        rendered = _render_json_field(getattr(character, attr, None), label)
         if rendered:
             lines.append(f"{label}: {rendered}")
 

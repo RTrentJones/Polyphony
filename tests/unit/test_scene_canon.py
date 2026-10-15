@@ -163,6 +163,8 @@ async def test_beat_prompt_carries_whole_canon_fenced(
         # author/upload content is fenced
         assert "<synopsis>" in prompt and "<canon>" in prompt
     beat = fake.prompts["beat_prose"][0]
+    # SPEC-24: the style guide's mode and its (cast) POV character, stated
+    assert "Point of view: first person, Milo Voss. Narrate only what Milo" in beat
     assert "<character>" in beat and "I'll not be hurried." in beat
     assert "No bible entry" not in beat
 
@@ -367,14 +369,17 @@ async def test_workflow_sends_the_plan_paragraphs_and_the_authors_style(
     assert "→ 1. Milo arrives." in first
     assert "Write ONLY beat 1. Stop where beat 2 begins" in first
     assert "→ 2. Zara hands him a form." in second and "1. Milo arrives." in second
-    assert "end the scene here" in third
+    assert (
+        "end the scene inside the moment, in POV; no summary of what follows" in third
+    )
     # the prior beat's paragraph break survives into <prior>
     assert "Milo came in from the rain.\n\nThe lobby smelled" in second
     # the author's sample prose is the primary reference; no house style
     for prompt in (first, second, third):
-        assert "Match this sample's voice and rhythm" in prompt
+        assert "primary style reference. Match its voice and rhythm" in prompt
         assert "PUNCTUATES" not in prompt
-        assert prompt.index("<sample_prose>") < prompt.index("Write approximately")
+        assert prompt.count(style.sample_prose) == 1  # in the canon only (W1-S3)
+        assert "<sample_prose>" not in prompt
 
     beats = (
         (

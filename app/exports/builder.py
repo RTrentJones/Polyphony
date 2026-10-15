@@ -58,8 +58,8 @@ class BookExport:
 
 
 def scene_text(scene) -> str:
-    """The draft state: edited content wins over raw generation output."""
-    return (scene.content or scene.generated_content or "").strip()
+    """The draft (`Scene.draft`), trimmed for the manuscript."""
+    return scene.draft.strip()
 
 
 def clean_chapter_title(title: str) -> str:

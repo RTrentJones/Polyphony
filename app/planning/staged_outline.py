@@ -40,9 +40,11 @@ from uuid import UUID
 
 from app.core.llm_text import STORY_MATERIAL_NOTICE
 from app.core.logging_config import setup_logging
+from app.core.prompt_markers import ACT_CHAPTERS_HEADER, CONFIRMED_PREMISE_NOTE
 from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_array, extract_json_object
 from app.planning.canon import Canon
+from app.parsing import names
 from app.planning.fidelity import FidelityAudit, audit_outline, canon_known_text
 from app.planning.outline import CastIndex, validate_outline_nodes
 
@@ -85,6 +87,23 @@ JSON:"""
     return extract_json_object(result.text)
 
 
+def _cast_rules(canon: Canon) -> str:
+    """Who the outline may name (SPEC-24 §1e). Principals are the canon cast
+    and only the canon cast; people the synopsis or canon name beyond it may
+    appear by name (the author wrote them); anyone else is an invention. The
+    model lists everyone in one `people` list and the server classifies it
+    (outline.classify_people), so the prompt never guesses who is a person."""
+    cast_names = ", ".join(c.name for c in canon.characters) or "(none named)"
+    return (
+        f"Principal characters MUST be canon cast: {cast_names}. "
+        "Do not introduce new principal characters.\n"
+        "People the synopsis or canon name who are not in the cast may appear "
+        "by name; never invent others.\n"
+        "`pov` names one canon cast member; `people` lists everyone named in "
+        "that chapter or beat: canon cast, or people the synopsis or canon name."
+    )
+
+
 def _json(value) -> str:
     """Structures embedded in a prompt are JSON — the format the model is asked
     to answer in — never a Python repr (`[{'title': ...}]`) (SPEC-18, B11)."""
@@ -95,11 +114,7 @@ def _premise_lines(skeleton: dict) -> str:
     """The premise and central conflict, with the author's confirmation said
     out loud: a premise the author confirmed (or rewrote) is the ground truth
     for the rest of the outline (SPEC-10), at every stage that follows."""
-    confirmed = (
-        " (confirmed by the author: treat it as authoritative)"
-        if skeleton.get("confirmed")
-        else ""
-    )
+    confirmed = CONFIRMED_PREMISE_NOTE if skeleton.get("confirmed") else ""
     return (
         f"Premise{confirmed}: {skeleton.get('premise_restated', '')}\n"
         f"Central conflict: {skeleton.get('central_conflict', '')}"
@@ -139,7 +154,6 @@ def _act_brief(skeleton: Optional[dict], act_index: int) -> str:
 async def _stage_chapters(
     canon: Canon, skeleton: dict, user_id, repair_missing: Optional[list[str]] = None
 ) -> list[dict]:
-    cast_names = ", ".join(c.name for c in canon.characters) or "(none named)"
     repair = ""
     if repair_missing:
         # The chapter stage is where structural cast (pov, characters[]) is chosen,
@@ -148,7 +162,7 @@ async def _stage_chapters(
         repair = (
             "\n\nThe previous attempt OMITTED these principal characters entirely. "
             "You MUST give each of them a role across the chapters, present in the "
-            f"`pov` or `characters` of specific chapters: {', '.join(repair_missing)}"
+            f"`pov` or `people` of specific chapters: {', '.join(repair_missing)}"
         )
     prompt = f"""{STORY_MATERIAL_NOTICE}
 
@@ -158,14 +172,15 @@ async def _stage_chapters(
 Acts, numbered from 1 (each chapter's act_index is its act's 0-based index):
 {_json(_acts_for_prompt(skeleton))}
 
-Break the acts into chapters. Every name you use for a character MUST be one of
-the canon cast: {cast_names}. Do not introduce new principal characters.{repair}
+Break the acts into chapters.
+{_cast_rules(canon)}{repair}
 
 Return ONLY a JSON array of chapters:
 [
   {{"title": "chapter title", "summary": "1-2 sentences of what CHANGES",
     "act_index": <int, 0-based>, "pov": "canon character name or ''",
-    "characters": ["canon names present"], "threads": ["optional plot threads"]}}
+    "people": ["everyone named in this chapter"],
+    "threads": ["optional plot threads"]}}
 ]
 
 JSON:"""
@@ -202,22 +217,31 @@ async def _stage_beats_for_act(
 
 {plan}{_act_brief(skeleton, act_index)}
 
-Here are the chapters of act {number}, in order:
+{ACT_CHAPTERS_HEADER.format(number=number)}
 {_json(act_chapters)}
 
 For EACH chapter, write 2-4 scene beats. Keep every character name faithful to
-the canon. Each beat's summary must say what CHANGES, not just what happens.
-The beats must serve the premise and this act's goal, and the act's final
-chapter must end on its turn.
+the canon.
+{_cast_rules(canon)}
+
+Each beat's summary must say what CHANGES, not just what happens. The beats
+must serve the premise and this act's goal, and the act's final chapter must
+end on its turn. Give each beat its own `people`: everyone named in THAT beat
+(not the whole chapter's), plus `setting` where it happens and `tone` its
+emotional tone. A functional figure the canon does not name (a clerk, a guard)
+stays unnamed.
 
 Return ONLY a JSON array mirroring the chapters, each with its beats as
-children. Echo each chapter's title, summary, act_index, pov, characters and
+children. Echo each chapter's title, summary, act_index, pov, people and
 threads unchanged:
 [
   {{"title": <chapter title>, "summary": <chapter summary>,
-    "act_index": <int>, "pov": <pov>, "characters": [<names>],
+    "act_index": <int>, "pov": <pov>, "people": [<names>],
     "threads": [<threads>],
-    "children": [{{"title": <beat title>, "summary": <what changes>, "children": []}}]}}
+    "children": [{{"title": <beat title>, "summary": <what changes>,
+      "people": [<everyone named in this beat>],
+      "setting": <where it happens>, "tone": <its emotional tone>,
+      "children": []}}]}}
 ]
 
 JSON:"""
@@ -231,7 +255,7 @@ JSON:"""
     return extract_json_array(result.text)
 
 
-_STRUCTURAL = ("act_index", "pov", "characters", "threads")
+_STRUCTURAL = ("act_index", "pov", "people", "threads")
 _EMPTY = (None, "", [])
 
 
@@ -435,6 +459,7 @@ async def generate_staged_outline(
     await _emit("audit")
     cast = _cast_index(canon)
     canon_text = canon_known_text(canon)
+    known_text = names.norm(canon_text)
     audit: FidelityAudit = audit_outline(
         nodes, principals, known, cast=cast, canon_text=canon_text
     )
@@ -454,4 +479,7 @@ async def generate_staged_outline(
             nodes, principals, known, cast=cast, canon_text=canon_text
         )
 
-    return validate_outline_nodes(nodes, cast=cast), list(audit.warnings)
+    return (
+        validate_outline_nodes(nodes, cast=cast, known_text=known_text),
+        list(audit.warnings),
+    )

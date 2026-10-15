@@ -98,8 +98,33 @@ describe('GenerateSceneModal defaults from a promoted chapter (SPEC-10)', () => 
     plan_node_id: 'node-1',
     character_ids: ['c-ada', 'c-bram', 'c-gone'],
     pov_character_id: 'c-bram',
-    summary:
-      'Ada meets Bram.\n\nPlanned beats:\n- Arrival: Ada reaches the gate\n- Refusal: Bram will not open it',
+    summary: 'Ada meets Bram.',
+    planned_beats: [
+      {
+        node_id: 'n-1',
+        title: 'Arrival',
+        summary: 'Ada reaches the gate',
+        character_ids: ['c-ada'],
+        secondary_names: [],
+        setting: 'The north gate',
+        tone: 'wary',
+      },
+      {
+        node_id: 'n-2',
+        title: 'Refusal',
+        summary: 'Bram will not open it',
+        character_ids: [],
+        secondary_names: [],
+        setting: '',
+        tone: '',
+      },
+    ],
+  }
+
+  const fill = () => {
+    fireEvent.change(screen.getByPlaceholderText(/dimly lit tavern/), {
+      target: { value: 'the gate' },
+    })
   }
 
   it("pre-selects the chapter's cast and POV, dropping characters no longer in the book", async () => {
@@ -121,19 +146,182 @@ describe('GenerateSceneModal defaults from a promoted chapter (SPEC-10)', () => 
     expect(screen.getByDisplayValue('Bram')).toBeInTheDocument()
   })
 
-  it('offers each planned beat as a one-click description', async () => {
+  it('offers each planned beat, showing its setting and tone', async () => {
     listCharacters.mockResolvedValue(cast)
     renderModal({ chapter: promoted })
 
     const beats = await screen.findByTestId('planned-beats')
+    expect(beats).toHaveTextContent('Arrival: Ada reaches the gate')
+    expect(beats).toHaveTextContent('Refusal: Bram will not open it')
+    expect(screen.getByTestId('beat-meta')).toHaveTextContent('The north gate · wary')
+  })
+
+  it('shows no beats when the chapter has none, whatever its summary says', async () => {
+    listCharacters.mockResolvedValue(cast)
+    renderModal({
+      chapter: {
+        ...promoted,
+        summary: 'Ada meets Bram.\n\nPlanned beats:\n- Arrival: Ada reaches the gate',
+        planned_beats: [],
+      },
+    })
+    await screen.findByTestId('cast-picker')
+    expect(screen.queryByTestId('planned-beats')).not.toBeInTheDocument()
+  })
+
+  it("defaults the tone to the book's ('') and offers no 'neutral'", async () => {
+    listCharacters.mockResolvedValue(cast)
+    renderModal()
+    await screen.findByTestId('cast-picker')
+    const tone = screen.getByDisplayValue("Book's tone") as HTMLSelectElement
+    expect(tone.value).toBe('')
+    const options = Array.from(tone.options).map((o) => o.value)
+    expect(options).not.toContain('neutral')
+  })
+
+  it("picking a beat sets its description, setting and tone, previews its cast, and leaves the cast to the server (S7, W-1)", async () => {
+    listCharacters.mockResolvedValue(cast)
+    generateScene.mockResolvedValue({ scene_id: 's-1' })
+    renderModal({ chapter: promoted })
+
+    const beats = await screen.findByTestId('planned-beats')
+    // The chapter's cast (Ada + Bram) is preselected first.
+    await waitFor(() => expect(screen.getByDisplayValue('Bram')).toBeInTheDocument())
+    fireEvent.click(beats.querySelector('button')!)
+
+    expect(screen.getByPlaceholderText('What happens in this scene...')).toHaveValue(
+      'Arrival: Ada reaches the gate'
+    )
+    expect(screen.getByPlaceholderText(/dimly lit tavern/)).toHaveValue('The north gate')
+    // A free-text beat tone that is not in the list is shown, and selected.
+    expect((screen.getByDisplayValue('Wary') as HTMLSelectElement).value).toBe('wary')
+    // The preview: the beat's own cast plus the chapter's POV, which stays.
+    const pressed = Array.from(
+      screen.getByTestId('cast-picker').querySelectorAll('button[aria-pressed="true"]')
+    ).map((b) => b.textContent)
+    expect(pressed).toEqual(['Ada· protagonist', 'Bram'])
+    expect(screen.getByDisplayValue('Bram')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
+    await waitFor(() => expect(generateScene).toHaveBeenCalledTimes(1))
+    const [, request] = generateScene.mock.calls[0]
+    // The server casts the beat (beat_people), exactly as the batch does.
+    expect(request.character_ids).toEqual([])
+    expect(request.emotional_tone).toBe('wary')
+    expect(request.planned_beat_id).toBe('n-1')
+    expect(request.pov_character).toBe('Bram')
+  })
+
+  it("picking a castless beat after a cast one previews the chapter's cast, not the first beat's", async () => {
+    listCharacters.mockResolvedValue(cast)
+    // A chapter whose cast is Ada alone and whose POV is not set: the first
+    // beat previews Bram, the castless one must go back to Ada.
+    renderModal({
+      chapter: {
+        ...promoted,
+        character_ids: ['c-ada'],
+        pov_character_id: undefined,
+        planned_beats: [
+          { ...promoted.planned_beats![0], character_ids: ['c-bram'] },
+          promoted.planned_beats![1],
+        ],
+      },
+    })
+    const beats = await screen.findByTestId('planned-beats')
+    await screen.findByRole('button', { name: 'Bram' })
+    const [first, second] = Array.from(beats.querySelectorAll('button'))
+    const pressed = () =>
+      Array.from(
+        screen.getByTestId('cast-picker').querySelectorAll('button[aria-pressed="true"]')
+      ).map((b) => b.textContent)
+    fireEvent.click(first)
+    expect(pressed()).toEqual(['Bram'])
+    fireEvent.click(second)
+    expect(pressed()).toEqual(['Ada· protagonist'])
+  })
+
+  it('picking a beat with no setting clears the previous beat\'s setting', async () => {
+    listCharacters.mockResolvedValue(cast)
+    renderModal({ chapter: promoted })
+    const beats = await screen.findByTestId('planned-beats')
+    const [first, second] = Array.from(beats.querySelectorAll('button'))
+    fireEvent.click(first)
+    expect(screen.getByPlaceholderText(/dimly lit tavern/)).toHaveValue('The north gate')
+    fireEvent.click(second)
+    expect(screen.getByPlaceholderText(/dimly lit tavern/)).toHaveValue('')
+  })
+
+  it("sends the author's own cast once they change the beat's", async () => {
+    listCharacters.mockResolvedValue(cast)
+    generateScene.mockResolvedValue({ scene_id: 's-1' })
+    renderModal({ chapter: promoted })
+    const beats = await screen.findByTestId('planned-beats')
+    await waitFor(() => expect(screen.getByDisplayValue('Bram')).toBeInTheDocument())
+    fireEvent.click(beats.querySelector('button')!)
+    fireEvent.click(screen.getByRole('button', { name: 'Bram' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
+    await waitFor(() => expect(generateScene).toHaveBeenCalledTimes(1))
+    const [, request] = generateScene.mock.calls[0]
+    expect(request.character_ids).toEqual(['c-ada'])
+    expect(request.planned_beat_id).toBe('n-1')
+  })
+
+  it("a beat with no cast of its own keeps the chapter's cast and the book's tone", async () => {
+    listCharacters.mockResolvedValue(cast)
+    generateScene.mockResolvedValue({ scene_id: 's-1' })
+    renderModal({ chapter: promoted })
+
+    const beats = await screen.findByTestId('planned-beats')
+    await waitFor(() => expect(screen.getByDisplayValue('Bram')).toBeInTheDocument())
     fireEvent.click(
       Array.from(beats.querySelectorAll('button')).find((b) =>
         b.textContent?.startsWith('Refusal')
       )!
     )
-    expect(
-      screen.getByPlaceholderText('What happens in this scene...')
-    ).toHaveValue('Refusal: Bram will not open it')
+    fill()
+    const pressed = screen
+      .getByTestId('cast-picker')
+      .querySelectorAll('button[aria-pressed="true"]')
+    expect(pressed).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
+    await waitFor(() => expect(generateScene).toHaveBeenCalledTimes(1))
+    const [, request] = generateScene.mock.calls[0]
+    expect(request.character_ids).toEqual([])
+    expect(request.emotional_tone).toBe('')
+    expect(request.planned_beat_id).toBe('n-2')
+    expect(request.pov_character).toBe('Bram')
+  })
+  it('a beat cast only by the server can be generated from an empty picker', async () => {
+    listCharacters.mockResolvedValue(cast)
+    generateScene.mockResolvedValue({ scene_id: 's-1' })
+    // No chapter cast to preselect; the beat names Bram only as a secondary,
+    // whom the server resolves against the book (beat_people).
+    renderModal({
+      chapter: {
+        ...chapter,
+        planned_beats: [
+          {
+            node_id: 'n-3',
+            title: 'Watch',
+            summary: 'Bram keeps the gate',
+            character_ids: [],
+            secondary_names: ['Bram'],
+            setting: 'The gatehouse',
+            tone: '',
+          },
+        ],
+      },
+    })
+    const beats = await screen.findByTestId('planned-beats')
+    await screen.findByRole('button', { name: 'Bram' })
+    fireEvent.click(beats.querySelector('button')!)
+    const generate = screen.getByRole('button', { name: 'Generate' })
+    expect(generate).toBeEnabled()
+    fireEvent.click(generate)
+    await waitFor(() => expect(generateScene).toHaveBeenCalledTimes(1))
+    const [, request] = generateScene.mock.calls[0]
+    expect(request.character_ids).toEqual([])
+    expect(request.planned_beat_id).toBe('n-3')
   })
 })
 

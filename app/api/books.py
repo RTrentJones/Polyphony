@@ -1,5 +1,6 @@
 """Book, chapter, and draft endpoints: the book-writing workflow."""
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
@@ -19,7 +20,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.jobs import latest_jobs
 from app.characters.cast import resolve_cast
+from app.core import estimates
 from app.core.budget import check_user_budget
 from app.core.database import get_db
 from app.core.orm_models import (
@@ -38,6 +41,7 @@ from app.exports.builder import (
     ChapterExport,
     SceneExport,
     scene_text,
+    select_chapters,
     to_docx,
     to_epub,
     to_markdown,
@@ -45,6 +49,15 @@ from app.exports.builder import (
 from app.jobs import repository as jobs_repo
 from app.jobs import scene_batch
 from app.llm.tier import get_tier
+from app.planning.canon import build_canon, render_character
+from app.planning.outline import CastIndex, classify_people
+from app.planning.planned_beat import (
+    MAX_PLANNED_BEATS,
+    PlannedBeat,
+    beat_scene_description,
+    normalize_planned_beats,
+    unwritten_beats,
+)
 from app.versioning import entities as entity_versions
 from app.versioning import trash
 from app.versioning.synopsis import record_synopsis
@@ -83,6 +96,11 @@ class ChapterUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=500)
     summary: Optional[str] = None
     status: Optional[str] = None
+    # The chapter's planned scenes (SPEC-23), replacing the stored list. Strict:
+    # a character id that is not live in this book is a 422.
+    planned_beats: Optional[list[PlannedBeat]] = Field(
+        None, max_length=MAX_PLANNED_BEATS
+    )
 
 
 class PositionUpdate(BaseModel):
@@ -104,6 +122,9 @@ class ChapterSceneRequest(BaseModel):
     # Generation mode (docs/BRD.md §8). prose = one call per beat (default);
     # ensemble = narrator/character/editor loop, opt-in and tier-gated.
     mode: str = Field(default="prose", pattern="^(prose|ensemble)$")
+    # The planned beat this scene is written from (SPEC-23): links the scene to
+    # the beat, so "Generate all planned scenes" counts that beat as written.
+    planned_beat_id: Optional[str] = Field(default=None, max_length=64)
 
     @model_validator(mode="before")
     @classmethod
@@ -118,13 +139,16 @@ class ChapterSceneRequest(BaseModel):
 
 
 class PlannedScenesRequest(BaseModel):
-    """Generate every planned scene of a chapter (SPEC-10 follow-up). The
-    descriptions are the chapter's planned beats; the rest applies to each."""
+    """Generate every planned scene of a chapter (SPEC-10 follow-up, SPEC-23).
+    Each scene is written from its planned beat: its description, cast,
+    setting and tone. A field set here overrides every beat's."""
 
-    # Defaults to the chapter's promoted cast when empty.
+    # Non-empty = the cast of EVERY scene. Empty = each beat's own cast, else
+    # the chapter's promoted cast.
     character_ids: list[UUID] = Field(default_factory=list)
+    # "" = each beat's setting / tone ("" allowed: the style guide governs).
     setting: str = ""
-    emotional_tone: str = "neutral"
+    emotional_tone: str = ""
     target_word_count: int = Field(default=800, ge=100, le=3000)
     style_notes: Optional[str] = None
     mode: str = Field(default="prose", pattern="^(prose|ensemble)$")
@@ -213,6 +237,22 @@ async def lock_scene(db: AsyncSession, scene: SceneORM) -> SceneORM:
     ).scalar_one()
 
 
+def snapshot_draft(db: AsyncSession, scene: SceneORM) -> None:
+    """Keep the current draft as restorable history before it is replaced (a
+    manual save, an accepted revision): raw, so history restores it byte for
+    byte, and "edited" once the author has saved over the generation."""
+    previous = scene.draft
+    if previous:
+        db.add(
+            SceneRevisionORM(
+                scene_id=scene.id,
+                content=previous,
+                word_count=len(previous.split()),
+                source="edited" if scene.content else "generated",
+            )
+        )
+
+
 def _chapter_dict(c: ChapterORM) -> dict:
     return {
         "id": str(c.id),
@@ -225,6 +265,8 @@ def _chapter_dict(c: ChapterORM) -> dict:
         "plan_node_id": str(c.plan_node_id) if c.plan_node_id else None,
         "pov_character_id": str(c.pov_character_id) if c.pov_character_id else None,
         "character_ids": c.character_ids or [],
+        # The planned scenes as data (SPEC-23); [] for a hand-made chapter.
+        "planned_beats": normalize_planned_beats(c.planned_beats),
     }
 
 
@@ -260,6 +302,9 @@ async def list_books(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """The author's books, each with its progress (SPEC-27, B12): words drafted,
+    chapters and scenes drafted out of planned, and the last-edited scene (the
+    dashboard's "Resume" link). Four queries for any number of books."""
     books = (
         (
             await db.execute(
@@ -271,6 +316,101 @@ async def list_books(
         .scalars()
         .all()
     )
+    book_ids = [b.id for b in books]
+    progress = {
+        b.id: {
+            "word_count": 0,
+            "chapter_count": 0,
+            "chapters_drafted": 0,
+            "scenes_drafted": 0,
+            "scenes_planned": 0,
+            "last_edited_scene": None,
+        }
+        for b in books
+    }
+    if book_ids:
+        chapters = (
+            (
+                await db.execute(
+                    live(select(ChapterORM), ChapterORM).where(
+                        ChapterORM.book_id.in_(book_ids)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        chapter_titles = {c.id: c.title for c in chapters}
+        for c in chapters:
+            progress[c.book_id]["chapter_count"] += 1
+            progress[c.book_id]["scenes_planned"] += len(
+                normalize_planned_beats(c.planned_beats)
+            )
+
+        # Live scenes in a live chapter, or standalone (no chapter).
+        in_book = (
+            SceneORM.book_id.in_(book_ids),
+            SceneORM.deleted_at.is_(None),
+            (SceneORM.chapter_id.is_(None)) | (ChapterORM.deleted_at.is_(None)),
+        )
+        scenes_from = (
+            select()
+            .select_from(SceneORM)
+            .outerjoin(ChapterORM, ChapterORM.id == SceneORM.chapter_id)
+        )
+        drafted = SceneORM.status == "completed"
+        for book_id, words, n_drafted in await db.execute(
+            scenes_from.add_columns(
+                SceneORM.book_id,
+                func.coalesce(func.sum(SceneORM.word_count), 0),
+                func.count(SceneORM.id).filter(drafted),
+            )
+            .where(*in_book)
+            .group_by(SceneORM.book_id)
+        ):
+            progress[book_id]["word_count"] = int(words or 0)
+            progress[book_id]["scenes_drafted"] = int(n_drafted or 0)
+
+        for book_id, n_chapters in await db.execute(
+            scenes_from.add_columns(
+                SceneORM.book_id, func.count(func.distinct(SceneORM.chapter_id))
+            )
+            .where(*in_book, drafted, SceneORM.chapter_id.is_not(None))
+            .group_by(SceneORM.book_id)
+        ):
+            progress[book_id]["chapters_drafted"] = int(n_chapters or 0)
+
+        # The most recently edited live scene per book (ties: newest id wins).
+        rank = (
+            func.row_number()
+            .over(
+                partition_by=SceneORM.book_id,
+                order_by=(SceneORM.updated_at.desc(), SceneORM.id.desc()),
+            )
+            .label("rank")
+        )
+        latest = (
+            scenes_from.add_columns(
+                SceneORM.book_id,
+                SceneORM.id,
+                SceneORM.title,
+                SceneORM.chapter_id,
+                SceneORM.updated_at,
+                rank,
+            )
+            .where(*in_book)
+            .subquery()
+        )
+        for book_id, scene_id, title, chapter_id, updated_at, _ in await db.execute(
+            select(latest).where(latest.c.rank == 1)
+        ):
+            progress[book_id]["last_edited_scene"] = {
+                "id": str(scene_id),
+                "title": title,
+                "chapter_id": str(chapter_id) if chapter_id else None,
+                "chapter_title": chapter_titles.get(chapter_id),
+                "updated_at": updated_at.isoformat() if updated_at else None,
+            }
     return {
         "books": [
             {
@@ -280,6 +420,7 @@ async def list_books(
                 "genre": b.genre,
                 "status": b.status,
                 "created_at": b.created_at.isoformat() if b.created_at else None,
+                **progress[b.id],
             }
             for b in books
         ]
@@ -456,8 +597,6 @@ async def get_chapter(
         .scalars()
         .all()
     )
-    from app.api.jobs import latest_jobs
-
     jobs = await latest_jobs(db, "scene", [s.id for s in scenes])
     return {
         **_chapter_dict(chapter),
@@ -476,6 +615,43 @@ async def get_chapter(
     }
 
 
+async def _strict_planned_beats(
+    db: AsyncSession, book_id: UUID, beats: list[PlannedBeat]
+) -> list[dict]:
+    """The author's planned beats, normalized; 422 naming every character id
+    that is not a live character of this book (the author's own edit is
+    strict, like an outline PUT)."""
+    live_ids = {
+        str(cid)
+        for cid in (
+            await db.execute(
+                live(select(CharacterORM.id), CharacterORM).where(
+                    CharacterORM.book_id == book_id
+                )
+            )
+        ).scalars()
+    }
+    unknown: list[str] = []
+    for beat in beats:
+        for cid in beat.character_ids:
+            try:
+                key = str(UUID(str(cid)))
+            except ValueError:
+                key = None
+            if key not in live_ids and cid not in unknown:
+                unknown.append(cid)
+    if unknown:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": "These characters are not in this book's cast. Add "
+                "them in the Canon tab first, or pick from the cast.",
+                "unknown": unknown,
+            },
+        )
+    return normalize_planned_beats([b.model_dump() for b in beats])
+
+
 @router.patch("/chapters/{chapter_id}", response_model=dict)
 async def update_chapter(
     chapter_id: UUID,
@@ -490,9 +666,13 @@ async def update_chapter(
         if getattr(payload, f) is not None
         and getattr(payload, f) != getattr(chapter, f)
     }
+    if payload.planned_beats is not None:
+        beats = await _strict_planned_beats(db, chapter.book_id, payload.planned_beats)
+        if beats != normalize_planned_beats(chapter.planned_beats):
+            changes["planned_beats"] = beats
     if changes:
-        # Chapter titles and summaries are versioned (SPEC-13, F16); a chapter
-        # from before then keeps its current text as v1.
+        # Chapter titles, summaries and planned beats are versioned (SPEC-13,
+        # F16, SPEC-23); a chapter from before then keeps its state as v1.
         await entity_versions.ensure_baseline(
             db, "chapter", chapter, created_by=current_user.id
         )
@@ -633,8 +813,6 @@ async def list_book_scenes(
         ).all()
         titles = {cid: title for cid, title in rows}
 
-    from app.api.jobs import latest_jobs
-
     jobs = await latest_jobs(db, "scene", [s.id for s in scenes])
     return {
         "scenes": [
@@ -655,6 +833,41 @@ async def list_book_scenes(
 
 
 # --- Generate into a chapter ------------------------------------------------------
+
+
+async def beat_cast_context(
+    db: AsyncSession, chapter: ChapterORM
+) -> tuple[CastIndex, list[str], Optional[str]]:
+    """(the book's live cast index, the chapter's live cast ids, the chapter's
+    live POV id or None): what beat_people resolves a beat against."""
+    rows = await db.execute(
+        live(select(CharacterORM), CharacterORM).where(
+            CharacterORM.book_id == chapter.book_id
+        )
+    )
+    index = CastIndex(rows.scalars().all())
+    chapter_cast = [
+        c for c in (str(x) for x in chapter.character_ids or []) if c in index.names
+    ]
+    pov = str(chapter.pov_character_id) if chapter.pov_character_id else None
+    return index, chapter_cast, pov if pov in index.names else None
+
+
+def beat_people(
+    beat: dict, index: CastIndex, chapter_cast: list[str], pov_id: Optional[str]
+) -> tuple[list[str], list[str]]:
+    """A planned beat's cast: the one rule for "Generate all planned scenes"
+    and a single scene generated from the beat (review W-1).
+
+    Returns (character ids, still-unresolved secondary names). The ids are the
+    beat's own cast (its live character ids plus any secondary name that now
+    resolves against the book, via classify_people), else the chapter's live
+    cast; the chapter's POV character is always added, first."""
+    own = classify_people(beat["character_ids"] + beat["secondary_names"], index, None)
+    ids = list(own.ids or chapter_cast)
+    if pov_id is not None and pov_id not in ids:
+        ids.insert(0, pov_id)
+    return ids, own.secondary
 
 
 @router.post("/chapters/{chapter_id}/scenes/generate", response_model=dict)
@@ -710,20 +923,33 @@ async def generate_scene_into_chapter(
 
     await check_user_budget(db, current_user.id)
 
+    # A scene written from a planned beat carries the beat's id; an id the
+    # chapter no longer has (a stale modal) is stored as None. With no explicit
+    # cast, the beat is cast by the batch's rule (beat_people, review W-1).
+    wanted = (payload.planned_beat_id or "").strip().lower()
+    beats = normalize_planned_beats(chapter.planned_beats)
+    beat = next((b for b in beats if b["node_id"] == wanted), None)
+    character_ids = list(payload.character_ids)
+    pov_character = payload.pov_character
+    if beat is not None:
+        index, chapter_cast, pov_id = await beat_cast_context(db, chapter)
+        beat_ids, secondary = beat_people(beat, index, chapter_cast, pov_id)
+        if not character_ids:
+            character_ids = [UUID(c) for c in beat_ids]
+            if not pov_character and pov_id is not None:
+                pov_character = index.names[pov_id]
+
     # The cast is resolved against THIS book before anything is spent (SPEC-01).
     cast = await resolve_cast(
         db,
         chapter.book_id,
-        character_ids=payload.character_ids,
+        character_ids=character_ids,
     )
     cast_names = [c.name for c in cast]
     cast_ids = [str(c.id) for c in cast]
 
     # Preflight with the same estimator the modal shows (SPEC-12/14, BRD R7.3):
     # refuse with the estimate rather than start a scene that cannot finish.
-    from app.core import estimates
-    from app.planning.canon import build_canon, render_character
-
     canon = await build_canon(db, chapter.book_id)
     est = estimates.scene(
         canon_chars=len(canon.full_block()),
@@ -749,6 +975,10 @@ async def generate_scene_into_chapter(
     request_dict = payload.model_dump(mode="json")
     request_dict["characters"] = cast_names
     request_dict["character_ids"] = cast_ids
+    request_dict["pov_character"] = pov_character
+    request_dict["planned_beat_id"] = beat["node_id"] if beat else None
+    if beat is not None:
+        request_dict["secondary_names"] = secondary
 
     # Concurrent appends can both compute max+1; the UNIQUE constraint turns
     # that into an IntegrityError — recreate scene AND job (both roll back)
@@ -827,10 +1057,12 @@ async def generate_planned_scenes(
 ):
     """One scene per planned beat of a promoted chapter, written in order.
 
-    The beats are the "Planned beats:" lines promote wrote into the chapter
-    summary (SPEC-10); a beat that already has a live scene in the chapter is
-    skipped, so a second click after a failure picks up where it stopped. The
-    cast and POV default to the chapter's promoted ones.
+    The beats are the chapter's `planned_beats` (SPEC-23); a "Planned beats:"
+    block typed into the summary is text, not beats. A beat that already has a
+    live scene in the chapter (one whose request carries the beat's id) is
+    skipped, so a second click after a failure picks up where it stopped. Each
+    scene takes its beat's cast (else the chapter's), setting and tone, plus the
+    chapter's POV character; editing the chapter summary changes none of it.
 
     Same gates as a single scene: budget check, the scene estimator's preflight
     for ALL the scenes (refused with the estimate rather than stopping halfway),
@@ -862,16 +1094,14 @@ async def generate_planned_scenes(
     if (found := await _existing()) is not None:
         return found
 
-    beats = scene_batch.planned_beats(chapter.summary)
+    beats = normalize_planned_beats(chapter.planned_beats)
     if not beats:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="This chapter has no planned beats. Promote it from the "
             "outline, or generate scenes one at a time.",
         )
-    todo = scene_batch.unwritten_beats(
-        beats, await scene_batch.written_beats(db, chapter_id)
-    )
+    todo = unwritten_beats(beats, await scene_batch.written_beat_ids(db, chapter_id))
     if not todo:
         return {
             "chapter_id": str(chapter_id),
@@ -885,53 +1115,53 @@ async def generate_planned_scenes(
 
     await check_user_budget(db, current_user.id)
 
-    # The cast: the request's, else the chapter's promoted cast — minus anyone
-    # trashed since promote (resolve_cast 422s on an unknown id, SPEC-01).
-    if payload.character_ids:
-        requested = list(payload.character_ids)
-    else:
-        live_ids = {
-            str(cid)
-            for cid in (
-                await db.execute(
-                    live(select(CharacterORM.id), CharacterORM).where(
-                        CharacterORM.book_id == chapter.book_id
-                    )
-                )
-            ).scalars()
-        }
-        requested = [
-            UUID(str(c)) for c in (chapter.character_ids or []) if str(c) in live_ids
-        ]
-    cast = await resolve_cast(db, chapter.book_id, character_ids=requested)
-    cast_names = [c.name for c in cast]
-    cast_ids = [str(c.id) for c in cast]
-    pov = next(
-        (c.name for c in cast if chapter.pov_character_id == c.id),
-        None,
-    )
+    # Each beat's cast (SPEC-23): an explicit request cast for every beat
+    # (resolve_cast below 422s on an unknown id, SPEC-01) plus the chapter's POV
+    # character, else beat_people (the same rule as a single scene, W-1).
+    index, chapter_cast, pov_id = await beat_cast_context(db, chapter)
+    explicit = [str(c) for c in payload.character_ids]
 
-    # Preflight ALL the scenes with the single-scene estimator (SPEC-12).
-    from dataclasses import replace
+    def beat_cast(beat: dict) -> tuple[list[str], list[str]]:
+        """(the scene's character ids, its still-unresolved secondary names)."""
+        ids, secondary = beat_people(beat, index, chapter_cast, pov_id)
+        if explicit:
+            ids = [pov_id] if pov_id is not None and pov_id not in explicit else []
+            ids += explicit
+        return ids, secondary
 
-    from app.core import estimates
-    from app.planning.canon import build_canon, render_character
+    plans = [(beat, *beat_cast(beat)) for beat in todo]
+    # resolve_cast once per distinct cast (it also 422s an empty one).
+    casts: dict[tuple, list] = {}
+    for _, ids, _ in plans:
+        if tuple(ids) not in casts:
+            casts[tuple(ids)] = await resolve_cast(
+                db, chapter.book_id, character_ids=[UUID(c) for c in ids]
+            )
+    pov = index.names.get(pov_id) if pov_id is not None else None
 
+    # Preflight ALL the scenes with the single-scene estimator (SPEC-12): the
+    # sum of each scene's estimate, so a beat's own cast size counts.
     canon = await build_canon(db, chapter.book_id)
-    one = estimates.scene(
-        canon_chars=len(canon.full_block()),
-        cast_context_chars=sum(len(render_character(c)) + 1500 for c in cast),
-        target_words=payload.target_word_count,
-        mode=payload.mode,
-        cast_size=len(cast),
-    )
+    canon_chars = len(canon.full_block())
+    per_scene = [
+        estimates.scene(
+            canon_chars=canon_chars,
+            cast_context_chars=sum(
+                len(render_character(c)) + 1500 for c in casts[tuple(ids)]
+            ),
+            target_words=payload.target_word_count,
+            mode=payload.mode,
+            cast_size=len(casts[tuple(ids)]),
+        )
+        for _, ids, _ in plans
+    ]
     n = len(todo)
     est = replace(
-        one,
-        calls=one.calls * n,
-        input_tokens=one.input_tokens * n,
-        output_tokens=one.output_tokens * n,
-        notes=[*one.notes, f"{n} scene(s), written one after another."],
+        per_scene[0],
+        calls=sum(e.calls for e in per_scene),
+        input_tokens=sum(e.input_tokens for e in per_scene),
+        output_tokens=sum(e.output_tokens for e in per_scene),
+        notes=[*per_scene[0].notes, f"{n} scene(s), written one after another."],
     )
     assessed = await estimates.assess(db, current_user.id, est)
     if not assessed["allowed"]:
@@ -943,17 +1173,19 @@ async def generate_planned_scenes(
     requests = [
         {
             "source_id": None,
-            "character_ids": cast_ids,
-            "characters": cast_names,
-            "scene_description": beat,
-            "setting": payload.setting,
-            "emotional_tone": payload.emotional_tone,
+            "character_ids": [str(c.id) for c in casts[tuple(ids)]],
+            "characters": [c.name for c in casts[tuple(ids)]],
+            "scene_description": beat_scene_description(beat),
+            "setting": payload.setting or beat.get("setting") or "",
+            "emotional_tone": payload.emotional_tone or beat.get("tone") or "",
             "pov_character": pov,
+            "planned_beat_id": beat["node_id"],
+            "secondary_names": secondary,
             "target_word_count": payload.target_word_count,
             "style_notes": payload.style_notes,
             "mode": payload.mode,
         }
-        for beat in todo
+        for beat, ids, secondary in plans
     ]
     job_kind = _scene_job_kind(payload.mode)
     book_id = chapter.book_id
@@ -1091,18 +1323,7 @@ async def update_scene_content(
 ):
     """Save an edit to the draft prose, snapshotting the previous state."""
     scene = await lock_scene(db, await owned_scene(scene_id, current_user, db))
-
-    # Raw, as the editor saved it: history restores it byte for byte.
-    previous = scene.content or scene.generated_content or ""
-    if previous:
-        db.add(
-            SceneRevisionORM(
-                scene_id=scene.id,
-                content=previous,
-                word_count=len(previous.split()),
-                source="edited" if scene.content else "generated",
-            )
-        )
+    snapshot_draft(db, scene)
     scene.content = payload.content
     scene.word_count = len(payload.content.split())
     scene.updated_at = datetime.now(timezone.utc)
@@ -1196,8 +1417,6 @@ async def export_book(
     1-based range of book positions; headings keep the book's numbering, so a
     range starting at 3 opens on "Chapter 3" (SPEC-21).
     """
-    from app.exports.builder import select_chapters
-
     if format not in CONTENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

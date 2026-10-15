@@ -35,9 +35,9 @@ product's whole history.
 | Deleting a source never deletes the cast | — | ✅ | `characters.source_id ON DELETE SET NULL` and no ORM cascade; deletes are soft and restorable (SPEC-13) |
 | Per-user content-hash dedupe | — | ✅ | Deliberately per-user: a global unique leaks a cross-tenant existence oracle (migration `0003`) |
 | Extraction → **proposed** canon, reviewed per item | R4.4 | ✅ | Windowed map-reduce at manuscript scale (SPEC-09); never pre-approves over the author's synopsis or style |
-| Extraction at manuscript scale (map-reduce) | R4.4 | ✅ | SPEC-09: ~12k-token windows, alias-aware merge, batched full entries, synopsis last; truncated window retried smaller, never fails the run; per-window checkpoint |
+| Extraction at manuscript scale (map-reduce) | R4.4 | ✅ | SPEC-09: ~12k-token windows, alias-aware merge, batched full entries, synopsis last; truncated window retried smaller, never fails the run; per-window checkpoint. Reduce writes each character from up to 8 evidence quotes (≤ 3 per window from the map), up to 6 of their own attributed lines, and the source itself when it is one window (SPEC-26) |
 | Extraction cost preflight | R4.4, R7.3, R7.5 | ✅ | Estimate returned on enqueue; refused with "first N chapters" when it cannot finish within `JOB_MAX_PAUSE_HOURS` |
-| Proposals ranked by mentions / windows | R4.4 | ✅ | One-window names pre-deselected unless a narrator (eval-plan E5) |
+| Proposals ranked by mentions / windows | R4.4 | ✅ | Ranked by parts seen in, then name mentions (given name / surname counted when unambiguous; pronouns not counted) (SPEC-26). One-window names pre-deselected unless a narrator (eval-plan E5) |
 | Character aliases (`characters.aliases`) | R1.4, R4.5 | ✅ | Proposed by extraction, editable; honoured by fidelity (`Canon.principals`, `canon_terms`), commit merging and scene casting |
 | Paragraph normalisation for every format | — | ✅ | HTML block elements, DOCX paragraphs, PDF line-joining → blank-line paragraphs; verse keeps its line breaks and indentation; `Source.format` recorded as an eval covariate. Scanned PDFs (no text layer) are refused; OCR is out of scope (SPEC-09) |
 | Narrator voice attribution | — | ✅ | First-person sections headed "X's Journal" / "Letter, X to Y", a narrator who names themselves once ("my name is X", "I, X,"), or a lone narrator-role character are indexed as X's voice (heuristic, no LLM calls) |
@@ -48,6 +48,10 @@ product's whole history.
 |---|---|---|---|
 | Whole canon reaches the model, untruncated | R1.1 | ✅ | Every generator assembles `Canon.full_block()`; pinned by unit tests and the stub e2e (SPEC-01, -02, -06) |
 | Staged outline (skeleton → chapters → beats) | R1.2 | ✅ | `app/planning/staged_outline.py`, checkpointed per stage (SPEC-08) |
+| Outline beats carry their own cast, setting, tone and named secondaries | R1.5a | ✅ | `app/planning/staged_outline.py`, `outline.py::validate_outline_nodes` (SPEC-24) |
+| Named secondaries allowed in the outline; suggestions to add them to the cast | R1.5a | ✅ | `app/planning/secondaries.py` (SPEC-24); `suggested_characters` on `GET /plans` and both promotes (SPEC-23); "Add <name> to cast" chips in the Outline tab (SPEC-27) |
+| Planner treats the cast as available; no blank setting / neutral tone in prompts | R1.1c | ✅ | `app/orchestration/workflow.py` (SPEC-24) |
+| POV line with mode + character; last beat ends in POV | R1.1c | ✅ | `app/orchestration/prose.py::resolve_pov`, `pov_instruction`; prose mode only, the ensemble builds its own prompts (SPEC-24) |
 | Outline beats stage sees premise, conflict and act goal/turn; JSON, acts from 1 | R1.2a | ✅ | `app/planning/staged_outline.py::_stage_beats_for_act`; the chapters stage embeds acts as JSON too (SPEC-18) |
 | Beat prompt sees the whole beat plan (current beat marked, stop line) | R1.1a | ✅ | `app/orchestration/prose.py::write_beat_prose` (SPEC-18) |
 | Paragraph-preserving prior tail, never mid-sentence | R1.1a | ✅ | `prose.py::prose_tail`, used by prose, ensemble and `handlers._scene_inputs`; checkpoint hash unchanged, so paused jobs still resume (SPEC-18) |
@@ -61,12 +65,13 @@ product's whole history.
 | Outline runs as a job with progress | — | ✅ | Staged and single-call are both jobs; progress by stage (SPEC-07/08) |
 | Single-call outline | — | ✅ | Retained for beat sheets, the offline eval, and degraded mode |
 | Beat sheet (Save the Cat) | — | ✅ | |
-| Promote outline node → chapter | — | ✅ | Idempotent on a stable `node_id`; "Promote all"; the chapter carries the node's cast and POV (SPEC-10) |
+| Promote outline node → chapter | — | ✅ | Idempotent on a stable `node_id`; "Promote all"; the chapter carries the node's cast and POV (SPEC-10); the node's children become the chapter's `planned_beats` (data: cast, setting, tone, named secondaries), the title loses its 'Chapter N:' prefix, and the response carries `suggested_characters` (SPEC-23) |
 | Structured outline nodes (POV, cast IDs, act, threads) | R1.5 | ✅ | Validated against the book's cast; the fidelity audit reads them strictly (SPEC-10) |
-| Scene defaults from a promoted chapter | — | ✅ | The generate-scene modal pre-selects the chapter's cast and POV and offers its planned beats (SPEC-10) |
-| Generate all planned scenes of a chapter | — | ✅ | `POST /books/chapters/{id}/scenes/generate-planned`: one scene per planned beat with the chapter's cast/POV, preflighted for the whole batch, "llm" rate class, one batch in flight per chapter; the jobs run as a chain so each scene starts from the previous one's tail; beats already written are skipped (SPEC-10 follow-up) |
-| Scene prose generation | R1.1 | ✅ | Whole canon and cast by ID (SPEC-01). Per character, voice samples (dialogue + own first-person narration) and movement (action / description / thought, centred on the character) as separate blocks (SPEC-17) |
-| AI revision of a range / beat / scene | R4.9 | ✅ (API) | `POST /books/scenes/{id}/revise` → `revise_scene` job → proposal; `GET …/proposals`, `POST …/revisions/{rid}/accept\|discard`; `estimate` action `revise`; migration `0018_b3_scene_revise` adds `scene_revisions.meta`. Editor UI: W2-A (SPEC-19) |
+| Planned beats as data | R1.1b | ✅ (API) | `chapters.planned_beats` (migration `0019_w2_planned_beats` backfills from the summary text or the outline node); `PATCH /books/chapters/{id}` `planned_beats` (strict, versioned); the frontend reads `planned_beats`, with the legacy summary lines as fallback (SPEC-25); editable list in the UI: W2-7 (SPEC-23) |
+| Scene defaults from a promoted chapter | — | ✅ | The generate-scene modal pre-selects the chapter's cast and POV and offers its planned beats (SPEC-10). The chips, the "Generate all planned scenes" button and the chapter ⋯ menu read `planned_beats`, falling back to the legacy summary lines; each chip shows its setting and tone, and picking one fills the description (and an empty setting) (SPEC-25) |
+| Generate all planned scenes of a chapter | — | ✅ | `POST /books/chapters/{id}/scenes/generate-planned`: one scene per planned beat, each from its planned beat (the beat's cast plus the chapter POV, else the chapter cast; the beat's setting and tone; `planned_beat_id` and unresolved `secondary_names` on the request), preflighted for the whole batch (per-beat cast sizes), "llm" rate class, one batch in flight per chapter; the jobs run as a chain so each scene starts from the previous one's tail; beats already written are skipped (SPEC-10 follow-up, SPEC-23) |
+| Scene prose generation | R1.1 | ✅ | Whole canon and cast by ID (SPEC-01). Per character, voice samples (dialogue + own first-person narration) and movement (action / description / thought, centred on the character) as separate blocks (SPEC-17); the bible is sent once per beat prompt (canon block); per-character blocks carry voice samples and movement (SPEC-26) |
+| AI revision of a range / beat / scene | R4.9, R4.10 | ✅ | `POST /books/scenes/{id}/revise` → `revise_scene` job → proposal; `GET …/proposals`, `POST …/revisions/{rid}/accept\|discard`; `estimate` action `revise`; migration `0018_b3_scene_revise` adds `scene_revisions.meta` (SPEC-19). The draft revised is the raw editable text, edge whitespace kept (`app/jobs/revise.py::draft_of`); an ambiguous beat is a 409 "That beat's text appears more than once; select the text instead." Editor UI: SPEC-25 |
 | Continuity checking | — | ✅ | Ships an **empty cast** today — same dead `book_id` query as the outline |
 | Plot threads + events | — | ✅ | |
 | Export | — | ✅ | Export dialog: format, include synopsis (default off), skip empty chapters (default on), chapter range (1-based, by book position) (SPEC-20). Clean manuscript: "Chapter N: Title" by book position, scene breaks, empty chapters skipped by default, `from_chapter`/`to_chapter` range (SPEC-21) |
@@ -91,11 +96,12 @@ product's whole history.
 
 | Feature | Req | Status | Notes |
 |---|---|---|---|
-| `entity_versions` (plan, character, canon entry, style, source, chapter, synopsis, scene) | R4.1 | ✅ | Sources and chapters added in SPEC-13; a chapter version carries its promoted cast and POV (restored against the current cast) and its outline node |
+| `entity_versions` (plan, character, canon entry, style, source, chapter, synopsis, scene) | R4.1 | ✅ | Sources and chapters added in SPEC-13; a chapter version carries its promoted cast and POV (restored against the current cast) and its outline node; a chapter version also carries its planned beats (SPEC-23) |
 | Regeneration appends, never overwrites | R4.2 | ✅ | |
 | Forward-only restore | R4.3 | ✅ | |
 | Version history + restore UI | — | ✅ | `VersionHistory`; deleted entities in the Trash tab (SPEC-13) |
 | Scene editor safety net (unsaved-changes guard, local draft autosave + restore) | R5.5 | ✅ | `frontend/lib/useUnsavedChangesGuard.ts`, `frontend/lib/draft-store.ts`; local only, never a `scene_revisions` row (SPEC-16) |
+| Revise with AI in the scene editor | R4.10 | ✅ | Revise selection / Redo beat N / Whole scene → side-by-side word diff → Accept / Discard (`components/editor/RevisePanel.tsx`, `DiffView.tsx`). Only the saved draft is revised (offsets in code points, `base_text_hash` guard); Accept keeps the previous draft as one revision and leaves the editor clean; Discard leaves the text byte-identical; a pending proposal is offered again after a reload. The Revisions list excludes `ai_revise` proposals (SPEC-25) |
 | `scene_revisions` unified into `entity_versions` | — | ❌ | Different shape and access pattern; two mechanisms is deliberate (ADR-002 §5) |
 | Voice-chunk versioning | — | ❌ | Derived; re-embed is idempotent. Chunk text edits are destructive — accepted |
 | Version pruning | — | ❌ | None initially ⇒ **the ensemble must never snapshot per agent turn**, only the final scene |
@@ -110,7 +116,7 @@ product's whole history.
 | Chunks carry `book_id`; retrieval filters by book | R3.3 | ✅ | `index_chunks` requires it; retrieval scopes by user and book |
 | Chunk browser / editor with re-embed | R5.2 | ✅ | Canon tab → character → **Voice** (`VoicePanel`): paged list (type, source, words) with type filter, inline edit (re-embeds via PATCH), delete, and "Add samples" (one per paragraph). API pages with `skip/limit` and filters by `source_id`/`chunk_type` (SPEC-11) |
 | Retrieval inspector (chunks + scores) | R5.3 | ✅ | Voice → "Test retrieval": ranked hits with scores and the `RAG_SCORE_THRESHOLD` line drawn; "Test a line" shows the samples that grounded it (SPEC-11) |
-| Grounding provenance per generated scene | R5.3 | ✅ | Prose and ensemble store `{beat: [{character_id, chunk_id, score, excerpt}]}` on `Scene.evaluation_scores["grounding"]` (a ~300-char excerpt of each sample as it was at generation); every character in the beat has an entry, with a `reason` when no sample grounded it ("no indexed voice samples", ensemble "context only"); `GET /books/scenes/{id}/grounding` resolves to current text, and a deleted chunk shows its stored excerpt marked "deleted since generation"; "Why does it sound like this?" in the scene list and editor (SPEC-11) |
+| Grounding provenance per generated scene | R5.3 | ✅ | Prose and ensemble store `{beat: [{character_id, chunk_id, score, excerpt}]}` on `Scene.evaluation_scores["grounding"]` (a ~300-char excerpt of each sample as it was at generation); every character in the beat has an entry, with a `reason` when no sample grounded it ("no indexed voice samples", ensemble "context only"); `GET /books/scenes/{id}/grounding` resolves to current text, and a deleted chunk shows its stored excerpt marked "deleted since generation"; "Why does it sound like this?" in the scene list and editor (SPEC-11). The route also lists the scene's stored beats that have no recorded grounding, which the editor's "Redo beat N" reads (SPEC-25) |
 | Structured character field editors | R5.4 | ✅ | Key-value editor (PR #30) |
 | `character_chunks` mirror table | — | ❌ | Dropped (SPEC-11): no longer written, ORM model removed, migration `spec11_drop_character_chunks` drops the table; `voice_chunks` is the one store |
 | Retrieval scoped by user | — | ✅ | Opt-in per call; `dialogue.py` omits it while `context.py` passes it — half-wired |
@@ -160,6 +166,7 @@ product's whole history.
 | Judge rubric mentions fidelity | — | ✅ | |
 | Attribution / continuity / extraction / retrieval graders | — | ✅ | |
 | Eval harness v2 | — | ✅ | Rubric judge (R1–R6) with a separate judge endpoint (`EVAL_JUDGE_BASE_URL`); prompt-contract grader; seam grader; cel corpus with canon, style guide, voice excerpt and planted contradictions; the prose step runs the product path (SPEC-22) |
+| Eval harness v3 | — | ✅ | Scene R1 caps only a planned principal neither named nor the attributed speaker of a quoted line (unnamed speech is a warning); prompt-contract checks for P1–P10 (secondaries, beat fields, beat cast, available-not-exact, blank setting, neutral tone, POV line, last beat in POV, single bible, no doubled label, reduce evidence), `rate: None` when no call was checked; extraction depth and mention order; outline secondaries; cast-from-beat; a `revise` step (RA + R5); `python -m evals.harness.rescore` re-grades a finished run (SPEC-28) |
 
 ## 10. Platform
 

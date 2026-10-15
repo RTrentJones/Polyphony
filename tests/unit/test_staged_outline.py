@@ -130,7 +130,7 @@ class TestStagedOrchestration:
                 "outline:skeleton": '{"premise_restated":"Milo Voss vs Edric Thane",'
                 '"central_conflict":"labor","acts":[{"title":"A","goal":"g","turn":"t","chapters_planned":1}]}',
                 "outline:chapters": '[{"title":"Ch1","summary":"s","act_index":0,'
-                '"pov":"Milo Voss","characters":["Milo Voss"],"threads":[]}]',
+                '"pov":"Milo Voss","people":["Milo Voss"],"threads":[]}]',
                 "outline:beats": faithful_beats,
             }
         )
@@ -154,12 +154,12 @@ class TestStagedOrchestration:
         # first chapter result omits the cast, the repair result includes them.
         cast_empty_chapters = (
             '[{"title":"Ch1","summary":"a chapter","act_index":0,'
-            '"pov":"","characters":[],"threads":[]}]'
+            '"pov":"","people":[],"threads":[]}]'
         )
         repaired_chapters = (
             '[{"title":"Ch1","summary":"Milo Voss and Zara Okafor vs Edric Thane",'
             '"act_index":0,"pov":"Milo Voss",'
-            '"characters":["Milo Voss","Zara Okafor","Edric Thane"],"threads":[]}]'
+            '"people":["Milo Voss","Zara Okafor","Edric Thane"],"threads":[]}]'
         )
         missing_beats = (
             '[{"title":"Ch1","summary":"nobody named",'
@@ -211,9 +211,9 @@ class TestBeatsStageSeesThePlan:
     )
     _CHAPTERS = (
         '[{"title":"Ch1","summary":"Milo Voss signs on","act_index":0,'
-        '"pov":"Milo Voss","characters":["Milo Voss","Zara Okafor"],"threads":[]},'
+        '"pov":"Milo Voss","people":["Milo Voss","Zara Okafor"],"threads":[]},'
         '{"title":"Ch2","summary":"Edric Thane yields","act_index":1,'
-        '"pov":"Zara Okafor","characters":["Edric Thane","Zara Okafor"],"threads":[]}]'
+        '"pov":"Zara Okafor","people":["Edric Thane","Zara Okafor"],"threads":[]}]'
     )
     _BEATS = [
         '[{"title":"Ch1","summary":"Milo Voss and Zara Okafor",'

@@ -33,12 +33,18 @@ from collections import Counter, deque
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.core.prompt_markers import (
+    ACT_CHAPTERS_HEADER,
+    BEAT_TO_WRITE_LABEL,
+    NAME_HEADING,
+)
+
 app = FastAPI(title="polyphony-stub-llm")
 
 _STATE: dict = {"fail_429": 0, "retry_after": 1, "calls": 0}
 _LOG: deque = deque(maxlen=200)
 
-_HEADING = re.compile(r"^###\s+(.+?)\s*$", re.M)
+_HEADING = re.compile(rf"^{re.escape(NAME_HEADING.strip())}\s+(.+?)\s*$", re.M)
 _CAP_NAME = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b")
 _FENCE = re.compile(r"<(\w+)>\n(.*?)\n</\1>", re.S)
 _STOP_FIRST = {
@@ -131,6 +137,38 @@ def _narrators(prompt: str) -> list[str]:
     return out
 
 
+_APPOSITIVE = re.compile(r"\b([A-Z][a-z]+), the ")
+_ACT_BEFORE, _ACT_AFTER = ACT_CHAPTERS_HEADER.split("{number}")
+_ACT_CHAPTERS = re.compile(
+    rf"{re.escape(_ACT_BEFORE)}(\d+){re.escape(_ACT_AFTER)}\n(.*?)\n\nFor EACH chapter",
+    re.S,
+)
+
+
+def _named_people(prompt: str, cast: list[str]) -> list[str]:
+    """People the <synopsis> introduces by apposition ("Prava, the intake
+    caseworker") who are not cast: what a model would put in a beat's
+    `people` (SPEC-24 §1e). The server, not the stub, decides who is secondary."""
+    tokens = {t for c in cast for t in c.split()}
+    out: list[str] = []
+    for name in _APPOSITIVE.findall(_blocks(prompt).get("synopsis", "")):
+        if name not in tokens and name not in out:
+            out.append(name)
+    return out
+
+
+def _act_chapters(prompt: str) -> tuple[int, list[dict]]:
+    """(act number, the act's chapters) as the beats prompt carries them."""
+    m = _ACT_CHAPTERS.search(prompt)
+    if not m:
+        return 0, []
+    try:
+        chapters = json.loads(m.group(2))
+    except ValueError:
+        return int(m.group(1)), []
+    return int(m.group(1)), [c for c in chapters if isinstance(c, dict)]
+
+
 def _revise(prompt: str) -> str:
     """The revise family (SPEC-19): the <target> passage with its first
     sentence dropped (its last word, if it is one sentence). Derived only from
@@ -173,35 +211,51 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
             who = cast[i % len(cast)] if cast else lead
             chapters.append(
                 {
-                    "title": f"Chapter {i + 1}: {who}",
+                    "title": f"Chapter {i + 1}: {who}, part {i + 1}",
                     "summary": f"{who} changes course.",
                     "act_index": i // 2,
                     "pov": who,
-                    "characters": cast[:3],
+                    "people": cast[:3],
                     "threads": [],
                 }
             )
         return json.dumps(chapters)
     if "scene beats" in prompt and "mirroring the chapters" in prompt:
-        titles = re.findall(r"'title':\s*'([^']*)'", prompt) or re.findall(
-            r'"title":\s*"([^"]*)"', prompt
-        )
+        # Each beat carries its own people (the chapter's), setting and tone;
+        # the first chapter's first beat also names the synopsis' non-cast
+        # people, so the outline offers "Add <name> to cast" (SPEC-24).
+        act, chapters = _act_chapters(prompt)
+        titles = [str(c.get("title") or "") for c in chapters if c.get("title")]
+        if not titles:
+            titles = re.findall(r"'title':\s*'([^']*)'", prompt) or re.findall(
+                r'"title":\s*"([^"]*)"', prompt
+            )
+        named = _named_people(prompt, cast)
         nodes = []
-        for t in titles:
+        for i, t in enumerate(titles):
             who = next((c for c in cast if c in t), lead)
+            chapter = chapters[i] if i < len(chapters) else {}
+            present = chapter.get("people")
+            present = present if isinstance(present, list) else cast[:3]
+            beat = {"setting": "the intake atrium", "tone": "wry"}
+            first = {
+                "title": f"{who} decides",
+                "summary": "a choice",
+                "people": present + (named if act == 1 and i == 0 else []),
+                **beat,
+                "children": [],
+            }
             nodes.append(
                 {
                     "title": t,
                     "summary": f"{who} acts.",
                     "children": [
-                        {
-                            "title": f"{who} decides",
-                            "summary": "a choice",
-                            "children": [],
-                        },
+                        first,
                         {
                             "title": f"{second} answers",
                             "summary": "a cost",
+                            "people": present,
+                            **beat,
                             "children": [],
                         },
                     ],
@@ -304,6 +358,15 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
         return json.dumps({"score": 0.75, "explanation": "stub judge"})
     # Prose.
     people = " and ".join(cast[:3]) or "The two of them"
+    beat = re.search(rf"(?m)^{re.escape(BEAT_TO_WRITE_LABEL)}: (.+)$", prompt)
+    if beat:
+        # Built from the beat itself: every cast member is named, each in a
+        # clause with no fixed run of six words, so consecutive beats never
+        # repeat a phrase at the seam (R4) and each beat's prose is unique in
+        # its scene (revise beat mode can find it).
+        what = " ".join(beat.group(1).rstrip(".!? ").split()[:14])
+        named = cast[:3] or [lead]
+        return " ".join(f"{name} weighed it: {what}." for name in named)
     return (
         f"{people} stood in the doorway while the rain kept on. "
         f"{lead} turned first, and said nothing for a while. "

@@ -160,11 +160,20 @@ async def build_fact_sheet(session: AsyncSession, book_id: UUID) -> str:
             )
             parts.extend(f"  · ({e.kind}) {clean_for_llm(e.note)}" for e in events)
     if chapters:
+        # One heading per chapter, its summary, then its planned beats indented
+        # under it (SPEC-23): a beat list never holds a "- Ch" line.
+        from app.planning.planned_beat import normalize_planned_beats
+
         parts.append("Chapter summaries so far:")
-        parts.extend(
-            f"- Ch{c.position + 1} {clean_for_llm(c.title)}: {clean_for_llm(c.summary)}"
-            for c in chapters
-        )
+        for c in chapters:
+            parts.append(f"Ch {c.position + 1}: {clean_for_llm(c.title)}")
+            summary = (c.summary or "").strip()
+            if summary:
+                parts.append("  " + clean_for_llm(summary).replace("\n", "\n  "))
+            parts.extend(
+                f"  - {clean_for_llm(b['title'])}: {clean_for_llm(b['summary'])}".rstrip()
+                for b in normalize_planned_beats(c.planned_beats)
+            )
     plot_state = as_quoted_block("\n".join(parts), "plot_state")
     return "\n\n".join(b for b in (canon.full_block(), plot_state) if b)
 
