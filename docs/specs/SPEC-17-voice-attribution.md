@@ -96,7 +96,8 @@ case-insensitive dedupe across the source:
 ### 3. The prose prompt (`app/characters/context.py`)
 
 `build_character_context` retrieves the voice block and the movement block separately, through
-the shared `_voice_and_movement`. `build_agent_context` (ensemble) uses the same helper.
+one shared helper (`_voice_and_movement` in wave 2, `character_samples` since wave 3, §3a).
+`build_agent_context` (ensemble) uses the same helper.
 
 - **Voice samples (their own words — match cadence, diction, syntax):** dialogue chunks, plus
   first-person narration that SPEC-09 indexed for its narrator (`source_location` `narration_*`).
@@ -124,10 +125,11 @@ the shared `_voice_and_movement`. `build_agent_context` (ensemble) uses the same
 - **The speech minimum.** A dialogue sample shows only with 3+ words (`SPEECH_MIN_WORDS`, the
   same minimum the indexer uses). Retrieval fetches `2k` dialogue hits so that short lines
   ("So!", "Zara,") indexed before that rule, or added by hand, do not take the slots.
-- **One renderer.** `context.render_character(name, words, movement)` prints `### name`, then
-  `VOICE_SAMPLES_LABEL` with the words, then `MOVEMENT_LABEL` with the movement.
-  `build_character_context` composes `character_samples` and `render_character`, and adds the
-  bible lines under the heading when asked.
+- **One renderer.** `context.render_character(name, words, movement, bio=())` prints `### name`,
+  then the `bio` lines, then `VOICE_SAMPLES_LABEL` with the words, then `MOVEMENT_LABEL` with the
+  movement. `build_character_context` composes `character_samples` and `render_character`, and
+  passes the bible lines as `bio` when asked (`bible=True`). The ensemble agent's bio renders
+  through it too, as its own fenced block ahead of `<voice>` and `<physicality>`.
 - **Movement.** The label is now "How they move (gesture and habit only; do not reuse these
   events, objects or names):", and a movement sample must name no one outside the scene
   (SPEC-30, "Movement samples"). `_centres` judges a sample against the **scene's** cast

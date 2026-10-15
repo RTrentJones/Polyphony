@@ -230,7 +230,7 @@ Routing stays a single text-sniffing path. The planner branch still parses `plan
 | Outline beats carry their own cast, setting, tone and named secondaries | R1.5a | ✅ | `app/planning/staged_outline.py`, `outline.py::validate_outline_nodes` (SPEC-24) |
 | Named secondaries allowed in the outline; suggestions to add them to the cast | R1.5a | ✅ | `app/planning/secondaries.py` (SPEC-24; API SPEC-23, UI SPEC-27) |
 | Planner treats the cast as available; no blank setting / neutral tone in prompts | R1.1c | ✅ | `app/orchestration/workflow.py` (SPEC-24) |
-| POV line with mode + character; last beat ends in POV | R1.1c | ✅ | `app/orchestration/prose.py::resolve_pov`, `pov_instruction` (SPEC-24) |
+| POV line with mode + character; last beat ends in POV | R1.1c | ✅ | `app/orchestration/pov.py::resolve_pov`, `pov_instruction` (SPEC-24; `prose.py` until wave 3) |
 
 **docs/BRD.md, §5.1, R1.1c, wave 3 (append):**
 
