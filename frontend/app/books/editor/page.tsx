@@ -155,10 +155,15 @@ function SceneEditorContent() {
       setIsLoading(false)
       return
     }
+    // Next reuses this page when only `?scene=` changes: forget the previous
+    // scene's draft offer, and ignore a load that resolves after a newer one.
+    let cancelled = false
+    setPendingDraft(null)
     const load = async () => {
       setIsLoading(true)
       try {
         const data = await booksApi.getScene(sceneId)
+        if (cancelled) return
         setScene(data)
         const serverText = data.content || ''
         setContent(serverText)
@@ -171,12 +176,15 @@ function SceneEditorContent() {
         }
         await loadRevisions()
       } catch (err: any) {
-        setError(err.message || 'Failed to load scene')
+        if (!cancelled) setError(err.message || 'Failed to load scene')
       } finally {
-        setIsLoading(false)
+        if (!cancelled) setIsLoading(false)
       }
     }
     load()
+    return () => {
+      cancelled = true
+    }
   }, [sceneId, loadRevisions])
 
   const isDirty = content !== savedContent
