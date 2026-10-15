@@ -32,9 +32,6 @@ class PolyphonyClient:
 
     async def aclose(self) -> None:
         await self._http.aclose()
-        while _ENGINES:
-            _, engine = _ENGINES.popitem()
-            await engine.dispose()
 
     # -- auth ---------------------------------------------------------------
     def _auth(self) -> dict:
@@ -443,43 +440,10 @@ class PolyphonyClient:
         r.raise_for_status()
         return r.json()
 
-    async def scene_beats(
-        self, scene_id: str, database_url: str | None = None
-    ) -> tuple[list[dict], str]:
-        """A scene's beats as [{beat_number, description, content}] and where
-        they came from: "api" (the scene payload carries them), "db" (a
-        read-only SELECT on scene_beats, when the harness can reach the app's
-        database), "grounding" (descriptions only) or "none".
-
-        The API does not expose a beat's prose today, and the seam grader needs
-        exactly that (adjacent beat contents)."""
-        scene = await self.get_scene(scene_id)
-        if isinstance(scene.get("beats"), list) and scene["beats"]:
-            return scene["beats"], "api"
-        if database_url:
-            rows = await _read_beats(database_url, scene_id)
-            if rows:
-                return rows, "db"
-        r = await self._get(f"/api/v1/books/scenes/{scene_id}/grounding")
-        if r.status_code == 200:
-            beats = [
-                {
-                    "beat_number": b.get("beat_index"),
-                    "description": b.get("description"),
-                    "content": None,
-                }
-                for b in r.json().get("beats") or []
-                if b.get("description")
-            ]
-            if beats:
-                return beats, "grounding"
-        return [], "none"
-
-    async def scene_grounding(self, scene_id: str) -> dict:
-        """GET /books/scenes/{id}/grounding: per inner beat, every character
-        it was written with (and their samples). {} when unavailable."""
-        r = await self._get(f"/api/v1/books/scenes/{scene_id}/grounding")
-        return r.json() if r.status_code == 200 else {}
+    async def scene_beats(self, scene_id: str) -> list[dict]:
+        """A scene's beats, [{beat_number, description, content}] in order, from
+        `GET /scenes/{id}` (the API is the harness's only view of the app)."""
+        return (await self.get_scene(scene_id)).get("beats") or []
 
     async def revise(self, scene_id: str, body: dict, timeout: float = 900) -> dict:
         """POST /books/scenes/{id}/revise (SPEC-19), wait for the job, and
@@ -609,36 +573,3 @@ def _state(body) -> str:
         if isinstance(item, dict)
     ]
     return json.dumps(out, default=str)[:600]
-
-
-_ENGINES: dict = {}
-
-
-async def _read_beats(database_url: str, scene_id: str) -> list[dict]:
-    """scene_beats rows for one scene, in beat order; [] on any failure (a
-    deployed app's database is out of reach, and that is fine)."""
-    try:
-        from sqlalchemy import text
-        from sqlalchemy.ext.asyncio import create_async_engine
-
-        from app.core.database import to_async_url
-
-        # The app's documented DATABASE_URL is often a plain postgresql:// (or
-        # a Neon DSN with libpq params), which the async engine cannot use.
-        url = to_async_url(database_url)
-        engine = _ENGINES.get(url)
-        if engine is None:
-            engine = _ENGINES[url] = create_async_engine(url)
-        async with engine.connect() as conn:
-            rows = (
-                await conn.execute(
-                    text(
-                        "SELECT beat_number, description, content FROM scene_beats "
-                        "WHERE CAST(scene_id AS TEXT) = :sid ORDER BY beat_number"
-                    ),
-                    {"sid": str(scene_id)},
-                )
-            ).all()
-    except Exception:  # noqa: BLE001 - optional evidence, never fatal
-        return []
-    return [{"beat_number": r[0], "description": r[1], "content": r[2]} for r in rows]

@@ -90,21 +90,16 @@ def test_to_async_url_converts_driver_and_drops_libpq_params():
     assert to_async_url(already) == already
 
 
-async def test_read_beats_uses_an_async_driver_url(monkeypatch):
-    """Codex on #38: the app's documented postgresql:// URL made the async
-    engine raise, and the broad except hid it as 'no beat rows'."""
-    import sqlalchemy.ext.asyncio as sa_async
+async def test_scene_beats_reads_the_scene_api_only():
+    """W1-S9: beats come from GET /scenes/{id}; the config has no DB URL."""
+    from evals.harness.config import EvalConfig
 
-    from evals.harness import client as harness_client
-
-    seen = []
-
-    def fake_engine(url, *a, **kw):
-        seen.append(url)
-        raise RuntimeError("stop after recording the url")
-
-    monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
-    monkeypatch.setattr(harness_client, "_ENGINES", {})
-    rows = await harness_client._read_beats("postgresql://u:p@h/db", "s1")
-    assert rows == []
-    assert seen == ["postgresql+asyncpg://u:p@h/db"]
+    c = PolyphonyClient("http://localhost:8000")
+    beats = [{"beat_number": 0, "description": "Milo signs", "content": "He signed."}]
+    get = AsyncMock(return_value=_resp(200, {"id": "s1", "beats": beats}))
+    c._get = get
+    assert await c.scene_beats("s1") == beats
+    get.assert_awaited_once_with("/api/v1/scenes/s1")
+    get.return_value = _resp(200, {"id": "s1"})
+    assert await c.scene_beats("s1") == []
+    assert "database_url" not in EvalConfig.__dataclass_fields__

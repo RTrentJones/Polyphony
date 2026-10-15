@@ -23,20 +23,15 @@ model answered (cycle 2026-10 eval plan §3.3):
 
 Wave 2 (SPEC-28; the strings are tpm-plan-wave2 §1.3 P1-P10):
 
-* ``outline_secondaries_allowed``  outline:chapters/beats: the SECONDARY PEOPLE
-                       line lists every ``fidelity.secondaries`` name, the old
-                       "Every name ... MUST be one of" rule is gone (F5).
-* ``beats_stage_fields``  outline:beats: the children template asks for
-                       characters, secondary_names, setting, tone (F2).
-* ``plan_cast_from_beat``  plan_beats: the "Available cast" equals the outline
-                       beat's cast (else the chapter's) plus the chapter POV;
-                       a prompt matching no beat is listed in ``unmatched`` (F2).
-* ``plan_cast_available_not_exact``  plan_beats: P3 line, "unnamed functional
-                       figures", no "cast is exactly" (F2).
+* ``plan_cast_from_beat``  plan_beats: the "Available cast" line parses, and
+                       equals the outline beat's ``people`` that are corpus cast
+                       (else the chapter's) plus the chapter POV; a prompt
+                       matching no beat is listed in ``unmatched`` (F2, S5).
 * ``no_blank_setting`` / ``no_neutral_tone``  plan_beats, beat_prose (F3).
-* ``pov_line_has_mode_and_character``  beat_prose: P5 POV line, the chapter
-                       POV, and the "Narrate only what" limit (F9).
-* ``last_beat_in_pov``  beat_prose, last beat: the P6 ending (F9).
+* ``pov_line_has_mode_and_character``  beat_prose: ``POV_LINE_RE`` parses, it
+                       names the chapter POV (else the corpus ``pov``), and the
+                       "Narrate only what" limit names them too (F9, S5).
+* ``last_beat_no_wrap_up``  beat_prose, last beat: no "end the scene here".
 * ``no_duplicate_bible``  beat_prose: no bible fields in CHARACTERS IN THIS
                        BEAT; each canon description exactly once (F4).
 * ``no_doubled_voice_label``  every call: no "Voice: voice:" (F7).
@@ -67,9 +62,9 @@ from app.core.prompt_markers import (
     CURRENT_BEAT_MARK,
     EMOTIONAL_TONE_LABEL,
     NAME_HEADING,
-    POV_LABEL,
     POV_LIMIT_CLOSE,
     POV_LIMIT_OPEN,
+    POV_LINE_RE,
     PRIOR_FENCE,
     SCENE_DESCRIPTION_LABEL,
     SETTING_LABEL,
@@ -115,30 +110,9 @@ def prompt_text(rec: dict) -> str:
     return "\n\n".join(str(m.get("content") or "") for m in rec.get("messages") or [])
 
 
-# Recognisable lines of the app's prompts, for exchanges archived before the
-# X-Polyphony-Purpose header existed (their `purpose` is empty).
-_PURPOSE_MARKERS = (
-    ("outline:skeleton", '"premise_restated"'),
-    ("outline:chapters", "Break the acts into chapters"),
-    ("outline:beats", "write 2-4 scene beats"),
-    ("beat_prose", "writing one beat of a scene"),
-    ("plan_beats", "narrative planner"),
-    ("continuity", "continuity editor"),
-    ("extraction_reduce", "Write the full character entries"),
-)
-
-
 def purpose(rec: dict) -> str:
-    """The archived purpose (the app's header); when it is empty or only the
-    first line of a system prompt, inferred from the prompt's own wording."""
-    archived = str(rec.get("purpose") or "")
-    if archived and " " not in archived:  # a header value, not a prompt line
-        return archived
-    text = prompt_text(rec)
-    for name, marker in _PURPOSE_MARKERS:
-        if marker in text:
-            return name
-    return archived
+    """The archived purpose (the app's X-Polyphony-Purpose header)."""
+    return str(rec.get("purpose") or "")
 
 
 def block(text: str, label: str) -> str | None:
@@ -196,7 +170,6 @@ def check_beats_block(prompt: str) -> list[str]:
     return reasons
 
 
-_SENTENCE_END = re.compile(r"[.!?…][\"'”’)\]]*$")
 _OPENERS = "\"'“‘(—–-…*["
 
 
@@ -207,58 +180,20 @@ def _starts_a_sentence(text: str) -> bool:
     return bool(t) and (t[0].isupper() or t[0].isdigit())
 
 
-class ProseStream:
-    """Every beat_prose answer so far, joined as the app joins beats, so a
-    `<prior>` can be located in what was actually written and its paragraph
-    breaks and sentence start checked against the source."""
-
-    def __init__(self) -> None:
-        self.words: list[str] = []
-        self.breaks: set[int] = set()  # word indices a paragraph break precedes
-
-    def add(self, text: str) -> None:
-        for i, para in enumerate(re.split(r"\n\s*\n", text or "")):
-            ws = para.split()
-            if not ws:
-                continue
-            if self.words:
-                self.breaks.add(len(self.words))
-            self.words.extend(ws)
-
-    def locate(self, prior: str) -> int | None:
-        """Start index of `prior`'s words in the stream (last match), or None."""
-        pw = prior.split()
-        if not pw:
-            return None
-        head = pw[: min(8, len(pw))]
-        for start in range(len(self.words) - len(pw), -1, -1):
-            if self.words[start : start + len(head)] == head and (
-                self.words[start : start + len(pw)] == pw
-            ):
-                return start
-        return None
+# A paragraph of the house prose runs well under this many words (the wave-2
+# archives' longest was 82), so a longer <prior> with no break lost them.
+_ONE_PARAGRAPH_WORDS = 200
 
 
-def check_prior(prior: str, stream: ProseStream) -> tuple[list[str], bool]:
-    """B5: `<prior>` keeps paragraph breaks and starts at a sentence.
-
-    Returns (reasons, verifiable). When the prior is found in the stream of
-    earlier answers, "should have a break" and "starts mid-sentence" are read
-    off the source; otherwise a capital-letter start is the only test."""
-    reasons: list[str] = []
-    start = stream.locate(prior)
-    if start is None:
-        if not _starts_a_sentence(prior):
-            reasons.append("<prior> starts mid-sentence")
-        return reasons, False
-    n = len(prior.split())
-    spans_break = any(start < b < start + n for b in stream.breaks)
-    if spans_break and "\n\n" not in prior:
+def check_prior(prior: str) -> list[str]:
+    """B5 (W1-S11): `<prior>` keeps its paragraph breaks and starts a sentence
+    (`prose_tail` cuts whole paragraphs, the first at a sentence start)."""
+    reasons = []
+    if len(prior.split()) > _ONE_PARAGRAPH_WORDS and "\n\n" not in prior:
         reasons.append("<prior> lost its paragraph breaks")
-    at_boundary = start == 0 or start in stream.breaks
-    if not at_boundary and not _SENTENCE_END.search(stream.words[start - 1]):
+    if not _starts_a_sentence(prior):
         reasons.append("<prior> starts mid-sentence")
-    return reasons, True
+    return reasons
 
 
 def voice_samples(prompt: str) -> dict[str, list[str]]:
@@ -307,17 +242,25 @@ def classify_sample(
     return "not_dialogue"
 
 
+# A voice sample shorter than this carries no voice ("So!", "Zara,"): finding
+# 5, the product's speech minimum. Reported as voice_dialogue.short_samples.
+SHORT_SAMPLE_WORDS = 3
+
+
 def check_voice(
     prompt: str, gold: dict[str, list[str]], other: dict[str, list[str]]
 ) -> tuple[list[str], dict[str, int]]:
     """B2: every voice sample is the character's own spoken line."""
-    counts = {"samples": 0, "own": 0, "misattributed": 0, "not_dialogue": 0}
+    counts = dict.fromkeys(
+        ("samples", "own", "misattributed", "not_dialogue", "short"), 0
+    )
     reasons = []
     for owner, samples in voice_samples(prompt).items():
         for s in samples:
             kind = classify_sample(owner, s, gold, other)
             counts["samples"] += 1
             counts[kind] += 1
+            counts["short"] += len(s.split()) < SHORT_SAMPLE_WORDS
             if kind != "own":
                 reasons.append(f"{owner}: {kind}: {s[:80]!r}")
     return reasons, counts
@@ -376,24 +319,13 @@ def check_style_first(prompt: str, sample_prose: str) -> list[str]:
 
 # --- wave-2 contracts (tpm-plan-wave2 §1.3 P1-P10, checks §5.1) ----------------
 
-_SECONDARY_LINE = re.compile(r"(?m)^SECONDARY PEOPLE \([^)\n]*\):[ \t]*(.*)$")
-_OLD_CAST_RULE = "Every name you use for a character MUST be one of"
-_PRINCIPALS_RULE = "Principal characters MUST be canon cast"
 _AVAILABLE_CAST = labelled_line(AVAILABLE_CAST_LABEL)
-_ALSO_NAMED = re.compile(r"(?m)^Also named \(secondary, not in the cast\): (.+)$")
 _BLANK_SETTING = re.compile(rf"(?m)^\s*{re.escape(SETTING_LABEL)}:\s*$")
 _NEUTRAL_TONE = re.compile(
     rf"(?im)^\s*{re.escape(EMOTIONAL_TONE_LABEL)}:\s*neutral\s*$"
 )
-_POV_LINE = re.compile(
-    rf"(?m)^{re.escape(POV_LABEL)}: "
-    r"(?P<mode>(first|second|third) person[^,\n]*), "
-    r"(?P<who>[^.\n]+)\."
-)
-_POV_MODE_ONLY = re.compile(
-    rf"(?m)^{re.escape(POV_LABEL)}: (first|second|third) person[^,\n]*\."
-)
-LAST_BEAT_TEXT = "end the scene inside the moment, in POV; no summary of what follows"
+# tripwire: delete in wave 3 (the old P6 wording; S5).
+_WRAP_UP = "end the scene here"
 _BIBLE_LABELS = re.compile(r"^(Role|Description|Goals|Arc|Voice):")
 _DOUBLED_VOICE = re.compile(r"(?i)\bvoice:\s*voice:")
 _EVIDENCE_LINE = re.compile(r"^\s*-\s*(\(part\s+\d+\)|[\"“])")
@@ -419,50 +351,6 @@ def _canonical(name: str, aliases: dict[str, str]) -> str:
     return aliases.get(key, key).lower()
 
 
-def check_outline_secondaries(prompt: str, secondaries: list[str]) -> list[str]:
-    """P1 / F5: the outline stages may name the synopsis' secondary people."""
-    reasons = []
-    m = _SECONDARY_LINE.search(prompt)
-    if not m:
-        reasons.append("no SECONDARY PEOPLE line")
-    else:
-        listed = {n.lower() for n in _names(m.group(1))}
-        missing = [s for s in secondaries if s.lower() not in listed]
-        if missing:
-            reasons.append(f"SECONDARY PEOPLE misses {', '.join(missing)}")
-    if _OLD_CAST_RULE in prompt:
-        reasons.append(f"old cast rule present: {_OLD_CAST_RULE!r}")
-    if _PRINCIPALS_RULE not in prompt:
-        reasons.append(f"no principals rule ({_PRINCIPALS_RULE!r})")
-    return reasons
-
-
-_BEAT_FIELDS = ('"characters"', '"secondary_names"', '"setting"', '"tone"')
-
-
-def check_beats_stage_fields(prompt: str) -> list[str]:
-    """P2 / F2: the beats template asks each beat for its cast, secondaries,
-    setting and tone."""
-    children = re.findall(r'"children"\s*:\s*\[\s*\{(.*?)\}', prompt, re.DOTALL)
-    if not children:
-        return ["no children template"]
-    best = max(children, key=lambda c: sum(f in c for f in _BEAT_FIELDS))
-    missing = [f for f in _BEAT_FIELDS if f not in best]
-    return [f"children template lacks {', '.join(missing)}"] if missing else []
-
-
-def check_plan_cast_available(prompt: str) -> list[str]:
-    """P3 / F2: the planner is told who is AVAILABLE, not the exact cast."""
-    reasons = []
-    if not _AVAILABLE_CAST.search(prompt):
-        reasons.append('no "Available cast (not all need appear):" line')
-    if "unnamed functional figures" not in prompt.lower():
-        reasons.append('no "unnamed functional figures" allowance')
-    if "cast is exactly" in prompt:
-        reasons.append('"cast is exactly" present')
-    return reasons
-
-
 def available_cast(prompt: str) -> list[str] | None:
     """The P3 cast list of a plan_beats prompt, or None when it has none."""
     m = _AVAILABLE_CAST.search(prompt)
@@ -479,36 +367,29 @@ def check_no_neutral_tone(prompt: str) -> list[str]:
     return ['"Emotional tone: neutral" line'] if _NEUTRAL_TONE.search(prompt) else []
 
 
-def _paragraph_from(text: str, start: int) -> str:
-    end = text.find("\n\n", start)
-    return text[start : end if end != -1 else len(text)]
-
-
 def check_pov_line(prompt: str, expected_who: str | None) -> list[str]:
-    """P5 / F9: "Point of view: <mode>, <who>." and a knowledge limit on who."""
-    m = _POV_LINE.search(prompt)
+    """F9: "Point of view: <mode>[, <who>]." (`POV_LINE_RE`) names the expected
+    POV character, and the knowledge limit after it names them too."""
+    m = POV_LINE_RE.search(prompt)
     if not m:
-        if expected_who is None and _POV_MODE_ONLY.search(prompt):
-            return []
         return ['no "Point of view: <mode>, <character>." line']
-    reasons = []
-    who = m.group("who").strip()
-    if expected_who and who.lower() != expected_who.lower():
-        reasons.append(f"POV is {who!r}, not the chapter POV {expected_who!r}")
-    para = _paragraph_from(prompt, m.start())
+    who = (m.group("who") or "").strip()
+    if not expected_who:
+        return []
+    if who.lower() != expected_who.lower():
+        return [f"POV is {who or '(none)'!r}, not the chapter POV {expected_who!r}"]
     if not re.search(
-        rf"{re.escape(POV_LIMIT_OPEN)}\s+{re.escape(who)}\b.*?"
+        rf"{re.escape(POV_LIMIT_OPEN)}\s+{re.escape(who)}\b[^\n]*?"
         rf"{re.escape(POV_LIMIT_CLOSE)}",
-        para,
-        re.DOTALL,
+        prompt[m.start() :],
     ):
-        reasons.append(f'no "{POV_LIMIT_OPEN} {who} {POV_LIMIT_CLOSE}" after it')
-    return reasons
+        return [f'no "{POV_LIMIT_OPEN} {who} {POV_LIMIT_CLOSE}" after it']
+    return []
 
 
-def check_last_beat_in_pov(prompt: str) -> list[str]:
-    """P6 / F9: the last beat ends inside the moment, in POV."""
-    return [] if LAST_BEAT_TEXT in prompt else ["no in-POV ending for the last beat"]
+def check_last_beat_no_wrap_up(prompt: str) -> list[str]:
+    """F9: the last beat is not told to wrap the scene up."""
+    return ['"end the scene here"'] if _WRAP_UP in prompt.lower() else []
 
 
 def characters_section(prompt: str) -> str | None:
@@ -601,13 +482,24 @@ def _json_array(text: str) -> list:
 
 class OutlineIndex:
     """The outline:beats answers seen so far: each beat's scene description
-    ("title: summary", as the app generates with) -> its cast, and each
-    chapter's summary -> its POV, for matching later plan/prose prompts."""
+    ("title: summary", as the app generates with) -> its people, and each
+    chapter's summary -> its POV, for matching later plan/prose prompts.
+
+    `aliases` maps every form of a corpus cast member to their name; only
+    those count as cast (a secondary person is never in "Available cast")."""
 
     def __init__(self, aliases: dict[str, str]) -> None:
         self.aliases = aliases
         self.beats: dict[str, dict] = {}
         self.chapters: list[dict] = []
+
+    @staticmethod
+    def _people(node: dict) -> list[str]:
+        """The node's `people` (SPEC-24 §1e), else its legacy `characters`."""
+        refs = node.get("people")
+        if refs is None:
+            refs = node.get("characters")
+        return [str(c) for c in refs or []]
 
     def add(self, answer: str) -> None:
         for ch in _json_array(answer):
@@ -616,7 +508,7 @@ class OutlineIndex:
             chapter = {
                 "summary": _squash(str(ch.get("summary") or "")),
                 "pov": str(ch.get("pov") or "").strip(),
-                "characters": [str(c) for c in ch.get("characters") or []],
+                "people": self._people(ch),
             }
             self.chapters.append(chapter)
             for child in ch.get("children") or []:
@@ -624,7 +516,7 @@ class OutlineIndex:
                     continue
                 desc = f"{child.get('title', '')}: {child.get('summary', '')}".strip()
                 self.beats[_squash(desc)] = {
-                    "characters": [str(c) for c in child.get("characters") or []],
+                    "people": self._people(child),
                     "chapter": chapter,
                 }
 
@@ -642,39 +534,34 @@ class OutlineIndex:
                 return ch
         return None
 
+    def _cast(self, names: list[str]) -> set[str]:
+        keys = (" ".join(n.split()).lower() for n in names)
+        return {self.aliases[k].lower() for k in keys if k in self.aliases}
+
     def expected_cast(self, beat: dict) -> set[str]:
-        """The beat's cast (the chapter's when the beat names none) plus the
-        chapter POV, canonicalised."""
-        names = beat["characters"] or beat["chapter"]["characters"]
-        out = {_canonical(n, self.aliases) for n in names}
+        """The cast among the beat's people (the chapter's when it has none)
+        plus the chapter POV, canonicalised."""
+        out = self._cast(beat["people"]) or self._cast(beat["chapter"]["people"])
         if beat["chapter"]["pov"]:
             out.add(_canonical(beat["chapter"]["pov"], self.aliases))
         return out
 
 
 def check_plan_cast_from_beat(prompt: str, index: OutlineIndex) -> list[str] | None:
-    """F2: the planner's cast is its outline beat's cast plus the chapter POV.
-    None when the prompt matches no outline beat (reported, not failed)."""
+    """F2 / S5: the planner's "Available cast" line parses to someone, and is
+    its outline beat's cast plus the chapter POV. None when the line parses
+    but the prompt matches no outline beat (reported, not failed)."""
+    listed = available_cast(prompt)
+    if not listed:
+        return [f'no "{AVAILABLE_CAST_LABEL}" line, or it lists nobody']
     beat = index.beat_for(prompt)
     if beat is None:
         return None
-    listed = available_cast(prompt)
-    if listed is None:
-        return ['no "Available cast" line']
     got = {_canonical(n, index.aliases) for n in listed}
     want = index.expected_cast(beat)
     if got == want:
         return []
     return [f"cast {sorted(got)} != beat cast + POV {sorted(want)}"]
-
-
-def pov_character(style_pov: str) -> str | None:
-    """The POV character a style guide's POV names ("third person limited, on
-    Milo Voss" -> "Milo Voss"), or None."""
-    m = re.search(
-        r"\b(?:on|through|of)\s+([A-Z][\w'-]*(?:\s+[A-Z][\w'-]*)*)", style_pov or ""
-    )
-    return m.group(1) if m else None
 
 
 # --- the grade -----------------------------------------------------------------
@@ -721,15 +608,12 @@ CHECKS = (
     "beats_stage",
     "outline_no_repr",
     "style_first",
-    # wave 2 (§5.1)
-    "outline_secondaries_allowed",
-    "beats_stage_fields",
+    # wave 2 (§5.1), reworked in wave 2.5 (S5)
     "plan_cast_from_beat",
-    "plan_cast_available_not_exact",
     "no_blank_setting",
     "no_neutral_tone",
     "pov_line_has_mode_and_character",
-    "last_beat_in_pov",
+    "last_beat_no_wrap_up",
     "no_duplicate_bible",
     "no_doubled_voice_label",
     "reduce_evidence_depth",
@@ -751,7 +635,6 @@ def grade(
     other_lines: dict | None = None,
     sample_prose: str = "",
     premise_edit: dict | None = None,
-    secondaries: list[str] | None = None,
     principals: list[dict] | None = None,
     style_tone: str = "",
     pov: str | None = None,
@@ -762,9 +645,9 @@ def grade(
     `gold_lines` is the corpus' {speaker: {train, test}}; `other_lines` names
     non-canon speakers' lines ({speaker: [line]}) so a sample stolen from them
     counts as misattributed rather than as narration. The wave-2 inputs:
-    `secondaries` (fidelity.secondaries), `principals` (fidelity.principals,
-    {name, aliases}), the style guide's `style_tone` and POV character `pov`
-    (the default when a prompt's chapter is not in the outline answers), and
+    `principals` (fidelity.principals, {name, aliases}), the style guide's
+    `style_tone`, the corpus POV character `pov` (the default when a prompt's
+    chapter is not in the outline answers), and
     the canon `descriptions` that must appear exactly once per beat prompt."""
     gold = {
         who: [*(v.get("train") or []), *(v.get("test") or [])]
@@ -777,11 +660,11 @@ def grade(
             aliases[" ".join(form.split()).lower()] = p["name"]
     principal_names = [p["name"] for p in principals or []]
     tallies = {k: _Tally() for k in CHECKS}
-    voice_counts = {"samples": 0, "own": 0, "misattributed": 0, "not_dialogue": 0}
-    prior_unverified = 0
+    voice_counts = dict.fromkeys(
+        ("samples", "own", "misattributed", "not_dialogue", "short"), 0
+    )
     plan_unmatched: list[str] = []
     beat_prompt_chars: list[int] = []
-    stream = ProseStream()
     outline = OutlineIndex(aliases)
     premises = [(premise_edit or {}).get("premise_restated") or ""]
     conflicts = [(premise_edit or {}).get("central_conflict") or ""]
@@ -793,17 +676,9 @@ def grade(
         purposes[pur or "(none)"] = purposes.get(pur or "(none)", 0) + 1
         prompt = prompt_text(rec)
         tallies["no_doubled_voice_label"].add(rec, check_no_doubled_voice(prompt))
-        if pur in ("outline:chapters", "outline:beats"):
-            tallies["outline_secondaries_allowed"].add(
-                rec, check_outline_secondaries(prompt, secondaries or [])
-            )
         if pur == "outline:beats":
-            tallies["beats_stage_fields"].add(rec, check_beats_stage_fields(prompt))
             outline.add(rec.get("answer") or "")
         if pur == "plan_beats":
-            tallies["plan_cast_available_not_exact"].add(
-                rec, check_plan_cast_available(prompt)
-            )
             cast = check_plan_cast_from_beat(prompt, outline)
             if cast is None:
                 plan_unmatched.append(str(rec.get("id")))
@@ -821,7 +696,9 @@ def grade(
                 rec, check_pov_line(prompt, who or None)
             )
             if _is_last_beat(block(prompt, BEATS_FENCE)):
-                tallies["last_beat_in_pov"].add(rec, check_last_beat_in_pov(prompt))
+                tallies["last_beat_no_wrap_up"].add(
+                    rec, check_last_beat_no_wrap_up(prompt)
+                )
             tallies["no_duplicate_bible"].add(
                 rec, check_no_duplicate_bible(prompt, descriptions or [])
             )
@@ -856,9 +733,7 @@ def grade(
             tallies["beats_block"].add(rec, check_beats_block(prompt))
             prior = block(prompt, PRIOR_FENCE)
             if prior is not None:
-                reasons, verified = check_prior(prior, stream)
-                prior_unverified += not verified
-                tallies["prior_paragraphs"].add(rec, reasons)
+                tallies["prior_paragraphs"].add(rec, check_prior(prior))
             if sample_prose:
                 tallies["style_first"].add(rec, check_style_first(prompt, sample_prose))
         if gold and re.search(r"(?im)^\s*voice samples\b", prompt):
@@ -866,12 +741,12 @@ def grade(
             for k, v in counts.items():
                 voice_counts[k] += v
             tallies["voice_dialogue"].add(rec, reasons)
-        if pur == "beat_prose":
-            stream.add(rec.get("answer") or "")
 
     out = {k: t.as_dict() for k, t in tallies.items()}
+    short = voice_counts.pop("short")
     out["voice_dialogue"]["samples"] = voice_counts
-    out["prior_paragraphs"]["unverified"] = prior_unverified
+    # Reported, not gated (§6.3): voice samples too short to carry a voice.
+    out["voice_dialogue"]["short_samples"] = short
     out["plan_cast_from_beat"]["unmatched"] = plan_unmatched
     # Reported, not gated (§5.1): the beat prompt's size after the bible dedupe.
     out["beat_prose_prompt_chars_median"] = _median(beat_prompt_chars)
@@ -893,10 +768,9 @@ def corpus_inputs(gt: dict, style: dict | None) -> dict:
         "other_lines": gt.get("other_lines"),
         "sample_prose": style.get("sample_prose") or "",
         "premise_edit": gt.get("premise_edit"),
-        "secondaries": list(fid.get("secondaries") or []),
         "principals": list(fid.get("principals") or []),
         "style_tone": style.get("tone") or "",
-        "pov": pov_character(style.get("pov") or ""),
+        "pov": gt.get("pov"),
         "descriptions": [
             c["description"] for c in gt.get("characters") or [] if c.get("description")
         ],

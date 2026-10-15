@@ -24,6 +24,7 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 
+from app.parsing.names import match
 from evals.graders import attribution, continuity, extraction, retrieval, rubrics
 from evals.harness import embed
 from evals.harness.vecmath import cosine
@@ -254,13 +255,17 @@ def _forms(gt: dict) -> dict[str, list[str]]:
     return {p["name"]: [p["name"], *p.get("aliases", [])] for p in principals}
 
 
-def named_in(text: str, forms: list[str]) -> bool:
-    """A name or any alias appears in `text` (word-bounded, normalised)."""
-    from evals.graders.fidelity import _present
-    from evals.graders.extraction import _norm
+_CAPITALISED_RUN = re.compile(r"[A-Z][\w'’-]*\.?(?:[ \t]+[A-Z][\w'’-]*\.?)*")
 
-    hay = _norm(text)
-    return any(_present(f, hay) for f in forms)
+
+def named_in(text: str, forms: list[str]) -> bool:
+    """A capitalised run of `text` ("Ms. Okafor", "Zara's") names one of
+    `forms` by `app.parsing.names.match` (honorifics and surnames count: S4)."""
+    for m in _CAPITALISED_RUN.finditer(text or ""):
+        run = re.sub(r"['’]s\b", "", m.group(0))
+        if any(match(run, f) for f in forms if f):
+            return True
+    return False
 
 
 _QUOTE = re.compile(r"\"([^\"]+)\"|“([^”]+)”")
@@ -284,50 +289,23 @@ def strip_tags(text: str, names: list[str]) -> list[str]:
     return lines
 
 
-def _unknown_canon(text: str, gt: dict, extra: list[str]) -> tuple[float, list[str]]:
-    """Name invention against everything the author gave the app: the corpus'
-    known terms, the cast with aliases, AND every proper noun of the synopsis
-    (a minor named in the synopsis, like Prava, is not invented)."""
-    from evals.graders.fidelity import _PROPER, unknown_rate
+def _unknown_canon(text: str, gt: dict, context: str = "") -> tuple[float, list[str]]:
+    """Name invention measured as the product warns about it (W1-S7):
+    `fidelity.unknown_proper_nouns` with the corpus' known terms and cast as
+    `known` and the synopsis (plus any `context`, e.g. a revised scene's
+    draft) as `canon_text`, so a synopsis minor like Prava is not invented.
+    Returns (unknown / distinct proper nouns, unknown)."""
+    from app.planning.fidelity import unknown_proper_nouns
+    from evals.graders.fidelity import _PROPER
 
-    allow = set((gt.get("fidelity") or {}).get("known") or [])
+    known = set((gt.get("fidelity") or {}).get("known") or [])
     for forms in _forms(gt).values():
-        allow.update(forms)
-    allow.update(gt.get("cast") or [])
-    allow.update(extra)
-    allow.update(m.group(0) for m in _PROPER.finditer(gt.get("synopsis") or ""))
-    # A capitalised word the text also uses in lower case ("We", "Below") is a
-    # sentence start, not a name: prose has hundreds of them.
-    lower = set(re.findall(r"\b[a-z][a-z']+\b", text or ""))
-    allow.update(
-        w for w in re.findall(r"\b[A-Z][a-z']+\b", text or "") if w.lower() in lower
-    )
-    allow.update(_SENTENCE_WORDS)
-    return unknown_rate(text, allow)
-
-
-# Capitalised at a sentence start far more often than as a name.
-_SENTENCE_WORDS = {
-    "I",
-    "We",
-    "You",
-    "Yes",
-    "No",
-    "Not",
-    "What",
-    "Why",
-    "How",
-    "Who",
-    "Where",
-    "If",
-    "So",
-    "Then",
-    "Still",
-    "Nothing",
-    "Something",
-    "Everyone",
-    "Nobody",
-}
+        known.update(forms)
+    known.update(gt.get("cast") or [])
+    canon_text = f"{gt.get('synopsis') or ''}\n{context}"
+    unknown = unknown_proper_nouns(text or "", known, canon_text=canon_text)
+    found = {m.group(0) for m in _PROPER.finditer(text or "")}
+    return (round(len(unknown) / len(found), 4) if found else 0.0), unknown
 
 
 # --- Step 1: character extraction -----------------------------------------
@@ -417,7 +395,16 @@ def extraction_depth(chars: list[dict], forms: dict[str, list[str]]) -> dict:
     ok = None
     if len(mentions) == len(order):
         ok = all(mentions[a] >= mentions[b] for a, b in zip(order, order[1:]))
+    # Finding 4: a principal with a title alias ("Chief Executive Lich") is
+    # proposed under their name, not the title. Reported, not gated.
+    titled = [n for n, fs in forms.items() if any(not match(f, n) for f in fs[1:])]
+    canonical = [
+        n
+        for n in titled
+        if match((_proposal_for(chars, forms[n]) or {}).get("name") or "", n)
+    ]
     return {
+        "canonical_names_ok": f"{len(canonical)}/{len(titled)}" if titled else None,
         "principal_fields": f"{filled}/{len(forms)}",
         "principal_fields_rate": round(filled / len(forms), 4) if forms else None,
         "principal_fields_missing": missing_fields,
@@ -683,7 +670,7 @@ async def step_outline(ctx: StepContext) -> dict:
             caps["R1"] = f"principal(s) missing: {', '.join(fs.missing)}"
     # Name invention against canon + synopsis: what the app's warning list
     # should be measured by (a synopsis minor is not an invention).
-    rate, unknown = _unknown_canon(flatten_outline(nodes), gt, [])
+    rate, unknown = _unknown_canon(flatten_outline(nodes), gt)
     result["unknown_rate_canon"] = rate
     result["unknown_canon"] = unknown
     result.update(outline_secondaries(nodes, (fid or {}).get("secondaries") or []))
@@ -810,19 +797,7 @@ def _judged_scene_cap() -> int:
 
 
 async def _collect_scene(ctx: StepContext, scene_id: str) -> dict:
-    from evals.harness.config import load as load_config
-
     scene = await ctx.client.get_scene(scene_id)
-    beats, source = await ctx.client.scene_beats(scene_id, load_config().database_url)
-    casts = await _beat_casts(ctx, scene_id)
-    beats = [
-        (
-            {**b, "characters": casts[b.get("beat_number")]}
-            if b.get("beat_number") in casts
-            else b
-        )
-        for b in beats
-    ]
     req = scene.get("scene_request") or {}
     return {
         "id": scene_id,
@@ -835,28 +810,9 @@ async def _collect_scene(ctx: StepContext, scene_id: str) -> dict:
         "setting": req.get("setting"),
         "emotional_tone": req.get("emotional_tone"),
         "pov_character": req.get("pov_character"),
-        "beats": beats,
-        "beats_source": source,
+        # Each inner beat's prose, from GET /scenes/{id} (W1-S9).
+        "beats": scene.get("beats") or [],
     }
-
-
-async def _beat_casts(ctx: StepContext, scene_id: str) -> dict[int, list[str]]:
-    """{beat_number: [names]}: who each inner beat was written with. The
-    grounding record lists every beat-cast member (with or without samples),
-    keyed by the same 0-based index as scene_beats. {} when unavailable."""
-    fetch = getattr(ctx.client, "scene_grounding", None)
-    if fetch is None:
-        return {}
-    try:
-        body = await fetch(scene_id)
-    except Exception:  # noqa: BLE001 - optional evidence, never fatal
-        return {}
-    out: dict[int, list[str]] = {}
-    for b in (body or {}).get("beats") or []:
-        idx = b.get("beat_index")
-        if isinstance(idx, int):
-            out[idx] = [c["name"] for c in b.get("characters") or [] if c.get("name")]
-    return out
 
 
 async def _outline_into(ctx: StepContext, book: dict) -> list:
@@ -1008,126 +964,29 @@ def _voice_block(gt: dict, cast: list[str]) -> str:
     return "\n\n".join(parts) or "(the corpus has no voice samples)"
 
 
-_PERSONAL_SPEAKERS = {"i", "we", "you"}
-
-
-def _speaker_principal(speaker: str | None, forms: dict) -> str | None:
-    """The one principal a tag subject names ("Zara", "Ms. Okafor"), else None."""
-    from app.parsing.character_extractor import speaker_matches
-
-    if not speaker:
-        return None
-    cast = [{"name": n, "aliases": fs[1:]} for n, fs in forms.items()]
-    hits = [n for n, fs in forms.items() if speaker_matches(speaker, n, fs[1:], cast)]
-    return hits[0] if len(hits) == 1 else None
-
-
-def _descriptor(speaker: str | None) -> str | None:
-    """A tag subject that describes rather than names ("the woman at the
-    next counter"), lower-cased; None for a name, a pronoun or nobody."""
-    if not speaker or speaker.lower() in _PERSONAL_SPEAKERS:
-        return None
-    return speaker.lower() if speaker[0].islower() else None
-
-
-def descriptive_tags(text: str) -> list[str]:
-    """Descriptive speaker tags longer than the SPEC-17 attributor reads (it
-    takes a determiner and up to three words, so "the woman at the next
-    counter said" credits nobody): `"...," the woman at the next counter said`
-    and `"...," said the woman at the next counter`. Lower-case descriptors
-    only, with the attributor's own tag verbs."""
-    from app.parsing.character_extractor import _TAG_VERBS
-
-    t = text.translate(str.maketrans({"“": '"', "”": '"'}))
-    who = r"(?P<who>(?:the|a|an)\s+[a-z][\w'-]*(?:\s+[a-z][\w'-]*){0,6}?)"
-    verb = rf"(?:{_TAG_VERBS})\b"
-    after = re.compile(rf'[,!?.—-]"\s+{who}\s+(?:[a-z]+ly\s+)?{verb}')
-    inverted = re.compile(rf'[,!?.—-]"\s+{verb}\s+{who}\s*[,.;!?]')
-    return [m.group("who") for rx in (after, inverted) for m in rx.finditer(t)]
-
-
-def speaking_principals(scene: dict, forms: dict) -> dict[str, str]:
-    """{principal: how} for every principal credited with a quoted line by the
-    SPEC-17 attributor (`app.parsing.character_extractor.attribute_speech`,
-    plus `descriptive_tags` for the long descriptors it does not read).
-
-    * "tag": a tag names them, in any form the attributor accepts.
-    * "unnamed": a descriptive tag ("the woman at the next counter said") in
-      an inner beat whose cast includes exactly one principal that beat never
-      names, and the descriptor never spoke in a beat without that principal
-      (so "the caseworker" of an earlier beat is not her). This needs each
-      beat's cast (grounding); without it only "tag" credit is given."""
-    from app.parsing.character_extractor import attribute_speech
-
-    beats = [b for b in scene.get("beats") or [] if b.get("content")]
-    units = [(b["content"], b.get("characters")) for b in beats] or [
-        (scene.get("content") or "", None)
-    ]
-    out: dict[str, str] = {}
-    elsewhere: dict[str, set[str]] = {}  # descriptor -> principals of beats it spoke in
-    pending: list[tuple[str, str]] = []  # (descriptor, the beat's unnamed principal)
-    for text, beat_cast in units:
-        speakers = [s["speaker"] for para in attribute_speech(text) for s in para]
-        speakers += descriptive_tags(text)
-        cast = [n for n in beat_cast or [] if n in forms] if beat_cast else None
-        unnamed = [n for n in cast or [] if not named_in(text, forms[n])]
-        for speaker in speakers:
-            who = _speaker_principal(speaker, forms)
-            if who:
-                out.setdefault(who, "tag")
-                continue
-            desc = _descriptor(speaker)
-            if desc is None or cast is None:
-                continue
-            elsewhere.setdefault(desc, set())
-            if len(unnamed) == 1:
-                pending.append((desc, unnamed[0]))
-            for n in forms:
-                if n not in cast:
-                    elsewhere[desc].add(n)
-    for desc, who in pending:
-        if who not in elsewhere.get(desc, set()):
-            out.setdefault(who, "unnamed")
-    return out
-
-
 def _grade_scene_checks(scene: dict, prev_text: str, forms: dict) -> dict:
     """Deterministic pre-checks: {caps, warnings, cast_recall, seams...}.
 
-    R1 (H1, tpm-plan-wave2 §5.4): a principal the scene's own plan names is
-    on the page when named OR the attributed speaker of a quoted line. The cap
-    fires only when such a principal is neither, or when none of the cast is
-    on the page. A principal who speaks but is never named (a correct choice
-    before the POV character learns her name) is a warning; the judge's R1
-    stands."""
+    R1 (S4): the cap fires only when the scene has a cast and none of it is
+    named on the page. A principal the scene's own plan (brief + beats) names
+    who is never named on the page is a warning; the judge's R1 stands."""
     from evals.graders import seams
 
     text = scene["content"]
     cast = [n for n in scene.get("characters") or [] if n in forms]
     named = [n for n in cast if named_in(text, forms[n])]
-    speaking = speaking_principals(scene, forms)
-    present = [n for n in cast if n in named or n in speaking]
-    # "Appears where the plan says" (R1): a principal the scene's own plan
-    # (brief + beats) names must be on the page. A cast member the plan never
-    # mentions is not required; but a scene with a cast and none of it on the
-    # page fails.
     plan = " ".join(
         [scene.get("description") or ""]
         + [b.get("description") or "" for b in scene.get("beats") or []]
     )
-    required = [n for n in cast if named_in(plan, forms[n])]
-    missing = [n for n in required if n not in present]
     caps: dict[str, str] = {}
-    warnings: list[str] = []
-    if missing:
-        caps["R1"] = "planned principal(s) neither named nor speaking: " + ", ".join(
-            missing
-        )
-    elif cast and not present:
+    if cast and not named:
         caps["R1"] = "none of the scene's cast is on the page"
-    for n in required:
-        if n in speaking and n not in named:
-            warnings.append(f"{n} speaks ({speaking[n]} tag) but is never named")
+    warnings = [
+        f"{n} is in the plan but never named"
+        for n in cast
+        if n not in named and named_in(plan, forms[n])
+    ]
     contents = [b["content"] for b in scene.get("beats") or [] if b.get("content")]
     beat_seams = seams.seam_report(contents)
     scene_seam = len(seams.shared(prev_text, text)) if prev_text else 0
@@ -1140,8 +999,6 @@ def _grade_scene_checks(scene: dict, prev_text: str, forms: dict) -> dict:
         "warnings": warnings,
         "cast": cast,
         "cast_recall": round(len(named) / len(cast), 4) if cast else None,
-        "cast_present": round(len(present) / len(cast), 4) if cast else None,
-        "speaking": speaking,
         "beat_seams": beat_seams,
         "scene_seam_overlap": scene_seam,
     }
@@ -1167,18 +1024,17 @@ def planned_beat_of(scene: dict, beats: list[dict]) -> dict | None:
 def cast_from_beat(scene: dict, beat: dict | None, chapter: dict) -> bool | None:
     """§5.2 `cast_from_beat` (F2): the scene's cast is its beat's cast (the
     chapter's when the beat names none; a secondary name now in the cast
-    counts) plus the chapter POV. None when no planned beat matches."""
+    counts, by `classify_people`) plus the chapter POV. None when no planned
+    beat matches."""
+    from app.planning.outline import CastIndex, classify_people
+
     if beat is None:
         return None
     chapter_cast = list(chapter.get("cast") or [])
-    beat_cast = list(beat.get("characters") or [])
-    known = {n.lower(): n for n in chapter_cast + list(scene.get("characters") or [])}
-    beat_cast += [
-        known[s.lower()]
-        for s in beat.get("secondary_names") or []
-        if s.lower() in known and known[s.lower()] not in beat_cast
-    ]
-    want = set(beat_cast or chapter_cast)
+    pool = chapter_cast + list(scene.get("characters") or [])
+    index = CastIndex(SimpleNamespace(id=n, name=n) for n in pool)
+    refs = [*(beat.get("characters") or []), *(beat.get("secondary_names") or [])]
+    want = set(classify_people(refs, index, None).ids or chapter_cast)
     if chapter.get("pov"):
         want.add(chapter["pov"])
     return set(scene.get("characters") or []) == want
@@ -1235,17 +1091,14 @@ async def step_prose(ctx: StepContext) -> dict:
     detail, prev_text = [], ""
     for i, sc in enumerate(scenes):
         checks = _grade_scene_checks(sc, prev_text, forms)
-        rate, unknown = _unknown_canon(sc["content"], gt, [])
+        rate, unknown = _unknown_canon(sc["content"], gt)
         beat = planned_beat_of(sc, planned) if planned else None
         row = {
             "scene_id": sc["id"],
             "words": len(sc["content"].split()),
-            "beats_source": sc.get("beats_source"),
             "n_beats": len(sc.get("beats") or []),
             "cast": checks["cast"],
             "cast_recall": checks["cast_recall"],
-            "cast_present": checks["cast_present"],
-            "speaking": checks["speaking"],
             "planned_beat": beat,
             "cast_from_beat": cast_from_beat(sc, beat, chapter),
             "beat_seam_max_overlap": checks["beat_seams"]["max_overlap"],
@@ -1314,7 +1167,6 @@ async def step_prose(ctx: StepContext) -> dict:
         "cast_named": round(len(named) / max(1, len(principals)), 4),
         "beat_seam_max_overlap": max(r["beat_seam_max_overlap"] for r in detail),
         "scene_seam_max_overlap": max(r["scene_seam_overlap"] for r in detail),
-        "beats_source": sorted({str(r["beats_source"]) for r in detail}),
         # §5.2: the R1 cap fires on 0 scenes; every scene's cast is its beat's.
         "r1_capped_scenes": sum(
             1 for r in detail if "R1" in r["deterministic_failures"]
@@ -1387,8 +1239,6 @@ def revision_checks(
     draft: str, proposal: str, start: int, end: int, gt: dict
 ) -> tuple[dict, dict[str, str]]:
     """{outside_identical, new_names, revised}, and the caps they imply."""
-    from evals.graders.fidelity import _PROPER
-
     tail = len(draft) - end
     outside = (
         len(proposal) >= start + tail
@@ -1396,9 +1246,7 @@ def revision_checks(
         and proposal[len(proposal) - tail :] == draft[end:]
     )
     revised = proposal[start : len(proposal) - tail] if outside else proposal
-    _, unknown = _unknown_canon(
-        revised, gt, [m.group(0) for m in _PROPER.finditer(draft)]
-    )
+    _, unknown = _unknown_canon(revised, gt, draft)
     caps: dict[str, str] = {}
     if not outside:
         caps["RA"] = "text outside the range changed"
@@ -1452,9 +1300,7 @@ async def step_revise(ctx: StepContext) -> dict:
     scene_id, how = await _revise_scene(ctx)
     if not scene_id:
         return {"skipped": True, "reason": how}
-    from evals.harness.config import load as load_config
-
-    beats, _ = await ctx.client.scene_beats(scene_id, load_config().database_url)
+    beats = await ctx.client.scene_beats(scene_id)
     scene = await ctx.client.get_scene(scene_id)
     # The draft the revise API counts offsets against (edited, else generated).
     draft = (await ctx.client.revise_draft(scene_id)) or (

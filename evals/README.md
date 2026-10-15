@@ -49,9 +49,8 @@ voice-bearing excerpt. Corpora without `characters` keep the placeholder cast.
   canonical beat 2. Each scene gets deterministic checks first (cast recall caps R1; a beat-seam or
   scene-seam 6-gram overlap caps R4; invented names; the R1 rule is harness v3's, below), then R1–R5 from the judge for the first
   `EVAL_PROSE_JUDGE_SCENES` scenes (default 3). R2 sees each speaker's gold lines and the scene's
-  spoken lines with tags and names removed. Beats come from the scene payload, else a read-only
-  `SELECT` on `scene_beats` (`EVAL_DATABASE_URL`, default the app's `DATABASE_URL`), else the
-  grounding descriptions; `beats_source` says which.
+  spoken lines with tags and names removed. Each inner beat's description and prose come from
+  `GET /api/v1/scenes/{id}` (`beats`): the harness reads the app through its API only.
 - **continuity** on `cel` injects its five planted contradictions into the excerpt (a synopsis is
   not prose).
 - **prompt contract** grades what the app actually sent the model, from the relay archive (below).
@@ -74,35 +73,32 @@ fixture that contradicted the synopsis (`premise_edit.premise_restated` now ends
 correctly, and goes onward"); and no checks for wave 2's fixes. The cel cast's voice is stored as
 `{"diction": …}`, so canon blocks no longer render "Voice: voice: …".
 
-**The R1 cap (H1).** A principal is on the page when named **or** credited with a quoted line.
-Credit comes from the app's own attributor (`app.parsing.character_extractor.attribute_speech`,
-honorific-aware, so "Ms. Okafor said" is Zara) plus longer descriptive tags ("the woman at the
-next counter said"); an unnamed descriptor is credited to a principal only when it speaks in an
-inner beat whose cast (from `GET /books/scenes/{id}/grounding`) holds exactly one principal that
-beat never names. R1 is capped at 0 only when a principal the scene's own plan names is neither
-named nor speaking, or when the scene has a cast and none of it is on the page. A principal who
-speaks but is never named goes to `deterministic_warnings`, and the judge's R1 stands
-(`steps/pipeline.py::_grade_scene_checks`). The prose cache key is `planned-v3`, so a v2 entry
-(no beat data) is regenerated.
+**The R1 cap (S4, wave 2.5).** A principal is on the page when a capitalised run of the scene
+names them by `app.parsing.names.match` (honorifics and surnames count, so "Ms. Okafor said" is
+Zara). R1 is capped at 0 only when the scene has a cast and none of it is named. A principal the
+scene's own plan (brief and beat descriptions) names who is never named on the page is a warning,
+"<name> is in the plan but never named", and the judge's R1 stands
+(`steps/pipeline.py::_grade_scene_checks`). A bare-surname match can credit the wrong person in a
+warning; that is acceptable for a warning. The prose cache key is `planned-v3`.
 
 **Prompt-contract checks for wave 2** (`graders/prompt_contract.py`; each should be 100% of the
 calls it checks):
 
 | Check | Purposes | Passes when |
 |---|---|---|
-| `outline_secondaries_allowed` | `outline:chapters`, `outline:beats` | the SECONDARY PEOPLE line lists every `fidelity.secondaries` name, the principals rule is present, and the old "Every name you use for a character MUST be one of" is gone |
-| `beats_stage_fields` | `outline:beats` | the children template holds `characters`, `secondary_names`, `setting`, `tone` |
-| `plan_cast_from_beat` | `plan_beats` | the planner's cast is the outline beat's cast (else the chapter's) plus the chapter POV; a prompt that matches no beat is listed in `unmatched`, not failed |
-| `plan_cast_available_not_exact` | `plan_beats` | "Available cast (not all need appear)", "unnamed functional figures", no "cast is exactly" |
+| `plan_cast_from_beat` | `plan_beats` | the "Available cast" line parses to someone, and equals the corpus cast among the outline beat's `people` (else the chapter's) plus the chapter POV; a prompt whose line parses but matches no beat is listed in `unmatched`, not failed |
 | `no_blank_setting` | `plan_beats`, `beat_prose` | no empty `Setting:` line |
 | `no_neutral_tone` | `plan_beats`, `beat_prose` | no `Emotional tone: neutral` (checked only when `style.json` has a tone) |
-| `pov_line_has_mode_and_character` | `beat_prose` | `Point of view: <mode>, <who>.` and "Narrate only what <who> … perceives or knows" in the same paragraph (`<mode>` alone when there is no POV character) |
-| `last_beat_in_pov` | `beat_prose` (last beat) | the last-beat wording: end inside the moment, in POV, no summary |
+| `pov_line_has_mode_and_character` | `beat_prose` | `POV_LINE_RE` parses, `<who>` is the chapter POV (else the corpus `pov`), and "Narrate only what <who> … perceives or knows" follows (`<mode>` alone passes when no POV is expected) |
+| `last_beat_no_wrap_up` | `beat_prose` (last beat) | no "end the scene here" (a tripwire, to delete in wave 3) |
 | `no_duplicate_bible` | `beat_prose` | no bible lines under CHARACTERS IN THIS BEAT; each corpus character description appears exactly once |
 | `no_doubled_voice_label` | every call | no `voice: voice:` |
 | `reduce_evidence_depth` | `extraction_reduce` | each principal section has ≥ 3 evidence or quoted lines |
 
-`beat_prose_prompt_chars_median` is reported, not gated. A check with no matching call reports
+The grader imports every string it parses from `app/core/prompt_markers.py`, and
+`tests/unit/test_prompt_roundtrip.py` grades the app's real prompts (built through its public entry
+points, answered by the stub) at 1.0 on every check. `beat_prose_prompt_chars_median` and
+`voice_dialogue.short_samples` (voice samples under three words) are reported, not gated. A check with no matching call reports
 `n: 0, rate: None` and is left out of `score`, so an archive from before a contract existed still
 grades. `beats_stage` also accepts the premise the run's own `outline:chapters` prompt confirmed,
 so an archive from before the F8 fixture edit still grades.
@@ -113,10 +109,12 @@ so an archive from before the F8 fixture edit still grades.
   non-empty), `principal_fields_missing`, `principal_mentions`, and `mention_order_ok` (Milo ≥
   Zara ≥ Edric on cel; `None` when a principal is not proposed).
 - `outline`: `outline_names_synopsis_secondaries` ("k/2", from the outline text and any
-  `secondary_names`) and `outline_secondaries_named`.
+  `secondary_names`) and `outline_secondaries_named`. `extraction` also reports
+  `canonical_names_ok` ("k/n" over the principals with a title alias, such as Edric's "Chief
+  Executive Lich": proposed under their name, not the title).
 - `prose`: per scene `planned_beat`, `cast_from_beat` (the scene cast is the beat's cast, else the
   chapter's, plus a secondary that now resolves, plus the chapter POV; `None` when no beat
-  matches), `speaking`, `cast_present` and `deterministic_warnings`; per step `cast_from_beat` (a
+  matches) and `deterministic_warnings`; per step `cast_from_beat` (a
   rate), `r1_capped_scenes` and `planned_beats`. The judge's scene content carries the planned
   beat, its cast, secondary people, setting, tone and POV character (empty fields omitted).
 
@@ -132,21 +130,6 @@ discarded, so every revision is written against the same draft. Changed outside 
 0; a new name caps R5 at 0. Score = mean over revisions of mean(RA, R5). A request the API refuses
 (for example a 409 for an edited or ambiguous beat) scores 0 with its `error`, and the others still
 run.
-
-**Re-scoring a finished run.** `python -m evals.harness.rescore` re-grades a report's prose step
-with the current deterministic checks, without generating or judging anything, and re-runs the
-prompt-contract grader over the model archive:
-
-```bash
-python -m evals.harness.rescore eval-report-cel.json \
-  --relay /path/to/model/answered --judge /path/to/judge/answered [--out rescored.json]
-```
-
-The book comes from the report. Scene text and raw judge scores are read from the judge archive
-(`SCENE TO SCORE:`), each inner beat's cast, plan line and prose from the model archive's
-`beat_prose` exchanges. The result (`prose` with old and new scores, and `prompt_contract`) is
-printed as JSON. Re-scored with H1, the after-wave-1 cel run's prose score went from 0.5961 to
-0.8455 with no R1-capped scenes; see SPEC-28 for the table.
 
 ## Running
 
