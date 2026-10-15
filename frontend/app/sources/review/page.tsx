@@ -313,8 +313,8 @@ function ReviewContent() {
                 />
                 <div className="sm:col-span-3 flex items-center gap-3 text-xs text-gray-500">
                   {c.windows !== undefined && windowsTotal > 0 && (
-                    <span>
-                      in {c.windows} of {windowsTotal} parts · {c.mentions ?? 0} mentions
+                    <span title="How often the source uses this name or one of its forms; pronouns are not counted">
+                      in {c.windows} of {windowsTotal} parts · {c.mentions ?? 0} name mentions
                     </span>
                   )}
                   <button

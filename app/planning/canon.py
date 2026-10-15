@@ -21,6 +21,7 @@ There is no truncation in this module. A large canon is ~10k tokens against a
 category and say so (Phase 5) — we never cut a string mid-sentence.
 """
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional
 from uuid import UUID
@@ -60,29 +61,55 @@ _CHARACTER_JSON_FIELDS: list[tuple[str, str]] = [
 ]
 
 
-def _render_json_field(value: Any) -> Optional[str]:
+def _render_json_field(value: Any, label: Optional[str] = None) -> Optional[str]:
     """Render a JSON bible field as readable prose, not a Python repr.
 
     These columns are free-form JSON in practice: dicts from the manual create
     path, lists from extraction, occasionally a bare string. Feeding the model
     `{'wry': True}` teaches it Python; feeding it `wry` teaches it the character.
+
+    `label` is the line's own label ("Voice"). A dict key equal to it, or a
+    string value that repeats it as a prefix, would print "Voice: voice: dry"
+    (SPEC-26 P9), so that key/prefix is dropped and only its value is kept.
     """
     if not value:
         return None
     if isinstance(value, str):
-        return clean_for_llm(value) or None
+        return clean_for_llm(_strip_label(value, label)) or None
     if isinstance(value, dict):
-        # A bare key ({"wry": ""} / {"wry": True}) renders as just the key.
-        parts = [
-            f"{k}: {v}" if not isinstance(v, bool) and v != "" else str(k)
-            for k, v in value.items()
-            if v is not None and v is not False
-        ]
+        parts = []
+        for k, v in value.items():
+            if v is None or v is False:
+                continue
+            if _is_label(k, label):
+                # {"voice": "dry"} under "Voice:" is just "dry".
+                text = _strip_label(str(v), label) if not isinstance(v, bool) else ""
+                if text.strip():
+                    parts.append(text.strip())
+                continue
+            # A bare key ({"wry": ""} / {"wry": True}) renders as just the key.
+            parts.append(f"{k}: {v}" if not isinstance(v, bool) and v != "" else str(k))
         return "; ".join(parts) or None
     if isinstance(value, (list, tuple, set)):
-        parts = [str(v) for v in value if v]
-        return "; ".join(parts) or None
+        parts = [_strip_label(str(v), label) for v in value if v]
+        return "; ".join(p for p in parts if p.strip()) or None
     return str(value)
+
+
+def _is_label(key: Any, label: Optional[str]) -> bool:
+    return bool(label) and str(key).strip().casefold() == label.strip().casefold()
+
+
+def _strip_label(text: str, label: Optional[str]) -> str:
+    """Drop a leading `label:` (repeatedly, case-insensitive): "voice: dry" -> "dry"."""
+    if not label:
+        return text
+    rx = re.compile(rf"^\s*{re.escape(label.strip())}\s*:\s*", re.IGNORECASE)
+    while True:
+        stripped = rx.sub("", text, count=1)
+        if stripped == text:
+            return text
+        text = stripped
 
 
 def _aliases(character: Any) -> list[str]:
@@ -108,7 +135,7 @@ def render_character(character: Any) -> str:
             lines.append(f"{label}: {value}")
 
     for attr, label in _CHARACTER_JSON_FIELDS:
-        rendered = _render_json_field(getattr(character, attr, None))
+        rendered = _render_json_field(getattr(character, attr, None), label)
         if rendered:
             lines.append(f"{label}: {rendered}")
 

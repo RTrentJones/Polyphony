@@ -19,7 +19,9 @@ again. It is now a map-reduce:
    evidence links them, without fusing two people who share a surname.
 3. **Reduce** — one default-model call per ~10 merged characters writes the full
    proposal (role, description, goals, arc, relationships, traits, voice,
-   aliases) from the gathered evidence.
+   aliases) from the gathered evidence (up to 3 quotes per window), each
+   candidate's own attributed dialogue (SPEC-17), and — for a one-window
+   source — the window itself (SPEC-26).
 4. **Synopsis** — generated last, from the merged canon.
 
 The source is untrusted (it may be an uploaded .pdf/.html), so each window is
@@ -48,7 +50,7 @@ from app.core.llm_text import (
 from app.core.logging_config import setup_logging
 from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_object
-from app.parsing.names import norm, significant, tokens
+from app.parsing.names import HONORIFICS, norm, significant, tokens
 
 logger = setup_logging("parsing.canon_extractor")
 
@@ -81,6 +83,16 @@ REDUCE_BATCH = 10
 MAX_REDUCED_CHARACTERS = 60
 MAP_MAX_TOKENS_CAP = 8192
 _MAX_EVIDENCE = 8
+# Each window may give up to this many evidence quotes per character (SPEC-26):
+# one string per window left a single-window source (any short manuscript) with
+# one evidence line, and reduce wrote empty goals and voice from it.
+_MAX_MAP_EVIDENCE = 3
+_MAX_EVIDENCE_CHARS = 600
+# The candidate's own attributed dialogue handed to reduce (SPEC-17 attributor):
+# up to six lines, preferring ones of four or more words ("I'm good, thanks,"
+# says little about a voice).
+_MAX_QUOTED_LINES = 6
+_QUOTE_MIN_WORDS = 4
 
 SaveCheckpoint = Optional[Callable[[dict], Awaitable[None]]]
 
@@ -150,8 +162,9 @@ def split_windows(text: str, window_tokens: int = WINDOW_TOKENS) -> list[str]:
 
 
 def _map_max_tokens(window: str) -> int:
-    """Answer budget sized to the window: a denser window names more people."""
-    return min(MAP_MAX_TOKENS_CAP, max(1024, estimate_tokens(window) // 6))
+    """Answer budget sized to the window: a denser window names more people,
+    each with up to three evidence quotes (SPEC-26)."""
+    return min(MAP_MAX_TOKENS_CAP, max(1024, estimate_tokens(window) // 4))
 
 
 # --- normalisation ---------------------------------------------------------
@@ -201,6 +214,21 @@ def _as_map(value) -> dict:
     if isinstance(value, str) and value.strip():
         return {value.strip(): ""}
     return {}
+
+
+def _evidence_list(value, limit: int = _MAX_MAP_EVIDENCE) -> list[str]:
+    """Map evidence as a list of distinct short quotes. The model (and the eval
+    stub, and a checkpoint written before SPEC-26) may send one string."""
+    items = value if isinstance(value, (list, tuple)) else [value]
+    out: list[str] = []
+    for item in items:
+        if isinstance(item, (dict, list, tuple)):
+            continue
+        # One line each: an evidence line is one "- (part N) ..." prompt line.
+        text = " ".join(_s(item).split())[:_MAX_EVIDENCE_CHARS]
+        if text and text not in out:
+            out.append(text)
+    return out[:limit]
 
 
 def _clean_aliases(name: str, aliases) -> list[str]:
@@ -277,7 +305,7 @@ def _normalize_window(raw: dict) -> dict:
                 "name": name,
                 "aliases": _clean_aliases(name, c.get("aliases")),
                 "role_hint": _s(c.get("role_hint") or c.get("role"))[:100],
-                "evidence": _s(c.get("evidence") or c.get("description"))[:600],
+                "evidence": _evidence_list(c.get("evidence") or c.get("description")),
             }
         )
     entries = [
@@ -327,8 +355,9 @@ List who and what appears in THIS part of the source. Do NOT invent — only wha
 this part's text supports.
 - characters: every named person (or named being) who acts, speaks, narrates or
   is discussed. "aliases" are the other names and titles this text uses for the
-  SAME person (e.g. a married name, "Mrs. X", a nickname). "evidence" is a short
-  quote or paraphrase from this part that identifies them.
+  SAME person (e.g. a married name, "Mrs. X", a nickname). "evidence" is up to
+  {_MAX_MAP_EVIDENCE} short quotes from this part (one sentence each) showing who
+  they are, what they want, and how they talk or act.
 - canon_entries: named places, organisations, factions, objects and ideas.
 - style_signals.narrators: when this part is first-person narration (a diary,
   journal or letter, or an "I" narrator), the narrator's name if the text says it
@@ -337,7 +366,7 @@ this part's text supports.
 Return ONLY a JSON object:
 {{
   "characters": [{{"name": "...", "aliases": ["..."], "role_hint": "{_ROLE_HINT}",
-     "evidence": "..."}}],
+     "evidence": ["...", "..."]}}],
   "canon_entries": [{{"name": "...", "category": "{_CATEGORY_HINT}",
      "content": "the fact, from the text"}}],
   "style_signals": {{"pov": "", "tense": "", "tone": "",
@@ -490,7 +519,7 @@ def merge_characters(window_answers: list[tuple[int, dict]], text: str = "") -> 
                     "name": n,
                     "aliases": [],
                     "role_hint": "narrator",
-                    "evidence": f"narrates part {w + 1}",
+                    "evidence": [f"narrates part {w + 1}"],
                     "window": w,
                 }
             )
@@ -566,15 +595,69 @@ def merge_characters(window_answers: list[tuple[int, dict]], text: str = "") -> 
     for host, root in joins:
         uf.union(host, root)
 
-    merged = []
-    for members in groups().values():
-        merged.append(_fold_group([cands[i] for i in members], text))
+    merged = [_fold_group([cands[i] for i in members]) for members in groups().values()]
+    _count_group_mentions(merged, text)
     merged.sort(key=lambda g: (-len(g["windows"]), -g["mentions"], g["name"]))
     return merged
 
 
-def _fold_group(members: list[dict], text: str) -> dict:
-    """One merged candidate: best name, the rest as aliases, windows, mentions."""
+# Name tokens that are words, not names ("Old Fen", "The Lich", "Van Helsing"):
+# never counted on their own.
+_NON_NAME_TOKENS = frozenset(
+    {"the", "a", "an", "of", "old", "young", "big", "little", "elder", "younger"}
+    | {"de", "van", "von", "der", "den", "la", "le", "du", "del", "da", "di", "al"}
+)
+
+
+def _name_tokens(form: str) -> list[str]:
+    """The capitalised, significant surface tokens of a name form ("Mr. Voss"
+    -> ["Voss"]; "Milo Voss" -> ["Milo", "Voss"])."""
+    out = []
+    for raw in form.split():
+        tok = raw.strip(".,;:!?\"'()[]")
+        key = norm(tok)
+        if (
+            len(tok) >= 2
+            and tok[0].isupper()
+            and key
+            and key not in HONORIFICS
+            and key not in _NON_NAME_TOKENS
+        ):
+            out.append(tok)
+    return out
+
+
+def _count_group_mentions(groups: list[dict], text: str) -> None:
+    """Set each merged candidate's `mentions` from the source (SPEC-26).
+
+    A name is counted in every form the candidates use, plus each given name or
+    surname of those forms that no OTHER candidate shares: "Milo" counts for
+    Milo Voss even when the map never listed it as an alias, while "Harker"
+    with both Jonathan and Mina present counts for neither. Pronouns are never
+    counted. The candidate's own appearances stay the floor.
+    """
+    owners: dict[str, set[int]] = defaultdict(set)
+    group_tokens: list[dict[str, str]] = []
+    for i, g in enumerate(groups):
+        toks: dict[str, str] = {}
+        for form in (g["name"], *g["aliases"]):
+            for tok in _name_tokens(form):
+                toks.setdefault(norm(tok), tok)
+        group_tokens.append(toks)
+        for key in toks:
+            owners[key].add(i)
+    for i, g in enumerate(groups):
+        own = [tok for key, tok in group_tokens[i].items() if owners[key] == {i}]
+        if text:
+            g["mentions"] = max(
+                _count_mentions(text, [g["name"], *g["aliases"], *own]),
+                g["mentions"],
+            )
+
+
+def _fold_group(members: list[dict]) -> dict:
+    """One merged candidate: best name, the rest as aliases, windows, and its
+    appearances as the mention floor (`_count_group_mentions` counts the text)."""
     primary_counts = Counter(norm(m["name"]) for m in members)
     surfaces: dict[str, Counter] = defaultdict(Counter)
     for m in members:
@@ -599,15 +682,25 @@ def _fold_group(members: list[dict], text: str) -> dict:
         if k != best_key
     ]
     hints = Counter(_role(m["role_hint"]) for m in members if m["role_hint"])
-    evidence = []
+    per_window: dict[int, list[str]] = defaultdict(list)
     for m in sorted(members, key=lambda m: m["window"]):
-        line = (m["window"], m["evidence"])
-        if m["evidence"] and line not in evidence:
-            evidence.append(line)
+        # A checkpoint written before SPEC-26 holds one string per window.
+        for quote in _evidence_list(m["evidence"]):
+            if quote not in per_window[m["window"]]:
+                per_window[m["window"]].append(quote)
+    # Keep up to _MAX_EVIDENCE, spread across windows (each window's first
+    # quote before any window's second), then read in source order.
+    picked: list[tuple[int, int, str]] = []
+    depth = max((len(q) for q in per_window.values()), default=0)
+    for k in range(depth):
+        for w in sorted(per_window):
+            if k < len(per_window[w]) and len(picked) < _MAX_EVIDENCE:
+                picked.append((w, k, per_window[w][k]))
+    evidence = [(w, q) for w, _k, q in sorted(picked)]
     windows = sorted({m["window"] for m in members})
     # A model may normalise a name the text never spells out; the candidate's
     # own appearances are the floor.
-    mentions = max(_count_mentions(text, [name, *aliases]), len(members))
+    mentions = len(members)
     return {
         "name": name,
         "aliases": aliases,
@@ -696,18 +789,67 @@ def _render_candidate(g: dict, total_windows: int) -> str:
     if g["evidence"]:
         lines.append("Evidence:")
         lines.extend(f"- (part {w + 1}) {e}" for w, e in g["evidence"][:_MAX_EVIDENCE])
+    quotes = g.get("quotes") or []
+    if quotes:
+        lines.append("Quoted lines (their own words):")
+        lines.extend(f'- "{q}"' for q in quotes[:_MAX_QUOTED_LINES])
     return "\n".join(lines)
 
 
-def _reduce_prompt(batch: list[dict], total_windows: int) -> str:
+def _pick_quotes(lines: list[str]) -> list[str]:
+    """Up to _MAX_QUOTED_LINES distinct lines, those of _QUOTE_MIN_WORDS+ words
+    first, kept in source order."""
+    seen: list[str] = []
+    for line in lines:
+        line = " ".join(line.split())
+        if line and line not in seen:
+            seen.append(line)
+    ranked = sorted(
+        range(len(seen)), key=lambda i: (len(seen[i].split()) < _QUOTE_MIN_WORDS, i)
+    )
+    return [seen[i] for i in sorted(ranked[:_MAX_QUOTED_LINES])]
+
+
+def attach_quotes(groups: list[dict], text: str) -> None:
+    """Give each merged candidate its own attributed dialogue (`quotes`), via the
+    SPEC-17 attributor: only lines a tag or beat credits to them, never a line
+    whose speaker could be two candidates ("Harker" with Jonathan and Mina)."""
+    from app.parsing.character_extractor import attribute_speech, spoken_lines
+
+    if not text or not groups:
+        return
+    attributed = attribute_speech(text)
+    cast = [{"name": g["name"], "aliases": g["aliases"]} for g in groups]
+    for g in groups:
+        lines = spoken_lines(
+            text,
+            g["name"],
+            aliases=g["aliases"],
+            cast=cast,
+            attributed=attributed,
+        )
+        g["quotes"] = _pick_quotes([line for _i, line in lines])
+
+
+def _reduce_prompt(
+    batch: list[dict], total_windows: int, source: Optional[str] = None
+) -> str:
+    """The reduce prompt: per candidate, its evidence and its own quoted lines
+    (SPEC-26 P10). A single-window source also sends that window whole — it is
+    small, and the evidence alone rarely says what anyone wants."""
     cast = "\n\n".join(_render_candidate(g, total_windows) for g in batch)
+    source_block = f"{as_quoted_block(source, 'source')}\n\n" if source else ""
     return f"""{STORY_MATERIAL_NOTICE}
 
-{as_quoted_block(cast, "characters")}
+{source_block}{as_quoted_block(cast, "characters")}
 
-Write the full character entries for each character headed above, using only
-the evidence gathered from the source. Do NOT invent: leave a field empty ("",
-{{}}) when the evidence says nothing about it. Keep each name exactly as headed.
+Write the full character entries for each character headed above, from the
+evidence, the quoted lines{" and the source text" if source else ""} above.
+Read what each one does and says: description is who they are; goals is what
+they want or are trying to do; voice_characteristics is how THEIR quoted lines
+sound (diction, rhythm, tics). Do NOT invent anything the material does not
+support, and leave a field empty ("", {{}}) only when nothing in it bears on that
+field. Keep each name exactly as headed.
 
 Return ONLY a JSON object:
 {{"characters": [{{"name": "exactly as headed",
@@ -760,11 +902,15 @@ def _attach(batch: list[dict], raw: dict) -> dict[str, dict]:
 
 
 async def _reduce_batch(
-    batch: list[dict], total_windows: int, user_id, stats: dict
+    batch: list[dict],
+    total_windows: int,
+    user_id,
+    stats: dict,
+    source: Optional[str] = None,
 ) -> tuple[dict[str, dict], list[str]]:
     async def call(part: list[dict]) -> dict[str, dict]:
         raw = await _json_call(
-            _reduce_prompt(part, total_windows),
+            _reduce_prompt(part, total_windows, source),
             fast=False,
             max_tokens=min(8192, 400 * len(part) + 512),
             user_id=user_id,
@@ -938,8 +1084,12 @@ async def extract_canon(
     style = merge_style(answers)
     total = len(windows)
 
-    # Reduce: full entries for the best-attested characters, ~10 per call.
+    # Reduce: full entries for the best-attested characters, ~10 per call,
+    # each with its own attributed dialogue (and, for a one-window source, the
+    # window itself).
     reduced = groups[:MAX_REDUCED_CHARACTERS]
+    attach_quotes(reduced, text)
+    single_source = windows[0] if total == 1 else None
     batches = [
         reduced[i : i + REDUCE_BATCH] for i in range(0, len(reduced), REDUCE_BATCH)
     ]
@@ -949,7 +1099,9 @@ async def extract_canon(
         if str(b) in done_reduce:
             continue
         stats = dict(checkpoint["stats"])
-        written, warnings = await _reduce_batch(batch, total, user_id, stats)
+        written, warnings = await _reduce_batch(
+            batch, total, user_id, stats, single_source
+        )
         done_reduce[str(b)] = written
         checkpoint.update(
             reduce=dict(done_reduce),
