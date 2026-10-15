@@ -155,13 +155,14 @@ async def journey(page: Page) -> None:
         )
         return r
 
-    async def sign_in():
-        await page.goto(f"{BASE}/auth/login/")
-        await page.fill("input[name=email]", EMAIL)
-        await page.fill("input[name=password]", PASSWORD)
-        await page.get_by_role("button", name="Sign In").click()
-        await page.wait_for_url(re.compile(r"/(dashboard|books)"))
-        await shot(page, "signed-in")
+    async def sign_in(p=None):
+        p = p or page
+        await p.goto(f"{BASE}/auth/login/")
+        await p.fill("input[name=email]", EMAIL)
+        await p.fill("input[name=password]", PASSWORD)
+        await p.get_by_role("button", name="Sign In").click()
+        await p.wait_for_url(re.compile(r"/(dashboard|books)"))
+        await shot(p, "signed-in")
 
     async def create_book():
         await page.goto(f"{BASE}/books/")
@@ -808,12 +809,14 @@ async def journey(page: Page) -> None:
             await other.close()
 
     async def book_page_at_phone_width():
-        state = await page.context.storage_state()
+        # Its own sign-in, not a copy of this page's cookies: refreshing a
+        # copied refresh token rotates it and signs the main page out.
         phone = await page.context.browser.new_context(
-            storage_state=state, viewport={"width": 390, "height": 844}
+            viewport={"width": 390, "height": 844}
         )
         p3 = await phone.new_page()
         try:
+            await sign_in(p3)
             await p3.goto(STATE["book_url"])
             await expect(p3.get_by_text("Bored to Undeath").first).to_be_visible()
             # The tab strip says it scrolls (B4).
@@ -1201,16 +1204,8 @@ async def journey(page: Page) -> None:
     async def new_book_checklist():
         """B12: a new book shows the getting-started checklist, ticked from
         real data: 0/4, then 1/4 once it has a source."""
-        # The phone step's copied session rotated the refresh cookie, so this
-        # page may have been signed out: sign in again if asked.
         await page.goto(f"{BASE}/books/")
-        new_book = page.get_by_role("button", name="New Book").first
-        sign_in_button = page.get_by_role("button", name="Sign In")
-        await expect(new_book.or_(sign_in_button)).to_be_visible()
-        if await sign_in_button.is_visible():
-            await sign_in()
-            await page.goto(f"{BASE}/books/")
-        await new_book.click()
+        await page.get_by_role("button", name="New Book").first.click()
         await page.get_by_placeholder("The working title of your book").fill(
             "Empty Shelf"
         )
