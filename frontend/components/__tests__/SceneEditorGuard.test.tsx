@@ -259,6 +259,13 @@ describe('Scene editor safety net (SPEC-16, B1)', () => {
     expect(confirmSpy).toHaveBeenCalledTimes(1)
     expect(editor.value).toBe('Unsaved.')
   })
+
+  it('selects the ?q= quote of a continuity finding once the draft loads (SPEC-31)', async () => {
+    nav.query = 'scene=s1&book=b1&q=read%20the%0Aappendices'
+    const editor = await renderEditor()
+    await waitFor(() => expect(editor).toHaveFocus())
+    expect([editor.selectionStart, editor.selectionEnd]).toEqual([5, ORIGINAL.length - 1])
+  })
 })
 
 describe('Revision preview dialog (SPEC-16, B13)', () => {

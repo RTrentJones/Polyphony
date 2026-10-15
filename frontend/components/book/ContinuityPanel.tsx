@@ -5,6 +5,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { ShieldCheck } from 'lucide-react'
 import Button from '@/components/Button'
 import EstimateHint from '@/components/EstimateHint'
@@ -26,7 +27,7 @@ import { rateLimitedPollDelay } from '@/lib/rate-limit'
 const needsListPoll = (r: ContinuityReport) =>
   (r.status === 'processing' || r.status === 'paused') && !isActiveJob(r.job?.status)
 
-function FindingRow({ finding }: { finding: ContinuityFinding }) {
+function FindingRow({ finding, bookId }: { finding: ContinuityFinding; bookId: string }) {
   return (
     <div
       className={`rounded-lg border p-3 ${
@@ -40,7 +41,21 @@ function FindingRow({ finding }: { finding: ContinuityFinding }) {
         <span className="text-xs opacity-70">{finding.type}</span>
       </div>
       <p className="text-sm">{finding.detail}</p>
-      {finding.refs && <p className="text-xs mt-1 opacity-70">Ref: {finding.refs}</p>}
+      {finding.quote && (
+        <p className="text-xs mt-1 italic">
+          “{finding.quote}”{' '}
+          {finding.scene_id ? (
+            <Link
+              href={`/books/editor?book=${bookId}&scene=${finding.scene_id}&q=${encodeURIComponent(finding.quote)}`}
+              className="not-italic font-medium underline"
+            >
+              Open in editor
+            </Link>
+          ) : (
+            <span className="not-italic opacity-70">could not locate</span>
+          )}
+        </p>
+      )}
     </div>
   )
 }
@@ -243,7 +258,7 @@ export default function ContinuityPanel({
               ) : (
                 <div className="space-y-2">
                   {sortedFindings(report.findings).map((finding, i) => (
-                    <FindingRow key={i} finding={finding} />
+                    <FindingRow key={i} finding={finding} bookId={bookId} />
                   ))}
                 </div>
               )}

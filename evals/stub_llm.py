@@ -314,7 +314,14 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
     if "Write the book's synopsis" in prompt:
         return json.dumps({"synopsis": f"A story about {', '.join(cast[:4]) or lead}."})
     if "continuity editor" in prompt:
-        return json.dumps({"findings": []}) if "findings" in prompt else "[]"
+        # One minor finding quoting the first sentence of the first scene: a
+        # located finding for the journey to open in the editor (SPEC-31).
+        from app.planning.continuity import SCENE_MARKER
+
+        marker = re.sub(r"\\\{\w+\\\}", "[^\n]*", re.escape(SCENE_MARKER))
+        m = re.search(f"<prose>\n{marker}\n([^\n]*?[.!?](?=\\s|$)|[^\n]+)", prompt)
+        found = {"type": "other", "severity": "minor", "detail": "Stub finding."}
+        return json.dumps({"findings": [{**found, "quote": m[1][:200]}] if m else []})
     if "narrative planner" in prompt:
         if "character_ids" in prompt or '"characters"' in prompt:
             return json.dumps(

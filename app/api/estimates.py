@@ -106,13 +106,13 @@ async def estimate(
             canon_chars=canon_chars, staged=payload.mode != "single"
         )
     else:
-        from app.api.plans import _collect_prose
-        from app.planning.continuity import build_fact_sheet
+        from app.planning.continuity import build_fact_sheet, collect_scenes
 
-        prose = await _collect_prose(book.id, payload.chapter_id, db)
+        scenes = await collect_scenes(db, book.id, payload.chapter_id)
         sheet = await build_fact_sheet(db, book.id)
         est = estimates.continuity(
-            fact_sheet_chars=len(sheet), prose_words=len(prose.split())
+            fact_sheet_chars=len(sheet),
+            prose_words=sum(len(s.text.split()) for s in scenes),
         )
     return await estimates.assess(db, current_user.id, est)
 

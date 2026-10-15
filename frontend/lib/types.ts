@@ -890,12 +890,14 @@ export interface ThreadEventCreateData {
 
 export type ContinuityFindingSeverity = 'critical' | 'major' | 'minor'
 
-/** One continuity finding (app/planning/continuity.py validate_findings). */
+/** One continuity finding (app/planning/continuity.py Finding, SPEC-31). */
 export interface ContinuityFinding {
   type: 'timeline' | 'character' | 'object' | 'thread' | 'other' | string
   severity: ContinuityFindingSeverity | string
   detail: string
-  refs?: string
+  /** The model's quote and the scene the server found it in; absent on pre-SPEC-31 reports. */
+  quote?: string
+  scene_id?: string | null
 }
 
 /** Report item in GET /books/{id}/continuity. */

@@ -491,7 +491,7 @@ class TestTrashedRowsStayOutOfReads:
     async def test_export_and_continuity_skip_trashed_chapters_and_scenes(
         self, client, auth_headers, async_session
     ):
-        from app.api.plans import _collect_prose
+        from app.planning.continuity import collect_scenes
 
         bid = await _book(client, auth_headers)
         keep = await _chapter(client, auth_headers, bid, "Kept")
@@ -499,6 +499,7 @@ class TestTrashedRowsStayOutOfReads:
         await _scene(client, auth_headers, keep, "kept prose")
         dropped = await _scene(client, auth_headers, keep, "dropped prose")
         await _scene(client, auth_headers, gone, "gone prose")
+        await _scene(client, auth_headers, keep, "later prose")
         await client.delete(f"{API}/scenes/{dropped}", headers=auth_headers)
         await client.delete(
             f"{API}/books/chapters/{gone}?scenes=delete", headers=auth_headers
@@ -513,8 +514,11 @@ class TestTrashedRowsStayOutOfReads:
         assert "dropped prose" not in md and "gone prose" not in md
         assert "Gone" not in md
 
-        prose = await _collect_prose(UUID(bid), None, async_session)
-        assert prose == "kept prose"
+        scenes = await collect_scenes(async_session, UUID(bid), None)
+        assert [(s.chapter, s.scene, s.text) for s in scenes] == [
+            (1, 1, "kept prose"),
+            (1, 2, "later prose"),
+        ]
 
     async def test_canon_listing_and_trashed_entry_restore(self, client, auth_headers):
         bid = await _book(client, auth_headers)

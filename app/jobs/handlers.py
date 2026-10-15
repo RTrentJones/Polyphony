@@ -404,11 +404,12 @@ async def _run_extract_canon(payload: dict) -> None:
 
 
 async def _run_continuity(payload: dict) -> None:
-    # Lazy imports: plans (router module) imports app.jobs.repository, so
-    # importing it at module scope here would be a cycle.
-    from app.api.plans import _collect_prose
     from app.core.orm_models import Book
-    from app.planning.continuity import build_fact_sheet, run_continuity_check
+    from app.planning.continuity import (
+        build_fact_sheet,
+        collect_scenes,
+        run_continuity_check,
+    )
 
     report_id = UUID(payload["report_id"])
     async with get_async_session() as session:
@@ -421,7 +422,7 @@ async def _run_continuity(payload: dict) -> None:
         if report.status == "paused":
             report.status = "processing"
             await session.commit()
-        prose = await _collect_prose(report.book_id, report.chapter_id, session)
+        scenes = await collect_scenes(session, report.book_id, report.chapter_id)
         fact_sheet = await build_fact_sheet(session, report.book_id)
 
     # LLM work happens outside any session. An exception here fails the job;
@@ -436,7 +437,7 @@ async def _run_continuity(payload: dict) -> None:
         await raise_if_cancelled(job_id)
 
     result = await run_continuity_check(
-        prose,
+        scenes,
         fact_sheet,
         UUID(payload["user_id"]),
         between_chunks=_seam,
