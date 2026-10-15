@@ -66,7 +66,7 @@ S9, PR-S2, eval finding 3, W1-S7).
   | Path | `known_text` | invented |
   |---|---|---|
   | generation (`staged_outline`) | `names.norm(canon_known_text(canon))` | dropped (the audit warns) |
-  | author edit (`strict=True`) | `None` (every unresolved name is a secondary) | rejected (422); only a dead or foreign id can be invented |
+  | author edit (`strict=True`) | `None` (an unresolved name in `people` / `secondary_names` is a secondary) | rejected (422): a dead or foreign id, or a name placed in `character_ids` (that key holds ids; wave 2.5 W-2) |
   | restore (`cast=None`) | n/a | stored ids and names kept as they are |
 
 - Stored node: `.ids` → `character_ids` (top level: the `pov` id first), `.secondary` →
@@ -158,8 +158,8 @@ Routing stays a single text-sniffing path. The planner branch still parses `plan
 - `tests/unit/test_beat_cast_prompts.py`: both outline prompts ask for `people`, carry the §1e
   sentence and no SECONDARY PEOPLE line (exact wording is graded by SPEC-28's round trip); child
   validation (legacy keys → ids, a secondary in the cast moves, cap/trim, restore
-  byte-identical); `strict` keeps Prava and Elara secondary and rejects a dead id or an unknown
-  pov; generation with `people: ["Milo", "Prava", "Elara"]` gives Milo's id, `["Prava"]`, Elara
+  byte-identical); `strict` keeps Prava and Elara secondary and rejects a dead id, a name in
+  `character_ids` (`test_outline_handoff.py`) or an unknown pov; generation with `people: ["Milo", "Prava", "Elara"]` gives Milo's id, `["Prava"]`, Elara
   dropped, and legacy `characters` + `secondary_names` give the same; the staged outline end to
   end saves beat fields and warns on an invention; `scene_block` and the planner; the stub's
   `people` and Prava on the first beat only.

@@ -90,7 +90,8 @@ in the eval pipeline, so the dict-key drop alone keeps P9.
   is one regex per form, true when more than half its occurrences follow one. On cel, "the Chief
   Executive Lich" (2 of 3 in the synopsis) ranks below "Edric Thane", which becomes the name, with
   the title as an alias. "Count Vasska" keeps its honorific (never after a determiner), and a
-  form that never occurs in the text is not a title. `merge_characters` passes the source text.
+  form that never occurs in the text is not a title. `merge_characters` memoises the check per
+surface for its source, and a one-form group is never checked (one scan per distinct surface).
 - **Voice samples carry voice** (eval finding 5). A dialogue chunk needs at least
   `_SPEECH_MIN_WORDS` (3) words (`character_extractor._paragraph_indexer`, the one place
   fragments enter; landed with the wave-1 fixes): "Zara," and "So!" are not indexed. On cel the
@@ -119,8 +120,7 @@ in the eval pipeline, so the dict-key drop alone keeps P9.
   `write_beat_prose` prompt with `canon.full_block()` has no bible lines under `CHARACTERS IN THIS BEAT`,
   each Description and Goals exactly once, and no `voice: voice:`.
 - `tests/unit/test_extraction_scale.py` (26f): on the cel synopsis, Edric Thane is the name and
-  "Chief Executive Lich" an alias; "Count Vasska" keeps its title; `_used_as_title` counts most
-  uses.
+  "Chief Executive Lich" an alias; "Count Vasska" keeps its title; each surface is scanned once.
 - `tests/unit/test_dialogue_attribution.py` (26f): `_centres` keeps "Milo walked the Marrow
   District at dusk" for Milo, refuses "Zara crossed the floor" for him, and follows the lead
   subject of a passage that later names another; `build_agent_context` filters by its cast. The
