@@ -36,6 +36,10 @@ router = APIRouter()
 # because the eval harness and the frontend poll them.
 
 
+def _preview(text: str | None) -> str | None:
+    return text[:200] + "..." if text and len(text) > 200 else text
+
+
 @router.get("/", response_model=dict)
 async def list_scenes(
     source_id: UUID | None = None,
@@ -72,11 +76,8 @@ async def list_scenes(
                 "source_id": str(s.source_id) if s.source_id else None,
                 "characters": s.characters,
                 "status": s.status,
-                "preview": (
-                    (s.generated_content[:200] + "...")
-                    if s.generated_content and len(s.generated_content) > 200
-                    else s.generated_content
-                ),
+                # The author's saved edit wins over the generated draft.
+                "preview": _preview(s.content or s.generated_content),
                 "generation_time_ms": s.generation_time_ms,
                 "created_at": s.created_at.isoformat() if s.created_at else None,
             }
@@ -102,7 +103,9 @@ async def get_scene(
         "chapter_id": str(scene.chapter_id) if scene.chapter_id else None,
         "source_id": str(scene.source_id) if scene.source_id else None,
         "status": scene.status,
-        "content": scene.generated_content,
+        # The author's saved edit (PUT /books/scenes/{id}/content) wins: the
+        # editor loads this, and reloading must not show the stale draft.
+        "content": scene.content or scene.generated_content,
         "characters": scene.characters,
         "scene_request": scene.scene_request,
         "word_count": scene.word_count,

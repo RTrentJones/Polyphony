@@ -43,7 +43,7 @@ from app.core.logging_config import setup_logging
 from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_array, extract_json_object
 from app.planning.canon import Canon
-from app.planning.fidelity import FidelityAudit, audit_outline
+from app.planning.fidelity import FidelityAudit, audit_outline, canon_known_text
 from app.planning.outline import CastIndex, validate_outline_nodes
 
 logger = setup_logging("planning.staged_outline")
@@ -434,7 +434,10 @@ async def generate_staged_outline(
 
     await _emit("audit")
     cast = _cast_index(canon)
-    audit: FidelityAudit = audit_outline(nodes, principals, known, cast=cast)
+    canon_text = canon_known_text(canon)
+    audit: FidelityAudit = audit_outline(
+        nodes, principals, known, cast=cast, canon_text=canon_text
+    )
     if not audit.passed:
         logger.warning(
             "Outline failed the principal-cast gate; regenerating once",
@@ -447,6 +450,8 @@ async def generate_staged_outline(
         # Repair at the CHAPTER stage (where cast is chosen) with the missing
         # principals as explicit feedback, then re-derive beats (PR review #5).
         nodes = await _run_pass(1, audit.missing)
-        audit = audit_outline(nodes, principals, known, cast=cast)
+        audit = audit_outline(
+            nodes, principals, known, cast=cast, canon_text=canon_text
+        )
 
     return validate_outline_nodes(nodes, cast=cast), list(audit.warnings)

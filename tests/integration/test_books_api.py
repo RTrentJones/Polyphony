@@ -112,6 +112,42 @@ class TestDraftEditing:
         assert len(data["revisions"]) == 1
         assert data["revisions"][0]["content"] == "Original prose."
 
+    @pytest.mark.asyncio
+    async def test_saved_edit_survives_reload(
+        self, client, auth_headers, book, chapter, async_session, test_user
+    ):
+        """GET scene and the scene list show the author's saved edit, not the
+        generated draft (reloading the editor used to bring the draft back)."""
+        from uuid import UUID
+
+        from app.core.orm_models import Scene
+
+        scene = Scene(
+            user_id=test_user.id,
+            book_id=UUID(book["id"]),
+            chapter_id=UUID(chapter["id"]),
+            position=0,
+            status="completed",
+            generated_content="Generated draft.",
+        )
+        async_session.add(scene)
+        await async_session.commit()
+        await async_session.refresh(scene)
+
+        r = await client.put(
+            f"/api/v1/books/scenes/{scene.id}/content",
+            json={"content": "The author's edit."},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+
+        got = await client.get(f"/api/v1/scenes/{scene.id}", headers=auth_headers)
+        assert got.status_code == 200
+        assert got.json()["content"] == "The author's edit."
+        listed = await client.get("/api/v1/scenes/", headers=auth_headers)
+        (row,) = [s for s in listed.json()["scenes"] if s["id"] == str(scene.id)]
+        assert row["preview"] == "The author's edit."
+
 
 @pytest.mark.integration
 class TestExportEndpoint:

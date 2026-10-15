@@ -289,6 +289,8 @@ ROUTE_CLASSES: dict[tuple[str, str], str] = {
     # enough that sharing the tight bucket costs nothing).
     ("PATCH", "/api/v1/sources/{source_id}"): "llm",
     ("POST", "/api/v1/characters/{character_id}/test-dialogue"): "llm",
+    # AI revision of a scene span enqueues a model call (SPEC-19).
+    ("POST", "/api/v1/books/scenes/{scene_id}/revise"): "llm",
 }
 
 
