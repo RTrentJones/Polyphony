@@ -3,8 +3,9 @@
  *
  * Sections: chapters (+ scenes, reorder, generate), outline / beat sheet,
  * plot threads, and continuity reports; plus an export dialog (md/docx/epub,
- * synopsis, empty chapters, chapter range — B9) and an editable
- * title/synopsis header.
+ * synopsis, empty chapters, chapter range — B9), an editable title/synopsis
+ * header, and a getting-started checklist until the book has its first scene
+ * (SPEC-27).
  */
 
 'use client'
@@ -34,6 +35,9 @@ import { BookProvider, useBook } from '@/components/book/BookProvider'
 import ChaptersSection from '@/components/book/ChaptersSection'
 import ContinuityPanel from '@/components/book/ContinuityPanel'
 import ExportDialog from '@/components/book/ExportDialog'
+import GettingStarted, {
+  type GettingStartedAction,
+} from '@/components/book/GettingStarted'
 import OutlinePanel from '@/components/book/OutlinePanel'
 import ScenesPanel from '@/components/book/ScenesPanel'
 import SourcesPanel from '@/components/book/SourcesPanel'
@@ -321,6 +325,14 @@ function BookDetailView() {
           </div>
         </div>
       </div>
+
+      <GettingStarted
+        bookId={bookId}
+        refreshKey={`${activeTab}:${currentBook.chapters?.length ?? 0}`}
+        onAction={(action: GettingStartedAction) =>
+          action === 'add-source' ? setAddSourceOpen(true) : setActiveTab(action)
+        }
+      />
 
       {/* Tabs */}
       <BookTabs activeTab={activeTab} onSelect={setActiveTab} />

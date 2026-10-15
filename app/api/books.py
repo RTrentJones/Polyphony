@@ -255,11 +255,34 @@ async def create_book(
     return {"id": str(book.id), "title": book.title, "status": book.status}
 
 
+def _planned_scene_count(chapter: ChapterORM) -> int:
+    """How many scenes a chapter plans: its `planned_beats` (SPEC-23), else the
+    legacy "- title: summary" lines after "Planned beats:" in its summary."""
+    # Imported here so this hunk stays clear of the module imports (SPEC-27).
+    from app.planning.planned_beat import normalize_planned_beats
+
+    stored = normalize_planned_beats(getattr(chapter, "planned_beats", None))
+    if stored:
+        return len(stored)
+    summary = chapter.summary or ""
+    at = summary.find("Planned beats:")
+    if at < 0:
+        return 0
+    return sum(
+        1
+        for line in summary[at:].split("\n")
+        if line.strip().startswith("- ") and line.strip()[2:].rstrip(":").strip()
+    )
+
+
 @router.get("/", response_model=dict)
 async def list_books(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """The author's books, each with its progress (SPEC-27, B12): words drafted,
+    chapters and scenes drafted out of planned, and the last-edited scene (the
+    dashboard's "Resume" link). Four queries for any number of books."""
     books = (
         (
             await db.execute(
@@ -271,6 +294,99 @@ async def list_books(
         .scalars()
         .all()
     )
+    book_ids = [b.id for b in books]
+    progress = {
+        b.id: {
+            "word_count": 0,
+            "chapter_count": 0,
+            "chapters_drafted": 0,
+            "scenes_drafted": 0,
+            "scenes_planned": 0,
+            "last_edited_scene": None,
+        }
+        for b in books
+    }
+    if book_ids:
+        chapters = (
+            (
+                await db.execute(
+                    live(select(ChapterORM), ChapterORM).where(
+                        ChapterORM.book_id.in_(book_ids)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        chapter_titles = {c.id: c.title for c in chapters}
+        for c in chapters:
+            progress[c.book_id]["chapter_count"] += 1
+            progress[c.book_id]["scenes_planned"] += _planned_scene_count(c)
+
+        # Live scenes in a live chapter, or standalone (no chapter).
+        in_book = (
+            SceneORM.book_id.in_(book_ids),
+            SceneORM.deleted_at.is_(None),
+            (SceneORM.chapter_id.is_(None)) | (ChapterORM.deleted_at.is_(None)),
+        )
+        scenes_from = (
+            select()
+            .select_from(SceneORM)
+            .outerjoin(ChapterORM, ChapterORM.id == SceneORM.chapter_id)
+        )
+        drafted = SceneORM.status == "completed"
+        for book_id, words, n_drafted in await db.execute(
+            scenes_from.add_columns(
+                SceneORM.book_id,
+                func.coalesce(func.sum(SceneORM.word_count), 0),
+                func.count(SceneORM.id).filter(drafted),
+            )
+            .where(*in_book)
+            .group_by(SceneORM.book_id)
+        ):
+            progress[book_id]["word_count"] = int(words or 0)
+            progress[book_id]["scenes_drafted"] = int(n_drafted or 0)
+
+        for book_id, n_chapters in await db.execute(
+            scenes_from.add_columns(
+                SceneORM.book_id, func.count(func.distinct(SceneORM.chapter_id))
+            )
+            .where(*in_book, drafted, SceneORM.chapter_id.is_not(None))
+            .group_by(SceneORM.book_id)
+        ):
+            progress[book_id]["chapters_drafted"] = int(n_chapters or 0)
+
+        # The most recently edited live scene per book (ties: newest id wins).
+        rank = (
+            func.row_number()
+            .over(
+                partition_by=SceneORM.book_id,
+                order_by=(SceneORM.updated_at.desc(), SceneORM.id.desc()),
+            )
+            .label("rank")
+        )
+        latest = (
+            scenes_from.add_columns(
+                SceneORM.book_id,
+                SceneORM.id,
+                SceneORM.title,
+                SceneORM.chapter_id,
+                SceneORM.updated_at,
+                rank,
+            )
+            .where(*in_book)
+            .subquery()
+        )
+        for book_id, scene_id, title, chapter_id, updated_at, _ in await db.execute(
+            select(latest).where(latest.c.rank == 1)
+        ):
+            progress[book_id]["last_edited_scene"] = {
+                "id": str(scene_id),
+                "title": title,
+                "chapter_id": str(chapter_id) if chapter_id else None,
+                "chapter_title": chapter_titles.get(chapter_id),
+                "updated_at": updated_at.isoformat() if updated_at else None,
+            }
     return {
         "books": [
             {
@@ -280,6 +396,7 @@ async def list_books(
                 "genre": b.genre,
                 "status": b.status,
                 "created_at": b.created_at.isoformat() if b.created_at else None,
+                **progress[b.id],
             }
             for b in books
         ]
