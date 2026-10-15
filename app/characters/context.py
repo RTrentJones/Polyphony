@@ -11,6 +11,7 @@ silently produced voice-blind prose. That branch is gone because it is now
 unreachable.
 """
 
+import re
 from typing import Iterable, Optional
 from uuid import UUID
 
@@ -109,12 +110,18 @@ async def build_character_context(
     *,
     chunk_types: Optional[Iterable[str]] = None,
     grounding: Optional[list] = None,
+    cast: Optional[Iterable] = None,
 ) -> str:
-    """One character's context block: bible summary + retrieved voice samples.
+    """One character's context block: bible summary, then their own words
+    ("Voice samples") and how they move ("How they move"), retrieved separately
+    (SPEC-17).
 
     `grounding`, when given, collects the retrieved chunks (id, score and a
     bounded text excerpt) so the caller can record which samples grounded this
     generation (R5.3); a character with none gets a reason entry instead.
+    `cast` is the rest of the scene's cast: a narration sample that centres one
+    of them rather than this character is left out. `chunk_types`, when given,
+    limits both blocks to those types.
     """
     lines = [f"### {name}"]
     if character is None:
@@ -138,20 +145,179 @@ async def build_character_context(
         rendered = _render_json_field(voice)
         if rendered:
             lines.append(f"Voice: {rendered}")
-    samples = (
-        await _retrieve(character, beat_description, max_samples, chunk_types)
-        if max_samples > 0
-        else []
+    if max_samples <= 0:
+        return "\n".join(lines)
+    words, movement = await _voice_and_movement(
+        character,
+        beat_description,
+        max_samples,
+        min(_MOVEMENT_SAMPLES, max_samples),
+        cast=cast,
+        chunk_types=chunk_types,
     )
-    if grounding is not None and max_samples > 0:
-        grounding.extend(grounding_entries(character, samples))
-    if samples:
-        lines.append("Voice samples (match this voice — cadence, diction, syntax):")
+    if grounding is not None:
+        grounding.extend(grounding_entries(character, [*words, *movement]))
+    if words:
+        lines.append(VOICE_SAMPLES_LABEL)
         # These samples ARE the voice grounding — the product's whole premise.
         # They used to be cut to 200 chars, which severed most of them
         # mid-sentence and taught the model half a cadence.
-        lines.extend(f'- "{clean_for_llm(s["text"])}"' for s in samples)
+        lines.extend(f'- "{clean_for_llm(s["text"])}"' for s in words)
+    if movement:
+        lines.append(MOVEMENT_LABEL)
+        lines.extend(f"- {clean_for_llm(s['text'])}" for s in movement)
     return "\n".join(lines)
+
+
+# The prompt labels (SPEC-17). Only the character's own words sit under the
+# voice label — dialogue the attributor credited to them, or first-person
+# narration of their own section (SPEC-09). Everything else is movement.
+VOICE_SAMPLES_LABEL = (
+    "Voice samples (their own words — match cadence, diction, syntax):"
+)
+MOVEMENT_LABEL = "How they move:"
+_MOVEMENT_SAMPLES = 3
+# Ensemble agents are grounded on how they SPEAK and how they MOVE separately
+# (BRD R6.2): one mixed retrieval lets dialogue crowd action out. The ingest
+# classifier under-labels, so a movement block with fewer than this many hits
+# falls back to untyped retrieval rather than leaving the agent ungrounded. The
+# fallback NEVER feeds the voice block: narration is not a character's words.
+_MIN_TYPED_HITS = 2
+_ACTION_TYPES = ("action", "description", "thought")
+_DIALOGUE = "dialogue"
+
+
+def _own_narration(sample: dict) -> bool:
+    """First-person narration indexed for its narrator (SPEC-09): their words."""
+    return str(sample.get("source") or "").startswith("narration_")
+
+
+def _forms(member) -> list[str]:
+    """A cast member's name forms — full name, aliases, and each significant
+    name token (a book calls "Zara Okafor" "Zara")."""
+    from app.parsing.names import significant
+
+    if isinstance(member, dict):
+        name, aliases = member.get("name") or "", member.get("aliases") or []
+    else:
+        name = getattr(member, "name", "") or ""
+        aliases = getattr(member, "aliases", None) or []
+    forms = [name, *aliases]
+    forms += [t for f in list(forms) for t in significant(f) if len(t) > 2]
+    return [f for f in forms if f and f.strip()]
+
+
+def _names_in(text: str, form: str) -> bool:
+    return bool(
+        re.search(
+            r"(?<!\w)" + r"\s+".join(map(re.escape, form.split())) + r"(?!\w)",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
+_LEAD_NAME = re.compile(
+    r"^\W*((?:(?:Mr|Mrs|Ms|Dr|Prof|St)\.\s+)?[A-Z][\w'-]*(?:\s+[A-Z][\w'-]*){0,3})"
+)
+
+
+def _centres(
+    text: str, name: str, cast: Optional[Iterable] = None, aliases=None
+) -> bool:
+    """Does this narration centre the character? Yes when they are the subject
+    of its first sentence, or when no one else from the cast — and no other
+    proper name — appears in it. "Milo Voss read the appendices. Zara Okafor
+    watched him read them." centres Milo, not Zara (SPEC-17)."""
+    from app.parsing.names import match
+
+    own = _forms({"name": name, "aliases": aliases or []})
+    first = re.split(r"(?<=[.!?])\s+", text.strip(), maxsplit=1)[0]
+    lead = _LEAD_NAME.match(first)
+    if lead:
+        words = lead.group(1).split()
+        # "Then Milo …": try the name with leading words dropped as well.
+        if any(match(" ".join(words[i:]), f) for i in range(len(words)) for f in own):
+            return True
+    own_low = {f.lower() for f in own}
+    for member in cast or []:
+        m_name = member.get("name") if isinstance(member, dict) else member.name
+        if m_name == name:
+            continue
+        if any(f.lower() not in own_low and _names_in(text, f) for f in _forms(member)):
+            return False
+    # A proper name that is not theirs, past a sentence's first word, is
+    # someone (or somewhere) else the passage may be about.
+    for sentence in re.split(r"(?<=[.!?])\s+", text.strip()):
+        for word in re.findall(r"(?<=\s)[A-Z][\w'-]*", sentence):
+            if word != "I" and word.lower() not in own_low:
+                return False
+    return True
+
+
+async def _voice_and_movement(
+    character: Character,
+    query: str,
+    k_voice: int,
+    k_move: int,
+    *,
+    cast: Optional[Iterable] = None,
+    chunk_types: Optional[Iterable[str]] = None,
+) -> tuple[list[dict], list[dict]]:
+    """(their own words, how they move) for one character, retrieved separately.
+
+    Voice is dialogue chunks plus first-person narration of their own section;
+    it never falls back to untyped retrieval. Movement is action / description /
+    thought, falling back to untyped retrieval (minus dialogue) when the
+    classifier under-labelled, and keeps only narration that centres them.
+    """
+    allowed = set(chunk_types) if chunk_types else None
+    voice_types = [_DIALOGUE] if allowed is None or _DIALOGUE in allowed else []
+    move_types = [t for t in _ACTION_TYPES if allowed is None or t in allowed]
+
+    words = (
+        [
+            s
+            for s in await _retrieve(character, query, k_voice, voice_types)
+            if (s.get("chunk_type") or _DIALOGUE) == _DIALOGUE
+        ]
+        if voice_types
+        else []
+    )
+    seen = {s.get("id") for s in words}
+
+    def fresh(samples: list[dict]) -> list[dict]:
+        out = []
+        for s in samples:
+            if s.get("id") in seen or s.get("chunk_type") == _DIALOGUE:
+                continue
+            if allowed is not None and s.get("chunk_type") not in allowed:
+                continue
+            seen.add(s.get("id"))
+            out.append(s)
+        return out
+
+    body = (
+        fresh(await _retrieve(character, query, k_move, move_types))
+        if move_types
+        else []
+    )
+    if move_types and len(body) < _MIN_TYPED_HITS:
+        body += fresh(await _retrieve(character, query, k_move * 2, None))
+    aliases = getattr(character, "aliases", None) or []
+    name = getattr(character, "name", "") or ""
+    # First-person narration of their own section is their voice, not movement.
+    words += [s for s in body if _own_narration(s)][: max(0, k_voice - len(words))]
+    body = [
+        s
+        for s in body
+        if not _own_narration(s)
+        and (
+            not str(s.get("source") or "").startswith("paragraph_")
+            or _centres(s.get("text") or "", name, cast, aliases)
+        )
+    ][:k_move]
+    return words, body
 
 
 async def _retrieve(
@@ -174,8 +340,10 @@ async def _retrieve(
         samples: list[dict] = []
         for t in chunk_types:
             samples.extend(await store.retrieve_similar(k=k, chunk_type=t, **common))
-        samples.sort(key=lambda s: -(s.get("score") or 0))
-        samples = samples[:k]
+        unique: dict = {}
+        for s in samples:  # a store may return one chunk under several types
+            unique.setdefault(s.get("id") or id(s), s)
+        samples = sorted(unique.values(), key=lambda s: -(s.get("score") or 0))[:k]
     else:
         samples = await store.retrieve_similar(k=k, **common)
     samples.sort(key=lambda s: s.get("chunk_type") != "dialogue")
@@ -197,18 +365,14 @@ async def build_cast_context(
     blocks = []
     for character in characters:
         block = await build_character_context(
-            character, character.name, beat_description, grounding=grounding
+            character,
+            character.name,
+            beat_description,
+            grounding=grounding,
+            cast=characters,
         )
         blocks.append(as_quoted_block(block, "character"))
     return "\n\n".join(b for b in blocks if b)
-
-
-# Ensemble agents are grounded on how they SPEAK and how they MOVE separately
-# (BRD R6.2): one mixed retrieval lets dialogue crowd action out. The ingest
-# classifier under-labels, so a type with fewer than this many hits falls back
-# to untyped retrieval rather than leaving the agent ungrounded.
-_MIN_TYPED_HITS = 2
-_ACTION_TYPES = ("action", "description", "thought")
 
 
 async def build_agent_context(
@@ -219,24 +383,15 @@ async def build_agent_context(
     k: int = 3,
     grounding: Optional[list] = None,
 ) -> str:
-    """A character agent's fenced context: bible, then <voice> (dialogue) and
-    <physicality> (action/description) samples retrieved separately (SPEC-14)."""
+    """A character agent's fenced context: bible, then <voice> (their own words)
+    and <physicality> (action/description) samples retrieved separately
+    (SPEC-14, SPEC-17). <voice> never falls back to narration."""
     bio = await build_character_context(character, name, beat_description, 0)
     blocks = [as_quoted_block(bio, "character")]
     if character is None:
         return "\n\n".join(b for b in blocks if b)
 
-    voice = await _retrieve(character, beat_description, k, ("dialogue",))
-    if len(voice) < _MIN_TYPED_HITS:
-        voice = await _retrieve(character, beat_description, k, None)
-    seen = {s.get("id") for s in voice}
-    body = await _retrieve(character, beat_description, k, _ACTION_TYPES)
-    if len(body) < _MIN_TYPED_HITS:
-        body = [
-            s
-            for s in await _retrieve(character, beat_description, k * 2, None)
-            if s.get("id") not in seen
-        ][:k]
+    voice, body = await _voice_and_movement(character, beat_description, k, k)
     if grounding is not None:
         grounding.extend(grounding_entries(character, [*voice, *body]))
     if voice:
