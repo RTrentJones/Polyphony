@@ -252,6 +252,24 @@ export interface BookSummary {
   genre?: string | null
   status: BookStatus | string
   created_at: string | null
+  /** Progress (SPEC-27): words in live scenes, chapters with a drafted scene,
+   *  completed scenes out of the chapters' planned beats. Absent on an old API. */
+  word_count?: number
+  chapter_count?: number
+  chapters_drafted?: number
+  scenes_drafted?: number
+  scenes_planned?: number
+  /** The most recently edited live scene: the dashboard's "Resume" link. */
+  last_edited_scene?: LastEditedScene | null
+}
+
+/** `BookSummary.last_edited_scene` (SPEC-27). */
+export interface LastEditedScene {
+  id: string
+  title?: string | null
+  chapter_id?: string | null
+  chapter_title?: string | null
+  updated_at?: string | null
 }
 
 /** GET /books/ */
@@ -741,6 +759,11 @@ export interface PlanNode {
   character_ids?: string[]
   act_index?: number | null
   threads?: string[]
+  /** Named people in the synopsis/canon but not the cast (SPEC-24, §1.1). */
+  secondary_names?: string[]
+  /** A beat child's place and mood (SPEC-24, §1.1); omitted when the model gave none. */
+  setting?: string
+  tone?: string
 }
 
 /** The skeleton the model understood, shown for confirmation before the

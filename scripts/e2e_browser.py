@@ -22,6 +22,16 @@ shows on the Usage page and is cancelled, the legacy pages' redirects, the
 dashboard, a second author who registers with an invite and cannot see the
 first author's book, and the book page at phone width.
 
+Wave 2 (SPEC-23 to SPEC-27): add a person the outline names from the synopsis
+("Prava") to the cast with one click, and cast her in a scene; every planned
+scene's cast is its beat's cast plus the POV, and no tone is defaulted to
+"neutral"; revise a selection with AI and discard it (byte-identical), then
+accept one (one more revision), and a stale view is refused with the 409
+message (and a hand-edited beat cannot be redone); the import review shows
+name mentions and ranks Milo above Zara (SPEC-26); a new book's
+getting-started checklist (0/4, then 1/4 after Add source); and the
+dashboard's progress and "Resume" link.
+
 Each step asserts what the author should see, and saves a screenshot to
 $E2E_SHOTS (default ./e2e-shots) so a failure is diagnosable from CI artifacts.
 
@@ -63,8 +73,12 @@ SYNOPSIS = (
     "Bored to Undeath. Milo Voss, a lich systems analyst, is retained by Aeon "
     "Holdings and onboarded into Reconciliations, where Zara Okafor, an "
     "uncontrollable sorceress, begins recruiting him. The Chief Executive Lich, "
-    "Edric Thane, was once a clerk himself."
+    "Edric Thane, was once a clerk himself. On his first day, Prava, the intake "
+    "caseworker, processes his file."
 )
+# A person the synopsis names who is not in the cast (the source never names
+# her): the outline may use her, and offers her as a suggested character.
+SECONDARY = "Prava"
 SOURCE = """Milo Voss opened his eyes in the intake atrium.
 
 "You've been retained," the caseworker said. Milo Voss nodded slowly.
@@ -298,6 +312,15 @@ async def journey(page: Page) -> None:
         await expect(
             page.get_by_text("Every outline node already has a chapter")
         ).to_be_visible()
+        # SPEC-23: promoted chapters carry their beats as data, a summary with
+        # no "Planned beats:" text, and a title with no "Chapter N:" prefix.
+        book = await (await api_get(f"/books/{STATE['book_id']}")).json()
+        promoted = [c for c in book["chapters"] if c.get("plan_node_id")]
+        assert promoted, "promote created no chapters"
+        for c in promoted:
+            assert "Planned beats:" not in (c.get("summary") or ""), c
+            assert not re.match(r"^Chapter\s+\d+\s*[:.\-–]", c["title"]), c
+        assert any(c.get("planned_beats") for c in promoted), "no planned_beats"
 
     async def continuity():
         await page.get_by_role("button", name="Continuity").click()
@@ -821,9 +844,281 @@ async def journey(page: Page) -> None:
         finally:
             await phone.close()
 
+    async def add_suggested_character():
+        """SPEC-24/27: the outline names Prava from the synopsis; one click adds
+        her to the cast as a minor character, and scenes can cast her."""
+        await tab("Outline")
+        chip = page.get_by_role("button", name=f"Add {SECONDARY} to cast")
+        await expect(chip).to_be_visible()
+        await shot(page, "suggested-cast")
+        await chip.click()
+        await toast(f"{SECONDARY} added — now castable")
+        # Suggestions are computed at read time: she is cast now, so no chip.
+        await expect(chip).to_have_count(0)
+        cast = await (await api_get("/characters/", book_id=STATE["book_id"])).json()
+        prava = [c for c in cast["characters"] if c["name"] == SECONDARY]
+        assert prava, f"{SECONDARY} is not in the cast"
+        assert prava[0].get("role") == "minor", prava[0]
+        assert "intake caseworker" in (prava[0].get("description") or ""), prava[0]
+        await tab("Scenes")
+        await page.get_by_role("button", name="Generate scene").first.click()
+        picker = page.get_by_test_id("cast-picker")
+        await expect(
+            picker.get_by_role("button", name=re.compile(SECONDARY))
+        ).to_be_visible()
+        await shot(page, "suggested-cast-castable")
+        await page.get_by_role("button", name="Cancel", exact=True).click()
+        await expect(picker).to_have_count(0)
+
+    async def planned_scenes_follow_their_beats():
+        """SPEC-23/24: each planned scene was asked for with its own beat's cast
+        (else the chapter's) plus the POV character, and no tone was defaulted
+        to "neutral"."""
+        book = await (await api_get(f"/books/{STATE['book_id']}")).json()
+        chapter = next(
+            c for c in book["chapters"] if c["title"] == STATE["planned_chapter"]
+        )
+        beats = {b["node_id"]: b for b in chapter.get("planned_beats") or []}
+        assert beats, f"chapter {chapter['title']!r} has no planned_beats"
+        cast = (await (await api_get("/characters/", book_id=STATE["book_id"])).json())[
+            "characters"
+        ]
+        live = {c["id"] for c in cast}
+        by_name = {c["name"].casefold(): c["id"] for c in cast}
+        detail = await (await api_get(f"/books/chapters/{chapter['id']}")).json()
+        scenes = [s for s in detail["scenes"] if s["status"] == "completed"]
+        assert len(scenes) >= 2, f"planned scenes: {scenes}"
+        titles = []
+        for summary in scenes:
+            scene = await (await api_get(f"/scenes/{summary['id']}")).json()
+            req = scene.get("scene_request") or {}
+            beat = beats.get(req.get("planned_beat_id"))
+            if beat is None:
+                continue  # a scene written by hand in this chapter
+            titles.append(beat["title"])
+            want = set(beat.get("character_ids") or [])
+            want |= {
+                by_name[n.casefold()]
+                for n in beat.get("secondary_names") or []
+                if n.casefold() in by_name
+            }
+            want = (want or set(chapter.get("character_ids") or [])) & live
+            if chapter.get("pov_character_id") in live:
+                want.add(chapter["pov_character_id"])
+            got = set(req.get("character_ids") or [])
+            assert got == want, (
+                f"beat {beat['title']!r}: cast {sorted(got)} != beat cast + POV "
+                f"{sorted(want)}"
+            )
+            assert (req.get("emotional_tone") or "").lower() != "neutral", req
+        assert len(titles) >= 2, f"scenes not tied to their beats: {scenes}"
+        r = await page.request.get(f"{STUB}/__stub/requests", params={"limit": 200})
+        prompts = [x.get("prompt", "") for x in (await r.json())["requests"]]
+        mine = [p for p in prompts if any(t in p for t in titles)]
+        assert mine, "no prompt carried a planned beat"
+        neutral = [
+            p for p in mine if re.search(r"(?im)^\s*Emotional tone:\s*neutral", p)
+        ]
+        assert not neutral, f"{len(neutral)} planned-scene prompts defaulted to neutral"
+
+    # An emoji (two UTF-16 units, one code point) and an em dash sit before the
+    # phrase, so a selection offset sent in the wrong unit lands on wrong words.
+    REVISE_TEXT = (
+        "Milo \U0001f4ce reread the appendices \u2014 twice. "
+        "The second time, they read him."
+    )
+    REVISE_PHRASE = "The second time, they read him."
+
+    async def ask_to_revise(
+        editor, panel, instruction: str, click: bool = True, phrase=REVISE_PHRASE
+    ):
+        """Select `phrase` in the textarea, open "Revise selection…" on it, and
+        (unless `click` is False) ask for the revision."""
+        await editor.evaluate(
+            "(el, p) => { const i = el.value.indexOf(p); el.focus();"
+            " el.setSelectionRange(i, i + p.length) }",
+            phrase,
+        )
+        await panel.get_by_role("button", name=re.compile("^Revise selection")).click()
+        await panel.get_by_label("What should change?").fill(instruction)
+        if click:
+            await panel.get_by_role("button", name="Ask for a revision").click()
+
+    async def revise_discard_then_accept():
+        """W2-3 (SPEC-25): a selection after an emoji and an em dash is revised
+        as a side-by-side diff; Discard leaves the text byte-identical, Accept
+        saves the proposal and adds exactly one revision."""
+        editor = await open_editor()
+        panel = page.get_by_test_id("revise-panel")
+        review = panel.get_by_test_id("revise-review")
+        await editor.fill(REVISE_TEXT)
+        await page.get_by_role("button", name="Save", exact=True).click()
+        await expect(page.get_by_text("• unsaved changes")).to_have_count(0)
+        await toast("Scene saved")
+        before_text = await editor.input_value()
+        before = await revision_count()
+
+        await ask_to_revise(editor, panel, "Make it colder.")
+        await expect(review).to_be_visible(timeout=TIMEOUT)
+        # The stub's revision only drops words, so the diff shows deletions
+        # (a real model's rewrite also shows `diff-insert`).
+        await expect(review.get_by_test_id("diff-view")).to_be_visible()
+        await expect(review.get_by_test_id("diff-delete").first).to_be_visible()
+        await shot(page, "revise-diff")
+        await review.get_by_role("button", name="Discard").click()
+        await expect(review).to_have_count(0)
+        assert await editor.input_value() == before_text, "discard changed the text"
+        scene = await (await api_get(f"/scenes/{STATE['scene_id']}")).json()
+        assert scene["content"] == before_text, "discard changed the saved scene"
+        assert await revision_count() == before, "discard made a revision"
+
+        await ask_to_revise(editor, panel, "Make it colder.")
+        await expect(review).to_be_visible(timeout=TIMEOUT)
+        # The server revised exactly the selected words: its range, in Python
+        # code points of the draft, slices to the phrase.
+        data = await (
+            await api_get(f"/books/scenes/{STATE['scene_id']}/proposals")
+        ).json()
+        newest = data["proposals"][0]
+        start, end = newest["range"]
+        assert (
+            data["draft"][start:end] == REVISE_PHRASE
+        ), f"revised {data['draft'][start:end]!r}, not the selection"
+        await review.get_by_role("button", name="Accept").click()
+        await expect(review).to_have_count(0)
+        accepted = await editor.input_value()
+        assert accepted == newest["content"], "the editor is not the proposal"
+        assert accepted != before_text, "accept left the text unchanged"
+        await expect(page.get_by_text("• unsaved changes")).to_have_count(0)
+        scene = await (await api_get(f"/scenes/{STATE['scene_id']}")).json()
+        assert scene["content"] == accepted, "accept was not saved"
+        after = await revision_count()
+        assert after == before + 1, f"revisions went {before} -> {after} on accept"
+        await shot(page, "revise-accepted")
+
+    async def revise_stale_view_is_refused():
+        """W2-3: a beat whose prose was edited is refused (select the text
+        instead), and a draft changed under the editor is a 409 the panel
+        explains, rather than revising the wrong words."""
+        editor = await open_editor()
+        panel = page.get_by_test_id("revise-panel")
+        alert = panel.get_by_role("alert")
+        redo = panel.get_by_role("button", name=re.compile(r"^Redo beat \d+$"))
+        if await redo.count():
+            # The scene's text was rewritten by hand above, so no beat's
+            # generated prose is still in the draft.
+            await redo.first.click()
+            await panel.get_by_label("What should change?").fill("Tighten it.")
+            await panel.get_by_role("button", name="Ask for a revision").click()
+            await expect(alert).to_contain_text(
+                "The beat was edited; select the text instead."
+            )
+            await panel.get_by_role("button", name="Cancel", exact=True).click()
+        # The accepted revision rewrote REVISE_PHRASE; "Milo" is still there.
+        await ask_to_revise(editor, panel, "Make it warmer.", False, "Milo")
+        # Another tab saves a different draft meanwhile.
+        r = await page.request.put(
+            f"{BASE}/api/v1/books/scenes/{STATE['scene_id']}/content",
+            data={"content": "Saved elsewhere. The appendices were never read."},
+            headers=await api_headers(),
+        )
+        assert r.ok, f"saving elsewhere: {r.status}"
+        await panel.get_by_role("button", name="Ask for a revision").click()
+        await expect(alert).to_contain_text(
+            "The scene changed; reselect and try again."
+        )
+        await shot(page, "revise-stale")
+        await page.goto(STATE["book_url"])
+        await page.wait_for_load_state("networkidle")
+
+    async def review_ranks_by_mentions():
+        """SPEC-26: the import review shows each character's name mentions,
+        and ranks the protagonist above the others (a scratch book, so the
+        journey's own book is untouched)."""
+        headers = await api_headers()
+        book = await page.request.post(
+            f"{BASE}/api/v1/books/", data={"title": "Review check"}, headers=headers
+        )
+        assert book.ok, f"scratch book: {book.status}"
+        book_id = (await book.json())["id"]
+        pasted = await page.request.post(
+            f"{BASE}/api/v1/sources/paste",
+            data={"title": "Opening", "content_text": SOURCE, "book_id": book_id},
+            headers=headers,
+        )
+        assert pasted.ok, f"paste: {pasted.status} {await pasted.text()}"
+        run = (await pasted.json())["extraction_run_id"]
+        await page.goto(f"{BASE}/sources/review?book={book_id}&run={run}")
+        await expect(page.get_by_text("Review extracted canon")).to_be_visible()
+        names = page.get_by_placeholder("Name", exact=True)
+        await expect(names.first).to_be_visible(timeout=TIMEOUT)
+        await expect(
+            page.get_by_text(re.compile(r"· \d+ name mentions")).first
+        ).to_be_visible()
+        order = [await n.input_value() for n in await names.all()]
+        assert "Milo Voss" in order and "Zara Okafor" in order, order
+        assert order.index("Milo Voss") < order.index("Zara Okafor"), order
+        await shot(page, "review-mentions")
+        await page.goto(STATE["book_url"])
+        await page.wait_for_load_state("networkidle")
+
+    async def new_book_checklist():
+        """B12: a new book shows the getting-started checklist, ticked from
+        real data: 0/4, then 1/4 once it has a source."""
+        # The phone step's copied session rotated the refresh cookie, so this
+        # page may have been signed out: sign in again if asked.
+        await page.goto(f"{BASE}/books/")
+        new_book = page.get_by_role("button", name="New Book").first
+        sign_in_button = page.get_by_role("button", name="Sign In")
+        await expect(new_book.or_(sign_in_button)).to_be_visible()
+        if await sign_in_button.is_visible():
+            await sign_in()
+            await page.goto(f"{BASE}/books/")
+        await new_book.click()
+        await page.get_by_placeholder("The working title of your book").fill(
+            "Empty Shelf"
+        )
+        await page.get_by_role("button", name="Create Book").click()
+        await page.wait_for_url(re.compile(r"/books/detail"))
+        url = page.url
+        checklist = page.get_by_test_id("getting-started")
+        progress = page.get_by_test_id("getting-started-progress")
+        await expect(progress).to_have_text("0/4 done")
+        await shot(page, "getting-started-0")
+        await checklist.get_by_role("button", name="Add your first source").click()
+        modal = page.get_by_role("dialog", name="Add Source")
+        await modal.get_by_role("button", name="Text").click()
+        await modal.get_by_placeholder("Enter a title for your source").fill("Notes")
+        await modal.get_by_placeholder(re.compile("Paste your notes")).fill(SOURCE)
+        await modal.get_by_role(
+            "button", name=re.compile("^(Add|Save|Extract)")
+        ).last.click()
+        await page.wait_for_url(re.compile(r"/sources/review"), timeout=TIMEOUT)
+        await page.goto(url)
+        await expect(progress).to_have_text("1/4 done")
+        await expect(
+            checklist.get_by_role("button", name="Add your first source")
+        ).to_have_count(0)
+        await shot(page, "getting-started-1")
+
+    async def dashboard_progress_and_resume():
+        """B12: the dashboard card shows the book's progress and resumes the
+        last-edited scene."""
+        await page.goto(f"{BASE}/dashboard/")
+        card = page.get_by_test_id("dashboard-book").filter(has_text="Bored to Undeath")
+        await expect(card).to_contain_text(re.compile(r"[\d,]+ words?"))
+        await expect(card).to_contain_text(
+            re.compile(r"\d+/\d+ planned scenes drafted")
+        )
+        await shot(page, "dashboard-progress")
+        await card.get_by_role("button", name=re.compile("^Resume:")).click()
+        await page.wait_for_url(re.compile(r"/books/editor/?\?scene="))
+        await expect(page.get_by_role("heading", name="Scene Editor")).to_be_visible()
+
     await step("sign in", sign_in())
     await step("create a book", create_book())
     await step("paste a source, review, commit", paste_source_and_review())
+    await step("the review ranks by name mentions", review_ranks_by_mentions())
     await step("the cast is in the canon", canon_has_cast())
     await step(
         "voice samples are the character's own words", voice_is_their_own_words()
@@ -831,6 +1126,7 @@ async def journey(page: Page) -> None:
     await step("add a chapter", add_chapter())
     await step("generate a scene from the cast", generate_scene())
     await step("generate a staged outline", generate_outline())
+    await step("add a suggested character to the cast", add_suggested_character())
     await step("run a continuity check", continuity())
     await step("export the book", export())
     await step("trash a character and restore it", trash_and_restore_character())
@@ -846,9 +1142,18 @@ async def journey(page: Page) -> None:
         editor_safety_net(),
     )
     await step(
+        "revise a selection: discard is byte-identical, accept is one revision",
+        revise_discard_then_accept(),
+    )
+    await step("revise on a stale view is refused", revise_stale_view_is_refused())
+    await step(
         "reorder, delete and restore a chapter", reorder_delete_and_restore_chapter()
     )
     await step("generate all planned scenes", generate_all_planned_scenes())
+    await step(
+        "planned scenes: beat cast plus POV, no default tone",
+        planned_scenes_follow_their_beats(),
+    )
     await step(
         "export: clean headings, scene breaks, a chapter range",
         export_is_a_clean_manuscript(),
@@ -869,6 +1174,8 @@ async def journey(page: Page) -> None:
     )
     await step("a second author cannot see the book", second_author_is_isolated())
     await step("the book at phone width", book_page_at_phone_width())
+    await step("a new book's getting-started checklist", new_book_checklist())
+    await step("dashboard: progress and resume", dashboard_progress_and_resume())
 
 
 # Every chapter row at phone width (B4): its title is visible with at least 20
