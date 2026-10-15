@@ -53,6 +53,10 @@ class Store:
         ][:k]
 
 
+def _scope(cast):
+    return ctx.SceneScope(tuple(cast), tuple(cast), (), frozenset(), "")
+
+
 @pytest.fixture
 def cast(monkeypatch):
     milo = _char("Milo Voss", "A new analyst, dead.", {"voice": "corporate, eager"})
@@ -106,28 +110,55 @@ class TestRenderJsonField:
 
 class TestCastContext:
     async def test_cast_context_has_no_bible(self, cast):
-        out = await ctx.build_cast_context(cast, "the audit")
+        out = await ctx.build_cast_context(cast, "the audit", scope=_scope(cast))
         assert not _BIBLE_LINE.search(out), out
         assert "### Milo Voss" in out and "### Zara Okafor" in out
         assert ctx.VOICE_SAMPLES_LABEL in out and "Let's circle back." in out
-        assert ctx.MOVEMENT_LABEL in out and "did not look up" in out
+        assert "did not look up" in out
+        assert (
+            "How they move (gesture and habit only; do not reuse these events, "
+            "objects or names):"
+        ) in out.splitlines()
         assert out.count("<character>") == 2
 
     async def test_cast_context_bible_on_request(self, cast):
-        out = await ctx.build_cast_context(cast, "the audit", bible=True)
+        out = await ctx.build_cast_context(
+            cast, "the audit", scope=_scope(cast), bible=True
+        )
         assert "Description: A new analyst, dead." in out
         assert "Voice: dry" in out and not _DOUBLED_VOICE.search(out)
 
     async def test_agent_context_keeps_the_bible(self, cast):
-        out = await ctx.build_agent_context(cast[1], "Zara Okafor", "the audit")
+        out = await ctx.build_agent_context(
+            cast[1], "Zara Okafor", "the audit", scope=_scope(cast)
+        )
         assert "Description: A veteran clerk." in out
         assert "Goals: Zara Okafor wants out." in out
         assert "Voice: dry" in out.splitlines()
         assert not _DOUBLED_VOICE.search(out)
 
     async def test_character_context_defaults_to_no_bible(self, cast):
-        out = await ctx.build_character_context(cast[0], "Milo Voss", "x", 0)
+        out = await ctx.build_character_context(
+            cast[0], "Milo Voss", "x", 0, scope=_scope(cast)
+        )
         assert out == "### Milo Voss"
+
+
+def test_scene_scope_of(cast):
+    """SPEC-30: one scope per scene: the scene's rows, the book's, the request's
+    secondaries and the canon's known names."""
+    from app.planning.fidelity import canon_known_text
+
+    edric = _char("Edric Thane", "A courier.")
+    canon = Canon(title="Cel", synopsis="Milo dies.", characters=[*cast, edric])
+    scope = ctx.SceneScope.of(canon, cast, ["Old Fen"])
+    assert scope.cast == tuple(cast)
+    assert scope.book_cast == (*cast, edric)
+    assert scope.secondary_names == ("Old Fen",)
+    assert scope.known == frozenset(canon.canon_terms()) and "Edric" in scope.known
+    assert (
+        scope.known_text == canon_known_text(canon) and "Milo dies." in scope.known_text
+    )
 
 
 class TestBeatPrompt:
@@ -141,7 +172,9 @@ class TestBeatPrompt:
 
         monkeypatch.setattr(prose_module, "get_llm_client", lambda: Fake())
         canon = Canon(title="Cel", synopsis="Milo dies.", characters=cast)
-        cast_context = await ctx.build_cast_context(cast, "the audit")
+        cast_context = await ctx.build_cast_context(
+            cast, "the audit", scope=_scope(cast)
+        )
         await prose_module.write_beat_prose(
             {"description": "Milo finds the ledger.", "characters": ["Milo Voss"]},
             {"scene_description": "The audit."},

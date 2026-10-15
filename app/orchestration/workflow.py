@@ -20,6 +20,7 @@ from app.core.config import settings
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.logging_config import setup_logging
 from app.core.prompt_markers import (
+    ALSO_NAMED_LABEL,
     AVAILABLE_CAST_LABEL,
     CHAPTER_FENCE,
     EMOTIONAL_TONE_LABEL,
@@ -30,8 +31,6 @@ from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_array
 
 logger = setup_logging("orchestration.workflow")
-
-ALSO_NAMED_LABEL = "Also named (secondary, not in the cast)"
 
 
 def _one_line(value) -> str:

@@ -401,6 +401,12 @@ def _s(i, text, chunk_type, source="paragraph_1", score=0.5):
     }
 
 
+def _scope(*cast):
+    from app.characters.context import SceneScope
+
+    return SceneScope(tuple(cast), tuple(cast), (), frozenset(), "")
+
+
 def _blocks(out):
     from app.characters.context import MOVEMENT_LABEL, VOICE_SAMPLES_LABEL
 
@@ -426,7 +432,7 @@ class TestCharacterContext:
         monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
         grounding: list = []
         out = await ctx.build_character_context(
-            _char(), "Zara Okafor", "the desk", grounding=grounding
+            _char(), "Zara Okafor", "the desk", scope=_scope(), grounding=grounding
         )
         assert (
             "Voice samples (their own words — match cadence, diction, syntax):" in out
@@ -448,7 +454,9 @@ class TestCharacterContext:
             ]
         )
         monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
-        out = await ctx.build_character_context(_char(), "Zara Okafor", "the desk")
+        out = await ctx.build_character_context(
+            _char(), "Zara Okafor", "the desk", scope=_scope()
+        )
         voice, move = _blocks(out)
         assert ctx.VOICE_SAMPLES_LABEL not in out  # no words of hers: no block
         # The movement block may fall back to untyped hits — labelled as such.
@@ -470,15 +478,30 @@ class TestCharacterContext:
         monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
         cast = [_char("Milo Voss"), _char("Zara Okafor")]
         out = await ctx.build_character_context(
-            cast[1], "Zara Okafor", "the desk", cast=cast
+            cast[1], "Zara Okafor", "the desk", scope=_scope(*cast)
         )
         _, move = _blocks(out)
         assert "did not look up" in move
         assert "read the appendices" not in out
         # ...and the same passage DOES centre Milo.
         out = await ctx.build_character_context(
-            cast[0], "Milo Voss", "the desk", cast=cast
+            cast[0], "Milo Voss", "the desk", scope=_scope(*cast)
         )
+        assert "read the appendices" in _blocks(out)[1]
+
+    async def test_movement_is_judged_against_the_scene_not_the_beat(self, monkeypatch):
+        """B-3: Zara is in the scene but not in Milo's beat; her narration is
+        still not how Milo moves."""
+        import app.characters.context as ctx
+
+        text = "Zara watched Milo read the appendices."
+        store = TypedStore([_s("a1", text, "description")])
+        monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
+        milo, zara = _char("Milo Voss"), _char("Zara Okafor")
+        out = await ctx.build_cast_context([milo], "x", scope=_scope(milo, zara))
+        assert "### Milo Voss" in out and "read the appendices" not in out
+        # Non-vacuous: alone in the scene, the same passage is his.
+        out = await ctx.build_cast_context([milo], "x", scope=_scope(milo))
         assert "read the appendices" in _blocks(out)[1]
 
     async def test_first_person_narration_is_their_own_words(self, monkeypatch):
@@ -489,12 +512,12 @@ class TestCharacterContext:
         )
         monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
         out = await ctx.build_character_context(
-            _char("Jonathan Harker"), "Jonathan Harker", "the castle"
+            _char("Jonathan Harker"), "Jonathan Harker", "the castle", scope=_scope()
         )
         voice, move = _blocks(out)
         assert "Bistritz" in voice and "Bistritz" not in move
 
-    async def test_cast_context_passes_the_cast(self, monkeypatch):
+    async def test_cast_context_passes_the_scope(self, monkeypatch):
         import app.characters.context as ctx
 
         store = TypedStore(
@@ -507,9 +530,8 @@ class TestCharacterContext:
             ]
         )
         monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
-        out = await ctx.build_cast_context(
-            [_char("Milo Voss"), _char("Zara Okafor")], "the desk"
-        )
+        cast = [_char("Milo Voss"), _char("Zara Okafor")]
+        out = await ctx.build_cast_context(cast, "the desk", scope=_scope(*cast))
         milo, zara = out.split("### Zara Okafor")
         assert "read the appendices" in milo and "read the appendices" not in zara
 
@@ -519,11 +541,14 @@ class TestCharacterContext:
         store = TypedStore([_s("a1", "Milo Voss filed the form.", "action")])
         monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
         cast = [_char("Milo Voss"), _char("Zara Okafor")]
+        scope = _scope(*cast)
         out = await ctx.build_agent_context(
-            cast[1], "Zara Okafor", "the desk", cast=cast
+            cast[1], "Zara Okafor", "the desk", scope=scope
         )
         assert "filed the form" not in out
-        out = await ctx.build_agent_context(cast[0], "Milo Voss", "the desk", cast=cast)
+        out = await ctx.build_agent_context(
+            cast[0], "Milo Voss", "the desk", scope=scope
+        )
         assert "filed the form" in out
 
 

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, TypedDict
 from uuid import UUID
 
 from sqlalchemy import select
@@ -47,6 +47,18 @@ CHUNK_WORDS = 2500
 CARRY_WORDS = 300
 FINDING_TYPES = {"timeline", "character", "object", "thread", "other"}
 _SEVERITY_RANK = {"critical": 0, "major": 1, "minor": 2}
+
+
+class Finding(TypedDict):
+    """One continuity finding, as stored in ContinuityReport.findings (SPEC-31)."""
+
+    type: str  # timeline | character | object | thread | other
+    severity: str  # critical | major | minor
+    detail: str  # <= 1000 chars
+    quote: str  # the model's quote, <= 200 chars, as given ("" if none)
+    scene_id: Optional[
+        str
+    ]  # the scene whose prose contains `quote`; None = not located
 
 
 def chunk_prose(text: str, chunk_words: int = CHUNK_WORDS) -> list[str]:

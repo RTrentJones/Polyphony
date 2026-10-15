@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from typing import NamedTuple, Optional
 from uuid import UUID
 
-from app.characters.context import build_cast_context
+from app.characters.context import SceneScope, build_cast_context
 from app.core.database import get_async_session
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.logging_config import log_business_event, log_error, setup_logging
@@ -37,7 +37,7 @@ from app.core.prompt_markers import (
 from app.llm.client import get_llm_client
 from app.llm.errors import QuotaExhaustedError
 
-from .workflow import plan_scene_beats, scene_block
+from .workflow import plan_scene_beats, scene_block, secondary_names
 
 logger = setup_logging("orchestration.prose")
 
@@ -467,6 +467,7 @@ async def run_prose_scene_workflow(
         target_total = int(scene_request.get("target_word_count") or 500)
         per_beat_words = max(120, target_total // max(1, len(beats)))
         by_name = {c.name: c for c in cast}
+        scope = SceneScope.of(canon, cast, secondary_names(request))
 
         prose_parts: list[str] = list(checkpoint.get("prose") or [])
         grounding: dict = dict(checkpoint.get("grounding") or {})
@@ -479,7 +480,7 @@ async def run_prose_scene_workflow(
             beat_cast = [by_name[n] for n in beat["characters"] if n in by_name]
             beat_grounding: list = []
             cast_context = await build_cast_context(
-                beat_cast, beat["description"], grounding=beat_grounding
+                beat_cast, beat["description"], scope=scope, grounding=beat_grounding
             )
             prose = await write_beat_prose(
                 beat,

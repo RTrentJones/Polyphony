@@ -432,6 +432,7 @@ async def test_ensemble_beat_resumes_after_the_last_agent_call(monkeypatch):
         user_id=None,
         book_id=None,
         canon_context="",
+        scope=ens.SceneScope((), (), (), frozenset(), ""),
         save_state=save,
     )
     with pytest.raises(QuotaExhaustedError):

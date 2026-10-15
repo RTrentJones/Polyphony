@@ -13,7 +13,7 @@ unreachable.
 """
 
 import re
-from typing import Iterable, Optional
+from typing import Iterable, NamedTuple, Optional
 from uuid import UUID
 
 from sqlalchemy import select
@@ -21,7 +21,7 @@ from sqlalchemy import select
 from app.core.database import get_async_session
 from app.core.llm_text import as_quoted_block, clean_for_llm
 from app.core.orm_models import Character
-from app.core.prompt_markers import NAME_HEADING, VOICE_SAMPLES_LABEL
+from app.core.prompt_markers import MOVEMENT_LABEL, NAME_HEADING, VOICE_SAMPLES_LABEL
 from app.rag.store import get_chunk_store
 
 # A grounding record keeps a bounded excerpt of each sample's text as it was at
@@ -31,6 +31,31 @@ from app.rag.store import get_chunk_store
 GROUNDING_EXCERPT_CHARS = 300
 NO_SAMPLES_REASON = "no indexed voice samples"
 CONTEXT_ONLY_REASON = "context only"
+
+
+class SceneScope(NamedTuple):
+    """Who a scene may mention (SPEC-30). Replaces the context builders'
+    `cast`. Built once per scene (or per probe), never per beat."""
+
+    cast: tuple  # the SCENE's Character rows: _centres' "others"
+    book_cast: tuple  # every live Character of the book
+    secondary_names: tuple[str, ...]  # the scene request's secondary_names
+    known: frozenset[str]  # canon.canon_terms()
+    known_text: str  # canon_known_text(canon), raw
+
+    @classmethod
+    def of(
+        cls, canon, scene_cast: Iterable, secondary_names: Iterable[str]
+    ) -> "SceneScope":
+        from app.planning.fidelity import canon_known_text
+
+        return cls(
+            tuple(scene_cast),
+            tuple(canon.characters),
+            tuple(secondary_names),
+            frozenset(canon.canon_terms()),
+            canon_known_text(canon),
+        )
 
 
 def grounding_excerpt(text_value: Optional[str]) -> Optional[str]:
@@ -110,9 +135,9 @@ async def build_character_context(
     beat_description: str,
     max_samples: int = 5,
     *,
+    scope: SceneScope,
     chunk_types: Optional[Iterable[str]] = None,
     grounding: Optional[list] = None,
-    cast: Optional[Iterable] = None,
     bible: bool = False,
 ) -> str:
     """One character's context block: their name, then their own words
@@ -128,9 +153,9 @@ async def build_character_context(
     `grounding`, when given, collects the retrieved chunks (id, score and a
     bounded text excerpt) so the caller can record which samples grounded this
     generation (R5.3); a character with none gets a reason entry instead.
-    `cast` is the rest of the scene's cast: a narration sample that centres one
-    of them rather than this character is left out. `chunk_types`, when given,
-    limits both blocks to those types.
+    `scope.cast` is the scene's cast: a narration sample that centres another
+    of them rather than this character is left out (SPEC-30). `chunk_types`,
+    when given, limits both blocks to those types.
     """
     lines = [f"{NAME_HEADING}{name}"]
     if character is None:
@@ -144,7 +169,7 @@ async def build_character_context(
         beat_description,
         max_samples,
         min(_MOVEMENT_SAMPLES, max_samples),
-        cast=cast,
+        scope=scope,
         chunk_types=chunk_types,
     )
     if grounding is not None:
@@ -188,11 +213,10 @@ def _bible_lines(character: Character) -> list[str]:
     return lines
 
 
-# The prompt labels (SPEC-17; VOICE_SAMPLES_LABEL is a marker, so it lives in
-# app.core.prompt_markers). Only the character's own words sit under the
-# voice label — dialogue the attributor credited to them, or first-person
-# narration of their own section (SPEC-09). Everything else is movement.
-MOVEMENT_LABEL = "How they move:"
+# The prompt labels are markers (SPEC-17; app.core.prompt_markers). Only the
+# character's own words sit under VOICE_SAMPLES_LABEL — dialogue the attributor
+# credited to them, or first-person narration of their own section (SPEC-09).
+# Everything else is movement, under MOVEMENT_LABEL.
 _MOVEMENT_SAMPLES = 3
 # Ensemble agents are grounded on how they SPEAK and how they MOVE separately
 # (BRD R6.2): one mixed retrieval lets dialogue crowd action out. The ingest
@@ -277,7 +301,7 @@ async def _voice_and_movement(
     k_voice: int,
     k_move: int,
     *,
-    cast: Optional[Iterable] = None,
+    scope: SceneScope,
     chunk_types: Optional[Iterable[str]] = None,
 ) -> tuple[list[dict], list[dict]]:
     """(their own words, how they move) for one character, retrieved separately.
@@ -330,7 +354,7 @@ async def _voice_and_movement(
         if not _own_narration(s)
         and (
             not str(s.get("source") or "").startswith("paragraph_")
-            or _centres(s.get("text") or "", name, cast, aliases)
+            or _centres(s.get("text") or "", name, scope.cast, aliases)
         )
     ][:k_move]
     return words, body
@@ -370,6 +394,7 @@ async def build_cast_context(
     characters: list[Character],
     beat_description: str,
     *,
+    scope: SceneScope,
     grounding: Optional[list] = None,
     bible: bool = False,
 ) -> str:
@@ -387,8 +412,8 @@ async def build_cast_context(
             character,
             character.name,
             beat_description,
+            scope=scope,
             grounding=grounding,
-            cast=characters,
             bible=bible,
         )
         blocks.append(as_quoted_block(block, "character"))
@@ -400,24 +425,22 @@ async def build_agent_context(
     name: str,
     beat_description: str,
     *,
+    scope: SceneScope,
     k: int = 3,
     grounding: Optional[list] = None,
-    cast: Optional[Iterable] = None,
 ) -> str:
     """A character agent's fenced context: bible, then <voice> (their own words)
     and <physicality> (action/description) samples retrieved separately
-    (SPEC-14, SPEC-17). <voice> never falls back to narration. `cast` is the
-    scene's cast: physicality that centres another member is left out."""
+    (SPEC-14, SPEC-17). <voice> never falls back to narration. Physicality that
+    centres another member of `scope.cast` is left out."""
     # The ensemble prompt has no canon block, so the agent keeps its bible.
-    bio = await build_character_context(
-        character, name, beat_description, 0, bible=True
-    )
-    blocks = [as_quoted_block(bio, "character")]
+    bio = [f"{NAME_HEADING}{name}", *(_bible_lines(character) if character else [])]
+    blocks = [as_quoted_block("\n".join(bio), "character")]
     if character is None:
         return "\n\n".join(b for b in blocks if b)
 
     voice, body = await _voice_and_movement(
-        character, beat_description, k, k, cast=cast
+        character, beat_description, k, k, scope=scope
     )
     if grounding is not None:
         grounding.extend(grounding_entries(character, [*voice, *body]))

@@ -39,9 +39,10 @@ class RevisionConflict(RuntimeError):
 
 
 async def run(payload: dict) -> None:
-    from app.characters.context import build_cast_context
+    from app.characters.context import SceneScope, build_cast_context
     from app.orchestration import revise as rv
     from app.orchestration.prose import resolve_pov, scene_cast
+    from app.orchestration.workflow import secondary_names
     from app.planning.canon import build_canon
 
     scene_id = UUID(payload["scene_id"])
@@ -70,7 +71,10 @@ async def run(payload: dict) -> None:
     revised = (ctx.checkpoint or {}).get("revised")
     if revised is None:
         cast = scene_cast(canon, request)
-        cast_context = await build_cast_context(cast, f"{instruction}\n{target}")
+        scope = SceneScope.of(canon, cast, secondary_names(request))
+        cast_context = await build_cast_context(
+            cast, f"{instruction}\n{target}", scope=scope
+        )
         prompt = rv.build_revise_prompt(
             canon_block=canon.full_block(),
             chapter_summary=summary,

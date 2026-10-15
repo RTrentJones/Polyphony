@@ -18,7 +18,7 @@ import types
 import pytest
 
 import app.llm.client as llm_client
-from app.core.orm_models import Chapter, Character, Scene, StyleGuide
+from app.core.orm_models import Chapter, Character, Scene, Source, StyleGuide
 from evals import stub_llm
 from evals.graders import prompt_contract as pc
 from evals.steps import pipeline
@@ -77,6 +77,9 @@ class _GoldStore:
 
 
 async def _cel_book(session, book):
+    """The cel book: its canon, the excerpt as a live source (so the secondaries
+    have lines in the sources) and a second live chapter at position 1 (so the
+    scene's chapter, added at position 0, is "1 of 2")."""
     _, gt = pipeline.load_corpus("cel")
     style = pipeline.load_style("cel")
     book.synopsis = gt["synopsis"]
@@ -84,6 +87,20 @@ async def _cel_book(session, book):
     for payload in pipeline._cast_with_roles(gt):
         cast.append(Character(book_id=book.id, user_id=book.user_id, **payload))
     session.add_all(cast)
+    excerpt = pipeline.load_excerpts("cel")
+    session.add_all(
+        [
+            Source(
+                book_id=book.id,
+                user_id=book.user_id,
+                title="cel excerpts",
+                content_text=excerpt,
+                word_count=len(excerpt.split()),
+                status="completed",
+            ),
+            Chapter(book_id=book.id, title="The second", position=1, summary=""),
+        ]
+    )
     session.add(
         StyleGuide(
             book_id=book.id,
@@ -140,6 +157,7 @@ async def test_the_apps_prompts_pass_every_contract_check(
     row = Chapter(book_id=test_book.id, title=chapter["title"], position=0, summary="")
     async_session.add(row)
     await async_session.commit()
+    assert row.number == 1
     scene = Scene(
         user_id=test_book.user_id, chapter_id=row.id, position=0, status="processing"
     )

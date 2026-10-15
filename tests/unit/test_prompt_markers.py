@@ -73,6 +73,13 @@ def test_pov_line_re_mode_and_who():
     assert POV_LINE_RE.search("Point of view: first person, Milo.") is None
 
 
+def test_story_position_re_reads_n_and_m():
+    line = pm.STORY_POSITION.format(n=2, m=7)
+    (m,) = pm.STORY_POSITION_RE.finditer(f"Intro.\n{line}\nMore.")
+    assert (m.group("n"), m.group("m")) == ("2", "7")
+    assert pm.STORY_POSITION_RE.search("This scene is in chapter 3 of many.") is None
+
+
 async def test_outline_prompt_markers(monkeypatch):
     from app.planning import staged_outline as so
     from app.planning.canon import Canon

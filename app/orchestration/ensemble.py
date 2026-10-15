@@ -29,6 +29,7 @@ from uuid import UUID
 
 from app.characters.context import (
     CONTEXT_ONLY_REASON,
+    SceneScope,
     build_agent_context,
     load_characters_for_book,
     unsampled_entry,
@@ -70,8 +71,8 @@ async def propose(
     prior_objections: list[dict],
     user_id,
     *,
+    scope: SceneScope,
     grounding: Optional[list] = None,
-    cast: Optional[list] = None,
 ) -> dict:
     """One character agent's proposal — scoped to its OWN context only.
 
@@ -81,7 +82,7 @@ async def propose(
     # How this character speaks (<voice>) and moves (<physicality>), retrieved
     # separately so dialogue cannot crowd action out (BRD R6.2, SPEC-14).
     context = await build_agent_context(
-        character, name, beat_description, grounding=grounding, cast=cast
+        character, name, beat_description, scope=scope, grounding=grounding
     )
     feedback = ""
     if prior_objections:
@@ -270,6 +271,7 @@ async def run_ensemble(
     user_id: UUID,
     book_id: UUID,
     canon_context: str,
+    scope: SceneScope,
     prior_tail: str = "",
     state: Optional[dict] = None,
     save_state=None,
@@ -322,8 +324,8 @@ async def run_ensemble(
                     beat_description,
                     prior_objections,
                     user_id,
+                    scope=scope,
                     grounding=round_grounding,
-                    cast=[c for c in characters.values() if c is not None],
                 )
             )
             st["proposals"] = proposals
@@ -436,9 +438,11 @@ async def run_ensemble_scene_workflow(
         _canon_hash,
         plan_scene_beats,
         prose_tail,
+        scene_cast,
         trim_seam_repeat,
     )
-    from app.planning.canon import build_canon
+    from app.orchestration.workflow import secondary_names
+    from app.planning.canon import Canon, build_canon
 
     started = datetime.now(timezone.utc)
     checkpoint = dict(checkpoint or {})
@@ -448,7 +452,10 @@ async def run_ensemble_scene_workflow(
                 canon = await build_canon(session, book_id)
             canon_context = canon.full_block()
         else:
-            canon_context = ""
+            canon, canon_context = Canon(title=""), ""
+        scope = SceneScope.of(
+            canon, scene_cast(canon, scene_request), secondary_names(scene_request)
+        )
         canon_hash = _canon_hash(canon_context, chapter_summary, prior_scene_tail)
         if checkpoint.get("canon_hash") not in (None, canon_hash):
             checkpoint = {}
@@ -497,6 +504,7 @@ async def run_ensemble_scene_workflow(
                 user_id=user_id,
                 book_id=book_id,
                 canon_context=canon_context,
+                scope=scope,
                 prior_tail=prior_tail,
                 state=checkpoint.get("beat_state"),
                 save_state=_save_beat,

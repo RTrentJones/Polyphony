@@ -199,6 +199,7 @@ class TestEnsembleFullCast:
             user_id=None,
             book_id=None,
             canon_context="",
+            scope=ens.SceneScope((), (), (), frozenset(), ""),
         )
         # only 3 propose, but the editor validates ALL FIVE (D and E, over the cap,
         # are flagged rather than silently dropped)

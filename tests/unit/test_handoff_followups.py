@@ -146,6 +146,7 @@ async def test_ensemble_records_context_only_characters(
         user_id=duo.book.user_id,
         book_id=duo.book.id,
         canon_context="",
+        scope=ens.SceneScope((duo.milo, duo.zara), (), (), frozenset(), ""),
     )
     by_char = {e["character_id"]: e for e in result["grounding"]}
     assert by_char[str(duo.milo.id)]["chunk_id"] == "m-1"
