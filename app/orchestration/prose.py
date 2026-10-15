@@ -82,8 +82,10 @@ def scene_cast(canon, scene_request: dict) -> list:
 
 
 DEFAULT_POV_MODE = "third person limited"
+# "person" is optional: style.pov also stores the short forms the extraction
+# writes ("first", "third-limited", "third-omniscient").
 _POV_MODE = re.compile(
-    r"\b(first|second|third)[ -]person(?:[ -](limited|omniscient|objective))?\b",
+    r"\b(first|second|third)(?:[ -]person)?(?:[ ,-]+(limited|omniscient|objective))?\b",
     re.I,
 )
 # A last-beat instruction that keeps the close inside the scene (SPEC-24, W2-4):
@@ -97,7 +99,10 @@ def pov_mode(text) -> Optional[str]:
     m = _POV_MODE.search(str(text or ""))
     if not m:
         return None
-    return " ".join(w for w in (m.group(1), "person", m.group(2)) if w).lower()
+    person = m.group(1).lower()
+    # An unqualified third ("third", "close third") is read as limited.
+    view = m.group(2) or ("limited" if person == "third" else None)
+    return " ".join(w for w in (person, "person", view) if w).lower()
 
 
 class Pov(NamedTuple):

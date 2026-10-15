@@ -137,3 +137,16 @@ def test_split_drops_empty_beat_lines():
 )
 def test_split_is_none_without_a_promote_block(summary):
     assert split_legacy_summary(summary) is None
+
+
+def test_a_repeated_node_id_gets_its_own_stable_id():
+    """Identity is the id: two beats sharing one would both look written once
+    either scene exists. The later one gets an id derived from its position,
+    the same on every read."""
+    same = str(uuid.uuid4())
+    beats = [{"title": "A", "node_id": same}, {"title": "B", "node_id": same}]
+    first = normalize_planned_beats(beats)
+    assert first[0]["node_id"] == same
+    assert first[1]["node_id"] not in (same, "")
+    assert normalize_planned_beats(beats) == first
+    assert normalize_planned_beats(first) == first

@@ -96,4 +96,10 @@ def test_a_titled_style_character_resolves_through_the_cast():
 
 def test_pov_mode():
     assert pov_mode("Third-Person Limited, on Milo") == "third person limited"
-    assert pov_mode("close third") is None
+    # The short forms style.pov stores (orm_models: first | third-limited |
+    # third-omniscient) keep their mode instead of falling back to the default.
+    assert pov_mode("first") == "first person"
+    assert pov_mode("third-limited") == "third person limited"
+    assert pov_mode("third-omniscient") == "third person omniscient"
+    assert pov_mode("close third") == "third person limited"
+    assert pov_mode("prose") is None

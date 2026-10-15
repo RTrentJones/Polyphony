@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from typing import Any, Iterable, NamedTuple, Optional
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 from pydantic import BaseModel, Field
 
@@ -49,12 +49,19 @@ def beat_scene_description(beat: dict) -> str:
 
 def normalize_planned_beats(value: Any) -> list[dict]:
     """Tolerant read of a stored or posted list: drops non-dicts and untitled
-    beats, fills node_id, trims strings, caps the list. Never raises."""
+    beats, fills node_id (a repeated id gets its own), trims strings, caps the
+    list. Never raises."""
     out: list[dict] = []
+    seen: set[str] = set()
     for item in value if isinstance(value, list) else []:
         if not isinstance(item, dict) or not str(item.get("title") or "").strip():
             continue
         node_id = _uuid_str(item.get("node_id")) or str(uuid4())
+        if node_id in seen:
+            # Identity is the id (written scenes track it): a repeated id gets
+            # its own, stable on every read (derived from the id and position).
+            node_id = str(uuid5(UUID(node_id), str(len(out))))
+        seen.add(node_id)
         out.append(
             PlannedBeat(
                 node_id=node_id,
