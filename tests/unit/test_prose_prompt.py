@@ -11,6 +11,7 @@ import types
 
 import pytest
 
+from app.core.llm_text import as_quoted_block
 from app.orchestration import prose as prose_module
 from app.orchestration.prose import (
     GENERIC_CRAFT_GUIDANCE,
@@ -20,6 +21,7 @@ from app.orchestration.prose import (
     trim_seam_repeat,
     write_beat_prose,
 )
+from app.planning.canon import render_style
 
 pytestmark = pytest.mark.unit
 
@@ -166,7 +168,8 @@ class TestBeatPrompt:
             _BEATS[2], _REQUEST, "cast", "", all_beats=_BEATS, beat_index=2
         )
         assert (
-            "Write ONLY beat 3, the last beat: end the scene here." in fake.prompts[0]
+            "Write ONLY beat 3, the last beat: end the scene inside the moment, "
+            "in POV; no summary of what follows." in fake.prompts[0]
         )
         assert "Stop where beat" not in fake.prompts[0]
 
@@ -180,22 +183,35 @@ class TestBeatPrompt:
         )
         assert "do not restate anything in <prior>" in prompt
 
-    async def test_sample_prose_leads_and_house_style_is_absent(self, fake):
+    async def test_sample_prose_leads_once_and_house_style_is_absent(self, fake):
+        """W1-S3: the sample is in the canon's style guide; the style section
+        refers to it rather than repeating it."""
+        from evals.graders.prompt_contract import check_style_first
+
+        sample = '"No," she said. "Not today."'
         style = types.SimpleNamespace(
-            pov=None, tense=None, tone="", sample_prose='"No," she said. "Not today."'
+            pov=None, tense=None, tone="clipped", comps=None, sample_prose=sample
         )
-        await write_beat_prose(_BEATS[0], _REQUEST, "cast", "", style=style)
+        canon_block = as_quoted_block(render_style(style), "canon")
+        await write_beat_prose(
+            _BEATS[0], _REQUEST, "cast", "", canon_block=canon_block, style=style
+        )
         prompt = fake.prompts[0]
-        assert "Match this sample's voice and rhythm" in prompt
-        assert '<sample_prose>\n"No," she said. "Not today."\n</sample_prose>' in prompt
+        assert prompt.count(sample) == 1 and prompt.count("clipped") == 1
+        assert "<sample_prose>" not in prompt
+        assert "primary style reference. Match its voice and rhythm" in prompt
         assert "PUNCTUATES" not in prompt and GENERIC_CRAFT_GUIDANCE not in prompt
-        assert prompt.index("<sample_prose>") < prompt.index("Write approximately")
+        assert check_style_first(prompt, sample) == []
 
     async def test_tone_alone_replaces_house_style(self, fake):
         style = types.SimpleNamespace(tone="banter-heavy, dialogue first")
-        await write_beat_prose(_BEATS[0], _REQUEST, "cast", "", style=style)
+        canon_block = as_quoted_block(render_style(style), "canon")
+        await write_beat_prose(
+            _BEATS[0], _REQUEST, "cast", "", canon_block=canon_block, style=style
+        )
         prompt = fake.prompts[0]
-        assert "Tone: banter-heavy, dialogue first" in prompt
+        assert prompt.count("banter-heavy, dialogue first") == 1
+        assert "follow the tone in the canon's style guide" in prompt
         assert "PUNCTUATES" not in prompt
 
     async def test_house_style_only_without_tone_or_sample(self, fake):
@@ -205,7 +221,7 @@ class TestBeatPrompt:
         assert prompt.index(GENERIC_CRAFT_GUIDANCE) < prompt.index(
             "Write approximately"
         )
-        assert "<sample_prose>" not in prompt
+        assert "style guide, above" not in prompt
 
     async def test_positional_call_still_works(self, fake):
         """The signature tests/unit/test_books_domain.py relies on."""

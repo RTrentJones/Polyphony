@@ -267,6 +267,9 @@ class Chapter(Base):
         UUID(as_uuid=True), ForeignKey("characters.id", ondelete="SET NULL")
     )
     character_ids = Column(JSON)
+    # The chapter's planned scenes as data (SPEC-23): list[PlannedBeat]
+    # (app/planning/planned_beat.py). Read through normalize_planned_beats.
+    planned_beats = Column(JSON().with_variant(JSONB(), "postgresql"))
     deleted_at = _soft_delete_column()
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
@@ -440,6 +443,14 @@ class Scene(Base):
         cascade="all, delete-orphan",
         order_by="SceneRevision.created_at",
     )
+
+    @property
+    def draft(self) -> str:
+        """The draft: the raw text the editor loads and saves (the author's edit
+        wins over the generation), edge whitespace kept so a save, a revision
+        splice and their snapshots round-trip it byte for byte. The export trims
+        it (`exports.builder.scene_text`)."""
+        return self.content or self.generated_content or ""
 
     # Indexes
     __table_args__ = (

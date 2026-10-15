@@ -36,6 +36,7 @@ class TestStepRegistry:
             "outline",
             "continuity",
             "prose",
+            "revise",
             "ensemble",
         ]
         # embedding-only steps must not require the API (so they run keyless)
@@ -433,12 +434,15 @@ class TestFidelityElaraDetector:
         assert faithful - elara >= 0.8
 
 
+def _text(nodes: list[dict]) -> str:
+    titles, body = fidelity.flatten_outline(nodes)
+    return "  ".join([*titles, *body])
+
+
 class TestPrincipalRecall:
     def test_alias_counts_as_present(self):
         nodes = [{"title": "T", "summary": "Milo and Zara flee; Edric laughs."}]
-        recall, _, missing = fidelity.principal_recall(
-            fidelity.flatten_outline(nodes), _PRINCIPALS
-        )
+        recall, _, missing = fidelity.principal_recall(_text(nodes), _PRINCIPALS)
         assert recall == 1.0 and missing == []
 
     def test_word_boundary_no_false_positive(self):
@@ -447,9 +451,7 @@ class TestPrincipalRecall:
         nodes = [
             {"title": "T", "summary": "Frederick walked with Milomir to Zarahemla."}
         ]
-        recall, _, missing = fidelity.principal_recall(
-            fidelity.flatten_outline(nodes), _PRINCIPALS
-        )
+        recall, _, missing = fidelity.principal_recall(_text(nodes), _PRINCIPALS)
         assert recall == 0.0
         assert set(missing) == {"Milo Voss", "Zara Okafor", "Edric Thane"}
 
@@ -457,9 +459,7 @@ class TestPrincipalRecall:
         nodes = [
             {"title": "The CEL", "summary": "The Chief Executive Lich signs the memo."}
         ]
-        _, present, _ = fidelity.principal_recall(
-            fidelity.flatten_outline(nodes), _PRINCIPALS
-        )
+        _, present, _ = fidelity.principal_recall(_text(nodes), _PRINCIPALS)
         assert "Edric Thane" in present
 
 

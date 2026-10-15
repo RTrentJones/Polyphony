@@ -13,7 +13,7 @@ scene set in Aeon Holdings knew nothing about Aeon Holdings.
 
 import re
 from datetime import datetime, timezone
-from typing import Optional
+from typing import NamedTuple, Optional
 from uuid import UUID
 
 from app.characters.context import build_cast_context
@@ -21,6 +21,18 @@ from app.core.database import get_async_session
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.logging_config import log_business_event, log_error, setup_logging
 from app.core.orm_models import Scene, SceneBeat
+from app.core.prompt_markers import (
+    BEAT_TO_WRITE_LABEL,
+    BEATS_FENCE,
+    CHAPTER_FENCE,
+    CHARACTERS_SECTION,
+    CURRENT_BEAT_MARK,
+    POV_LABEL,
+    POV_LIMIT_CLOSE,
+    POV_LIMIT_OPEN,
+    PRIOR_FENCE,
+    STOP_AT_NEXT_BEAT,
+)
 from app.llm.client import get_llm_client
 from app.llm.errors import QuotaExhaustedError
 
@@ -69,14 +81,91 @@ def scene_cast(canon, scene_request: dict) -> list:
     return [by_name[n] for n in names if n in by_name]
 
 
-def resolve_pov(scene_request: dict, canon) -> str:
-    """The request's POV wins; else the book's style guide; else a default."""
-    if scene_request.get("pov_character"):
-        return clean_for_llm(scene_request["pov_character"])
-    style = getattr(canon, "style", None)
-    if style is not None and getattr(style, "pov", None):
-        return f"as the book's style guide specifies ({clean_for_llm(style.pov)})"
-    return "third person limited"
+DEFAULT_POV_MODE = "third person limited"
+_POV_MODE = re.compile(
+    r"\b(first|second|third)[ -]person(?:[ -](limited|omniscient|objective))?\b",
+    re.I,
+)
+# A last-beat instruction that keeps the close inside the scene (SPEC-24, W2-4):
+# "end the scene here" invited an omniscient wrap-up paragraph.
+LAST_BEAT_ENDING = "end the scene inside the moment, in POV; no summary of what follows"
+
+
+def pov_mode(text) -> Optional[str]:
+    """The narrative mode a free-text POV names ("Third-person limited, on
+    Milo" -> "third person limited"), or None."""
+    m = _POV_MODE.search(str(text or ""))
+    if not m:
+        return None
+    return " ".join(w for w in (m.group(1), "person", m.group(2)) if w).lower()
+
+
+class Pov(NamedTuple):
+    """A scene's point of view: the narrative mode, and whose head the scene
+    stays in (a cast member's name), if anyone's."""
+
+    mode: str
+    who: Optional[str] = None
+
+    @property
+    def label(self) -> str:
+        """ "<mode>, <who>" (or the mode alone): the text after "Point of view: "."""
+        return f"{self.mode}, {self.who}" if self.who else self.mode
+
+
+DEFAULT_POV = Pov(DEFAULT_POV_MODE)
+# The run of capitalised words a style-guide POV names its character with
+# ("on Dr. Ada Vance").
+_CAPITALISED_RUN = re.compile(r"[A-Z][\w'’-]*\.?(?:\s+[A-Z][\w'’-]*\.?)*")
+
+
+def resolve_pov(scene_request: dict, canon) -> Pov:
+    """The scene's point of view (SPEC-24, W2-4).
+
+    The character is the request's POV character (a cast name, as the API
+    writes it), else the cast member the book's style guide names. The mode is
+    the one the style guide names (style.pov is free text: "third person
+    limited, on Milo Voss"), else third person limited. Both are stated, so the
+    model knows whose head the scene stays in."""
+    style_pov = getattr(getattr(canon, "style", None), "pov", None)
+    mode = pov_mode(style_pov) or DEFAULT_POV_MODE
+    who = " ".join(clean_for_llm(str(scene_request.get("pov_character") or "")).split())
+    return Pov(mode, who or _style_pov_character(style_pov, canon))
+
+
+def _style_pov_character(style_pov, canon) -> Optional[str]:
+    """The cast member a style-guide POV names ("third person limited, on Dr.
+    Ada Vance" -> "Ada Vance"), or None: the first capitalised run outside the
+    mode that resolves to the cast, dropping leading words ("Dr.") until it
+    does. Free text is never promoted to a character."""
+    from app.planning.outline import CastIndex
+
+    cast = CastIndex(getattr(canon, "characters", None) or [])
+    rest = _POV_MODE.sub(" ", clean_for_llm(str(style_pov or "")))
+    for run in _CAPITALISED_RUN.finditer(rest):
+        words = run.group(0).rstrip(".").split()
+        for i in range(len(words)):
+            cid = cast.resolve(" ".join(words[i:]))
+            if cid is not None:
+                return cast.names[cid]
+    return None
+
+
+def pov_instruction(pov: Pov) -> str:
+    """The beat prompt's POV paragraph (SPEC-24, W2-4): mode and character on
+    one line, then what staying in that head means."""
+    if not pov.who:
+        return (
+            f"{POV_LABEL}: {pov.label}. {POV_LIMIT_OPEN} the point-of-view character "
+            f"{POV_LIMIT_CLOSE}: no aftermath, no foreshadowing, no naming people "
+            "they have not learned."
+        )
+    who = pov.who
+    return (
+        f"{POV_LABEL}: {pov.label}. {POV_LIMIT_OPEN} {who} {POV_LIMIT_CLOSE}: "
+        f"no aftermath, no foreshadowing, no naming people {who} has not "
+        "learned. Stay in their head from the first line to the last."
+    )
 
 
 def _sentence_starts(paragraph: str) -> list[int]:
@@ -167,10 +256,10 @@ def _beats_block(all_beats: list[dict], beat_index: int) -> str:
     marked — so the model knows where its beat ends (SPEC-18, B5)."""
     lines = []
     for i, b in enumerate(all_beats):
-        mark = "→ " if i == beat_index else ""
+        mark = f"{CURRENT_BEAT_MARK} " if i == beat_index else ""
         description = clean_for_llm(b.get("description") if isinstance(b, dict) else b)
         lines.append(f"{mark}{i + 1}. {description}")
-    return as_quoted_block("\n".join(lines), "beats")
+    return as_quoted_block("\n".join(lines), BEATS_FENCE)
 
 
 def _style_section(style) -> str:
@@ -178,23 +267,19 @@ def _style_section(style) -> str:
 
     Sample prose is the primary reference whenever it exists; a style-guide
     tone alone replaces the house style; the generic craft text appears only
-    when the book gives neither."""
-    sample = clean_for_llm(getattr(style, "sample_prose", None)) if style else ""
-    tone = clean_for_llm(getattr(style, "tone", None)) if style else ""
-    if sample:
-        out = (
-            "STYLE — the author's sample prose is your primary style reference. "
-            "Match this sample's voice and rhythm: its sentence length, its "
-            "balance of dialogue and narration, its diction.\n"
-            + as_quoted_block(sample, "sample_prose")
-        )
-        if tone:
-            out += f"\nTone: {tone}"
-        return out
-    if tone:
+    when the book gives neither. The sample and the tone themselves are in the
+    canon block's style guide (`render_style`), so they are referred to here,
+    never repeated (W1-S3)."""
+    if style is not None and clean_for_llm(getattr(style, "sample_prose", None)):
         return (
-            f"STYLE — follow the book's style guide. Tone: {tone}. Let it decide "
-            "how much the scene leans on dialogue or on description."
+            "STYLE — the author's sample prose (the canon's style guide, above) "
+            "is your primary style reference. Match its voice and rhythm: its "
+            "sentence length, its balance of dialogue and narration, its diction."
+        )
+    if style is not None and clean_for_llm(getattr(style, "tone", None)):
+        return (
+            "STYLE — follow the tone in the canon's style guide, above. Let it "
+            "decide how much the scene leans on dialogue or on description."
         )
     return GENERIC_CRAFT_GUIDANCE
 
@@ -209,7 +294,7 @@ async def write_beat_prose(
     target_words: int = 300,
     *,
     canon_block: str = "",
-    pov: str = "third person limited",
+    pov: Pov = DEFAULT_POV,
     all_beats: Optional[list[dict]] = None,
     beat_index: Optional[int] = None,
     style=None,
@@ -222,12 +307,14 @@ async def write_beat_prose(
     then style). `all_beats`/`beat_index` give the model the whole plan with
     this beat marked, so it stops where the next begins; `style` is the book's
     style guide, whose sample prose leads the style guidance (SPEC-18).
+    `pov` is `resolve_pov`'s; the prompt states its mode and character and
+    keeps the narration in that character's head (SPEC-24).
     """
     style_notes = scene_request.get("style_notes") or ""
     prior_block = (
         "The prose so far (continue seamlessly from it; do not restate "
         "anything in <prior>, begin with what happens next):\n"
-        + as_quoted_block(prior_prose_tail, "prior")
+        + as_quoted_block(prior_prose_tail, PRIOR_FENCE)
         if prior_prose_tail
         else "This beat opens the scene."
     )
@@ -241,12 +328,12 @@ async def write_beat_prose(
         )
         if n < total:
             position = (
-                f"\nWrite ONLY beat {n}. Stop where beat {n + 1} begins; do not "
-                "anticipate it."
+                f"\nWrite ONLY beat {n}. {STOP_AT_NEXT_BEAT.format(next=n + 1)}; do "
+                "not anticipate it."
             )
         else:
-            position = f"\nWrite ONLY beat {n}, the last beat: end the scene here."
-    chapter = as_quoted_block(chapter_summary, "chapter")
+            position = f"\nWrite ONLY beat {n}, the last beat: {LAST_BEAT_ENDING}."
+    chapter = as_quoted_block(chapter_summary, CHAPTER_FENCE)
     overrides = (
         "\nAuthor's style notes for THIS scene (they override the style guide):\n"
         + as_quoted_block(style_notes, "style_notes")
@@ -265,16 +352,16 @@ faithful to the canon above: its people, places, terms, and its style guide
 (point of view, tense, tone) unless the author's notes below override it.
 
 {scene_block(scene_request)}
-Point of view: {pov}{overrides}
+{pov_instruction(pov)}{overrides}
 
-{plan}CHARACTERS IN THIS BEAT — write each one's dialogue in THEIR OWN voice,
+{plan}{CHARACTERS_SECTION} — write each one's dialogue in THEIR OWN voice,
 matching their voice samples:
 
 {cast_context}
 
 {prior_block}
 
-BEAT TO WRITE: {clean_for_llm(beat["description"])}{position}
+{BEAT_TO_WRITE_LABEL}: {clean_for_llm(beat["description"])}{position}
 
 {_style_section(style)}
 

@@ -5,7 +5,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { CheckCircle2, ListTree, Plus, Wand2 } from 'lucide-react'
+import { CheckCircle2, ListTree, Plus, UserPlus, Wand2 } from 'lucide-react'
 import Button from '@/components/Button'
 import EstimateHint from '@/components/EstimateHint'
 import type { Estimate } from '@/lib/usage-api'
@@ -13,9 +13,16 @@ import Card from '@/components/Card'
 import JobStatusBadge from '@/components/JobStatusBadge'
 import type { ToastType } from '@/components/Toast'
 import { usePlanningStore } from '@/lib/books-store'
+import { canonApi } from '@/lib/canon-store'
 import { useBook } from '@/components/book/BookProvider'
 import { isActiveJob } from '@/lib/jobs'
-import type { BookPlan, Job, PlanKind, PlanNode } from '@/lib/types'
+import type {
+  BookPlan,
+  Job,
+  PlanKind,
+  PlanNode,
+  SuggestedCharacter,
+} from '@/lib/types'
 
 function OutlineNodeView({ node }: { node: PlanNode }) {
   return (
@@ -37,11 +44,75 @@ function OutlineNodeView({ node }: { node: PlanNode }) {
               {child.summary && (
                 <p className="text-xs text-gray-500">{child.summary}</p>
               )}
+              {(child.setting || child.tone) && (
+                <p className="text-xs text-gray-400">
+                  {[child.setting, child.tone].filter(Boolean).join(' · ')}
+                </p>
+              )}
             </li>
           ))}
         </ul>
       )}
     </div>
+  )
+}
+
+/** People the outline names who are in the synopsis or canon but not the
+ *  cast (SPEC-24 computes them, SPEC-27 offers them). One click adds each as a
+ *  `minor` character, described by the synopsis sentence that names them, so
+ *  scenes can cast them; `minor` never makes them a fidelity-gate principal. */
+export function SuggestedCast({
+  suggestions,
+  onAdd,
+}: {
+  suggestions: SuggestedCharacter[]
+  onAdd: (suggestion: SuggestedCharacter) => Promise<void>
+}) {
+  const [adding, setAdding] = useState<string | null>(null)
+  if (suggestions.length === 0) return null
+
+  const add = async (s: SuggestedCharacter) => {
+    setAdding(s.name)
+    try {
+      await onAdd(s)
+    } finally {
+      setAdding(null)
+    }
+  }
+
+  return (
+    <section
+      aria-labelledby="suggested-cast-heading"
+      className="border border-sky-200 bg-sky-50 rounded-lg p-3"
+      data-testid="suggested-cast"
+    >
+      <p id="suggested-cast-heading" className="text-sm font-medium text-sky-900">
+        Suggested cast
+      </p>
+      <p className="text-xs text-sky-800 mb-2">
+        The outline names {suggestions.length === 1 ? 'this person' : 'these people'}{' '}
+        from your synopsis or canon. Add them to the cast so scenes can include
+        them.
+      </p>
+      <ul className="flex flex-wrap gap-2">
+        {suggestions.map((s) => (
+          <li key={s.name}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => add(s)}
+              isLoading={adding === s.name}
+              disabled={adding !== null}
+              title={s.synopsis_sentence || undefined}
+              aria-label={`Add ${s.name} to cast`}
+            >
+              <UserPlus className="h-3.5 w-3.5 mr-1" />
+              Add {s.name} to cast
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 
@@ -159,7 +230,7 @@ export default function OutlinePanel({
 }: {
   addToast: (message: string, type: ToastType) => void
 }) {
-  const { bookId, book, refreshBook } = useBook()
+  const { bookId, book, refreshBook, refreshCharacters } = useBook()
   const hasSynopsis = !!book?.synopsis
   const { plans, fetchPlans, generatePlan, promoteNode, promoteAll, confirmPremise } =
     usePlanningStore()
@@ -232,6 +303,25 @@ export default function OutlinePanel({
     } catch (err: any) {
       addToast(err.message || 'Failed to continue the outline', 'error')
     }
+  }
+
+  const handleAddSuggested = async (s: SuggestedCharacter) => {
+    try {
+      await canonApi.createCharacter(bookId, {
+        name: s.name,
+        role: 'minor',
+        description: s.synopsis_sentence || undefined,
+      })
+    } catch (err: any) {
+      addToast(err.message || `Failed to add ${s.name}`, 'error')
+      return
+    }
+    // The suggestion is computed at read time, so the refetch drops the chip.
+    await Promise.all([
+      fetchPlans(bookId).catch(() => []),
+      refreshCharacters().catch(() => []),
+    ])
+    addToast(`${s.name} added — now castable`, 'success')
   }
 
   const handlePromoteAll = async () => {
@@ -398,6 +488,12 @@ export default function OutlinePanel({
                 Promote all to chapters
               </Button>
             </div>
+          )}
+          {kind === 'outline' && (
+            <SuggestedCast
+              suggestions={plan.suggested_characters ?? []}
+              onAdd={handleAddSuggested}
+            />
           )}
           {plan.warnings && plan.warnings.length > 0 && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">

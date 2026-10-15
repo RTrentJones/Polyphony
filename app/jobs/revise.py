@@ -23,10 +23,11 @@ from app.core.database import get_async_session
 from app.core.logging_config import log_business_event, setup_logging
 from app.core.orm_models import Chapter, Scene, SceneRevision
 from app.jobs.context import current_job
+from app.orchestration.revise import JOB_KIND
 
 logger = setup_logging("jobs.revise")
 
-KIND = "revise_scene"
+KIND = JOB_KIND
 DRAFT_EDITED = (
     "The draft was edited after this revision was requested, so the selected "
     "range no longer points at the same text. Request the revision again."
@@ -37,29 +38,10 @@ class RevisionConflict(RuntimeError):
     """The scene moved on underneath the job; the message is the job's error."""
 
 
-def draft_of(scene: Scene) -> str:
-    """The draft a revision works on: the raw text the editor loads and saves
-    (edited content wins over the raw generation). Not the export's trimmed
-    `scene_text`: splicing a trimmed draft dropped edge whitespace, a trailing
-    newline included, from the proposal and its accept snapshot."""
-    return scene.content or scene.generated_content or ""
-
-
-def cast_request(scene: Scene) -> dict:
-    """The scene's cast as a request dict `scene_cast` resolves against the
-    canon. A manual scene has no generation request; its own cast fields do."""
-    if scene.scene_request:
-        return scene.scene_request
-    return {
-        "character_ids": scene.character_ids or [],
-        "characters": scene.characters or [],
-    }
-
-
 async def run(payload: dict) -> None:
     from app.characters.context import build_cast_context
     from app.orchestration import revise as rv
-    from app.orchestration.prose import scene_cast
+    from app.orchestration.prose import resolve_pov, scene_cast
     from app.planning.canon import build_canon
 
     scene_id = UUID(payload["scene_id"])
@@ -72,8 +54,8 @@ async def run(payload: dict) -> None:
         scene = await session.get(Scene, scene_id)
         if scene is None or scene.deleted_at is not None:
             raise RevisionConflict("The scene was deleted.")
-        draft = draft_of(scene)
-        request = cast_request(scene)
+        draft = scene.draft
+        request = rv.cast_request(scene)
         summary = ""
         if scene.chapter_id is not None:
             chapter = await session.get(Chapter, scene.chapter_id)
@@ -97,7 +79,12 @@ async def run(payload: dict) -> None:
             target=target,
             after=after,
             instruction=instruction,
-            pov=rv.scene_pov(scene_request=request, canon=canon),
+            pov=resolve_pov(request, canon),
+            beat=(
+                (payload["beat_index"], payload.get("beat_description"))
+                if payload.get("beat_index") is not None
+                else None
+            ),
         )
         revised = await rv.generate_revision(
             prompt, target_chars=len(target), user_id=user_id
@@ -123,7 +110,7 @@ async def run(payload: dict) -> None:
         scene = await session.get(Scene, scene_id)
         if scene is None or scene.deleted_at is not None:
             raise RevisionConflict("The scene was deleted.")
-        if rv.text_hash(draft_of(scene)) != base_hash:
+        if rv.text_hash(scene.draft) != base_hash:
             raise RevisionConflict(DRAFT_EDITED)
         row = SceneRevision(
             scene_id=scene_id,

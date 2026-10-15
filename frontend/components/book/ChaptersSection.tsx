@@ -25,7 +25,6 @@ import GenerateSceneModal from '@/components/book/GenerateSceneModal'
 import GeneratePlannedScenesButton, {
   plannedScenesMessage,
 } from '@/components/book/GeneratePlannedScenesButton'
-import { plannedBeats } from '@/components/book/GenerateSceneModal'
 import RowActionsMenu, { type RowAction } from '@/components/book/RowActionsMenu'
 import Card from '@/components/Card'
 import Input from '@/components/Input'
@@ -157,7 +156,7 @@ export default function ChaptersSection({
 
   /** Secondary row actions, which live in the "⋯" menu below `sm:`. */
   const menuActions = (chapter: BookChapter): RowAction[] => [
-    ...(plannedBeats(chapter.summary).length > 0
+    ...(chapter.planned_beats?.length
       ? [
           {
             key: 'planned',

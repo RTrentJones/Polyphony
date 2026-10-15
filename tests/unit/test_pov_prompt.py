@@ -1,0 +1,99 @@
+"""SPEC-24 (W2-4): beat prose stays in the POV character's head.
+
+How the POV is resolved from the request and the style guide. The POV line and
+the last-beat rule in the real beat prompts are graded by the round trip
+(test_prompt_roundtrip.py: pov_line_has_mode_and_character, last_beat_no_wrap_up)."""
+
+import types
+import uuid
+
+import pytest
+
+from app.core.prompt_markers import POV_LINE_RE
+from app.orchestration.prose import (
+    Pov,
+    pov_instruction,
+    pov_mode,
+    resolve_pov,
+)
+
+pytestmark = pytest.mark.unit
+
+
+def _canon(style_pov=None, cast=("Milo Voss", "Zara Okafor"), aliases=None):
+    style = types.SimpleNamespace(pov=style_pov) if style_pov is not None else None
+    chars = [
+        types.SimpleNamespace(
+            id=uuid.uuid4(), name=n, aliases=list((aliases or {}).get(n, []))
+        )
+        for n in cast
+    ]
+    return types.SimpleNamespace(style=style, characters=chars)
+
+
+# --- resolving the POV --------------------------------------------------------------
+
+
+def test_request_character_with_the_style_guide_mode():
+    pov = resolve_pov(
+        {"pov_character": "Milo Voss"}, _canon("third person limited, on Milo Voss")
+    )
+    assert pov == Pov("third person limited", "Milo Voss")
+    assert pov.label == "third person limited, Milo Voss"
+
+
+def test_no_style_falls_back_to_third_person_limited():
+    assert resolve_pov({"pov_character": "Milo Voss"}, _canon()) == (
+        Pov("third person limited", "Milo Voss")
+    )
+    assert resolve_pov({}, _canon()) == Pov("third person limited", None)
+    assert Pov("third person limited").label == "third person limited"
+
+
+def test_mode_comes_from_the_style_guide_never_from_the_name():
+    canon = _canon("First-person, present tense")
+    assert resolve_pov({"pov_character": "Zara Okafor"}, canon) == (
+        Pov("first person", "Zara Okafor")
+    )
+    # a style guide that names no mode ("third") does not invent one
+    assert resolve_pov({"pov_character": "Zara Okafor"}, _canon("third")) == (
+        Pov("third person limited", "Zara Okafor")
+    )
+
+
+def test_style_guide_character_is_used_only_when_it_is_cast():
+    assert resolve_pov({}, _canon("third person limited, on Milo Voss")) == (
+        Pov("third person limited", "Milo Voss")
+    )
+    assert resolve_pov({}, _canon("first person, Milo")) == (
+        Pov("first person", "Milo Voss")
+    )
+    assert resolve_pov({}, _canon("Close third, on Zara")) == (
+        Pov("third person limited", "Zara Okafor")
+    )
+    assert resolve_pov({}, _canon("third person omniscient, wry")) == (
+        Pov("third person omniscient", None)
+    )
+    assert resolve_pov({}, _canon("first person, Bartholomew Quince")) == (
+        Pov("first person", None)
+    )
+
+
+def test_a_titled_style_character_resolves_through_the_cast():
+    """Review S6: "Dr. Ada Vance" is not a cast form, but its capitalised run
+    resolves once the title is dropped."""
+    canon = _canon(
+        "third person limited, on Dr. Ada Vance",
+        cast=("Ada Vance", "Milo Voss"),
+        aliases={"Ada Vance": ["Dr. Vance"]},
+    )
+    pov = resolve_pov({}, canon)
+    assert pov == Pov("third person limited", "Ada Vance")
+    m = POV_LINE_RE.search(pov_instruction(pov))
+    assert m.group("mode") == "third person limited"
+    assert m.group("who") == "Ada Vance"
+
+
+def test_pov_mode():
+    assert pov_mode("Third-Person Limited, on Milo") == "third person limited"
+    assert pov_mode("close third") is None

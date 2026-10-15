@@ -8,14 +8,14 @@
  * before it, and preflights the whole batch: a batch the budget cannot cover
  * is refused with the estimate rather than stopping halfway. Beats that
  * already have a scene are skipped, so clicking again after a failure picks
- * up where it stopped. Shown only when the chapter has planned beats.
+ * up where it stopped. Shown only when the chapter has planned beats
+ * (`chapter.planned_beats`, the server's only source; SPEC-23).
  */
 
 import { useState } from 'react'
 import { Layers } from 'lucide-react'
 
 import Button from '@/components/Button'
-import { plannedBeats } from '@/components/book/GenerateSceneModal'
 import { useBookStore } from '@/lib/books-store'
 import type { BookChapter, PlannedScenesResponse } from '@/lib/types'
 
@@ -42,7 +42,7 @@ export default function GeneratePlannedScenesButton({
 }) {
   const { generatePlannedScenes } = useBookStore()
   const [busy, setBusy] = useState(false)
-  const beats = plannedBeats(chapter.summary)
+  const beats = chapter.planned_beats ?? []
   if (beats.length === 0) return null
 
   const run = async () => {

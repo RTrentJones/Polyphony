@@ -38,14 +38,20 @@ route, change the spec in the same PR so it stays true. The acceptance criteria 
 | [SPEC-16](SPEC-16-editor-safety.md) | Editor safety net: unsaved-changes guard, local draft autosave, modal revision preview | B1, B13 (editor) | S | — | ✅ |
 | [SPEC-17](SPEC-17-voice-attribution.md) | Voice samples are the character's own words | B2 | M | SPEC-09, SPEC-11, SPEC-14 | ✅ |
 | [SPEC-18](SPEC-18-beat-prose-and-outline-beats.md) | Beat-level prose prompt and outline beats prompt | B5, B11, relay prior-tail finding | M | — | ✅ |
-| [SPEC-19](SPEC-19-scene-revise.md) | AI revision of a scene (backend) | B3 (API + job) | L | SPEC-07, SPEC-08, SPEC-12 | ✅ (API; editor UI is W2-A) |
+| [SPEC-19](SPEC-19-scene-revise.md) | AI revision of a scene (backend) | B3 (API + job) | L | SPEC-07, SPEC-08, SPEC-12 | ✅ (editor UI: SPEC-25) |
 | [SPEC-20](SPEC-20-book-page-phone-and-export.md) | Book page at phone width, and the export dialog | B4, B9 (UI) | S | SPEC-21 | ✅ |
-| [SPEC-21](SPEC-21-manuscript-hygiene.md) | Manuscript hygiene: clean export, honest outline warnings, upload types | B9 (backend), B14, relay invented-names finding | S | — | ✅ (promote-time title cleanup waits for wave 2) |
+| [SPEC-21](SPEC-21-manuscript-hygiene.md) | Manuscript hygiene: clean export, honest outline warnings, upload types | B9 (backend), B14, relay invented-names finding | S | — | ✅ (promote-time title cleanup: SPEC-23) |
 | [SPEC-22](SPEC-22-eval-harness-v2.md) | Eval harness v2: an eval that tests the product | eval plan §3.5 fixes 1–8 | M | — | ✅ |
+| [SPEC-23](SPEC-23-planned-beats-as-data.md) | Planned beats as data | W2-1 (backend), B9 (promote title), B7 (backend) | L | SPEC-10, SPEC-12, SPEC-13 | ✅ (API; editable beat list is W2-7) |
+| [SPEC-24](SPEC-24-beat-cast-secondaries-pov.md) | Generation prompts: beat cast, named secondaries, POV | W2-1 (prompts), W2-2, W2-4 | L | wave-2 day-0 contracts | ✅ (prose mode; ensemble prompts not covered) |
+| [SPEC-25](SPEC-25-revise-ui.md) | Revise UI, and planned beats read as data in the frontend | W2-3 (B3 UI), W2-1 (frontend) | M+ | SPEC-16, SPEC-19, SPEC-23 | ✅ |
+| [SPEC-26](SPEC-26-character-bible-extraction.md) | Extraction writes a real character bible; beat prompts stop repeating it | W2-5, W2-12 | M | SPEC-09, SPEC-17 | ✅ |
+| [SPEC-28](SPEC-28-eval-harness-v3.md) | Eval harness v3: fair caps, a consistent fixture, contracts for wave 2 | W2-11 (H1–H3, F8, F7) | M | wave-2 day-0 contracts | ✅ |
 
 SPEC-01 to SPEC-15 close review findings (`F…`). SPEC-16 to SPEC-22 are wave 1 of the 2026-10
 cycle: they close product-backlog items (`B…`) and findings from the relay eval run, and SPEC-22
-merged first so the "before" and "after" evals share one harness.
+merged first so the "before" and "after" evals share one harness. SPEC-23 to SPEC-28 are wave 2
+(backlog items `W2-…`); SPEC-28 re-scored the after-wave-1 run as wave 2's "before".
 
 ## Sequencing
 

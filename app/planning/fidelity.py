@@ -14,6 +14,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Optional
+
+from app.parsing.names import mentions, norm
+from app.planning.outline import classify_people, people_refs
 
 _STOP_CAPS = {
     "the",
@@ -151,12 +155,21 @@ _WORD = re.compile(r"[A-Za-z]+")
 _OPENERS = '.!?;:"“(—'
 
 
-def _norm(s: str) -> str:
-    return " ".join((s or "").lower().replace(".", " ").split())
+def canon_known_text(canon) -> str:
+    """The canon's authored text (synopsis + cast + entries + style): every
+    capitalised phrase in it is a known name, not an outline invention."""
+    parts = [getattr(canon, "synopsis", "") or ""]
+    bible = getattr(canon, "bible", None)
+    if callable(bible):
+        parts.append(bible() or "")
+    return "\n".join(p for p in parts if p)
 
 
-def _outline_fields(nodes: list[dict]) -> tuple[list[str], list[str]]:
-    """(titles, everything else) in walk order: the text an outline shows."""
+def flatten_outline(nodes: list[dict]) -> tuple[list[str], list[str]]:
+    """(titles, everything else) an outline shows, in one walk: summaries,
+    pov, premise, the `people` lists (and the legacy `characters` /
+    `secondary_names`) and threads. A declared person is checked too: one the
+    canon never names is an invention, and the warning says so (SPEC-24)."""
     titles: list[str] = []
     body: list[str] = []
 
@@ -165,7 +178,7 @@ def _outline_fields(nodes: list[dict]) -> tuple[list[str], list[str]]:
             val = node.get(key)
             if isinstance(val, str):
                 (titles if key == "title" else body).append(val)
-        for key in ("characters", "threads"):
+        for key in ("people", "characters", "secondary_names", "threads"):
             val = node.get(key)
             if isinstance(val, list):
                 body.extend(str(v) for v in val)
@@ -179,55 +192,17 @@ def _outline_fields(nodes: list[dict]) -> tuple[list[str], list[str]]:
     return titles, body
 
 
-def canon_known_text(canon) -> str:
-    """The canon's authored text (synopsis + cast + entries + style): every
-    capitalised phrase in it is a known name, not an outline invention."""
-    parts = [getattr(canon, "synopsis", "") or ""]
-    bible = getattr(canon, "bible", None)
-    if callable(bible):
-        parts.append(bible() or "")
-    return "\n".join(p for p in parts if p)
-
-
-def flatten_outline(nodes: list[dict]) -> str:
-    """All human-readable text in an outline: titles, summaries, pov, cast names."""
-    parts: list[str] = []
-
-    def walk(node: dict) -> None:
-        for key in ("title", "summary", "pov", "premise_restated", "central_conflict"):
-            val = node.get(key)
-            if isinstance(val, str):
-                parts.append(val)
-        for key in ("characters", "threads"):
-            val = node.get(key)
-            if isinstance(val, list):
-                parts.extend(str(v) for v in val)
-        for child in node.get("children", []) or []:
-            if isinstance(child, dict):
-                walk(child)
-
-    for n in nodes:
-        if isinstance(n, dict):
-            walk(n)
-    return "  ".join(parts)
-
-
-def _present(needle: str, hay_norm: str) -> bool:
-    n = _norm(needle)
-    return bool(n) and re.search(rf"(?<!\w){re.escape(n)}(?!\w)", hay_norm) is not None
-
-
 def principal_recall(
     outline_text: str, principals: list[dict]
 ) -> tuple[float, list[str], list[str]]:
     """Fraction of canon principals present by name OR any alias."""
     if not principals:
         return 1.0, [], []
-    hay = _norm(outline_text)
+    hay = norm(outline_text)
     present, missing = [], []
     for p in principals:
         forms = [p["name"], *p.get("aliases", [])]
-        (present if any(_present(f, hay) for f in forms) else missing).append(p["name"])
+        (present if any(mentions(hay, f) for f in forms) else missing).append(p["name"])
     return round(len(present) / len(principals), 4), present, missing
 
 
@@ -259,6 +234,12 @@ def _candidates(text: str):
             yield words, initial
 
 
+def proper_nouns(text: str) -> set[str]:
+    """The distinct capitalised phrases in `text` (normalised): the
+    denominator of the evals' unknown-name rate."""
+    return {norm(" ".join(words)) for words, _ in _candidates(text)} - {""}
+
+
 def unknown_proper_nouns(
     outline_text: str, known: set[str], *, canon_text: str = ""
 ) -> list[str]:
@@ -272,16 +253,23 @@ def unknown_proper_nouns(
       lowercase in prose ("Meeting That Could Have Been");
     - every word in it is also used in lowercase somewhere in the outline or
       the canon (a common word capitalised by a heading or a sentence: "Desk");
-    - it is one sentence-opening word with a common-word ending ("Following").
+    - it is one word that only ever opens a sentence or field, never seen
+      mid-sentence in the text or the canon ("Silence fell.", "Nobody came").
     `audit_outline` passes outline text WITHOUT chapter/beat titles, so a
     phrase that only ever appears inside a title is skipped too.
     """
-    known_norm = {_norm(k) for k in known if _norm(k)}
+    known_norm = {norm(k) for k in known if norm(k)}
     for words, _initial in _candidates(canon_text):
-        known_norm.add(_norm(" ".join(words)))
+        known_norm.add(norm(" ".join(words)))
     known_tokens = {tok for k in known_norm for tok in k.split()}
     lower_words = {
         w for w in _WORD.findall(f"{outline_text}\n{canon_text}") if w.islower()
+    }
+    mid = {
+        norm(" ".join(words))
+        for text in (outline_text, canon_text)
+        for words, initial in _candidates(text)
+        if not initial
     }
 
     found: dict[str, str] = {}
@@ -291,19 +279,17 @@ def unknown_proper_nouns(
             continue  # title-case fragment
         if all(w in lower_words for w in lowered):
             continue  # common words, capitalised
-        if initial and len(words) == 1 and lowered[0].endswith(("ing", "ed", "ly")):
-            continue
-        norm = _norm(" ".join(words))
-        if norm:
-            found.setdefault(norm, " ".join(words))
+        key = norm(" ".join(words))
+        if initial and len(words) == 1 and key not in mid:
+            continue  # only ever opens a sentence ("Silence fell.")
+        if key:
+            found.setdefault(key, " ".join(words))
     unknown = [
         surface
-        for norm, surface in found.items()
+        for key, surface in found.items()
         if not (
-            all(tok in known_tokens for tok in norm.split())
-            or any(
-                norm == k or norm in k.split() or k in norm.split() for k in known_norm
-            )
+            all(tok in known_tokens for tok in key.split())
+            or any(key == k or key in k.split() or k in key.split() for k in known_norm)
         )
     ]
     return sorted(unknown)
@@ -332,29 +318,30 @@ class FidelityAudit:
         }
 
 
-def _structural_cast(nodes: list[dict], cast) -> tuple[list[str], list[str]]:
-    """(names the top-level structural fields resolve to, entries that resolve
-    to nobody in the cast). `pov` and `characters`/`character_ids` are STRICT
-    cast (R1.5): they name who is in a chapter, so an entry outside the canon is
-    reported per chapter, never left to the advisory proper-noun heuristic."""
+def _structural_cast(
+    nodes: list[dict], cast, known_text: Optional[str]
+) -> tuple[list[str], list[str]]:
+    """(names the top-level people resolve to, per-chapter entries that are
+    neither cast nor a person the canon names). Each chapter's `people` (and
+    legacy `character_ids` / `characters` / `secondary_names`) go through one
+    classify_people call, the rule validation applies (R1.5, SPEC-24): its
+    `invented` entries, plus a `pov` that does not resolve, are reported per
+    chapter, never left to the advisory proper-noun heuristic."""
     names: list[str] = []
     bad: list[str] = []
     for node in nodes:
         if not isinstance(node, dict):
             continue
-        refs = node.get("character_ids")
-        if not isinstance(refs, list):
-            refs = node.get("characters")
-        refs = list(refs) if isinstance(refs, list) else []
-        if isinstance(node.get("pov"), str) and node["pov"].strip():
-            refs.append(node["pov"])
-        outside = []
-        for ref in refs:
-            cid = cast.resolve(ref)
-            if cid is None:
-                outside.append(str(ref))
-            else:
-                names.append(cast.names[cid])
+        people = classify_people(people_refs(node), cast, known_text)
+        outside = list(people.invented)
+        pov = node.get("pov")
+        if isinstance(pov, str) and pov.strip():
+            pid = cast.resolve(pov)
+            if pid is None:
+                outside.append(pov)
+            elif pid not in people.ids:
+                people.ids.append(pid)
+        names.extend(cast.names[cid] for cid in people.ids)
         if outside:
             bad.append(f"{node.get('title', '?')}: {', '.join(outside)}")
     return names, bad
@@ -379,10 +366,11 @@ def audit_outline(
     already uses are never reported as inventions. Titles count toward
     principal recall but not toward the invented-names warning.
     """
-    text = flatten_outline(nodes)
+    titles, body = flatten_outline(nodes)
+    text = "  ".join([*titles, *body])
     structural_bad: list[str] = []
     if cast is not None:
-        names, structural_bad = _structural_cast(nodes, cast)
+        names, structural_bad = _structural_cast(nodes, cast, norm(canon_text))
         text = "  ".join([text, *names])
     recall, present, missing = principal_recall(text, principals)
 
@@ -390,7 +378,6 @@ def audit_outline(
     for p in principals:
         allow.add(p["name"])
         allow.update(p.get("aliases", []))
-    _titles, body = _outline_fields(nodes)
     unknown = unknown_proper_nouns("  ".join(body), allow, canon_text=canon_text)
 
     warnings: list[str] = []

@@ -179,6 +179,8 @@ export interface SceneRequest {
   /** 100–3000; backend default 500. */
   target_word_count: number
   style_notes?: string
+  /** The planned beat this scene was written from (SPEC-23). */
+  planned_beat_id?: string
 }
 
 export type SceneStatus =
@@ -252,6 +254,24 @@ export interface BookSummary {
   genre?: string | null
   status: BookStatus | string
   created_at: string | null
+  /** Progress (SPEC-27): words in live scenes, chapters with a drafted scene,
+   *  completed scenes out of the chapters' planned beats. Absent on an old API. */
+  word_count?: number
+  chapter_count?: number
+  chapters_drafted?: number
+  scenes_drafted?: number
+  scenes_planned?: number
+  /** The most recently edited live scene: the dashboard's "Resume" link. */
+  last_edited_scene?: LastEditedScene | null
+}
+
+/** `BookSummary.last_edited_scene` (SPEC-27). */
+export interface LastEditedScene {
+  id: string
+  title?: string | null
+  chapter_id?: string | null
+  chapter_title?: string | null
+  updated_at?: string | null
 }
 
 /** GET /books/ */
@@ -289,6 +309,26 @@ export interface BookChapter {
   plan_node_id?: string | null
   pov_character_id?: string | null
   character_ids?: string[]
+  /** The chapter's planned scenes as data (SPEC-23). */
+  planned_beats?: PlannedBeat[]
+}
+
+/** One planned scene of a chapter (SPEC-23). */
+export interface PlannedBeat {
+  node_id: string
+  title: string
+  summary: string
+  /** [] = the chapter's cast. */
+  character_ids: string[]
+  secondary_names: string[]
+  setting: string
+  tone: string
+}
+
+/** A person the outline names who is in the synopsis/canon but not the cast (SPEC-24). */
+export interface SuggestedCharacter {
+  name: string
+  synopsis_sentence: string
 }
 
 /** GET /books/{id} */
@@ -346,6 +386,9 @@ export interface ChapterSceneRequest {
   /** 100–3000; backend default 800. */
   target_word_count: number
   style_notes?: string
+  /** The planned beat this scene is written from (SPEC-23): links the scene
+   *  to the beat, so generate-all-planned skips it. */
+  planned_beat_id?: string
 }
 
 /** POST /books/chapters/{id}/scenes/generate response — poll GET /scenes/{scene_id}. */
@@ -367,6 +410,7 @@ export interface ChapterSceneGenerateResponse {
 export interface PlannedScenesRequest {
   character_ids?: string[]
   setting?: string
+  /** Defaults to '' server-side (no injected "neutral" tone). */
   emotional_tone?: string
   target_word_count?: number
   style_notes?: string | null
@@ -720,6 +764,11 @@ export interface PlanNode {
   character_ids?: string[]
   act_index?: number | null
   threads?: string[]
+  /** Named people in the synopsis/canon but not the cast (SPEC-24, §1.1). */
+  secondary_names?: string[]
+  /** A beat child's place and mood (SPEC-24, §1.1); omitted when the model gave none. */
+  setting?: string
+  tone?: string
 }
 
 /** The skeleton the model understood, shown for confirmation before the
@@ -751,6 +800,8 @@ export interface BookPlan {
   premise?: PlanPremise | null
   updated_at: string | null
   job?: JobSummary | null
+  /** Secondary people the outline names who are not in the cast (SPEC-24). */
+  suggested_characters?: SuggestedCharacter[]
 }
 
 /** POST /books/{id}/plans/generate — async (staged) returns status:'generating'
@@ -775,11 +826,13 @@ export interface PromoteNodeResponse {
   plan_node_id?: string | null
   /** False when the node already had a chapter (promote is idempotent). */
   created?: boolean
+  suggested_characters?: SuggestedCharacter[]
 }
 
 export interface PromoteAllResponse {
   chapters: PromoteNodeResponse[]
   created: number
+  suggested_characters?: SuggestedCharacter[]
 }
 
 export type ThreadStatus = 'open' | 'resolved' | 'abandoned'

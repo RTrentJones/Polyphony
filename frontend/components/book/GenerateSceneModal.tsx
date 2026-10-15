@@ -19,33 +19,30 @@ import EstimateHint from '@/components/EstimateHint'
 import Modal from '@/components/Modal'
 import { canonApi } from '@/lib/canon-store'
 import { useBookStore } from '@/lib/books-store'
-import type { BookChapter, Character, ChapterSceneRequest } from '@/lib/types'
+import type {
+  BookChapter,
+  Character,
+  ChapterSceneRequest,
+  PlannedBeat,
+} from '@/lib/types'
 import type { Estimate } from '@/lib/usage-api'
 
-/** The planned beats a promoted chapter carries in its summary (SPEC-10):
- *  each "- title: summary" line after "Planned beats:". */
-export function plannedBeats(summary?: string | null): string[] {
-  if (!summary) return []
-  const at = summary.indexOf('Planned beats:')
-  if (at < 0) return []
-  return summary
-    .slice(at + 'Planned beats:'.length)
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith('- '))
-    .map((line) => line.slice(2).trim())
-    .filter((line) => line.replace(/:$/, '').length > 0)
+/** The scene description a planned beat generates with: "title: summary",
+ *  byte-identical to the server's beat_scene_description (planned_beat.py). */
+export function beatDescription(beat: Pick<PlannedBeat, 'title' | 'summary'>): string {
+  return `${beat.title ?? ''}: ${beat.summary ?? ''}`.trim()
 }
 
+/** '' is "Book's tone": the backend leaves the tone to the canon's style. */
 const TONES = [
-  'neutral',
+  '',
   'tense',
   'joyful',
   'melancholic',
   'suspenseful',
   'romantic',
   'wry',
-] as const
+]
 
 export interface GenerateSceneModalProps {
   bookId: string
@@ -81,7 +78,10 @@ export default function GenerateSceneModal({
   const [selected, setSelected] = useState<string[]>([])
   const [description, setDescription] = useState(initialDescription ?? '')
   const [setting, setSetting] = useState('')
-  const [tone, setTone] = useState<string>('neutral')
+  const [tone, setTone] = useState<string>('')
+  const [beatId, setBeatId] = useState<string | null>(null)
+  // True while a picked beat's cast is left to the server (no toggle since).
+  const [castFromBeat, setCastFromBeat] = useState(false)
   const [povId, setPovId] = useState('')
   const [wordCount, setWordCount] = useState(800)
   const [styleNotes, setStyleNotes] = useState('')
@@ -118,10 +118,8 @@ export default function GenerateSceneModal({
 
   const activeChapter =
     chapter ?? chapters?.find((c) => c.id === chapterId) ?? undefined
-  const beats = useMemo(
-    () => plannedBeats(activeChapter?.summary),
-    [activeChapter?.summary]
-  )
+  // The server's planned beats are the only source (SPEC-23).
+  const beats = activeChapter?.planned_beats ?? []
 
   // A chapter promoted from the outline carries its cast and POV (SPEC-10):
   // pre-select them when the cast loads or the target chapter changes. Only
@@ -136,14 +134,33 @@ export default function GenerateSceneModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingCast, activeChapter?.id])
 
-  const toggle = (id: string) =>
+  // A planned beat fills the description, setting and tone, and links the
+  // scene to the beat by id (SPEC-23), so generate-all-planned never writes it
+  // twice. Its cast is the server's (review W-1), exactly as the batch casts
+  // it: the beat's own cast and anyone it names who is now in the book, else
+  // the chapter's, plus the chapter POV. The picker previews the beat's own
+  // ids; once the author toggles someone, their pick is sent instead.
+  const pickBeat = (beat: PlannedBeat) => {
+    setDescription(beatDescription(beat))
+    if (beat.setting) setSetting(beat.setting)
+    setTone(beat.tone ?? '')
+    const own = beat.character_ids.filter((id) => byId.has(id))
+    if (own.length > 0) setSelected(povId && !own.includes(povId) ? [povId, ...own] : own)
+    setCastFromBeat(true)
+    setBeatId(beat.node_id)
+  }
+
+  const toggle = (id: string) => {
+    setCastFromBeat(false)
     setSelected((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     )
+  }
 
   const handleSubmit = async () => {
     setError(null)
-    if (selected.length === 0) {
+    const serverCast = Boolean(beatId) && castFromBeat
+    if (selected.length === 0 && !serverCast) {
       setError('Pick at least one character from the cast')
       return
     }
@@ -157,10 +174,11 @@ export default function GenerateSceneModal({
     }
     const pov = povId ? byId.get(povId)?.name : undefined
     const request: ChapterSceneRequest = {
-      character_ids: selected,
+      character_ids: serverCast ? [] : selected,
       scene_description: description.trim(),
       setting: setting.trim(),
       emotional_tone: tone,
+      ...(beatId ? { planned_beat_id: beatId } : {}),
       ...(pov ? { pov_character: pov } : {}),
       target_word_count: Math.min(3000, Math.max(100, wordCount || 800)),
       ...(styleNotes.trim() ? { style_notes: styleNotes.trim() } : {}),
@@ -203,7 +221,10 @@ export default function GenerateSceneModal({
             </label>
             <select
               value={chapterId}
-              onChange={(e) => setChapterId(e.target.value)}
+              onChange={(e) => {
+                setChapterId(e.target.value)
+                setBeatId(null)
+              }}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             >
               {chapters.map((c) => (
@@ -260,16 +281,27 @@ export default function GenerateSceneModal({
               <span className="text-xs text-gray-500 self-center">
                 Planned beats:
               </span>
-              {beats.map((beat, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => setDescription(beat)}
-                  className="px-2 py-0.5 text-xs rounded border border-gray-300 text-gray-700 hover:border-primary-300 text-left"
-                >
-                  {beat.length > 60 ? `${beat.slice(0, 57)}…` : beat}
-                </button>
-              ))}
+              {beats.map((beat) => {
+                const text = beatDescription(beat)
+                const extra = [beat.setting, beat.tone].filter(Boolean).join(' · ')
+                return (
+                  <button
+                    key={beat.node_id}
+                    type="button"
+                    onClick={() => pickBeat(beat)}
+                    aria-pressed={beatId === beat.node_id}
+                    title={extra ? `${text}\n${extra}` : text}
+                    className="px-2 py-0.5 text-xs rounded border border-gray-300 text-gray-700 hover:border-primary-300 text-left"
+                  >
+                    {text.length > 60 ? `${text.slice(0, 57)}…` : text}
+                    {extra && (
+                      <span className="block text-[11px] text-gray-400" data-testid="beat-meta">
+                        {extra}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           )}
           <textarea
@@ -299,9 +331,9 @@ export default function GenerateSceneModal({
               onChange={(e) => setTone(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             >
-              {TONES.map((t) => (
+              {(TONES.includes(tone) ? TONES : [...TONES, tone]).map((t) => (
                 <option key={t} value={t}>
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
+                  {t ? t.charAt(0).toUpperCase() + t.slice(1) : "Book's tone"}
                 </option>
               ))}
             </select>

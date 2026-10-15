@@ -175,7 +175,15 @@ async def test_client_sends_book_id_in_the_create_body():
 
 # --- Eval harness v2 (SPEC-22): the cel canon, the product path, the rubrics ---
 
-_RUBRIC_SCORES = {"R1": 1.0, "R2": 0.8, "R3": 0.6, "R4": 0.9, "R5": 0.7, "R6": 0.5}
+_RUBRIC_SCORES = {
+    "R1": 1.0,
+    "R2": 0.8,
+    "R3": 0.6,
+    "R4": 0.9,
+    "R5": 0.7,
+    "R6": 0.5,
+    "RA": 0.8,
+}
 
 
 class _RubricJudge:
@@ -309,22 +317,21 @@ class _ProductClient:
         return {"id": "s2", "status": "completed"}
 
     async def get_scene(self, sid):
+        second = BEAT_B_COPY if sid == "s1" else BEAT_B_CLEAN
         return {
             "status": "completed",
             "content": SCENE_1 if sid == "s1" else SCENE_2,
             "characters": ["Milo Voss", "Zara Okafor"],
             "scene_request": {"scene_description": f"brief {sid}"},
-        }
-
-    async def scene_beats(self, sid, database_url=None):
-        second = BEAT_B_COPY if sid == "s1" else BEAT_B_CLEAN
-        return (
-            [
+            # GET /scenes/{id} carries each inner beat (W1-S9).
+            "beats": [
                 {"beat_number": 0, "description": "Milo signs", "content": BEAT_A},
                 {"beat_number": 1, "description": "Zara warns", "content": second},
             ],
-            "db",
-        )
+        }
+
+    async def scene_beats(self, sid):
+        return (await self.get_scene(sid)).get("beats") or []
 
 
 def _cel_ctx(tmp_path, client, judge=None):
@@ -348,7 +355,8 @@ def test_cel_cast_is_the_real_canon():
     assert "the CEL" in cast["Edric Thane"]["aliases"]
     for c in cast.values():
         assert "from the corpus" not in c["description"]
-        assert c["goals"] and c["voice_characteristics"]["voice"]
+        assert c["goals"] and c["voice_characteristics"]["diction"]
+        assert "voice" not in c["voice_characteristics"]  # F7: no "Voice: voice:"
 
 
 def test_corpora_without_entries_keep_the_placeholder_cast():
@@ -473,7 +481,7 @@ async def test_prose_writes_the_planned_scenes_of_a_two_principal_chapter(tmp_pa
     assert "Bring nothing. Sign nothing." in shown["R2"]
 
 
-def test_r1_requires_the_principals_the_scene_plan_names():
+def test_r1_requires_someone_of_the_cast_on_the_page():
     _, gt = pipeline.load_corpus("cel")
     forms = pipeline._forms(gt)
     scene = {
@@ -484,17 +492,13 @@ def test_r1_requires_the_principals_the_scene_plan_names():
     }
     # Edric is in the chapter's cast but not in this scene's plan.
     checks = pipeline._grade_scene_checks(scene, "", forms)
-    assert "R1" not in checks["caps"] and checks["cast_recall"] == pytest.approx(
-        2 / 3, abs=1e-3
-    )
-    # The plan says the Lich is there; the prose never shows him.
+    assert checks["caps"] == {} and checks["warnings"] == []
+    assert checks["cast_recall"] == pytest.approx(2 / 3, abs=1e-3)
+    # The plan says the Lich is there and the prose never names him: a warning.
     scene["beats"].append({"description": "The Lich summons Milo", "content": ""})
     checks = pipeline._grade_scene_checks(scene, "", forms)
-    assert "Edric Thane" in checks["caps"]["R1"]
-    # A cast with nobody on the page fails whatever the plan says.
-    empty = {**scene, "content": "The office was cold.", "beats": []}
-    empty["description"] = "the office"
-    assert pipeline._grade_scene_checks(empty, "", forms)["caps"]["R1"]
+    assert "R1" not in checks["caps"]
+    assert checks["warnings"] == ["Edric Thane is in the plan but never named"]
 
 
 async def test_prose_falls_back_to_canonical_beat_two(tmp_path):
@@ -528,7 +532,7 @@ async def test_outline_confirms_the_authors_premise_and_caps_r1(tmp_path):
         outline_nodes=[
             {
                 "title": "Elara arrives",
-                "summary": "Elara meets Milo Voss, Zara Okafor and Prava.",
+                "summary": "Milo Voss meets Elara, Zara Okafor and Prava.",
                 "children": [],
             }
         ]
@@ -553,3 +557,346 @@ async def test_outline_score_is_r1_times_mean_r6_r3(tmp_path):
     out = await pipeline.step_outline(_cel_ctx(tmp_path, _ProductClient()))
     assert out["cast_fidelity"] == 1.0 and out["deterministic_failures"] == {}
     assert out["score"] == pytest.approx(1.0 * (0.5 + 0.6) / 2)
+
+
+# --- SPEC-28 (wave 2): H1 cap, F8 fixture, §5.2 deterministic checks ---------------
+
+
+def _cel_forms():
+    return pipeline._forms(pipeline.load_corpus("cel")[1])
+
+
+def _intake_scene(counter):
+    """Milo and Zara are cast, and the plan puts Zara in beat 2."""
+    return {
+        "content": f"Milo blinked at the org chart.\n\n{counter}",
+        "characters": ["Milo Voss", "Zara Okafor"],
+        "description": "Mid-Sentence on a Tuesday",
+        "beats": [{"description": "Zara Okafor tells him to read the appendices"}],
+    }
+
+
+def test_r1_an_unnamed_planned_principal_is_a_warning_not_a_cap():
+    """S4: "the caseworker said" credits nobody, and the cap needs the whole
+    cast absent; the judge's R1 stands."""
+    scene = _intake_scene('"Read the appendices," the caseworker said.')
+    checks = pipeline._grade_scene_checks(scene, "", _cel_forms())
+    assert checks["caps"] == {}
+    assert checks["warnings"] == ["Zara Okafor is in the plan but never named"]
+
+
+def test_r1_is_capped_when_none_of_the_cast_is_named():
+    scene = _intake_scene("The office was cold.")
+    scene["content"] = "The office was cold."
+    checks = pipeline._grade_scene_checks(scene, "", _cel_forms())
+    assert checks["caps"]["R1"] == "none of the scene's cast is on the page"
+
+
+def test_r1_an_honorific_and_surname_name_her():
+    scene = _intake_scene('"Read it," Ms. Okafor said. Zara\'s pen stopped.')
+    checks = pipeline._grade_scene_checks(scene, "", _cel_forms())
+    assert checks["caps"] == {} and checks["warnings"] == []
+    assert checks["cast_recall"] == 1.0
+    assert pipeline.named_in("Ms. Okafor said.", ["Zara Okafor", "Zara"])
+    assert not pipeline.named_in("The okafor file.", ["Zara Okafor"])
+
+
+def test_cel_premise_agrees_with_the_synopsis_ending():
+    """F8: the confirmed premise ends as the synopsis does."""
+    _, gt = pipeline.load_corpus("cel")
+    premise = gt["premise_edit"]["premise_restated"]
+    assert "files it correctly" in premise and "goes onward" in premise
+    assert "end him" not in premise
+    assert "files it correctly" in gt["synopsis"]
+    assert gt["fidelity"]["secondaries"] == ["Prava", "Old Fen"]
+    for name in gt["fidelity"]["secondaries"]:
+        assert name in gt["synopsis"] and name in gt["fidelity"]["known"]
+        assert name not in gt["cast"]
+
+
+def test_extraction_depth_needs_every_principals_fields_and_mention_order():
+    forms = _cel_forms()
+    full = {"description": "d", "goals": "g", "voice_characteristics": {"diction": "x"}}
+    chars = [
+        {"name": "Milo Voss", "mentions": 9, **full},
+        {"name": "Zara", "aliases": ["Zara Okafor"], "mentions": 8, **full},
+        {"name": "Edric Thane", "mentions": 5, **full, "goals": ""},
+    ]
+    out = pipeline.extraction_depth(chars, forms)
+    assert out["principal_fields"] == "2/3"
+    assert out["principal_fields_missing"] == {"Edric Thane": ["goals"]}
+    assert out["mention_order_ok"] is True
+    chars[2].update(goals="g", mentions=12, voice_characteristics={"diction": ""})
+    out = pipeline.extraction_depth(chars, forms)
+    assert out["principal_fields_missing"] == {"Edric Thane": ["voice_characteristics"]}
+    assert out["mention_order_ok"] is False
+    assert out["canonical_names_ok"] == "1/1"  # Edric, the one with a title alias
+    chars[2]["name"] = "Chief Executive Lich"
+    chars[2]["aliases"] = ["Edric Thane"]
+    assert pipeline.extraction_depth(chars, forms)["canonical_names_ok"] == "0/1"
+    out = pipeline.extraction_depth(chars[:2], forms)
+    assert out["mention_order_ok"] is None
+    assert out["principal_fields_missing"]["Edric Thane"] == [
+        "description",
+        "goals",
+        "voice_characteristics",
+    ]
+
+
+async def test_extraction_reports_principal_depth(tmp_path):
+    full = {"description": "d", "goals": "g", "voice_characteristics": {"diction": "x"}}
+    proposals = {
+        "characters": [
+            {"name": "Milo Voss", "mentions": 3, **full},
+            {"name": "Zara Okafor", "mentions": 2, **full},
+            {"name": "Edric Thane", "mentions": 1, **full},
+        ]
+    }
+    _, gt = pipeline.load_corpus("cel")
+    out = await pipeline.step_extraction(_ctx(tmp_path, _FakeClient(proposals), gt))
+    assert out["principal_fields"] == "3/3" and out["mention_order_ok"] is True
+
+
+def test_outline_secondaries_counts_text_and_secondary_names():
+    nodes = [
+        {
+            "title": "Intake",
+            "summary": "Prava onboards Milo.",
+            "children": [{"title": "Records", "secondary_names": ["Old Fen"]}],
+        }
+    ]
+    out = pipeline.outline_secondaries(nodes, ["Prava", "Old Fen"])
+    assert out == {
+        "outline_names_synopsis_secondaries": "2/2",
+        "outline_secondaries_named": ["Prava", "Old Fen"],
+    }
+    assert pipeline.outline_secondaries([], ["Prava"])[
+        "outline_names_synopsis_secondaries"
+    ] == ("0/1")
+
+
+async def test_outline_step_reports_synopsis_secondaries(tmp_path):
+    out = await pipeline.step_outline(_cel_ctx(tmp_path, _ProductClient()))
+    # The default outline names Prava (beat "Intake"), not Old Fen.
+    assert out["outline_names_synopsis_secondaries"] == "1/2"
+
+
+BEAT_INTAKE = {
+    "node_id": "11111111-1111-4111-8111-111111111111",
+    "title": "Intake",
+    "summary": "Prava onboards Milo.",
+    "character_ids": [],
+    "secondary_names": ["Prava"],
+    "setting": "Intake Atrium",
+    "tone": "bureaucratic dread",
+}
+
+
+def test_scene_maps_to_its_planned_beat_and_cast_from_beat():
+    chapter = {"cast": ["Milo Voss", "Zara Okafor"], "pov": "Milo Voss"}
+    beat = {**BEAT_INTAKE, "characters": ["Milo Voss"]}
+    other = {**BEAT_INTAKE, "node_id": "x", "title": "Desk", "characters": []}
+    scene = {"planned_beat_id": BEAT_INTAKE["node_id"], "characters": ["Milo Voss"]}
+    assert pipeline.planned_beat_of(scene, [other, beat]) is beat
+    # Without the id, the scene description is the beat's.
+    scene = {"description": "Intake: Prava onboards Milo.", "characters": ["Milo Voss"]}
+    assert pipeline.planned_beat_of(scene, [other, beat]) is beat
+    assert pipeline.cast_from_beat(scene, beat, chapter) is True
+    # The chapter cast where the beat had its own: wrong.
+    scene["characters"] = ["Milo Voss", "Zara Okafor"]
+    assert pipeline.cast_from_beat(scene, beat, chapter) is False
+    # A beat with no cast takes the chapter's.
+    assert pipeline.cast_from_beat(scene, other, chapter) is True
+    # The POV is always in.
+    no_pov = {**beat, "characters": ["Zara Okafor"]}
+    assert pipeline.cast_from_beat(scene, no_pov, chapter) is True
+    assert pipeline.cast_from_beat(scene, None, chapter) is None
+
+
+class _PlannedBeatsClient(_ProductClient):
+    """The app after SPEC-23: chapters carry planned beats, scene requests the
+    beat's id/setting/tone."""
+
+    async def get_chapter(self, chapter_id):
+        ch = await super().get_chapter(chapter_id)
+        ids = self.ids[self.book]
+        ch["pov_character_id"] = ids["Milo Voss"]
+        ch["planned_beats"] = [
+            {**BEAT_INTAKE, "character_ids": [ids["Milo Voss"]]},
+            {**BEAT_INTAKE, "node_id": "n2", "title": "Desk", "character_ids": []},
+        ]
+        return ch
+
+    async def get_scene(self, sid):
+        scene = await super().get_scene(sid)
+        if sid == "s1":
+            scene["characters"] = ["Milo Voss"]
+            scene["scene_request"].update(
+                planned_beat_id=BEAT_INTAKE["node_id"],
+                setting="Intake Atrium",
+                emotional_tone="bureaucratic dread",
+                pov_character="Milo Voss",
+            )
+        return scene
+
+
+async def test_prose_records_planned_beats_and_judges_with_their_setting(tmp_path):
+    client = _PlannedBeatsClient()
+    judge = _RubricJudge()
+    out = await pipeline.step_prose(_cel_ctx(tmp_path, client, judge))
+    assert [b["title"] for b in out["planned_beats"]] == ["Intake", "Desk"]
+    assert out["planned_beats"][0]["characters"] == ["Milo Voss"]
+    s1, s2 = out["scenes"]
+    assert s1["planned_beat"]["title"] == "Intake" and s1["cast_from_beat"] is True
+    assert s2["planned_beat"] is None and s2["cast_from_beat"] is None
+    assert out["cast_from_beat"] == 1.0
+    assert out["r1_capped_scenes"] == 0
+    assert s1["deterministic_warnings"] == []
+    shown = [c for rid, c in judge.seen if rid == "R1"][0]
+    assert "PLANNED BEAT: Intake" in shown and "BEAT CAST: Milo Voss" in shown
+    assert "SETTING: Intake Atrium" in shown and "TONE: bureaucratic dread" in shown
+    assert "BEAT SECONDARY PEOPLE: Prava" in shown
+
+
+async def test_collect_scene_reads_beats_from_the_scene_api(tmp_path):
+    ctx = _cel_ctx(tmp_path, _PlannedBeatsClient())
+    scene = await pipeline._collect_scene(ctx, "s1")
+    assert [b["description"] for b in scene["beats"]] == ["Milo signs", "Zara warns"]
+    assert scene["planned_beat_id"] == BEAT_INTAKE["node_id"]
+
+
+REVISE_DRAFT = (
+    "Milo initialled the form.\n\n"
+    "Across the partition, very quietly and without any hurry at all, Zara did not "
+    "look up.\n\n"
+    '"Is it always this quiet?" Milo asked.\n\n'
+    '"No," Zara said. "Sometimes it\'s quieter."'
+)
+
+
+def test_revise_requests_address_a_paragraph_an_exchange_and_a_beat():
+    reqs = pipeline.revise_requests(REVISE_DRAFT, has_beats=True)
+    assert [r["id"] for r in reqs] == ["tighten", "colder", "redo_beat"]
+    tighten = reqs[0]["range"]
+    assert REVISE_DRAFT[tighten["start"] : tighten["end"]].startswith("Across")
+    colder = reqs[1]["range"]
+    assert REVISE_DRAFT[colder["start"] : colder["end"]].startswith('"No," Zara')
+    assert reqs[2] == {
+        "id": "redo_beat",
+        "instruction": "Redo beat 2.",
+        "beat_index": 1,
+    }
+    assert "redo_beat" not in [
+        r["id"] for r in pipeline.revise_requests(REVISE_DRAFT, has_beats=False)
+    ]
+
+
+def test_revision_checks_outside_bytes_and_new_names():
+    _, gt = pipeline.load_corpus("cel")
+    start = REVISE_DRAFT.index("Across")
+    end = REVISE_DRAFT.index("look up.") + len("look up.")
+    good = REVISE_DRAFT[:start] + "Zara did not look up." + REVISE_DRAFT[end:]
+    checks, caps = pipeline.revision_checks(REVISE_DRAFT, good, start, end, gt)
+    assert checks["outside_identical"] and checks["new_names"] == [] and caps == {}
+    # A one-word name that only opens a sentence is not reported (NB-1).
+    opener = (
+        REVISE_DRAFT[:start] + "Silence. Zara did not look up." + REVISE_DRAFT[end:]
+    )
+    assert pipeline.revision_checks(REVISE_DRAFT, opener, start, end, gt)[1] == {}
+    invented = REVISE_DRAFT[:start] + "Zara ignored Gorvath." + REVISE_DRAFT[end:]
+    checks, caps = pipeline.revision_checks(REVISE_DRAFT, invented, start, end, gt)
+    assert checks["new_names"] == ["Gorvath"] and "Gorvath" in caps["R5"]
+    leaked = good.replace("Milo initialled", "Milo signed")
+    checks, caps = pipeline.revision_checks(REVISE_DRAFT, leaked, start, end, gt)
+    assert checks["outside_identical"] is False and "RA" in caps
+
+
+class _ReviseClient(_ProductClient):
+    def __init__(self):
+        super().__init__()
+        self.revised: list[dict] = []
+        self.discarded: list[str] = []
+
+    async def get_scene(self, sid):
+        return {"id": sid, "book_id": "book-1", "content": REVISE_DRAFT}
+
+    async def create_scene(self, chapter_id, content="", characters=None):
+        return {"id": "rev-scene"}
+
+    async def revise_draft(self, sid):
+        return REVISE_DRAFT
+
+    async def revise(self, scene_id, body):
+        self.revised.append(body)
+        start, end = body["range"]["start"], body["range"]["end"]
+        span = REVISE_DRAFT[start:end]
+        new = span.replace(" very quietly and without any hurry at all,", "")
+        proposal = {
+            "id": f"p{len(self.revised)}",
+            "content": REVISE_DRAFT[:start] + new + REVISE_DRAFT[end:],
+            "range": [start, end],
+            "status": "proposed",
+        }
+        return {
+            "job": {"status": "completed"},
+            "proposal": proposal,
+            "draft": REVISE_DRAFT,
+        }
+
+    async def discard_proposal(self, scene_id, revision_id):
+        self.discarded.append(revision_id)
+
+
+async def test_revise_step_grades_each_revision(tmp_path):
+    client = _ReviseClient()
+    judge = _RubricJudge()
+    ctx = _cel_ctx(tmp_path, client, judge)
+    await ctx.client.create_book("x", "s")  # book-1 for the canon block
+    out = await pipeline.step_revise(ctx)
+    assert out["scene"] == "created scene (no beats)"
+    assert [r["id"] for r in out["revisions"]] == ["tighten", "colder"]
+    assert out["outside_identical"] == "2/2" and out["new_names"] == []
+    assert out["score"] == pytest.approx((0.8 + 0.7) / 2)
+    assert client.discarded == ["p1", "p2"]
+    seen = [c for rid, c in judge.seen if rid == "RA"][0]
+    assert "INSTRUCTION: Tighten this paragraph" in seen
+    assert (
+        "PASSAGE AFTER REVISION:\nAcross the partition, Zara did not look up." in seen
+    )
+
+
+async def test_revise_step_scores_a_refused_revision_zero_and_goes_on(tmp_path):
+    class Refusing(_ReviseClient):
+        async def revise(self, scene_id, body):
+            if "colder" in body["instruction"]:
+                raise EvalClientError("revise failed (409): The beat was edited")
+            return await super().revise(scene_id, body)
+
+    client = Refusing()
+    ctx = _cel_ctx(tmp_path, client)
+    await ctx.client.create_book("x", "s")
+    out = await pipeline.step_revise(ctx)
+    tighten, colder = out["revisions"]
+    assert colder["score"] == 0.0 and "409" in colder["error"]
+    assert tighten["outside_identical"] is True
+    assert out["score"] == pytest.approx((0.75 + 0.0) / 2)
+
+
+def test_portable_outline_swaps_ids_in_beat_children_too():
+    """Beats carry their own cast since wave 2; ids from another book must not
+    reach a strict outline PUT (it 400s: 'Not in this book's cast')."""
+    from evals.steps.pipeline import portable_outline
+
+    ids = {"Milo Voss": "m1", "Zara Okafor": "z1"}
+    nodes = [
+        {
+            "title": "One",
+            "character_ids": ["m1", "foreign"],
+            "children": [{"title": "Intake", "character_ids": ["z1", "foreign"]}],
+        }
+    ]
+    out = portable_outline(nodes, ids)
+    assert out[0]["characters"] == ["Milo Voss"]
+    child = out[0]["children"][0]
+    assert "character_ids" not in child and child["characters"] == ["Zara Okafor"]
+    assert nodes[0]["children"][0]["character_ids"] == ["z1", "foreign"]  # input kept

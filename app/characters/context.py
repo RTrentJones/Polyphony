@@ -1,8 +1,9 @@
 """Per-character voice-context assembly for scene generation.
 
 Prose mode writes a whole beat in ONE LLM call, so each involved character's
-voice grounding (bible fields + retrieved voice samples) is assembled into a
-compact context block instead of driving per-turn calls.
+voice grounding (retrieved voice samples; the bible itself rides in the canon
+block, SPEC-26) is assembled into a compact context block instead of driving
+per-turn calls.
 
 The cast arrives as Character ROWS, already resolved and validated against the
 book at the API (SPEC-01). It used to arrive as free-text names, and a name that
@@ -20,6 +21,7 @@ from sqlalchemy import select
 from app.core.database import get_async_session
 from app.core.llm_text import as_quoted_block, clean_for_llm
 from app.core.orm_models import Character
+from app.core.prompt_markers import NAME_HEADING, VOICE_SAMPLES_LABEL
 from app.rag.store import get_chunk_store
 
 # A grounding record keeps a bounded excerpt of each sample's text as it was at
@@ -111,10 +113,17 @@ async def build_character_context(
     chunk_types: Optional[Iterable[str]] = None,
     grounding: Optional[list] = None,
     cast: Optional[Iterable] = None,
+    bible: bool = False,
 ) -> str:
-    """One character's context block: bible summary, then their own words
+    """One character's context block: their name, then their own words
     ("Voice samples") and how they move ("How they move"), retrieved separately
     (SPEC-17).
+
+    `bible=True` also renders the bible summary (role, description, goals, arc,
+    voice) under the name. Beat prose and revise leave it off: their prompts
+    already carry the whole canon (`canon.full_block()`, BRD R1.1), so a second
+    copy per beat character only spent tokens (SPEC-26 P8). The ensemble agent
+    has no canon block and asks for it.
 
     `grounding`, when given, collects the retrieved chunks (id, score and a
     bounded text excerpt) so the caller can record which samples grounded this
@@ -123,28 +132,11 @@ async def build_character_context(
     of them rather than this character is left out. `chunk_types`, when given,
     limits both blocks to those types.
     """
-    lines = [f"### {name}"]
+    lines = [f"{NAME_HEADING}{name}"]
     if character is None:
         return "\n".join(lines)
-    # The bible arrives whole. These fields used to be sliced to 300/200/200
-    # chars — the same silent-truncation habit that cut the synopsis to 6.5%
-    # (docs/BRD.md §1). A full cast entry is ~500 tokens against a 1M window.
-    for attr, label in (
-        ("role", "Role"),
-        ("description", "Description"),
-        ("goals", "Goals"),
-        ("arc", "Arc"),
-    ):
-        value = getattr(character, attr, None)
-        if value:
-            lines.append(f"{label}: {clean_for_llm(value)}")
-    voice = getattr(character, "voice_characteristics", None)
-    if voice:
-        from app.planning.canon import _render_json_field
-
-        rendered = _render_json_field(voice)
-        if rendered:
-            lines.append(f"Voice: {rendered}")
+    if bible:
+        lines.extend(_bible_lines(character))
     if max_samples <= 0:
         return "\n".join(lines)
     words, movement = await _voice_and_movement(
@@ -169,12 +161,37 @@ async def build_character_context(
     return "\n".join(lines)
 
 
-# The prompt labels (SPEC-17). Only the character's own words sit under the
+def _bible_lines(character: Character) -> list[str]:
+    """Role / Description / Goals / Arc / Voice lines, whole.
+
+    The bible arrives whole. These fields used to be sliced to 300/200/200
+    chars — the same silent-truncation habit that cut the synopsis to 6.5%
+    (docs/BRD.md §1). A full cast entry is ~500 tokens against a 1M window.
+    """
+    lines: list[str] = []
+    for attr, label in (
+        ("role", "Role"),
+        ("description", "Description"),
+        ("goals", "Goals"),
+        ("arc", "Arc"),
+    ):
+        value = getattr(character, attr, None)
+        if value:
+            lines.append(f"{label}: {clean_for_llm(value)}")
+    voice = getattr(character, "voice_characteristics", None)
+    if voice:
+        from app.planning.canon import _render_json_field
+
+        rendered = _render_json_field(voice, "Voice")
+        if rendered:
+            lines.append(f"Voice: {rendered}")
+    return lines
+
+
+# The prompt labels (SPEC-17; VOICE_SAMPLES_LABEL is a marker, so it lives in
+# app.core.prompt_markers). Only the character's own words sit under the
 # voice label — dialogue the attributor credited to them, or first-person
 # narration of their own section (SPEC-09). Everything else is movement.
-VOICE_SAMPLES_LABEL = (
-    "Voice samples (their own words — match cadence, diction, syntax):"
-)
 MOVEMENT_LABEL = "How they move:"
 _MOVEMENT_SAMPLES = 3
 # Ensemble agents are grounded on how they SPEAK and how they MOVE separately
@@ -225,34 +242,33 @@ _LEAD_NAME = re.compile(
 def _centres(
     text: str, name: str, cast: Optional[Iterable] = None, aliases=None
 ) -> bool:
-    """Does this narration centre the character? Yes when they are the subject
-    of its first sentence, or when no one else from the cast — and no other
-    proper name — appears in it. "Milo Voss read the appendices. Zara Okafor
-    watched him read them." centres Milo, not Zara (SPEC-17)."""
+    """Does this narration centre the character (SPEC-17)? When its first
+    sentence opens with them, or with another cast member, that subject
+    decides: "Milo Voss read the appendices. Zara Okafor watched him read
+    them." centres Milo, not Zara. Otherwise it centres them unless it names
+    another cast member. Places and other proper names never disqualify it:
+    "Milo walked the Marrow District at dusk" is Milo's (wave-1 review S2)."""
     from app.parsing.names import match
 
     own = _forms({"name": name, "aliases": aliases or []})
+    own_low = {f.lower() for f in own}
+    others = [
+        f
+        for member in cast or []
+        if (member.get("name") if isinstance(member, dict) else member.name) != name
+        for f in _forms(member)
+        if f.lower() not in own_low
+    ]
     first = re.split(r"(?<=[.!?])\s+", text.strip(), maxsplit=1)[0]
     lead = _LEAD_NAME.match(first)
     if lead:
         words = lead.group(1).split()
         # "Then Milo …": try the name with leading words dropped as well.
-        if any(match(" ".join(words[i:]), f) for i in range(len(words)) for f in own):
-            return True
-    own_low = {f.lower() for f in own}
-    for member in cast or []:
-        m_name = member.get("name") if isinstance(member, dict) else member.name
-        if m_name == name:
-            continue
-        if any(f.lower() not in own_low and _names_in(text, f) for f in _forms(member)):
-            return False
-    # A proper name that is not theirs, past a sentence's first word, is
-    # someone (or somewhere) else the passage may be about.
-    for sentence in re.split(r"(?<=[.!?])\s+", text.strip()):
-        for word in re.findall(r"(?<=\s)[A-Z][\w'-]*", sentence):
-            if word != "I" and word.lower() not in own_low:
-                return False
-    return True
+        tails = [" ".join(words[i:]) for i in range(len(words))]
+        for forms, centred in ((own, True), (others, False)):
+            if any(match(t, f) for t in tails for f in forms):
+                return centred
+    return not any(_names_in(text, f) for f in others)
 
 
 async def _voice_and_movement(
@@ -355,8 +371,11 @@ async def build_cast_context(
     beat_description: str,
     *,
     grounding: Optional[list] = None,
+    bible: bool = False,
 ) -> str:
-    """Fenced context blocks for every character in a beat.
+    """Fenced context blocks for every character in a beat: name, voice samples,
+    movement. No bible fields by default — beat prose and revise send the whole
+    canon alongside this, and it already holds them (SPEC-26 P8).
 
     Each block is story material (bible text and voice samples can originate in
     an uploaded file), so it is fenced with `as_quoted_block`
@@ -370,6 +389,7 @@ async def build_cast_context(
             beat_description,
             grounding=grounding,
             cast=characters,
+            bible=bible,
         )
         blocks.append(as_quoted_block(block, "character"))
     return "\n\n".join(b for b in blocks if b)
@@ -382,16 +402,23 @@ async def build_agent_context(
     *,
     k: int = 3,
     grounding: Optional[list] = None,
+    cast: Optional[Iterable] = None,
 ) -> str:
     """A character agent's fenced context: bible, then <voice> (their own words)
     and <physicality> (action/description) samples retrieved separately
-    (SPEC-14, SPEC-17). <voice> never falls back to narration."""
-    bio = await build_character_context(character, name, beat_description, 0)
+    (SPEC-14, SPEC-17). <voice> never falls back to narration. `cast` is the
+    scene's cast: physicality that centres another member is left out."""
+    # The ensemble prompt has no canon block, so the agent keeps its bible.
+    bio = await build_character_context(
+        character, name, beat_description, 0, bible=True
+    )
     blocks = [as_quoted_block(bio, "character")]
     if character is None:
         return "\n\n".join(b for b in blocks if b)
 
-    voice, body = await _voice_and_movement(character, beat_description, k, k)
+    voice, body = await _voice_and_movement(
+        character, beat_description, k, k, cast=cast
+    )
     if grounding is not None:
         grounding.extend(grounding_entries(character, [*voice, *body]))
     if voice:

@@ -5,6 +5,8 @@ the domain row stays 'processing' and the assertion is: response contract
 unchanged + a matching jobs row committed alongside the domain row.
 """
 
+from uuid import uuid4
+
 import pytest
 from sqlalchemy import select
 
@@ -99,14 +101,21 @@ class TestPlannedScenesEnqueueAChain:
         chapter = (
             await client.post(
                 f"/api/v1/books/{book['id']}/chapters",
-                json={
-                    "title": "C1",
-                    "summary": "Opening.\n\nPlanned beats:\n- Storm: the moor floods"
-                    "\n- Shelter: Mina finds a barn",
-                },
+                json={"title": "C1", "summary": "Opening."},
                 headers=auth_headers,
             )
         ).json()
+        r = await client.patch(
+            f"/api/v1/books/chapters/{chapter['id']}",
+            json={
+                "planned_beats": [
+                    {"node_id": str(uuid4()), "title": "Storm", "summary": "floods"},
+                    {"node_id": str(uuid4()), "title": "Shelter", "summary": "barn"},
+                ]
+            },
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
         url = f"/api/v1/books/chapters/{chapter['id']}/scenes/generate-planned"
         body = {"character_ids": [mina["id"]]}
         r = await client.post(url, json=body, headers=auth_headers)

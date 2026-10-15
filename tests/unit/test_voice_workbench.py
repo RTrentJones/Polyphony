@@ -443,3 +443,27 @@ async def test_voice_samples_write_only_voice_chunks(
             headers=auth_headers,
         )
     assert r.status_code == 200 and r.json()["indexed"] == 2
+
+
+async def test_grounding_endpoint_lists_stored_beats_without_a_record(
+    client, auth_headers, async_session, test_book
+):
+    """SPEC-25: "Redo beat N" needs every stored beat, recorded grounding or not."""
+    from app.core.orm_models import SceneBeat
+
+    scene = Scene(user_id=test_book.user_id, book_id=test_book.id, status="completed")
+    async_session.add(scene)
+    await async_session.commit()
+    for n, d in ((2, "She leaves."), (1, "He arrives.")):
+        async_session.add(SceneBeat(scene_id=scene.id, beat_number=n, description=d))
+    await async_session.commit()
+
+    r = await client.get(
+        f"/api/v1/books/scenes/{scene.id}/grounding", headers=auth_headers
+    )
+    assert r.status_code == 200
+    assert r.json()["recorded"] is False
+    assert r.json()["beats"] == [
+        {"beat_index": 1, "description": "He arrives.", "characters": []},
+        {"beat_index": 2, "description": "She leaves.", "characters": []},
+    ]

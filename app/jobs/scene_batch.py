@@ -1,8 +1,12 @@
 """Generate every planned scene of a chapter, one after another (SPEC-10 follow-up).
 
-A promoted chapter carries its outline node's children as "Planned beats:" in
-its summary (app/api/plans.py `_promote_node`); the generate-scene modal offers
-each as a one-click description. "Generate all planned scenes" writes them all.
+A promoted chapter carries its outline node's children as DATA in
+`chapters.planned_beats` (SPEC-23; app/api/plans.py `_promote_node`), each with
+its own cast, setting and tone; the generate-scene modal offers each as a
+one-click description. "Generate all planned scenes" writes them all. A scene
+written from a beat carries the beat's id (`scene_request.planned_beat_id`;
+migration 0019 linked the scenes written before SPEC-23), and that id is the
+only thing that says a beat is written.
 
 The scenes must run IN ORDER, each seeing the one before: a scene job reads its
 prior scene's tail from the DB when it starts (`handlers._scene_inputs`). The
@@ -20,7 +24,6 @@ repeat request while any scene of the batch is in flight returns that batch.
 
 from __future__ import annotations
 
-from collections import Counter
 from typing import Optional
 from uuid import UUID
 
@@ -34,29 +37,8 @@ from app.jobs import repository as jobs_repo
 
 logger = setup_logging("jobs.scene_batch")
 
-PLANNED_BEATS_MARKER = "Planned beats:"
 # Scenes in these states do not count as "this beat is already written".
 _RETRYABLE_STATUSES = ("failed", "cancelled")
-
-
-def planned_beats(summary: Optional[str]) -> list[str]:
-    """The planned beats a promoted chapter carries in its summary: each
-    "- title: summary" line after "Planned beats:". Mirrors the frontend's
-    `plannedBeats` (GenerateSceneModal.tsx) so the button and the modal agree."""
-    if not summary:
-        return []
-    at = summary.find(PLANNED_BEATS_MARKER)
-    if at < 0:
-        return []
-    beats = []
-    for line in summary[at + len(PLANNED_BEATS_MARKER) :].split("\n"):
-        line = line.strip()
-        if not line.startswith("- "):
-            continue
-        beat = line[2:].strip()
-        if beat.rstrip(":").strip():
-            beats.append(beat)
-    return beats
 
 
 def batch_key(user_id: UUID, chapter_id: UUID) -> str:
@@ -79,32 +61,23 @@ async def find_active_batch_job(session: AsyncSession, key: str) -> Job | None:
     ).scalar_one_or_none()
 
 
-async def written_beats(session: AsyncSession, chapter_id: UUID) -> Counter[str]:
-    """How many live (not failed/cancelled) scenes in the chapter carry each
-    description. Counted, not a set: two planned beats can read the same."""
-    rows = (
+async def written_beat_ids(session: AsyncSession, chapter_id: UUID) -> set[str]:
+    """The planned_beat_id of every live (not failed/cancelled) scene in the
+    chapter: the beats already written (planned_beat.unwritten_beats)."""
+    requests = (
         await session.execute(
-            select(Scene.scene_description).where(
+            select(Scene.scene_request).where(
                 Scene.chapter_id == chapter_id,
                 Scene.deleted_at.is_(None),
                 Scene.status.notin_(_RETRYABLE_STATUSES),
             )
         )
     ).scalars()
-    return Counter((d or "").strip() for d in rows)
-
-
-def unwritten_beats(beats: list[str], written: Counter[str]) -> list[str]:
-    """The planned beats still without a scene, matched by occurrence: a beat
-    that appears twice needs two scenes before both count as written."""
-    left = Counter(written)
-    todo = []
-    for beat in beats:
-        if left[beat.strip()] > 0:
-            left[beat.strip()] -= 1
-        else:
-            todo.append(beat)
-    return todo
+    return {
+        str(r["planned_beat_id"])
+        for r in requests
+        if isinstance(r, dict) and r.get("planned_beat_id")
+    }
 
 
 async def add_scene_job(
