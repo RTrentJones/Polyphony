@@ -444,6 +444,14 @@ class Scene(Base):
         order_by="SceneRevision.created_at",
     )
 
+    @property
+    def draft(self) -> str:
+        """The draft: the raw text the editor loads and saves (the author's edit
+        wins over the generation), edge whitespace kept so a save, a revision
+        splice and their snapshots round-trip it byte for byte. The export trims
+        it (`exports.builder.scene_text`)."""
+        return self.content or self.generated_content or ""
+
     # Indexes
     __table_args__ = (
         Index("idx_scenes_user_id", "user_id"),
