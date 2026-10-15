@@ -17,7 +17,6 @@ import Input from '@/components/Input'
 import Loading from '@/components/Loading'
 import EstimateHint from '@/components/EstimateHint'
 import Modal from '@/components/Modal'
-import { useBook } from '@/components/book/BookProvider'
 import { canonApi } from '@/lib/canon-store'
 import { useBookStore } from '@/lib/books-store'
 import type {
@@ -34,17 +33,6 @@ export const generateBlocker = (book: Pick<BookDetail, 'chapters' | 'character_c
   !book ? null : book.chapters.length === 0 ? 'Add a chapter first'
     : book.character_count === 0 ? 'Add characters to cast a scene' : null
 export const GENERATE_BLOCKER_ID = 'generate-blocker'
-
-/** `generateBlocker` for the loaded book. Characters are added in other tabs
- *  without refetching the book, so a zero count is rechecked on mount. */
-export function useGenerateBlocker(): string | null {
-  const { book, refreshBook } = useBook()
-  useEffect(() => {
-    if (book?.character_count === 0) refreshBook().catch(() => undefined)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  return generateBlocker(book)
-}
 
 /** The scene description a planned beat generates with: "title: summary",
  *  byte-identical to the server's beat_scene_description (planned_beat.py). */

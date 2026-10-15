@@ -58,7 +58,7 @@ export default function CanonPanel({
 }) {
   const { bookId, book, characters, refreshBook, refreshCharacters } = useBook()
   const synopsis = book?.synopsis
-  /** Refetch the book so the header synopsis reflects an edit/restore. */
+  /** Refetch the book: the header synopsis and the cast count (SPEC-32). */
   const onBookChanged = () => {
     refreshBook().catch(() => undefined)
   }
@@ -264,7 +264,7 @@ export default function CanonPanel({
                       try {
                         await canonApi.deleteCharacter(c.id)
                         addToast('Character moved to the Trash', 'success')
-                        load()
+                        reloadAll()
                       } catch (err: any) {
                         addToast(err.message || 'Delete failed', 'error')
                       }
@@ -419,7 +419,7 @@ export default function CanonPanel({
               setCharEdit(null)
               setCharAdd(false)
               addToast('Character saved', 'success')
-              load()
+              reloadAll()
             } catch (err: any) {
               addToast(err.message || 'Failed to save character', 'error')
             }

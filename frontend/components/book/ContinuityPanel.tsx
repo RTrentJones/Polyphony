@@ -46,7 +46,7 @@ function FindingRow({ finding, bookId }: { finding: ContinuityFinding; bookId: s
           “{finding.quote}”{' '}
           {finding.scene_id ? (
             <Link
-              href={`/books/editor?book=${bookId}&scene=${finding.scene_id}&q=${encodeURIComponent(finding.quote)}`}
+              href={`/books/editor?book=${bookId}&scene=${finding.scene_id}`}
               className="not-italic font-medium underline"
             >
               Open in editor

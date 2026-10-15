@@ -316,12 +316,10 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
     if "continuity editor" in prompt:
         # One minor finding quoting the first sentence of the first scene: a
         # located finding for the journey to open in the editor (SPEC-31).
-        from app.planning.continuity import SCENE_MARKER
-
-        marker = re.sub(r"\\\{\w+\\\}", "[^\n]*", re.escape(SCENE_MARKER))
-        m = re.search(f"<prose>\n{marker}\n([^\n]*?[.!?](?=\\s|$)|[^\n]+)", prompt)
+        body = prompt.split("<prose>\n", 1)[1].split("\n", 2)[1]
+        quote = re.split(r"(?<=[.!?])\s", body, maxsplit=1)[0][:200]
         found = {"type": "other", "severity": "minor", "detail": "Stub finding."}
-        return json.dumps({"findings": [{**found, "quote": m[1][:200]}] if m else []})
+        return json.dumps({"findings": [{**found, "quote": quote}]})
     if "narrative planner" in prompt:
         return json.dumps(
             [

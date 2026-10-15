@@ -10,7 +10,7 @@ import { Film, Trash2, Wand2 } from 'lucide-react'
 import Button from '@/components/Button'
 import GenerateSceneModal, {
   GENERATE_BLOCKER_ID,
-  useGenerateBlocker,
+  generateBlocker,
 } from '@/components/book/GenerateSceneModal'
 import Card from '@/components/Card'
 import Loading from '@/components/Loading'
@@ -30,14 +30,14 @@ export default function ScenesPanel({
   addToast: (message: string, type: ToastType) => void
 }) {
   const router = useRouter()
-  const { bookId, chapters } = useBook()
+  const { bookId, book, chapters } = useBook()
   const [scenes, setScenes] = useState<BookSceneSummary[]>([])
   const [loading, setLoading] = useState(true)
   // Live job status per scene, from its badge: the list is fetched once, but a
   // pause should read as a pause as soon as it happens.
   const [liveStatus, setLiveStatus] = useState<Record<string, string>>({})
   const [genOpen, setGenOpen] = useState(false)
-  const blocker = useGenerateBlocker()
+  const blocker = generateBlocker(book)
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async () => {

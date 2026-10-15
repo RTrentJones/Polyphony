@@ -1,13 +1,18 @@
-import { screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
+import CanonPanel from '@/components/CanonPanel'
+import { BookContext } from '@/components/book/BookProvider'
 import ChaptersSection from '@/components/book/ChaptersSection'
 import ScenesPanel from '@/components/book/ScenesPanel'
 import type { BookChapter, BookDetail } from '@/lib/types'
 import { bookValue, renderWithBook } from './bookContext'
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
-vi.mock('@/lib/canon-store', () => ({ canonApi: { listCharacters: vi.fn() } }))
+vi.mock('@/lib/canon-store', () => ({
+  canonApi: { listCharacters: vi.fn(), getCanon: vi.fn().mockResolvedValue({ entries: [], style: null }), createCharacter: vi.fn() },
+}))
 vi.mock('@/lib/books-store', () => ({
   useBookStore: () => ({ chapterDetails: {}, generatePlannedScenes: vi.fn() }),
   booksApi: { listBookScenes: vi.fn().mockResolvedValue([]) },
@@ -51,6 +56,27 @@ describe('ChaptersSection rows (SPEC-32)', () => {
       expect(button).toBeDisabled()
       expect(button).toHaveAttribute('aria-describedby', reason.id)
     }
+  })
+
+  it('enables Generate once the first character is added in Canon (refreshBook)', async () => {
+    function Book() {
+      const [b, setB] = useState(book(0))
+      const refreshBook = vi.fn(async () => (setB(book(1)), b))
+      return (
+        <BookContext.Provider value={bookValue({ chapters, book: b, refreshBook })}>
+          <CanonPanel addToast={vi.fn()} />
+          <ChaptersSection onSceneGenerated={vi.fn()} addToast={vi.fn()} />
+        </BookContext.Provider>
+      )
+    }
+    render(<Book />)
+    const row = screen.getAllByTestId('chapter-row')[0]
+    const generate = within(row).getByRole('button', { name: 'Generate scene' })
+    expect(generate).toBeDisabled()
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Add' }))[0])
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Milo Voss' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(generate).toBeEnabled())
   })
 
   it('disables the Scenes tab Generate until the book has a chapter', async () => {

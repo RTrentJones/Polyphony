@@ -1,7 +1,7 @@
 /**
  * Scene Editor Page — edit a scene's draft prose with revision history.
  *
- * /books/editor?scene=<sceneId>&book=<bookId>[&q=<continuity quote to select, SPEC-31>]
+ * /books/editor?scene=<sceneId>&book=<bookId>
  *
  * Safety net (SPEC-16): leaving with unsaved changes asks first
  * (useUnsavedChangesGuard), and the text autosaves to a local draft that is
@@ -32,7 +32,6 @@ import {
   type SceneDraft,
 } from '@/lib/draft-store'
 import { useUnsavedChangesGuard } from '@/lib/useUnsavedChangesGuard'
-import { findQuote } from '@/lib/text-offsets'
 import type { Scene, SceneRevision } from '@/lib/types'
 import { formatRelativeTime } from '@/lib/utils'
 
@@ -175,18 +174,6 @@ function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: stri
     }
     load()
   }, [sceneId, loadRevisions])
-
-  // Select the ?q= quote once the draft has loaded; a miss does nothing.
-  const quote = useSearchParams().get('q') || ''
-  useEffect(() => {
-    const el = textareaRef.current
-    const range = !isLoading && el && quote ? findQuote(el.value, quote) : null
-    if (!el || !range) return
-    if (!range) return
-    el.focus()
-    el.setSelectionRange(range[0], range[1])
-    el.scrollTop = (el.scrollHeight * range[0]) / el.value.length - el.clientHeight / 2
-  }, [isLoading, quote])
 
   const isDirty = content !== savedContent
   const wordCount = countWords(content)

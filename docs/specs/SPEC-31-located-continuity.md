@@ -35,7 +35,7 @@ against "the <prior> tail and the earlier findings" on the first chunk, where ne
   [Ch {chapter} "{chapter_title}" › Scene {scene} "{scene_title}"]
   ```
 
-  (`SCENE_MARKER`; the stub LLM imports it from here). A `Chunk` is `(text, scenes)`, where each
+  (`SCENE_MARKER`). A `Chunk` is `(text, scenes)`, where each
   scene carries the text of its piece in that chunk. `chunk_prose` is deleted.
 
 ### Resume
@@ -70,26 +70,23 @@ against "the <prior> tail and the earlier findings" on the first chunk, where ne
   sentence are both absent, so the first chunk's prompt neither carries nor mentions them. No
   prompt_contract check is needed (wave-3 plan, Could 2).
 
-### Panel and editor (frontend)
+### Panel (frontend)
 
 - `FindingRow` (`ContinuityPanel.tsx`) shows the quote under the detail. With a `scene_id` it adds
-  an **"Open in editor"** link to `/books/editor?book=<bookId>&scene=<scene_id>&q=<quote,
-  URI-encoded>`; with a quote and no `scene_id` it says **"could not locate"**. A pre-SPEC-31
-  finding renders its detail only. The `Ref:` line is deleted.
-- `findQuote(text, quote): [start, end] | null` (`lib/text-offsets.ts`) finds the quote in the
-  draft with the server's matching rule (any whitespace run matches any other; outer quotation
-  marks ignored) and returns UTF-16 offsets for `setSelectionRange`.
-- The editor reads `?q=` and, once the draft has loaded, selects the first match, focuses the
-  textarea and scrolls it to the selection, once. "Revise selection…" (SPEC-25) is then one click
-  away. A miss does nothing.
+  an **"Open in editor"** link to `/books/editor?book=<bookId>&scene=<scene_id>`; with a quote and
+  no `scene_id` it says **"could not locate"**. A pre-SPEC-31 finding renders its detail only. The
+  `Ref:` line is deleted.
 
 ### Stub LLM
 
 - The continuity branch of `evals/stub_llm.py` answers one `minor` finding quoting the first
-  sentence after the first marker in `<prose>`, so the journey has a located finding to open.
+  sentence of the line after the first marker in `<prose>`, so the journey has a located finding to open.
 
 ## Not done (and why)
 
+- Selecting the quote in the editor (backlog cut line 2, code-gate NB-1): the panel shows the
+  quote and the editor opens its scene, so the author finds it with the browser's search. A client
+  copy of the server's quote-matching rule would have to be kept in step with `_normal`.
 - "Mark fixed" / "Intentional (ignore)" with suppression across runs: W3-11, deferred.
 - The eval harness's own reading of findings (`evals/graders/continuity.py`'s `refs` text,
   `pipeline._finding_quote`'s `refs` fallback) belongs to the harness package (E4a).
@@ -109,21 +106,20 @@ against "the <prior> tail and the earlier findings" on the first chunk, where ne
   - the fence, incomplete, failed, dedupe (now also by quote) and pause/resume tests, on scenes.
 - `tests/unit/test_trash.py`: `collect_scenes` skips trashed chapters and scenes and numbers the
   rest in order. `test_review_round2.py`: the cancel seam, on scenes.
-- Vitest: `FindingRow` renders the quote and a link with `book`, `scene` and `q`; "could not
-  locate"; an old `refs` finding shows its detail only; `findQuote` matches across a line break
-  and misses cleanly; the editor selects the `?q=` range and ignores a miss.
-- Browser journey (diff for `scripts/e2e_browser.py`): run continuity → "Open in editor" → the
-  textarea's selection equals the quote.
+- Vitest: `FindingRow` renders the quote and a link with `book` and `scene`; "could not locate";
+  an old `refs` finding shows its detail only.
+- Browser journey (`scripts/e2e_browser.py`): run continuity → "Open in editor" → the editor URL
+  has the finding's `scene=` and the scene text is shown.
 
 ## Docs (BRD / feature-set delta, for the orchestrator)
 
 - `docs/BRD.md`, the continuity requirement (R1.1's continuity clause or the SPEC-02 entry): append
   "Continuity reads the book scene by scene. Each finding quotes the prose; the server finds the
-  scene the quote is in and the report links to it, opening the editor with the quote selected. A
+  scene the quote is in and the report links to it, opening that scene in the editor. A
   finding whose quote cannot be found is kept and says 'could not locate' (SPEC-31)."
 - `docs/BRD.md` R7.2: no change in wording; note under SPEC-08 resumption that a continuity check
   paused across this deploy restarts once (its input hash covers the chunk texts).
 - `docs/feature-set.md`, "Continuity checking" row: "✅ Scene-chunked, quoted findings located to a
-  scene; 'Open in editor' selects the quote (SPEC-31)". (The row's "empty cast" note is stale since
+  scene; 'Open in editor' opens the scene (SPEC-31)". (The row's "empty cast" note is stale since
   SPEC-02.)
 - `docs/specs/README.md`: add SPEC-31 to the index.
