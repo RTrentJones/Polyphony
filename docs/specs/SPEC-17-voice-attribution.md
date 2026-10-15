@@ -28,32 +28,40 @@ Narration that centres another character is left out. Existing books get the fix
 `attribute_speech(text)` returns, per paragraph (`text.split("\n\n")` indices), each quoted span
 and the speaker a tag credits it to (the tag's subject as written, such as "Zara Okafor" or "the
 caseworker"), or `None`. `speaker_matches(speaker, name, aliases, cast)` resolves a speaker to a
-character with the honorific-aware `app.parsing.names.match`, so "Zara" and "Ms. Okafor" both
-resolve to Zara Okafor. With a cast, a speaker that matches two members (for example "Ward" when
-there are two Wards) is credited to nobody.
+character in **one direction only**: every word of the speaker, minus honorifics and determiners,
+must appear in one of the character's name forms (the name or an alias). So "Zara" and
+"Ms. Okafor" resolve to Zara Okafor, but "the auditor to Milo" does not resolve to Milo, and
+"Harry Potter" does not resolve to a character named only "Harry" (give them the alias). A speaker
+that is only an honorific ("Count") is compared on its raw words. With a cast, a speaker within
+two members' names (for example "Ward" when there are two Wards) is credited to nobody. The
+two-way `app.parsing.names.match` is unchanged and still used where both sides are names (narrator
+headings, extraction merge, `_centres`).
 
 Rules, in precedence order, for each span:
 
 1. **Tag after the span** opens the narration that follows it: `"…," said X` or `"…," X said`
-   (an adverb is allowed). `X said nothing` is not a tag.
+   (an adverb is allowed). `X said nothing` is not a tag. The speaker's noun phrase stops at a
+   preposition, so `"…," said the auditor to Milo` is the auditor's and `"…," said Corin to the
+   porter` is Corin's. `X told Y` / `X asked Y` are X's.
 2. **Tag before the span** closes the narration that precedes it: `X said, "…"`, `said X, "…"`,
    or `X: "…"`.
 3. **Action beat.** `X shrugged. "…"` counts only when X is the proper-name subject of the
    sentence immediately before the quote and that sentence contains no other capitalised word.
    A beat after the quote (`"…" X shrugged.`) is not a tag.
-4. **Same speaker continuing.** A span whose preceding narration is just the previous span's tag
-   sentence (`"Hi," said Zara. "Come in."`, or a split quote) belongs to the previous span's
-   speaker.
-5. **Pronouns.** `he/she/they said` resolves only through rule 3's beat. `I/we/you said` is the
-   narrator or the listener: it stays as an explicit non-cast speaker and blocks the beat.
-   (Dracula's `Dressing-gown and dress were both in their places. "Thank God," I said` must not
-   credit "Dressing-gown".) Leading openers are dropped ("Then Zara" → "Zara"), and a lone
+4. **Pronoun tags credit nobody.** `he/she/they/I/we/you said` is kept as the (lowercased)
+   pronoun: it matches no cast member, and because it is a tag it blocks rule 3's beat. In a
+   mixed-gender exchange the beat's subject is as often the listener (`Milo looked at her. "Sit,"
+   she said.` is not Milo's). In a narrator's own section, `said I` is still the narrator's own
+   speech for indexing (§2). Leading openers are dropped ("Then Zara" → "Zara"), and a lone
    opener or determiner ("For", "The") is not a subject.
+5. **One speaker per paragraph.** A span with no tag and no beat belongs to the paragraph's one
+   named speaker (`"Hi," said Zara. "Come in."`, or a split quote). When the paragraph names two
+   speakers, or none, it stays uncredited.
 6. **Across paragraphs**, only two cases are allowed. An untagged paragraph that opens with a
    quote continues the previous paragraph's open (unclosed) quote. A paragraph that is pure
-   untagged speech follows an exchange that so far strictly alternates between exactly two known
-   speakers. Any narration paragraph, or a paragraph with an unknown or mixed speaker, ends the
-   exchange.
+   untagged speech follows an exchange that so far strictly alternates between exactly two named
+   speakers. Any narration paragraph, or a paragraph with an unknown, mixed or pronoun-only
+   speaker, ends the exchange.
 
 Nothing else crosses a blank line or another quotation. When the rules do not decide, the span is
 credited to nobody: fewer samples beat wrong samples.
@@ -61,26 +69,29 @@ credited to nobody: fewer samples beat wrong samples.
 Smart quotes are normalised. A paragraph with no double quotes falls back to single-quoted
 speech, and apostrophes neither open nor close a span.
 
-### 2. What gets indexed (`extract_character_content`)
+### 2. What gets indexed (`extract_character_content`, `extract_narration`)
+
+Both go through one per-paragraph rule (`CharacterExtractor._paragraph_indexer`), with one
+case-insensitive dedupe across the source:
 
 - A paragraph where the character speaks yields **one `dialogue` chunk per run of their spans**,
   containing their words only. A split quote is one utterance; the narration around the line is
-  not their voice.
+  not their voice. **A voice sample is at least 3 words**: a bare vocative or exclamation
+  (`"Zara,"`, `"So!"`) is not indexed, and the paragraph is not indexed as narration either.
 - A paragraph that carries anyone else's speech is **not indexed for this character**. That
-  covers a span credited to someone else, and an uncredited span of at least 3 words; shorter
-  uncredited spans are treated as scare quotes. Without this rule, another speaker's words would
-  reach this character's samples (`"You've been retained," the caseworker said. Milo Voss
-  nodded slowly.` is not Milo's).
+  covers a span credited to someone else (a pronoun tag included), and an uncredited span of at
+  least 3 words; shorter uncredited spans are treated as scare quotes. Without this rule, another
+  speaker's words would reach this character's samples (`"You've been retained," the caseworker
+  said. Milo Voss nodded slowly.` is not Milo's).
 - Any other paragraph that names them is indexed as action, thought or description, as before.
-- `extract_narration` (SPEC-09) follows the same rule for its alias and first-person-narration
+  `_classify_chunk` only ever types narration (dialogue chunks are the character's own lines).
+- `extract_narration` (SPEC-09) applies the same rule to its alias and first-person-narration
   paragraphs. This matters in practice: the stub extraction gives the cast aliases ("Milo",
   "Zara"), and the alias pass was how the real browser journey still put the caseworker's line in
   Milo's chunks after the name-gated path had been fixed. In a narrator's own section,
   `"…," said I` counts as the narrator's speech, not someone else's.
-- `_classify_chunk` types a paragraph as `dialogue` only when the attributor credits a span in it
-  to the character.
-- `extract_character_content` and `extract_dialogue_only` accept optional `aliases=` and `cast=`.
-  The pipeline currently calls them without these; see "Integration" below.
+- `extract_character_content` and `extract_dialogue_only` accept optional `aliases=` and `cast=`;
+  the pipeline passes both (see "Integration").
 
 ### 3. The prose prompt (`app/characters/context.py`)
 
@@ -119,9 +130,12 @@ books keep their bad chunks until this runs.** The orchestrator runs it on the e
 |---|---|
 | e2e `SOURCE`: Milo has 0 dialogue chunks, Zara exactly `Don't thank her.`, the caseworker's line is no canon character's | `tests/unit/test_dialogue_attribution.py::TestE2ESource` |
 | Never crosses a paragraph or another quotation | `TestAttributionRules::test_never_crosses_*` |
-| 20 hand-labelled lines, 3 speakers (inversions, beats, multi-paragraph exchange), precision ≥ 0.95, gates CI | `tests/fixtures/dialogue_attribution.json` + `test_attribution_precision_gate` (precision 1.00, recall 0.89; recall also has a 0.5 floor so the gate cannot pass vacuously) |
+| 20 hand-labelled lines, 3 speakers (inversions, beats, multi-paragraph exchange), precision ≥ 0.95, gates CI | `tests/fixtures/dialogue_attribution.json` + `test_attribution_precision_gate[in-sample]` (precision 1.00, recall 0.89; recall also has a 0.5 floor so the gate cannot pass vacuously) |
+| The same gate on 17 **held-out** lines written before the review fixes and never tuned on: `said X to Y`, `X told/asked Y`, pronoun tags after a listener's beat, a vocative, a beat naming a place | `held_out` in the fixture + `test_attribution_precision_gate[held-out]` (precision 1.00, recall 0.64; the pre-fix rules scored precision 0.56 here) |
+| `"…," said the auditor to Milo` credits nobody in the cast; a pronoun tag credits nobody; `X shrugged. "…"` still credits X | `TestAttributionRules::test_said_x_to_y_is_xs_line`, `test_speaker_must_lie_within_the_name`, `test_pronoun_tag_credits_nobody`, `test_action_beat_needs_a_lone_subject` |
+| A voice sample is at least 3 words (`"Zara,"`, `"So!"` are not indexed) | `TestChunking::test_a_voice_sample_is_at_least_three_words` |
 | Only dialogue under "Voice samples"; action under "How they move"; non-centred narration excluded | `TestCharacterContext`, `test_centres` |
-| PG: paste `SOURCE`, index voice, Milo has no dialogue chunk | `tests/integration/test_pg_voice_attribution.py` (+ `reindex-voice` replaces stale chunks, keeps manual ones, idempotent) |
+| PG: paste `SOURCE`, index voice, Milo has no dialogue chunk | `tests/integration/test_pg_voice_attribution.py` (+ the B1/B2/vocative source through the real pipeline; `reindex-voice` replaces stale chunks, keeps manual ones, idempotent) |
 | Browser: Milo's Voice panel has no `Don't thank her` / `You've been retained` | step for the orchestrator to add to `scripts/e2e_browser.py` (below) |
 | Judge R2 ≥ 0.7 | measured in the after-eval (TPM plan §3); not blocking |
 
@@ -155,7 +169,14 @@ books keep their bad chunks until this runs.** The orchestrator runs it on the e
   still is, through SPEC-09 sections. Mapping `I` to the section's narrator is a follow-up.
 - A diarist's narration paragraph that quotes someone else is no longer indexed for the diarist
   (precision over recall). Dracula-style journals lose some narration samples.
-- A pronoun tag with no beat (`"…," she said.`) is credited to nobody. This is the main recall
-  loss (fixture recall 0.89).
+- Every pronoun tag (`"…," she said.`) is credited to nobody, even right after a beat by the
+  same person (`Zara shrugged. "Fine," she said.`). This is the main recall loss (in-sample
+  recall 0.89, held-out 0.64). Resolving a pronoun safely needs the character's pronouns on
+  `Character`, which is a follow-up.
+- Speaker matching is one-directional, so a tag that uses MORE of a name than the cast entry
+  has ("said Harry Potter" when the character is "Harry") credits nobody unless the fuller name
+  is an alias.
+- One speaker per paragraph is assumed for untagged spans: `"Hi," said Zara. The door opened.
+  "Who?"` credits "Who?" to Zara.
 - The beat rule cannot tell a name from a capitalised common noun at the start of a sentence
   ("Dressing-gown"). Such a "speaker" matches no cast member, so it costs nothing.

@@ -184,22 +184,27 @@ _HONOR = r"(?:(?:Mr|Mrs|Ms|Dr|Prof|St)\.[ \t]+)"
 _CAP = r"[A-Z][\w'-]*"
 _PROPER = rf"{_HONOR}?{_CAP}(?:[ \t]+{_CAP}){{0,3}}"
 _DETERMINERS = {"the", "a", "an", "his", "her", "their", "our", "my", "its"}
+# A preposition ends the speaker's noun phrase: in `said the auditor to Milo`
+# the speaker is "the auditor"; Milo is the listener.
+_PREP = r"(?:to|at|toward|towards|from|with|of|in|on|into|across|behind|over)"
+_WORD = rf"(?!{_PREP}\b)[A-Za-z][\w'-]*"
 _NOUN = (
     r"(?:[Tt]he|[Aa]n?|[Hh]is|[Hh]er|[Tt]heir|[Oo]ur|[Mm]y|[Ii]ts)"
     # "the caseworker", "her mother", "the Countess" (a title can be an alias)
-    r"\s+(?:[A-Za-z][\w'-]*[ \t]+){0,2}[A-Za-z][\w'-]*"
+    rf"\s+(?:{_WORD}[ \t]+){{0,2}}{_WORD}"
 )
-# Third-person pronouns say "someone already in view" — only an action beat can
-# say who. First and second person are the narrator or the listener: never a
-# cast member by name, so they are kept as an explicit (non-cast) speaker.
-_PRONOUNS = {"he", "she", "they", "it"}
-_PERSONAL = {"i", "we", "you"}
+# A pronoun tag says someone spoke, never who. It is kept as written, so it
+# credits no cast member and still blocks an action beat: in a mixed-gender
+# exchange the beat's subject is as often the listener (`Milo looked at her.
+# "Sit," she said.` is not Milo's line).
+_PRONOUNS = {"he", "she", "they", "it", "i", "we", "you"}
 _PRON = r"(?:[Hh]e|[Ss]he|[Tt]hey|I|[Ww]e|[Yy]ou|[Ii]t)"
 _WHO = rf"(?P<who>{_NOUN}|{_PRON}|{_PROPER})"
 _ADV = r"(?:[a-z]+ly\s+)?"
-# After a span: `"…," said X` / `"…," X said` — the tag opens the narration.
+# After a span: `"…," said X [to Y]` / `"…," X said` — the tag opens the narration.
 _AFTER_INVERTED = re.compile(
-    rf"^\s*[,—-]?\s*{_VERB}\s+{_WHO}(?:\s+[a-z]+ly)?(?=\s*[,.;:!?—-]|\s*$)"
+    rf"^\s*[,—-]?\s*{_VERB}\s+{_WHO}(?:\s+[a-z]+ly)?(?:\s+{_PREP}\s+[^,.;:!?—-]+?)?"
+    r"(?=\s*[,.;:!?—-]|\s*$)"
 )
 _AFTER_PLAIN = re.compile(
     rf"^\s*[,—-]?\s*{_WHO}\s+{_ADV}{_VERB}(?!\s+(?:nothing|no|not)\b)"
@@ -251,29 +256,23 @@ _OPENERS = {
 }
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 _SUBJECT = re.compile(rf"^\s*(?P<who>{_PROPER})(?=,|\s+[a-z])")
-_PUNCT_ONLY = re.compile(r"^[\s,.;:!?—-]*$")
-# Unattributed quoted words this long are someone's speech, not a scare quote,
-# so a paragraph carrying them is not indexed for a character who did not say
-# them (it would put another speaker's words into that character's samples).
+# Quoted words this long are someone's speech, not a scare quote or a bare
+# vocative: an unattributed span this long keeps a paragraph out of a
+# character's chunks, and a voice sample must be at least this long ("So!",
+# "Zara," say nothing about a voice).
 _SPEECH_MIN_WORDS = 3
-_PRONOUN_SPEAKER = "\x00pronoun"
 
 
 def _canon_speaker(who: str) -> Optional[str]:
     """A tag's subject as a speaker key: leading openers dropped ("Then Zara" →
-    "Zara"); he/she/they become the pronoun marker, which only an action beat
-    can resolve; I/we/you stay as they are (the narrator, not a named cast
-    member); a bare determiner or opener is nobody."""
+    "Zara"); a pronoun lowercased (it never names a cast member); a bare
+    determiner or opener is nobody."""
     words = who.split()
     while len(words) > 1 and words[0].lower() in _OPENERS:
         words = words[1:]
-    if not words:
-        return None
     if len(words) == 1:
         low = words[0].lower()
         if low in _PRONOUNS:
-            return _PRONOUN_SPEAKER
-        if low in _PERSONAL:
             return low
         if low in _OPENERS or low in _DETERMINERS:
             return None
@@ -305,53 +304,29 @@ def _beat_subject(narration: str) -> Optional[str]:
     if not m:
         return None
     who = _canon_speaker(m.group("who"))
-    if not who or who == _PRONOUN_SPEAKER:
-        return None
     # Any other capitalised word is another name (or a place): ambiguous.
     if any(w != "I" for w in re.findall(r"\b[A-Z][\w'-]*", sentence[m.end() :])):
         return None
     return who
 
 
-def _after_tag(narration: str):
-    """(speaker, match end) of a tag opening the narration after a span."""
-    for rx in (_AFTER_INVERTED, _AFTER_PLAIN):
-        m = rx.match(narration)
-        if m:
-            return _canon_speaker(m.group("who")), m.end()
-    return None, 0
-
-
-def _before_tag(narration: str) -> Optional[str]:
-    for rx in (_BEFORE_PLAIN, _BEFORE_INVERTED, _BEFORE_SCRIPT):
-        m = rx.search(narration)
+def _tag(narration: str, rules, find) -> Optional[str]:
+    """The speaker of the first rule that `find`s a tag in the narration."""
+    for rx in rules:
+        m = find(rx, narration)
         if m:
             return _canon_speaker(m.group("who"))
     return None
 
 
-def _only_a_tag(narration: str) -> bool:
-    """The narration between two spans is just the first span's tag sentence
-    (`said Zara.`, `Zara said, rising from her chair.`) — no new sentence
-    starts, so the second span is the same speaker going on."""
-    if _PUNCT_ONLY.match(narration):
-        return True
-    who, end = _after_tag(narration)
-    if not who:
-        return False
-    rest = narration[end:].strip()
-    if not rest:
-        return True
-    if rest[0] not in ",;—-":
-        return bool(_PUNCT_ONLY.match(rest))
-    inner = rest[:-1] if rest[-1] in ".!?," else rest
-    return not re.search(r"[.!?]\s", inner)
-
-
 def _attribute_paragraph(para: str) -> tuple[list[dict], str]:
     """The quoted spans of one normalized paragraph with their speakers (a
-    speaker key, the pronoun marker, or None), and the narration left once the
-    spans are removed."""
+    speaker key or None), and the narration left once the spans are removed.
+
+    Each span takes the tag after it, else the tag before it, else the action
+    beat before it. A span with none of these is the paragraph's one named
+    speaker going on (`"Hi," said Zara. "Come in."`, a split quote) — and
+    nobody's when the paragraph names two speakers or none."""
     spans = _quote_spans(para)
     out: list[dict] = []
     outside: list[str] = []
@@ -361,22 +336,22 @@ def _attribute_paragraph(para: str) -> tuple[list[dict], str]:
         outside.append(before)
         next_open = spans[k + 1][0] - 1 if k + 1 < len(spans) else len(para)
         after = para[end + 1 : next_open] if closed else ""
-        speaker, _ = _after_tag(after)
-        pronoun = speaker == _PRONOUN_SPEAKER
-        if speaker is None or pronoun:
-            speaker = _before_tag(before)
-            pronoun = pronoun or speaker == _PRONOUN_SPEAKER
-            if speaker is None or speaker == _PRONOUN_SPEAKER:
-                speaker = _beat_subject(before)
-            if speaker is None and out and out[-1]["speaker"] and _only_a_tag(before):
-                speaker = out[-1]["speaker"]
-            if speaker is None and pronoun:
-                speaker = _PRONOUN_SPEAKER
+        speaker = (
+            _tag(after, (_AFTER_INVERTED, _AFTER_PLAIN), re.match)
+            or _tag(
+                before, (_BEFORE_PLAIN, _BEFORE_INVERTED, _BEFORE_SCRIPT), re.search
+            )
+            or _beat_subject(before)
+        )
         out.append(
             {"text": para[start:end].strip(), "speaker": speaker, "closed": closed}
         )
         prev_end = end + 1 if closed else len(para)
     outside.append(para[prev_end:])
+    named = {s["speaker"] for s in out} - {None}
+    if len(named) == 1:
+        for s in out:
+            s["speaker"] = s["speaker"] or next(iter(named))
     return out, " ".join(outside)
 
 
@@ -388,12 +363,13 @@ def attribute_speech(text: str) -> list[list[dict]]:
     :func:`speaker_matches`.
 
     Rules (docs/specs/SPEC-17-voice-attribution.md): a tag counts only next to
-    its span in the same paragraph; an action beat counts only when its name is
-    the subject of the sentence right before the quote and that sentence names
-    nobody else; an untagged paragraph of pure speech inherits a speaker only
-    when it continues an open quote, or when the exchange so far strictly
-    alternates between two known speakers. Nothing crosses a blank line or
-    another quotation.
+    its span in the same paragraph, and a pronoun tag credits no one; an action
+    beat counts only when its name is the subject of the sentence right before
+    the quote and that sentence names nobody else; an untagged span inherits
+    the paragraph's one named speaker; an untagged paragraph of pure speech
+    inherits a speaker only when it continues an open quote, or when the
+    exchange so far strictly alternates between two named speakers. Nothing
+    else crosses a blank line or another quotation.
     """
     result: list[list[dict]] = []
     exchange: list[str] = []  # speakers of the current back-and-forth
@@ -418,16 +394,13 @@ def attribute_speech(text: str) -> list[list[dict]]:
                 if alternates and len(set(exchange)) == 2:
                     for s in spans:
                         s["speaker"] = exchange[-2]
-        for s in spans:
-            if s["speaker"] == _PRONOUN_SPEAKER:
-                s["speaker"] = None
         speakers = {s["speaker"] for s in spans}
-        if len(speakers) == 1 and None not in speakers:
-            who = next(iter(speakers))
+        who = speakers.pop() if len(speakers) == 1 else None
+        if who and who not in _PRONOUNS:
             if not (continued and exchange and exchange[-1] == who):
                 exchange.append(who)
         else:
-            exchange = []
+            exchange = []  # unknown, mixed or pronoun-only: not a named exchange
         carry = None if spans[-1]["closed"] else spans[-1]["speaker"]
         result.append([{"text": s["text"], "speaker": s["speaker"]} for s in spans])
     return result
@@ -439,30 +412,27 @@ def speaker_matches(
     aliases: Optional[List[str]] = None,
     cast: Optional[List[Dict]] = None,
 ) -> bool:
-    """Is this tag subject the character? Honorific-aware subset matching
-    (`app.parsing.names.match`), so "Zara" and "Ms. Okafor" are Zara Okafor.
-    With a cast, a speaker matching more than one member ("Ward" when there are
-    two Wards) is ambiguous and credited to nobody."""
-    from app.parsing.names import match
+    """Is this tag subject the character? ONE direction only: the speaker's
+    words (minus honorifics and determiners) all appear in one of the
+    character's name forms, so "Zara" and "Ms. Okafor" are Zara Okafor, but
+    "the auditor to Milo" is not Milo. With a cast, a speaker within more than
+    one member's names ("Ward" when there are two Wards) is credited to nobody."""
+    from app.parsing.names import HONORIFICS, tokens
 
-    if not speaker:
-        return False
-    forms = [f for f in [character_name, *(aliases or [])] if f and f.strip()]
-    if not any(match(speaker, f) for f in forms):
-        return False
-    if cast:
-        owners = {
-            c["name"]
-            for c in cast
-            if any(
-                match(speaker, f)
-                for f in [c["name"], *(c.get("aliases") or [])]
-                if f and f.strip()
-            )
-        }
-        if len(owners) > 1:
-            return False
-    return True
+    def within(form: str) -> bool:
+        f = tokens(form) - _DETERMINERS
+        return sig <= f - HONORIFICS if sig else bool(said) and said <= f
+
+    said = tokens(speaker or "") - _DETERMINERS
+    sig = said - HONORIFICS  # "Count" alone is matched on its raw word
+    members = cast or [{"name": character_name, "aliases": aliases}]
+    owners = {
+        c["name"]
+        for c in members
+        if any(within(f) for f in [c["name"], *(c.get("aliases") or [])] if f)
+    }
+    mine = any(within(f) for f in [character_name, *(aliases or [])] if f)
+    return mine and len(owners - {character_name}) == 0
 
 
 def spoken_lines(
@@ -612,56 +582,71 @@ JSON array:"""
         Other paragraphs that name them are indexed as action / thought /
         description ("how they move").
         """
+        index, speaks = self._paragraph_indexer(text, character_name, aliases, cast)
         chunks: List[Dict[str, str]] = []
-        seen: set = set()
+        for i, para in enumerate(text.split("\n\n")):
+            para = para.strip()
+            # Paragraphs where they speak, or that name them ("X's Journal" is
+            # a heading, not voice — SPEC-09 attributes the section beneath it).
+            if para and (
+                i in speaks
+                or (
+                    self._character_in_paragraph(character_name, para)
+                    and not _is_narrator_heading(para)
+                )
+            ):
+                chunks += index(i, para, "paragraph")
+        return chunks
+
+    def _paragraph_indexer(self, text, character_name, aliases, cast):
+        """(`index`, the paragraphs where they speak). `index(i, para, where)`
+        → the chunks one paragraph gives the character, deduplicated
+        case-insensitively across calls (SPEC-17):
+        - where they speak: their own lines, as `dialogue` — each at least
+          `_SPEECH_MIN_WORDS` words, so a lone vocative is no voice sample;
+        - where anyone else speaks (a credited span, or an uncredited one of
+          `_SPEECH_MIN_WORDS`+ words): nothing — in their own narration
+          (`where == "narration"`) "said I" is them, not someone else;
+        - otherwise the paragraph, typed as action / thought / description."""
         attributed = attribute_speech(text)
-        mine: Dict[int, List[str]] = {}
+        own: Dict[int, List[str]] = {}
         for i, line in spoken_lines(
             text, character_name, aliases=aliases, cast=cast, attributed=attributed
         ):
-            mine.setdefault(i, []).append(line)
+            own.setdefault(i, []).append(line)
+        seen: set = set()
 
-        for i, para in enumerate(text.split("\n\n")):
-            para = para.strip()
-            if not para:
-                continue
-            if i in mine:
-                for line in mine[i]:
-                    if len(line) > 3 and line.lower() not in seen:
-                        seen.add(line.lower())
-                        chunks.append(
-                            {
-                                "text": line,
-                                "chunk_type": ChunkType.DIALOGUE.value,
-                                "source_location": f"dialogue_{i}",
-                                "character_name": character_name,
-                            }
-                        )
-                continue
-            if any(
-                s["speaker"] or len(s["text"].split()) >= _SPEECH_MIN_WORDS
+        def index(i: int, para: str, where: str) -> List[Dict[str, str]]:
+            themselves = ("i", "we") if where == "narration" else ()
+            if i in own:
+                found = [
+                    (line, ChunkType.DIALOGUE.value, f"dialogue_{i}")
+                    for line in own[i]
+                    if len(line.split()) >= _SPEECH_MIN_WORDS
+                ]
+            elif any(
+                s["speaker"] not in themselves
+                and (s["speaker"] or len(s["text"].split()) >= _SPEECH_MIN_WORDS)
                 for s in attributed[i]
             ):
-                continue  # someone else's words: not this character's sample
+                return []
+            else:
+                found = [(para, self._classify_chunk(para), f"{where}_{i}")]
+            out = []
+            for chunk_text, kind, location in found:
+                if chunk_text.lower() not in seen:
+                    seen.add(chunk_text.lower())
+                    out.append(
+                        {
+                            "text": chunk_text,
+                            "chunk_type": kind,
+                            "source_location": location,
+                            "character_name": character_name,
+                        }
+                    )
+            return out
 
-            # Check if character appears in paragraph ("X's Journal" is a
-            # heading, not voice — SPEC-09 attributes the section beneath it).
-            if (
-                self._character_in_paragraph(character_name, para)
-                and not _is_narrator_heading(para)
-                and para.lower() not in seen
-            ):
-                seen.add(para.lower())
-                chunks.append(
-                    {
-                        "text": para,
-                        "chunk_type": self._classify_chunk(para, character_name),
-                        "source_location": f"paragraph_{i}",
-                        "character_name": character_name,
-                    }
-                )
-
-        return chunks
+        return index, own
 
     def extract_narration(
         self,
@@ -690,56 +675,12 @@ JSON array:"""
 
         forms = [character_name, *(aliases or [])]
         cast = cast or [{"name": character_name, "aliases": aliases or []}]
-        chunks: List[Dict[str, str]] = []
-        seen: set = set()
-
         # The same rule as extract_character_content (SPEC-17): a paragraph
         # where they speak gives their words only, as dialogue; a paragraph
         # carrying anyone else's speech is not theirs to index — not even a
         # diarist's, or the other speaker's lines would reach "Voice samples".
-        attributed = attribute_speech(text)
-        own: Dict[int, List[str]] = {}
-        for j, line in spoken_lines(
-            text, character_name, aliases=aliases, cast=cast, attributed=attributed
-        ):
-            own.setdefault(j, []).append(line)
-
-        def add(i: int, para: str, where: str) -> None:
-            if i in own:
-                for line in own[i]:
-                    if len(line) > 3 and line not in seen:
-                        seen.add(line)
-                        chunks.append(
-                            {
-                                "text": line,
-                                "chunk_type": ChunkType.DIALOGUE.value,
-                                "source_location": f"dialogue_{i}",
-                                "character_name": character_name,
-                            }
-                        )
-                return
-            spans = attributed[i] if i < len(attributed) else []
-            if any(
-                (
-                    s["speaker"]
-                    # In their own narration, "said I" is the narrator speaking.
-                    and not (where == "narration" and s["speaker"] in ("i", "we"))
-                )
-                or (not s["speaker"] and len(s["text"].split()) >= _SPEECH_MIN_WORDS)
-                for s in spans
-            ):
-                return
-            if para in seen:
-                return
-            seen.add(para)
-            chunks.append(
-                {
-                    "text": para,
-                    "chunk_type": self._classify_chunk(para, character_name),
-                    "source_location": f"{where}_{i}",
-                    "character_name": character_name,
-                }
-            )
+        index, _ = self._paragraph_indexer(text, character_name, aliases, cast)
+        chunks: List[Dict[str, str]] = []
 
         # Aliases match CASE-SENSITIVELY: an alias is a proper noun, and "Will"
         # or "Hope" must not claim every "will" and "hope" in the book.
@@ -755,7 +696,7 @@ JSON array:"""
                 and not _is_narrator_heading(para)
                 and any(r.search(para) for r in alias_res)
             ):
-                add(i, para, "paragraph")
+                chunks += index(i, para, "paragraph")
 
         def owner_of(headed: str) -> Optional[str]:
             hits = [
@@ -773,7 +714,7 @@ JSON array:"""
                 continue
             for i, para in paras:
                 if _FIRST_PERSON.search(_narration_only(para)):
-                    add(i, para, "narration")
+                    chunks += index(i, para, "narration")
 
         # No headings: the narrator may name themselves once ("my name is X",
         # "I, X,"). When every self-naming in the narration resolves to ONE
@@ -790,7 +731,7 @@ JSON array:"""
             for i, para in enumerate(text.split("\n\n")):
                 para = para.strip()
                 if para and _FIRST_PERSON.search(_narration_only(para)):
-                    add(i, para, "narration")
+                    chunks += index(i, para, "narration")
         return chunks
 
     def extract_dialogue_only(
@@ -830,23 +771,10 @@ JSON array:"""
         pattern = rf"\b{re.escape(character_name)}\b"
         return bool(re.search(pattern, paragraph, re.IGNORECASE))
 
-    def _classify_chunk(self, text: str, character_name: str) -> str:
-        """
-        Classify chunk as dialogue, action, thought, or description
-
-        Args:
-            text: Paragraph text
-            character_name: Character name
-
-        Returns:
-            ChunkType value
-        """
-        # Dialogue only when the attributor credits a span in it to them: a
-        # paragraph that merely names them beside someone else's line is not
-        # their voice (SPEC-17).
-        if spoken_lines(text, character_name):
-            return ChunkType.DIALOGUE.value
-
+    def _classify_chunk(self, text: str) -> str:
+        """Classify a narration paragraph as thought, action or description.
+        (Dialogue chunks are only ever the character's own lines — see
+        `_paragraph_indexer`.)"""
         # Check for thought indicators
         thought_keywords = [
             "thought",

@@ -147,9 +147,23 @@ class TestAttributionRules:
             ("Fine,", "the clerk")
         ]
 
-    def test_pronoun_tag_resolves_only_through_a_beat(self):
-        assert _speakers('"Fine," she said.') == [("Fine,", None)]
-        assert _speakers('Zara shrugged. "Fine," she said.') == [("Fine,", "Zara")]
+    def test_pronoun_tag_credits_nobody(self):
+        # Review B2: a pronoun tag fell back to the beat's subject, which in a
+        # mixed-gender two-hander is usually the LISTENER.
+        assert _speakers('"Fine," she said.') == [("Fine,", "she")]
+        assert _speakers('Zara shrugged. "Fine," she said.') == [("Fine,", "she")]
+        text = (
+            'Milo looked at her across the desk. "Sit down before you fall '
+            'down," she said.'
+        )
+        assert _speakers(text) == [("Sit down before you fall down,", "she")]
+        assert CharacterExtractor().extract_dialogue_only(text, "Milo") == []
+        cx = CharacterExtractor()
+        for text in ('Milo slammed the folder down. "Sit," she said.', text):
+            for c in cx.extract_character_content(text, "Milo"):
+                assert "Sit" not in c["text"]  # not even as his narration
+        for who in ("he", "she", "they", "i", "you"):
+            assert not speaker_matches(who, "Zara Okafor", cast=E2E_CAST)
         # "I said" is the narrator: it never resolves to the beat's subject
         # (Dracula: 'Dressing-gown and dress were both in their places.
         # "Thank God," I said').
@@ -158,6 +172,39 @@ class TestAttributionRules:
         assert _speakers('For he grew pale. "You are to help her."') == [
             ("You are to help her.", None)
         ]
+
+    def test_said_x_to_y_is_xs_line(self):
+        # Review B1: `said the auditor to Milo` captured "the auditor to Milo",
+        # and a two-way subset match gave the line to Milo.
+        text = '"Read the appendices first," said the auditor to Milo.'
+        assert _speakers(text) == [("Read the appendices first,", "the auditor")]
+        cast = [{**c, "aliases": [c["name"].split()[0]]} for c in E2E_CAST]
+        cx = CharacterExtractor()
+        got = cx.extract_character_content(
+            text, "Milo Voss", aliases=["Milo"], cast=cast
+        )
+        assert _dialogue(got) == []
+        assert _speakers('"Then go," said Corin to the porter.') == [
+            ("Then go,", "Corin")
+        ]
+        assert _speakers('"Sign it," Ada said to the clerk.') == [("Sign it,", "Ada")]
+        assert _speakers('"Not today," the old man told Zara.') == [
+            ("Not today,", "the old man")
+        ]
+        assert _speakers('"Is it far?" the porter asked Zara.') == [
+            ("Is it far?", "the porter")
+        ]
+        assert _speakers('"Zara, run," Milo said.') == [("Zara, run,", "Milo")]
+
+    def test_speaker_must_lie_within_the_name(self):
+        # One direction only: every word of the speaker is in one name form.
+        assert not speaker_matches("the auditor to Milo", "Milo Voss", ["Milo"])
+        assert not speaker_matches("Milo Voss", "Milo")  # cast says "Milo" only
+        assert speaker_matches("Milo Voss", "Milo", ["Milo Voss"])
+        assert speaker_matches("Ms. Okafor", "Zara Okafor")
+        assert speaker_matches("Count", "Count Vasska")
+        assert speaker_matches("the Countess", "Vasska", ["the Countess"])
+        assert not speaker_matches("the caseworker", "Milo Voss")
 
     def test_split_quote_is_one_utterance(self):
         text = '"You must," Nora replied, "there is no other way."'
@@ -181,6 +228,9 @@ class TestAttributionRules:
         assert _speakers(broken)[-1] == ("Now?", None)
         # One known speaker is not an exchange.
         assert _speakers('"Ready?" asked Milo.\n\n"Yes."')[-1] == ("Yes.", None)
+        # A pronoun-tagged turn names nobody, so it ends the exchange too.
+        mixed = '"Ready?" asked Milo.\n\n"Always," she said.\n\n"Then go."'
+        assert _speakers(mixed)[-1] == ("Then go.", None)
 
     def test_open_quote_continues_into_the_next_paragraph(self):
         text = 'Bram began. "It was long ago.\n\n"And nobody remembers."'
@@ -215,10 +265,10 @@ class TestAttributionRules:
 # --- the hand-labelled precision gate (gates CI) --------------------------------
 
 
-def _fixture_predictions():
+def _fixture_predictions(sample):
     cast = FIXTURE["cast"]
-    spans = [s for para in attribute_speech(FIXTURE["text"]) for s in para]
-    assert [s["text"] for s in spans] == [ln["quote"] for ln in FIXTURE["lines"]]
+    spans = [s for para in attribute_speech(sample["text"]) for s in para]
+    assert [s["text"] for s in spans] == [ln["quote"] for ln in sample["lines"]]
     predicted = []
     for s in spans:
         owners = [
@@ -238,15 +288,28 @@ def test_fixture_is_twenty_lines_three_speakers():
     }
 
 
-def test_attribution_precision_gate():
-    predicted = _fixture_predictions()
-    truth = [ln["speaker"] for ln in FIXTURE["lines"]]
+def test_held_out_lines_cover_every_speaker():
+    # Written before the B1/B2 rule changes and never used to tune them.
+    held_out = FIXTURE["held_out"]["lines"]
+    assert len(held_out) == 17
+    assert {ln["speaker"] for ln in held_out} - {None} == {
+        c["name"] for c in FIXTURE["cast"]
+    }
+
+
+@pytest.mark.parametrize("sample", ["in-sample", "held-out"])
+def test_attribution_precision_gate(sample):
+    # Reported separately: the 20 in-sample lines were written alongside the
+    # rules; the held-out lines were not.
+    data = FIXTURE if sample == "in-sample" else FIXTURE["held_out"]
+    predicted = _fixture_predictions(data)
+    truth = [ln["speaker"] for ln in data["lines"]]
     attributed = [(p, t) for p, t in zip(predicted, truth) if p is not None]
     correct = sum(1 for p, t in attributed if p == t)
     precision = correct / len(attributed)
     labelled = [t for t in truth if t is not None]
     recall = correct / len(labelled)
-    print(f"dialogue attribution: precision={precision:.3f} recall={recall:.3f}")
+    print(f"{sample}: precision={precision:.3f} recall={recall:.3f}")
     assert precision >= PRECISION_FLOOR, list(zip(predicted, truth))
     # Recall is reported, not gated (precision over recall) — but a regression
     # that attributes almost nothing would pass the precision gate vacuously.
@@ -257,10 +320,25 @@ def test_attribution_precision_gate():
 
 
 class TestChunking:
-    def test_paragraph_is_dialogue_only_when_they_speak_in_it(self):
+    def test_paragraph_gives_its_speaker_their_line_and_no_one_else_anything(self):
+        text = '"Go on without me," said Zara. Milo walked.'
         cx = CharacterExtractor()
-        assert cx._classify_chunk('"Go," said Zara. Milo walked.', "Zara") == "dialogue"
-        assert cx._classify_chunk('"Go," said Zara. Milo walked.', "Milo") != "dialogue"
+        got = cx.extract_character_content(text, "Zara")
+        assert [(c["chunk_type"], c["text"]) for c in got] == [
+            ("dialogue", "Go on without me.")
+        ]
+        assert cx.extract_character_content(text, "Milo") == []
+
+    def test_a_voice_sample_is_at_least_three_words(self):
+        # A bare vocative or exclamation says nothing about a voice (after-eval).
+        text = (
+            '"Zara," Milo said.\n\n"So!" said Milo.\n\n'
+            '"Read it all first," said Milo.'
+        )
+        chunks = CharacterExtractor().extract_character_content(text, "Milo")
+        assert [(c["chunk_type"], c["text"]) for c in chunks] == [
+            ("dialogue", "Read it all first.")
+        ]
 
     def test_paragraph_with_someone_elses_speech_is_not_indexed_for_them(self):
         text = 'The clerk stood. "Sign here, please," she said. Milo took the pen.'
@@ -272,10 +350,10 @@ class TestChunking:
         assert [c["chunk_type"] for c in chunks] == ["action"]
 
     def test_their_line_and_movement_are_separate_chunks(self):
-        text = 'Zara stood. "Enough," said Zara.\n\nZara walked to the door.'
+        text = 'Zara stood. "That is enough," said Zara.\n\nZara walked to the door.'
         chunks = CharacterExtractor().extract_character_content(text, "Zara")
         assert [(c["chunk_type"], c["text"]) for c in chunks] == [
-            ("dialogue", "Enough."),
+            ("dialogue", "That is enough."),
             ("action", "Zara walked to the door."),
         ]
 

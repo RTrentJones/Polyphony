@@ -33,6 +33,18 @@ Milo Voss read the appendices. Zara Okafor watched him read them.
 Edric Thane signed the memo. Edric Thane had signed ten thousand memos.
 """
 NAMES = ("Milo Voss", "Zara Okafor", "Edric Thane")
+# The wave-1 review's Blockers: a line spoken TO Milo (B1), a pronoun tag after
+# a beat whose subject is the listener (B2), and a bare vocative.
+ADVERSARIAL = """Milo Voss waited at the auditor's desk.
+
+"Read the appendices first," said the auditor to Milo.
+
+Milo looked at her across the desk. "Sit down before you fall down," she said.
+
+"Zara," Milo said.
+
+Zara Okafor shrugged. "I have read them twice."
+"""
 
 
 @pytest.fixture
@@ -55,7 +67,7 @@ async def pg(monkeypatch):
         await engine.dispose()
 
 
-async def _book_with_source(pg):
+async def _book_with_source(pg, source=SOURCE):
     from app.core.orm_models import Book, Character, Source, User, source_characters
     from app.core.security import get_password_hash
 
@@ -76,7 +88,7 @@ async def _book_with_source(pg):
             kind="paste",
             title="Pasted",
             content_hash=uuid.uuid4().hex,
-            content_text=SOURCE,
+            content_text=source,
         )
         s.add(src)
         await s.commit()
@@ -124,6 +136,22 @@ async def test_e2e_source_voice_is_attributed_to_its_speaker(pg):
         assert "You've been retained" not in chunk
     assert await _chunks(pg, ids["Zara Okafor"], "dialogue") == ["Don't thank her."]
     assert await _chunks(pg, ids["Edric Thane"], "dialogue") == []
+
+
+async def test_lines_spoken_to_or_near_a_character_are_not_theirs(pg):
+    import app.parsing.pipeline as pipeline
+
+    uid, bid, sid, ids = await _book_with_source(pg, ADVERSARIAL)
+    await pipeline.index_characters_voice(sid, bid, uid, [str(i) for i in ids.values()])
+
+    # The vocative "Zara," is Milo's, but too short to be a voice sample.
+    assert await _chunks(pg, ids["Milo Voss"], "dialogue") == []
+    for chunk in await _chunks(pg, ids["Milo Voss"]):
+        assert "Read the appendices" not in chunk
+        assert "Sit down" not in chunk
+    assert await _chunks(pg, ids["Zara Okafor"], "dialogue") == [
+        "I have read them twice."
+    ]
 
 
 async def test_reindex_voice_replaces_old_attributor_chunks(pg):
