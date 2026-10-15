@@ -360,11 +360,13 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
     people = " and ".join(cast[:3]) or "The two of them"
     beat = re.search(rf"(?m)^{re.escape(BEAT_TO_WRITE_LABEL)}: (.+)$", prompt)
     if beat:
-        # Built from the beat itself, with no fixed run of six words, so
-        # consecutive beats never repeat a phrase at the seam (R4) and each
-        # beat's prose is unique in its scene (revise beat mode can find it).
+        # Built from the beat itself: every cast member is named, each in a
+        # clause with no fixed run of six words, so consecutive beats never
+        # repeat a phrase at the seam (R4) and each beat's prose is unique in
+        # its scene (revise beat mode can find it).
         what = " ".join(beat.group(1).rstrip(".!? ").split()[:14])
-        return f'{lead} saw it first: {what}. "{what}," said {second}.'
+        named = cast[:3] or [lead]
+        return " ".join(f"{name} weighed it: {what}." for name in named)
     return (
         f"{people} stood in the doorway while the rain kept on. "
         f"{lead} turned first, and said nothing for a while. "
