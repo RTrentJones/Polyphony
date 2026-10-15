@@ -30,7 +30,7 @@
   ],
   "held_out": {
     "description": "Held-out lines, written before the wave-1 review fixes (B1/B2) changed the rules and never used to tune them. Adversarial shapes: `said X to Y` and `X told/asked Y` with a non-cast speaker, a before-tag `said to Y`, pronoun tags after a beat whose subject is the other gender, a vocative, a cast speaker addressing someone (`said Corin to the porter`), a beat naming a place, and a beat whose subject is a non-cast noun. Same cast as the main set; reported separately from the 20 in-sample lines.",
-    "text": "“Read the manifest first,” said the harbourmaster to Bram.\n\n“Not today,” the old man told Corin.\n\n“Is it far?” the porter asked Ada.\n\nThe clerk said to Bram, “Sign here.”\n\nBram looked at her across the table. “Sit down before you fall down,” she said.\n\nCorin slammed the ledger shut. “Fine,” he said.\n\nAda pushed the coins back to him. “Count them again,” he said.\n\nThe gulls wheeled over the quay.\n\n“Corin, run,” Bram said.\n\n“Bram,” Corin said.\n\n“Sign it,” Ada said to the clerk.\n\n“Then go,” said Corin to the porter.\n\n“Where is the key?” Bram asked Ada.\n\nAda crossed to the Harbour Office. “Wait here.”\n\nThe porter nodded to Ada. “As you like.”\n\nBram shrugged. “Suit yourself.”\n\n“Leave the ledger,” said the auditor to Corin.\n\n“Hush,” said Ada to Corin.",
+    "text": "“Read the manifest first,” said the harbourmaster to Bram.\n\n“Not today,” the old man told Corin.\n\n“Is it far?” the porter asked Ada.\n\nThe clerk said to Bram, “Sign here.”\n\nBram looked at her across the table. “Sit down before you fall down,” she said.\n\nCorin slammed the ledger shut. “Fine,” he said.\n\nAda pushed the coins back to him. “Count them again,” he said.\n\nThe gulls wheeled over the quay.\n\n“Corin, run,” Bram said.\n\n“Bram,” Corin said.\n\n“Sign it,” Ada said to the clerk.\n\n“Then go,” said Corin to the porter.\n\n“Where is the key?” Bram asked Ada.\n\nAda crossed to the Harbour Office. “Wait here.”\n\nThe porter nodded to Ada. “As you like.”\n\nBram shrugged. “Suit yourself.”\n\n“Leave the ledger,” said the auditor to Corin.\n\n“Hush,” said Ada to Corin.\n\n“Go now,” Ada told the guard. The guard laughed. “Make me, lady.”",
     "lines": [
       {"quote": "Read the manifest first,", "speaker": null},
       {"quote": "Not today,", "speaker": null},
@@ -48,7 +48,9 @@
       {"quote": "As you like.", "speaker": null},
       {"quote": "Suit yourself.", "speaker": "Bram Kestrel"},
       {"quote": "Leave the ledger,", "speaker": null},
-      {"quote": "Hush,", "speaker": "Ada Pell"}
+      {"quote": "Hush,", "speaker": "Ada Pell"},
+      {"quote": "Go now,", "speaker": "Ada Pell"},
+      {"quote": "Make me, lady.", "speaker": null}
     ]
   }
 }

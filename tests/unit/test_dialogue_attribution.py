@@ -289,9 +289,11 @@ def test_fixture_is_twenty_lines_three_speakers():
 
 
 def test_held_out_lines_cover_every_speaker():
-    # Written before the B1/B2 rule changes and never used to tune them.
+    # Written before the B1/B2 rule changes and never used to tune them; the
+    # last two (N1, a reply after another person's beat) came from the
+    # principal's re-review, before its fix.
     held_out = FIXTURE["held_out"]["lines"]
-    assert len(held_out) == 17
+    assert len(held_out) == 19
     assert {ln["speaker"] for ln in held_out} - {None} == {
         c["name"] for c in FIXTURE["cast"]
     }
@@ -628,3 +630,16 @@ def test_quote_halves_split_by_a_tag_read_as_speech():
         == "You must, there is no other way."
     )
     assert _join_utterance(["I'm good, thanks,"]) == "I'm good, thanks."
+
+
+def test_narration_between_quotes_stops_the_paragraph_speaker():
+    """Principal re-review N1: the guard's reply is not Zara's because a new
+    sentence of narration comes between; a tag-only gap still joins."""
+    from app.parsing.character_extractor import attribute_speech
+
+    (spans,) = attribute_speech(
+        '"Go now," Zara told the guard. The guard laughed. "Make me, lady."'
+    )
+    assert [s["speaker"] for s in spans] == ["Zara", None]
+    (spans,) = attribute_speech('"Hi," said Zara. "Come in."')
+    assert [s["speaker"] for s in spans] == ["Zara", "Zara"]

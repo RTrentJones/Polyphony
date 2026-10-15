@@ -319,14 +319,19 @@ def _tag(narration: str, rules, find) -> Optional[str]:
     return None
 
 
+_NEW_SENTENCE = re.compile(r"[.!?]\s+\S")
+
+
 def _attribute_paragraph(para: str) -> tuple[list[dict], str]:
     """The quoted spans of one normalized paragraph with their speakers (a
     speaker key or None), and the narration left once the spans are removed.
 
     Each span takes the tag after it, else the tag before it, else the action
     beat before it. A span with none of these is the paragraph's one named
-    speaker going on (`"Hi," said Zara. "Come in."`, a split quote) — and
-    nobody's when the paragraph names two speakers or none."""
+    speaker going on (`"Hi," said Zara. "Come in."`, a split quote) when no
+    new sentence starts between it and a neighbouring quote — and nobody's
+    when the paragraph names two speakers or none, or when narration comes
+    between (`"Go," Zara told the guard. The guard laughed. "Make me."`)."""
     spans = _quote_spans(para)
     out: list[dict] = []
     outside: list[str] = []
@@ -343,15 +348,26 @@ def _attribute_paragraph(para: str) -> tuple[list[dict], str]:
             )
             or _beat_subject(before)
         )
+        after_gap = after if k + 1 < len(spans) else None
         out.append(
-            {"text": para[start:end].strip(), "speaker": speaker, "closed": closed}
+            {
+                "text": para[start:end].strip(),
+                "speaker": speaker,
+                "closed": closed,
+                # Joined to a neighbouring quote by no more than a tag.
+                "joined": (k > 0 and not _NEW_SENTENCE.search(before))
+                or (after_gap is not None and not _NEW_SENTENCE.search(after_gap)),
+            }
         )
         prev_end = end + 1 if closed else len(para)
     outside.append(para[prev_end:])
     named = {s["speaker"] for s in out} - {None}
     if len(named) == 1:
         for s in out:
-            s["speaker"] = s["speaker"] or next(iter(named))
+            if s["speaker"] is None and s["joined"]:
+                s["speaker"] = next(iter(named))
+    for s in out:
+        del s["joined"]
     return out, " ".join(outside)
 
 
