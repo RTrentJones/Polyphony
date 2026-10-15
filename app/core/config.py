@@ -128,6 +128,9 @@ class Settings(BaseSettings):
 
     # File Storage
     UPLOAD_DIR: str = "/tmp/polyphony/uploads"  # nosec B108 - Configurable via env var
+    # The upload dialog reads both via GET /api/v1/sources/config; its fallback
+    # constants in frontend/components/AddSourceModal.tsx must match
+    # (tests/unit/test_upload_types.py). `.md` and old Word `.doc` are not read.
     MAX_UPLOAD_SIZE: int = 50 * 1024 * 1024  # 50MB
     ALLOWED_EXTENSIONS: List[str] = [".txt", ".docx", ".pdf", ".html", ".htm"]
 

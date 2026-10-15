@@ -21,7 +21,8 @@ BOOK = BookExport(
     synopsis="A book about tests.",
     chapters=[
         ChapterExport(
-            title="Beginnings",
+            # An outline title that carries its own number (SPEC-21).
+            title="Chapter 1: Beginnings",
             scenes=[
                 SceneExport(
                     title="",
@@ -44,6 +45,7 @@ class TestExports:
         assert "# The Test Book" in md
         assert "## Chapter 1: Beginnings" in md
         assert "## Chapter 2: Endings" in md
+        assert "Chapter 1: Chapter" not in md
         assert "dark and stormy" in md
 
     def test_docx_round_trip(self):
