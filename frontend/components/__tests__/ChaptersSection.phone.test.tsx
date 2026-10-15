@@ -53,10 +53,11 @@ const promoted: BookChapter = {
   // After the SPEC-23 migration: the beats are data, the summary is just prose.
   summary: 'Milo arrives',
   planned_beats: [
-    { node_id: 'n-1', title: 'Badge photo', summary: '', character_ids: [], secondary_names: [], setting: '', tone: '' },
-    { node_id: 'n-2', title: 'Lunch', summary: '', character_ids: [], secondary_names: [], setting: '', tone: '' },
+    { node_id: 'n-1', title: 'Badge photo', summary: '', character_ids: [], secondary_names: [], setting: '', tone: '', cast_ids: [] },
+    { node_id: 'n-2', title: 'Lunch', summary: '', character_ids: [], secondary_names: [], setting: '', tone: '', cast_ids: [] },
   ],
 }
+const label = `chapter 3, ${displayChapterTitle(promoted.title)}`
 const plain: BookChapter = { id: 'ch-1', book_id: 'book-1', position: 0, title: 'Onboarding' }
 
 function renderSection(chapters = [plain, promoted]) {
@@ -88,16 +89,16 @@ describe('ChaptersSection at phone width (B4)', () => {
     const header = row.firstElementChild as HTMLElement
     expect(header.className).toMatch(/\bflex-col\b/)
     expect(header.className).toContain('sm:flex-row')
-    const inRow = within(row).getByRole('button', { name: `History of ${promoted.title}` })
+    const inRow = within(row).getByRole('button', { name: `History of ${label}` })
     expect(inRow.parentElement?.className).toMatch(/\bhidden\b.*\bsm:flex\b/)
     const trigger = within(row).getByRole('button', {
-      name: `More actions for ${promoted.title}`,
+      name: `More actions for ${label}`,
     })
     expect(trigger).toHaveAttribute('aria-haspopup', 'menu')
     expect(trigger.parentElement?.className).toContain('sm:hidden')
     // Reorder arrows stay in the row at every width.
     expect(
-      within(row).getByRole('button', { name: `Move ${promoted.title} up` }).parentElement
+      within(row).getByRole('button', { name: `Move ${label} up` }).parentElement
         ?.className
     ).not.toContain('hidden')
   })

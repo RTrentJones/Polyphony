@@ -579,36 +579,66 @@ async def test_a_single_scene_from_a_beat_stores_its_id_and_secondaries(
     assert "secondary_names" not in scene.scene_request
 
 
-async def test_a_single_scene_from_a_beat_is_cast_as_the_batch_casts_it(
+async def test_the_chapter_publishes_each_beats_live_cast(
     client, auth_headers, async_session, test_book
 ):
-    """W-1: with no explicit cast, the server casts the beat (beat_people): its
-    own cast, a secondary that now resolves, else the chapter's; plus the POV."""
-    ids, promoted, beat_ids = await _beat_book(
-        client, auth_headers, async_session, test_book
-    )
+    """W3-6: `cast_ids` is beat_people's cast, re-classified against the live
+    cast on every read; the stored `character_ids` are not rewritten."""
+    ids, promoted, _ = await _beat_book(client, auth_headers, async_session, test_book)
     prava = Character(
         book_id=test_book.id, user_id=test_book.user_id, name="Prava", role="minor"
     )
     async_session.add(prava)
     await async_session.commit()
-    url = f"/api/v1/books/chapters/{promoted['chapter_id']}/scenes/generate"
-    body = {"scene_description": "From the plan.", "setting": "", "emotional_tone": ""}
-    for beat_id in beat_ids:
-        r = await client.post(
-            url, json={**body, "planned_beat_id": beat_id}, headers=auth_headers
-        )
-        assert r.status_code == 200, r.text
-    scenes = await async_session.execute(select(Scene).order_by(Scene.position))
-    requests = [s.scene_request for s in scenes.scalars().all()]
-    milo = ids["Milo Voss"]
-    assert [r["character_ids"] for r in requests] == [
+    url = f"/api/v1/books/chapters/{promoted['chapter_id']}"
+    beats = (await client.get(url, headers=auth_headers)).json()["planned_beats"]
+    milo, zara = ids["Milo Voss"], ids["Zara Okafor"]
+    assert [b["cast_ids"] for b in beats] == [
         [milo, ids["Edric Thane"]],
-        [milo, ids["Zara Okafor"]],
+        [milo, zara],
         [milo, str(prava.id)],
     ]
-    assert {r["pov_character"] for r in requests} == {"Milo Voss"}
-    assert [r["secondary_names"] for r in requests] == [[], [], []]
+    assert beats[2]["character_ids"] == [] and beats[2]["secondary_names"] == ["Prava"]
+    book = (
+        await client.get(f"/api/v1/books/{test_book.id}", headers=auth_headers)
+    ).json()
+    assert book["character_count"] == 4
+    assert book["chapters"][-1]["planned_beats"][2]["cast_ids"] == [milo, str(prava.id)]
+
+
+async def test_a_single_scene_and_a_batch_cast_explicit_ids_alike(
+    client, auth_headers, async_session, test_book
+):
+    """S8: one explicit-cast rule (with_pov) for both endpoints, POV first."""
+    ids, promoted, (b1, _, _) = await _beat_book(
+        client, auth_headers, async_session, test_book
+    )
+    milo, zara = ids["Milo Voss"], ids["Zara Okafor"]
+    r = await client.post(
+        f"/api/v1/books/chapters/{promoted['chapter_id']}/scenes/generate",
+        json={
+            "character_ids": [zara, milo],
+            "scene_description": "Intake: Edric reviews Milo's file",
+            "setting": "",
+            "emotional_tone": "",
+            "planned_beat_id": b1,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    (job,) = (await async_session.execute(select(Job))).scalars().all()
+    single = job.payload["request"]
+    await async_session.delete(job)
+    await async_session.commit()
+    r = await client.post(
+        _PLANNED.format(promoted["chapter_id"]),
+        json={"character_ids": [zara, milo]},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    batch = (await _requests(async_session))[0]
+    assert single["character_ids"] == batch["character_ids"] == [milo, zara]
+    assert single["pov_character"] == batch["pov_character"] == "Milo Voss"
 
 
 # --- promote: one classification per node --------------------------------------------------
