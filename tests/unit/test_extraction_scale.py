@@ -622,6 +622,17 @@ class TestPreflight:
         assert est["requests"] == est["windows"] + est["reduce_calls"] + 1
         assert est["estimated_tokens"] > 120_000
 
+    def test_a_one_window_source_is_counted_in_every_reduce_call(self):
+        """The reduce prompt carries a one-window source whole (single_source),
+        so each reduce call costs the source again."""
+        text = "\n\n".join(
+            f"Ada walked to the gate in part {i}. " * 40 for i in range(30)
+        )
+        est = ce.plan_estimate(text)
+        assert est["windows"] == 1 and est["reduce_calls"] >= 2
+        source = ce.estimate_tokens(text)
+        assert est["estimated_tokens"] >= source * (1 + est["reduce_calls"])
+
     async def _setup(self, monkeypatch, async_session, test_source, text, limit):
         from dataclasses import replace
 

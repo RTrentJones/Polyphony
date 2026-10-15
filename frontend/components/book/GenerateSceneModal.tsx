@@ -124,9 +124,13 @@ export default function GenerateSceneModal({
   // A chapter promoted from the outline carries its cast and POV (SPEC-10):
   // pre-select them when the cast loads or the target chapter changes. Only
   // characters still in the book's cast are selected.
+  const chapterCast = useMemo(
+    () => (activeChapter?.character_ids ?? []).filter((id) => byId.has(id)),
+    [activeChapter, byId]
+  )
   useEffect(() => {
     if (loadingCast || !activeChapter) return
-    const ids = (activeChapter.character_ids ?? []).filter((id) => byId.has(id))
+    const ids = chapterCast
     if (ids.length === 0) return
     setSelected(ids)
     const pov = activeChapter.pov_character_id
@@ -139,13 +143,15 @@ export default function GenerateSceneModal({
   // twice. Its cast is the server's (review W-1), exactly as the batch casts
   // it: the beat's own cast and anyone it names who is now in the book, else
   // the chapter's, plus the chapter POV. The picker previews the beat's own
-  // ids; once the author toggles someone, their pick is sent instead.
+  // ids, else the chapter's, plus the POV; once the author toggles someone,
+  // their pick is sent instead.
   const pickBeat = (beat: PlannedBeat) => {
     setDescription(beatDescription(beat))
     setSetting(beat.setting ?? '')
     setTone(beat.tone ?? '')
     const own = beat.character_ids.filter((id) => byId.has(id))
-    if (own.length > 0) setSelected(povId && !own.includes(povId) ? [povId, ...own] : own)
+    const ids = own.length > 0 ? own : chapterCast
+    setSelected(povId && !ids.includes(povId) ? [povId, ...ids] : ids)
     setCastFromBeat(true)
     setBeatId(beat.node_id)
   }

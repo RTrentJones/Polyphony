@@ -369,7 +369,8 @@ def check_no_neutral_tone(prompt: str, chosen_tone: str = "") -> list[str]:
 
 def check_pov_line(prompt: str, expected_who: str | None) -> list[str]:
     """F9: "Point of view: <mode>[, <who>]." (`POV_LINE_RE`) names the expected
-    POV character, and the knowledge limit after it names them too."""
+    POV character, and, in a one-head mode, the knowledge limit after it names
+    them too."""
     m = POV_LINE_RE.search(prompt)
     if not m:
         return ['no "Point of view: <mode>, <character>." line']
@@ -378,6 +379,8 @@ def check_pov_line(prompt: str, expected_who: str | None) -> list[str]:
         return []
     if who.lower() != expected_who.lower():
         return [f"POV is {who or '(none)'!r}, not the chapter POV {expected_who!r}"]
+    if m.group("mode").endswith(("omniscient", "objective")):
+        return []  # not held to one head (pov_instruction)
     if not re.search(
         rf"{re.escape(POV_LIMIT_OPEN)}\s+{re.escape(who)}\b[^\n]*?"
         rf"{re.escape(POV_LIMIT_CLOSE)}",

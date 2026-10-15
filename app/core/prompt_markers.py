@@ -28,6 +28,9 @@ AVAILABLE_CAST_LABEL = "Available cast (not all need appear)"
 POV_LABEL = "Point of view"
 POV_LIMIT_OPEN = "Narrate only what"
 POV_LIMIT_CLOSE = "perceives or knows"
+# Omniscient and objective modes are not held to one head; their sentence opens
+# with this instead of the limit.
+POV_WIDE_OPEN = "The narrator"
 
 # --- the beat prompt (orchestration/prose.write_beat_prose) --------------------
 CHARACTERS_SECTION = "CHARACTERS IN THIS BEAT"
@@ -66,5 +69,5 @@ def labelled_line(label: str) -> re.Pattern:
 POV_LINE_RE = re.compile(
     rf"(?m)^{re.escape(POV_LABEL)}: "
     r"(?P<mode>(?:first|second|third) person[^,\n]*?)(?:, (?P<who>[^\n]+?))?"
-    rf"\.\s+{re.escape(POV_LIMIT_OPEN)}"
+    rf"\.\s+(?:{re.escape(POV_LIMIT_OPEN)}|{re.escape(POV_WIDE_OPEN)})"
 )

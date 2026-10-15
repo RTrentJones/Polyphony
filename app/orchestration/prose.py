@@ -30,6 +30,7 @@ from app.core.prompt_markers import (
     POV_LABEL,
     POV_LIMIT_CLOSE,
     POV_LIMIT_OPEN,
+    POV_WIDE_OPEN,
     PRIOR_FENCE,
     STOP_AT_NEXT_BEAT,
 )
@@ -158,7 +159,21 @@ def _style_pov_character(style_pov, canon) -> Optional[str]:
 
 def pov_instruction(pov: Pov) -> str:
     """The beat prompt's POV paragraph (SPEC-24, W2-4): mode and character on
-    one line, then what staying in that head means."""
+    one line, then what the mode allows. Limited and first/second person stay
+    in one head; omniscient and objective do not, but neither runs ahead of
+    the beat."""
+    head = f"{POV_LABEL}: {pov.label}."
+    if pov.mode.endswith("omniscient"):
+        return (
+            f"{head} {POV_WIDE_OPEN} may move between characters' thoughts, but "
+            "tells nothing that happens after this beat: no aftermath, no "
+            "foreshadowing."
+        )
+    if pov.mode.endswith("objective"):
+        return (
+            f"{head} {POV_WIDE_OPEN} reports only what can be seen and heard: no "
+            "one's thoughts or feelings stated, no aftermath, no foreshadowing."
+        )
     if not pov.who:
         return (
             f"{POV_LABEL}: {pov.label}. {POV_LIMIT_OPEN} the point-of-view character "

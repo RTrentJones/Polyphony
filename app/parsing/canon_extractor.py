@@ -1201,7 +1201,8 @@ def plan_estimate(text: str, window_tokens: int = WINDOW_TOKENS) -> dict:
     """What an extraction of `text` will cost, before it is enqueued (R7.3/R7.5).
 
     Upper-bound-ish: every window's full input plus its answer budget, a reduce
-    call per ~10 expected characters, and the synopsis.
+    call per ~10 expected characters (each carrying a one-window source whole),
+    and the synopsis.
     """
     windows = split_windows(text, window_tokens)
     n = len(windows)
@@ -1210,7 +1211,9 @@ def plan_estimate(text: str, window_tokens: int = WINDOW_TOKENS) -> dict:
     )
     expected_chars = min(MAX_REDUCED_CHARACTERS, 8 + 6 * n)
     reduce_calls = math.ceil(expected_chars / REDUCE_BATCH) if n else 0
-    reduce_tokens = reduce_calls * (2_500 + 2_500)
+    # A one-window source is sent whole with every reduce call (single_source).
+    source = estimate_tokens(windows[0]) if n == 1 else 0
+    reduce_tokens = reduce_calls * (2_500 + 2_500 + source)
     synopsis_tokens = 3_000 if n else 0
     return {
         "windows": n,

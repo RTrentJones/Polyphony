@@ -9,7 +9,7 @@ import uuid
 
 import pytest
 
-from app.core.prompt_markers import POV_LINE_RE
+from app.core.prompt_markers import POV_LIMIT_OPEN, POV_LINE_RE
 from app.orchestration.prose import (
     Pov,
     pov_instruction,
@@ -92,6 +92,23 @@ def test_a_titled_style_character_resolves_through_the_cast():
     m = POV_LINE_RE.search(pov_instruction(pov))
     assert m.group("mode") == "third person limited"
     assert m.group("who") == "Ada Vance"
+
+
+def test_omniscient_and_objective_are_not_held_to_one_head():
+    """Review: a wide mode is not told to narrate only what one character
+    perceives, with or without a named POV character; it still may not run
+    ahead of the beat. The marker line parses either way."""
+    for who in (None, "Milo Voss"):
+        omni = pov_instruction(Pov("third person omniscient", who))
+        objective = pov_instruction(Pov("third person objective", who))
+        for text in (omni, objective):
+            assert POV_LIMIT_OPEN not in text
+            assert "no aftermath, no foreshadowing" in text
+            m = POV_LINE_RE.search(text)
+            assert m.group("who") == who
+        assert "thoughts" in omni and "seen and heard" in objective
+    limited = pov_instruction(Pov("third person limited", "Milo Voss"))
+    assert f"{POV_LIMIT_OPEN} Milo Voss" in limited
 
 
 def test_pov_mode():

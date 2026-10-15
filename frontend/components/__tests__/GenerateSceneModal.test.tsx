@@ -212,6 +212,34 @@ describe('GenerateSceneModal defaults from a promoted chapter (SPEC-10)', () => 
     expect(request.pov_character).toBe('Bram')
   })
 
+  it("picking a castless beat after a cast one previews the chapter's cast, not the first beat's", async () => {
+    listCharacters.mockResolvedValue(cast)
+    // A chapter whose cast is Ada alone and whose POV is not set: the first
+    // beat previews Bram, the castless one must go back to Ada.
+    renderModal({
+      chapter: {
+        ...promoted,
+        character_ids: ['c-ada'],
+        pov_character_id: undefined,
+        planned_beats: [
+          { ...promoted.planned_beats![0], character_ids: ['c-bram'] },
+          promoted.planned_beats![1],
+        ],
+      },
+    })
+    const beats = await screen.findByTestId('planned-beats')
+    await screen.findByRole('button', { name: 'Bram' })
+    const [first, second] = Array.from(beats.querySelectorAll('button'))
+    const pressed = () =>
+      Array.from(
+        screen.getByTestId('cast-picker').querySelectorAll('button[aria-pressed="true"]')
+      ).map((b) => b.textContent)
+    fireEvent.click(first)
+    expect(pressed()).toEqual(['Bram'])
+    fireEvent.click(second)
+    expect(pressed()).toEqual(['Ada· protagonist'])
+  })
+
   it('picking a beat with no setting clears the previous beat\'s setting', async () => {
     listCharacters.mockResolvedValue(cast)
     renderModal({ chapter: promoted })
