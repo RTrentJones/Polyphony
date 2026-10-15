@@ -57,7 +57,7 @@ async def _scene_inputs(scene_id: UUID, payload: dict) -> tuple[str, str]:
     """
     from app.core.orm_models import Chapter
     from app.exports.builder import scene_text
-    from app.orchestration.prose import PREV_TAIL_WORDS
+    from app.orchestration.prose import prose_tail
 
     async with get_async_session() as session:
         scene = await session.get(Scene, scene_id)
@@ -80,7 +80,8 @@ async def _scene_inputs(scene_id: UUID, payload: dict) -> tuple[str, str]:
         ).scalar_one_or_none()
         tail = ""
         if prev is not None:
-            tail = " ".join(scene_text(prev).split()[-PREV_TAIL_WORDS:])
+            # Paragraph breaks kept, never opened mid-sentence (SPEC-18).
+            tail = prose_tail(scene_text(prev))
         return summary, tail
 
 
