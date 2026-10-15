@@ -83,3 +83,17 @@ export async function sha256Hex(text: string): Promise<string> {
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('')
 }
+
+/**
+ * Where a continuity finding's quote is in the draft, as UTF-16 [start, end)
+ * for `setSelectionRange`; null when it is not there (SPEC-31). Matched like
+ * the server's `continuity._normal`: any whitespace run matches any other, and
+ * outer quotation marks are ignored.
+ */
+export function findQuote(text: string, quote: string): [number, number] | null {
+  const words = quote.replace(/^[\s"'“”‘’]+|[\s"'“”‘’]+$/g, '').split(/\s+/)
+  if (!words[0]) return null
+  const pattern = words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+')
+  const m = new RegExp(pattern).exec(text)
+  return m ? [m.index, m.index + m[0].length] : null
+}

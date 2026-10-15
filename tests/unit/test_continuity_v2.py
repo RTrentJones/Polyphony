@@ -114,23 +114,112 @@ def test_planning_never_imports_jobs():
     assert not [p.name for p in planning.glob("*.py") if "app.jobs" in p.read_text()]
 
 
+def _scene(n: int, text: str) -> "cont.ProseScene":
+    return cont.ProseScene(f"s{n}", 1, "Onboarding", n, f"Scene {n}", text)
+
+
+def _scenes(n_scenes: int, words: int) -> list:
+    return [
+        _scene(n, " ".join(f"s{n}w{i}" for i in range(words)))
+        for n in range(1, n_scenes + 1)
+    ]
+
+
+def _reply(*findings) -> str:
+    return json.dumps({"findings": list(findings)})
+
+
 async def test_prompt_is_fenced_and_uncut(monkeypatch):
     fake = FakeLLM(['{"findings": []}'])
     monkeypatch.setattr(cont, "get_llm_client", lambda: fake)
     sheet = "<canon>\n" + ("x " * 10000) + _TAIL + "\n</canon>"
-    result = await cont.run_continuity_check("Some prose here.", sheet)
+    result = await cont.run_continuity_check([_scene(1, "Some prose here.")], sheet)
     prompt = fake.prompts[0]
     assert prompt.startswith(STORY_MATERIAL_NOTICE)
     assert _TAIL in prompt and "<prose>" in prompt
     assert result.status == "completed"
 
 
+def test_chunks_pack_whole_scenes_each_opening_with_its_marker():
+    """(F) SPEC-31: a chunk holds whole scenes, each under its marker."""
+    chunks = cont.chunk_scenes(_scenes(3, 1000))
+    assert [[s.scene_id for s in c.scenes] for c in chunks] == [["s1", "s2"], ["s3"]]
+    assert '\n\n[Ch 1 "Onboarding" › Scene 2 "Scene 2"]\ns2w0 ' in chunks[0].text
+    assert chunks[1].text.startswith('[Ch 1 "Onboarding" › Scene 3 "Scene 3"]\n')
+
+
+@pytest.mark.parametrize("para_words", [500, 6000])
+def test_a_long_scene_splits_into_marked_pieces(para_words):
+    """(F) A 6,000-word scene gives three pieces, each under the scene's
+    marker, split at paragraph breaks (kept), by words only inside an
+    over-long paragraph."""
+    para = " ".join(["w"] * para_words)
+    chunks = cont.chunk_scenes([_scene(1, "\n\n".join([para] * (6000 // para_words)))])
+    assert len(chunks) == 3
+    for c in chunks:
+        assert c.text.startswith('[Ch 1 "Onboarding" › Scene 1 "Scene 1"]\nw w')
+    assert sum(len(c.scenes[0].text.split()) for c in chunks) == 6000
+    assert ("\n\n" in chunks[0].text.split("]\n", 1)[1]) == (para_words == 500)
+
+
+def test_the_server_locates_the_quote_and_never_drops_a_finding():
+    """(F) The model gives `quote`; the server sets `scene_id` from the scene
+    whose prose contains it, whitespace-normalised and outer quotation marks
+    stripped. A paraphrase, or no quote, is kept unlocated."""
+    s2 = _scene(2, "Zara's eyes were green\nas the ledger\n\nlamp.")
+    chunk = cont.chunk_scenes([_scene(1, "Milo signed."), s2])[0]
+    found = cont.validate_findings(
+        [
+            {"detail": "Brown in ch 1.", "quote": '"green as the ledger lamp."'},
+            {"detail": "Paraphrased.", "quote": "Zara has green eyes"},
+            {"detail": "No quote."},
+        ],
+        chunk,
+    )
+    assert [(f["scene_id"], f["quote"]) for f in found] == [
+        ("s2", '"green as the ledger lamp."'),
+        (None, "Zara has green eyes"),
+        (None, ""),
+    ]
+    assert all("refs" not in f and "located" not in f for f in found)
+
+
+async def test_absent_blocks_are_never_mentioned(monkeypatch):
+    """(F) The first chunk has no <prior> and no earlier findings, so its
+    prompt neither carries nor mentions them; the second has both."""
+    fake = FakeLLM([_reply({"detail": "The lamp vanishes."})])
+    monkeypatch.setattr(cont, "get_llm_client", lambda: fake)
+    await cont.run_continuity_check(_scenes(2, 2000), "<canon>f</canon>")
+    one, two = fake.prompts
+    for absent in ("prior", "earlier", "already reported", "previous section"):
+        assert absent not in one.lower(), absent
+    assert "<prior>" in two and "<earlier_findings>" in two
+    assert "The lamp vanishes." in two
+
+
+async def test_a_pre_spec31_checkpoint_restarts_at_chunk_zero(monkeypatch):
+    """(F, S2) A check paused before the deploy saved the hash of the joined
+    prose and a word-chunk index. The same prose, chunked by scene, must not
+    match it: the check restarts at chunk 0 and drops the old findings."""
+    import hashlib
+
+    scenes = _scenes(3, 2000)
+    prose = "\n\n".join(s.text for s in scenes)  # the pre-SPEC-31 input
+    old_hash = hashlib.sha256(f"facts\x00{prose}".encode()).hexdigest()[:16]
+    old = {"type": "other", "severity": "minor", "detail": "old", "refs": "w1"}
+    checkpoint = {"input_hash": old_hash, "next": 2, "findings": [old], "checked": 2}
+    fake = FakeLLM([])
+    monkeypatch.setattr(cont, "get_llm_client", lambda: fake)
+    result = await cont.run_continuity_check(scenes, "facts", checkpoint=checkpoint)
+    assert len(fake.prompts) == result.chunks_total == 3
+    assert result.findings == [] and result.chunks_checked == 3
+
+
 async def test_unparseable_chunk_is_incomplete_never_clean(monkeypatch):
-    words = " ".join(f"w{i}" for i in range(cont.CHUNK_WORDS * 3))
     # chunk 1 ok, chunk 2 garbage twice (retry in json mode), chunk 3 ok
     fake = FakeLLM(['{"findings": []}', "not json", "still not", '{"findings": []}'])
     monkeypatch.setattr(cont, "get_llm_client", lambda: fake)
-    result = await cont.run_continuity_check(words, "<canon>facts</canon>")
+    result = await cont.run_continuity_check(_scenes(3, 2000), "<canon>facts</canon>")
     assert result.chunks_total == 3 and result.chunks_checked == 2
     assert result.status == "incomplete"
     assert result.coverage["unchecked"] == ["part 2/3"]
@@ -140,24 +229,26 @@ async def test_unparseable_chunk_is_incomplete_never_clean(monkeypatch):
 async def test_all_unparseable_is_failed(monkeypatch):
     fake = FakeLLM(["nope", "nope"])
     monkeypatch.setattr(cont, "get_llm_client", lambda: fake)
-    result = await cont.run_continuity_check("short prose", "<canon>f</canon>")
+    result = await cont.run_continuity_check([_scene(1, "short")], "<canon>f</canon>")
     assert result.status == "failed"
 
 
 async def test_duplicates_merge_keeping_highest_severity(monkeypatch):
-    words = " ".join(f"w{i}" for i in range(cont.CHUNK_WORDS * 2))
-    f = {"type": "character", "detail": "Milo's eyes change colour.", "refs": "ch2"}
+    """Same type and detail, or the same quote: one finding, most severe."""
+    f = {"type": "character", "detail": "Milo's eyes change colour."}
+    q = {"type": "object", "detail": "The ledger moves.", "quote": "s2w1 s2w2"}
     fake = FakeLLM(
         [
-            json.dumps({"findings": [{**f, "severity": "minor"}]}),
-            json.dumps({"findings": [{**f, "severity": "critical"}]}),
+            _reply({**f, "severity": "minor"}),
+            _reply({**f, "severity": "critical"}, q, {**q, "detail": "Reworded."}),
         ]
     )
     monkeypatch.setattr(cont, "get_llm_client", lambda: fake)
-    result = await cont.run_continuity_check(words, "<canon>f</canon>")
-    assert len(result.findings) == 1 and result.findings[0]["severity"] == "critical"
-    # the second chunk saw the first chunk's findings and its tail
-    assert "<earlier_findings>" in fake.prompts[1] and "<prior>" in fake.prompts[1]
+    result = await cont.run_continuity_check(_scenes(2, 2000), "<canon>f</canon>")
+    assert [(x["detail"], x["severity"]) for x in result.findings] == [
+        ("Milo's eyes change colour.", "critical"),
+        ("The ledger moves.", "minor"),
+    ]
 
 
 def test_no_slice_of_the_fact_sheet_or_prose():
@@ -196,7 +287,7 @@ async def test_a_paused_check_resumes_at_its_next_chunk(monkeypatch):
 
     fake = Fake()
     monkeypatch.setattr(cont, "get_llm_client", lambda: fake)
-    prose = " ".join(f"w{i}" for i in range(cont.CHUNK_WORDS * 3))
+    scenes = _scenes(3, 2000)
     saved: dict = {}
 
     async def save(data):
@@ -204,11 +295,11 @@ async def test_a_paused_check_resumes_at_its_next_chunk(monkeypatch):
         saved.update(json.loads(json.dumps(data)))
 
     with pytest.raises(QuotaExhaustedError):
-        await cont.run_continuity_check(prose, "facts", save_checkpoint=save)
+        await cont.run_continuity_check(scenes, "facts", save_checkpoint=save)
     assert len(calls) == 1 and saved["next"] == 1
 
     result = await cont.run_continuity_check(
-        prose, "facts", checkpoint=saved, save_checkpoint=save
+        scenes, "facts", checkpoint=saved, save_checkpoint=save
     )
     assert len(calls) == 3  # chunks 2 and 3 only; chunk 1 was not re-paid
     assert result.chunks_checked == 3 and result.chunks_total == 3
@@ -216,7 +307,6 @@ async def test_a_paused_check_resumes_at_its_next_chunk(monkeypatch):
 
     # A checkpoint taken against other prose is discarded, not merged.
     calls.clear()
-    await cont.run_continuity_check(
-        prose.replace("w0 ", "x0 ", 1), "facts", checkpoint=saved
-    )
+    edited = [scenes[0]._replace(text="x" + scenes[0].text), *scenes[1:]]
+    await cont.run_continuity_check(edited, "facts", checkpoint=saved)
     assert len(calls) == 3

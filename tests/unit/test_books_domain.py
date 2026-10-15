@@ -13,7 +13,7 @@ from app.exports.builder import (
     to_epub,
     to_markdown,
 )
-from app.planning.continuity import chunk_prose, validate_findings
+from app.planning.continuity import Chunk, validate_findings
 from app.planning.outline import validate_outline_nodes
 
 BOOK = BookExport(
@@ -149,12 +149,6 @@ class TestOutlineValidation:
 
 @pytest.mark.unit
 class TestContinuityHelpers:
-    def test_chunking_covers_all_words(self):
-        text = " ".join(f"w{i}" for i in range(6000))
-        chunks = chunk_prose(text, chunk_words=2500)
-        assert len(chunks) == 3
-        assert sum(len(c.split()) for c in chunks) == 6000
-
     def test_findings_validation_filters_garbage(self):
         findings = validate_findings(
             [
@@ -162,7 +156,8 @@ class TestContinuityHelpers:
                 {"type": "weird", "detail": "still kept as other"},
                 {"detail": ""},
                 "not a dict",
-            ]
+            ],
+            Chunk("", []),
         )
         assert len(findings) == 2
         assert findings[0]["type"] == "timeline"

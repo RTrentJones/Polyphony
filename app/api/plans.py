@@ -34,7 +34,7 @@ from app.core.orm_models import (
     User as UserORM,
 )
 from app.core.security import get_current_active_user
-from app.exports.builder import clean_chapter_title, scene_text
+from app.exports.builder import clean_chapter_title
 from app.jobs import repository as jobs_repo
 from app.llm.tier import get_tier
 from app.planning import secondaries
@@ -932,27 +932,6 @@ async def add_thread_event(
 # --- Continuity ---------------------------------------------------------------------
 
 
-async def _collect_prose(
-    book_id: UUID, chapter_id: UUID | None, db: AsyncSession
-) -> str:
-    """Ordered prose of a chapter (or the whole book) — the continuity input.
-
-    Derived data: the continuity job handler recomputes it from the DB at run
-    time instead of snapshotting up to a whole book of prose into the payload.
-    """
-    scene_query = (
-        select(SceneORM)
-        .join(ChapterORM, SceneORM.chapter_id == ChapterORM.id)
-        .where(ChapterORM.book_id == book_id)
-        .where(ChapterORM.deleted_at.is_(None), SceneORM.deleted_at.is_(None))
-        .order_by(ChapterORM.position, SceneORM.position)
-    )
-    if chapter_id:
-        scene_query = scene_query.where(SceneORM.chapter_id == chapter_id)
-    scenes = (await db.execute(scene_query)).scalars().all()
-    return "\n\n".join(scene_text(s) for s in scenes if scene_text(s))
-
-
 @router.post("/books/{book_id}/continuity", response_model=dict)
 async def start_continuity_check(
     book_id: UUID,
@@ -967,8 +946,10 @@ async def start_continuity_check(
     if payload.chapter_id:
         await _owned_chapter(payload.chapter_id, current_user, db)
 
-    prose = await _collect_prose(book.id, payload.chapter_id, db)
-    if not prose:
+    from app.planning.continuity import build_fact_sheet, collect_scenes
+
+    scenes = await collect_scenes(db, book.id, payload.chapter_id)
+    if not scenes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No prose to check yet",
@@ -977,11 +958,11 @@ async def start_continuity_check(
     # a whole-book check on a big canon is expensive. Refuse with the estimate
     # rather than half-check the book.
     from app.core import estimates
-    from app.planning.continuity import build_fact_sheet
 
     fact_sheet = await build_fact_sheet(db, book.id)
     est = estimates.continuity(
-        fact_sheet_chars=len(fact_sheet), prose_words=len(prose.split())
+        fact_sheet_chars=len(fact_sheet),
+        prose_words=sum(len(s.text.split()) for s in scenes),
     )
     assessed = await estimates.assess(db, current_user.id, est)
     if not assessed["allowed"]:
