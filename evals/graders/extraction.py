@@ -20,6 +20,7 @@ class ExtractionScore:
     true_positives: list[str]
     missed: list[str]
     spurious: list[str]
+    secondary_found: list[str]
 
     def as_dict(self) -> dict:
         return {
@@ -29,32 +30,36 @@ class ExtractionScore:
             "true_positives": self.true_positives,
             "missed": self.missed,
             "spurious": self.spurious,
+            "secondary_found": self.secondary_found,
         }
 
 
-def grade_extraction(predicted: list[str], gold: list[str]) -> ExtractionScore:
-    """Score a predicted cast against the gold cast.
-
-    Each gold name is hit at most once; each prediction is spurious if it matches
-    no gold name. Precision = hits / predictions, recall = hits / gold.
+def grade_extraction(
+    predicted: list[str], gold: list[str], secondary: list[str] = ()
+) -> ExtractionScore:
+    """Score a predicted cast against the gold cast and the corpus' real
+    `secondary` people (SPEC-33). Each name is hit at most once; a prediction
+    matching neither is spurious. Precision = (gold + secondary hits) /
+    predictions, recall = gold hits / gold.
     """
-    gold_hit: dict[str, bool] = {g: False for g in gold}
+    gold_hit: dict[str, bool] = {g: False for g in [*gold, *secondary]}
     spurious: list[str] = []
     for p in predicted:
-        matched = next((g for g in gold if not gold_hit[g] and match(p, g)), None)
+        matched = next((g for g in gold_hit if not gold_hit[g] and match(p, g)), None)
         if matched is None:
             # allow matching an already-hit gold (duplicate prediction) w/o double count
-            if not any(match(p, g) for g in gold):
+            if not any(match(p, g) for g in gold_hit):
                 spurious.append(p)
         else:
             gold_hit[matched] = True
 
-    tp = [g for g, hit in gold_hit.items() if hit]
-    missed = [g for g, hit in gold_hit.items() if not hit]
+    tp = [g for g in gold if gold_hit[g]]
+    missed = [g for g in gold if not gold_hit[g]]
+    found = sorted(s for s in secondary if gold_hit[s])
     n_pred = len(predicted)
-    precision = len(tp) / n_pred if n_pred else 0.0
+    precision = (len(tp) + len(found)) / n_pred if n_pred else 0.0
     recall = len(tp) / len(gold) if gold else 0.0
     f1 = (
         (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
     )
-    return ExtractionScore(precision, recall, f1, tp, missed, spurious)
+    return ExtractionScore(precision, recall, f1, tp, missed, spurious, found)

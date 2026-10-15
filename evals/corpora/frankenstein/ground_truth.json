@@ -66,6 +66,7 @@
       ]
     }
   },
+  "voice_probe": "The ship is locked in the polar ice, and someone asks why you came so far north. Say a few sentences to them.",
   "canonical_beats": [
     {
       "title": "Emeric animates the creature and flees it in horror",

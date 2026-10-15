@@ -36,6 +36,7 @@ class _FakeClient:
         self.proposals = proposals
         self.committed: list[str] = []
         self.created: list[tuple[str, str]] = []
+        self.prompts: list[str] = []
 
     async def upload_source(self, filename, content, title, book_id=None):
         return {"id": "src", "book_id": "book-1", "extraction_run_id": "run-1"}
@@ -64,6 +65,7 @@ class _FakeClient:
         return {"added": len(samples)}
 
     async def test_dialogue(self, character_id, prompt, context=None):
+        self.prompts.append(prompt)
         return {"dialogue": f"line from {character_id}"}
 
 
@@ -138,6 +140,7 @@ async def test_attribution_creates_book_scoped_characters(tmp_path, monkeypatch)
     monkeypatch.setattr(embed, "embed_one", fake_one)
     gt = {
         "synopsis": "s",
+        "voice_probe": "Say a few sentences to the reviewer.",
         "gold_lines": {
             "Nora": {"train": ["a"], "test": ["b"]},
             "Elias": {"train": ["c"], "test": ["d"]},
@@ -147,6 +150,7 @@ async def test_attribution_creates_book_scoped_characters(tmp_path, monkeypatch)
     out = await pipeline.step_attribution(_ctx(tmp_path, client, gt))
     assert client.created == [("Nora", "book-2"), ("Elias", "book-2")]
     assert out["generated"] == 2 and "error" not in out
+    assert client.prompts == [gt["voice_probe"]] * 2  # the in-world probe
 
 
 async def test_client_refuses_a_character_without_a_book():
@@ -407,13 +411,16 @@ def test_cel_plants_five_contradictions_in_the_excerpt():
 
 
 async def test_continuity_runs_on_the_excerpt_for_cel(tmp_path):
-    seen = []
+    seen, books = [], []
 
-    class Client:
+    class Client(_ProductClient):
         async def create_book(self, title, synopsis, genre=""):
+            books.append(synopsis)
+            self.ids[title] = {}
             return {"id": title}
 
         async def create_chapter(self, book_id, title, summary=""):
+            books.append(summary)
             return {"id": book_id}
 
         async def create_scene(self, chapter_id, content="", characters=None):
@@ -421,15 +428,17 @@ async def test_continuity_runs_on_the_excerpt_for_cel(tmp_path):
 
         async def run_continuity(self, book_id, chapter_id=None):
             if "injected" in book_id:
-                return [
-                    {"detail": "Edwin Thane vs Edric Thane", "refs": '"Edwin Thane"'}
-                ]
+                return [{"detail": "The memo's signature", "quote": "Edwin Thane"}]
             return []
 
     out = await pipeline.step_continuity(_cel_ctx(tmp_path, Client()))
     assert out["n_injected"] == 5 and out["detected"] == ["broken-alias"]
     assert out["precision"] == 1.0 and out["quote_verbatim"] == 1.0
     assert "Halvard Bell" in seen[0] and "BORED TO UNDEATH" not in seen[0]
+    # W3-7: graded against the canon an author would have.
+    _, gt = pipeline.load_corpus("cel")
+    summary = gt["canonical_beats"][0]["title"]
+    assert books == [gt["synopsis"], summary] * 2
 
 
 def test_strip_tags_leaves_only_spoken_lines_with_names_masked():
@@ -608,34 +617,51 @@ def test_cel_premise_agrees_with_the_synopsis_ending():
     assert "files it correctly" in premise and "goes onward" in premise
     assert "end him" not in premise
     assert "files it correctly" in gt["synopsis"]
-    assert gt["fidelity"]["secondaries"] == ["Prava", "Old Fen"]
-    for name in gt["fidelity"]["secondaries"]:
-        assert name in gt["synopsis"] and name in gt["fidelity"]["known"]
-        assert name not in gt["cast"]
+    assert gt["secondary_cast"] == ["Prava", "Old Fen", "Halvard Bell"]
+    for name in gt["secondary_cast"]:
+        assert name not in gt["cast"] and name not in gt["fidelity"]["known"]
+    assert "secondaries" not in gt["fidelity"]
 
 
-def test_extraction_depth_needs_every_principals_fields_and_mention_order():
+def test_unknown_canon_counts_the_secondary_cast_as_known():
+    """W3-7: Halvard Bell is in the author's manuscript, not an invention."""
+    _, gt = pipeline.load_corpus("cel")
+    _, unknown = pipeline._unknown_canon("Milo closed the Halvard Bell account.", gt)
+    assert unknown == []
+
+
+def test_a_secondarys_own_other_line_is_own():
+    """W3-1/E4a: a secondary's voice samples come from other_lines."""
+    from evals.graders.prompt_contract import classify_sample
+
+    _, gt = pipeline.load_corpus("cel")
+    gold = {k: v["train"] + v["test"] for k, v in gt["gold_lines"].items()}
+    sample = "Nobody reads the appendices. That's what they're for."
+    assert classify_sample("Old Fen", sample, gold, gt["other_lines"]) == "own"
+
+
+def test_extraction_depth_needs_every_principals_fields_and_mentions():
     forms = _cel_forms()
     full = {"description": "d", "goals": "g", "voice_characteristics": {"diction": "x"}}
     chars = [
-        {"name": "Milo Voss", "mentions": 9, **full},
-        {"name": "Zara", "aliases": ["Zara Okafor"], "mentions": 8, **full},
-        {"name": "Edric Thane", "mentions": 5, **full, "goals": ""},
+        {"name": "Milo Voss", "mentions": 33, **full},
+        {"name": "Zara", "aliases": ["Zara Okafor"], "mentions": 21, **full},
+        {"name": "Edric Thane", "mentions": 37, **full, "goals": ""},
     ]
     out = pipeline.extraction_depth(chars, forms)
     assert out["principal_fields"] == "2/3"
     assert out["principal_fields_missing"] == {"Edric Thane": ["goals"]}
-    assert out["mention_order_ok"] is True
-    chars[2].update(goals="g", mentions=12, voice_characteristics={"diction": ""})
+    # run-W25's counts: correct, and not in "principal order" (W3-7).
+    assert out["principal_mentions_min"] == 21
+    chars[2].update(goals="g", voice_characteristics={"diction": ""})
     out = pipeline.extraction_depth(chars, forms)
     assert out["principal_fields_missing"] == {"Edric Thane": ["voice_characteristics"]}
-    assert out["mention_order_ok"] is False
     assert out["canonical_names_ok"] == "1/1"  # Edric, the one with a title alias
     chars[2]["name"] = "Chief Executive Lich"
     chars[2]["aliases"] = ["Edric Thane"]
     assert pipeline.extraction_depth(chars, forms)["canonical_names_ok"] == "0/1"
     out = pipeline.extraction_depth(chars[:2], forms)
-    assert out["mention_order_ok"] is None
+    assert out["principal_mentions_min"] == 0  # a missing principal: no mentions
     assert out["principal_fields_missing"]["Edric Thane"] == [
         "description",
         "goals",
@@ -654,7 +680,7 @@ async def test_extraction_reports_principal_depth(tmp_path):
     }
     _, gt = pipeline.load_corpus("cel")
     out = await pipeline.step_extraction(_ctx(tmp_path, _FakeClient(proposals), gt))
-    assert out["principal_fields"] == "3/3" and out["mention_order_ok"] is True
+    assert out["principal_fields"] == "3/3" and out["principal_mentions_min"] == 1
 
 
 def test_outline_secondaries_counts_text_and_secondary_names():

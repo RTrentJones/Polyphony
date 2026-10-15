@@ -42,9 +42,9 @@ def apply_injections(clean_text: str, injections: list[dict]) -> tuple[str, list
 
 def _finding_matches(expected: dict, finding: dict) -> bool:
     """A finding catches an injection if it references either the mutated token
-    or the original, in its detail/refs text (type-agnostic — checkers vary in
-    how they label, so we match on the concrete contradiction)."""
-    hay = f"{finding.get('detail', '')} {finding.get('refs', '')}".lower()
+    or the original, in its detail or quote (SPEC-31; type-agnostic — checkers
+    vary in how they label, so we match on the concrete contradiction)."""
+    hay = f"{finding.get('detail', '')} {finding.get('quote', '')}".lower()
     return expected["replace"].lower() in hay or expected["original"].lower() in hay
 
 

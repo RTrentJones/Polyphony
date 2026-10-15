@@ -285,3 +285,18 @@ def test_principal_recall_finds_a_punctuated_alias():
         "Then Voss, alone, signs.", [{"name": "Milo Voss", "aliases": ["Voss,"]}]
     )
     assert recall == 1.0 and present == ["Milo Voss"] and missing == []
+
+
+def test_an_all_caps_sign_is_not_a_name():
+    """N10 (SPEC-33): run-W25's signs and stamps are never reported; a real
+    invented name beside them still is (the NB-1 probe)."""
+    from app.planning.fidelity import unknown_proper_nouns
+
+    text = (
+        "Milo initialled the box marked INITIAL HERE under NOW SERVING 4,118,206. "
+        "His mug said I SURVIVED Q3. The last page said SEE APPENDIX M, and the "
+        "stamp read DISPOSITION PENDING. Milo nodded. Bartholomew Quince smiled."
+    )
+    assert unknown_proper_nouns(text, {"Milo"}, canon_text=PROBE_DRAFT) == [
+        "Bartholomew Quince"
+    ]
