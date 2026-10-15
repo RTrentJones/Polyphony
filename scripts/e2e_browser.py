@@ -950,11 +950,14 @@ async def journey(page: Page) -> None:
             "characters"
         ]
         names = {c["id"]: c["name"] for c in cast}
-        # The beat's cast: its ids plus named people since added to the book.
+        # The server casts the beat (review W-1), as the batch does: its ids
+        # plus named people since added to the book, else the chapter's; + POV.
         named = {n.casefold() for n in beat.get("secondary_names") or []}
-        want = [i for i in beat.get("character_ids") or [] if i in names]
-        want += [i for i, n in names.items() if n.casefold() in named and i not in want]
+        own = [i for i in beat.get("character_ids") or [] if i in names]
+        want = own + [i for i, n in names.items() if n.casefold() in named]
         want = want or [i for i in chapter.get("character_ids") or [] if i in names]
+        if chapter.get("pov_character_id") in names:
+            want.append(chapter["pov_character_id"])
         detail = await (await api_get(f"/books/chapters/{chapter['id']}")).json()
         before = {s["id"] for s in detail["scenes"]}
 
@@ -968,18 +971,11 @@ async def journey(page: Page) -> None:
         assert await tone.input_value() == (
             beat.get("tone") or ""
         ), f"tone {await tone.input_value()!r} is not beat 1's {beat.get('tone')!r}"
-        pressed = picker.locator('button[aria-pressed="true"]')
-        await expect(pressed).to_have_count(len(want))
-        for i in want:
+        # The picker previews the beat's own cast; the modal sends no cast.
+        for i in own:
             await expect(
                 picker.get_by_role("button", name=re.compile(re.escape(names[i])))
             ).to_have_attribute("aria-pressed", "true")
-        # Cast the chapter's POV too, as the batch does (beat cast + POV).
-        pov = chapter.get("pov_character_id")
-        if pov in names and pov not in want:
-            await picker.get_by_role(
-                "button", name=re.compile(re.escape(names[pov]))
-            ).click()
         setting = page.get_by_placeholder(re.compile("dimly lit tavern"))
         if not (await setting.input_value()).strip():
             await setting.fill("Reconciliations")
@@ -1005,7 +1001,7 @@ async def journey(page: Page) -> None:
         ), f"scene request {req} is not linked to beat {beat['node_id']}"
         if beat.get("tone"):
             assert req.get("emotional_tone") == beat["tone"], req
-        assert set(want) <= set(req.get("character_ids") or []), req
+        assert set(req.get("character_ids") or []) == set(want), req
 
     async def redo_a_planned_beat():
         """SPEC-25 / review eval finding 7: "Redo beat 2" on a planned scene

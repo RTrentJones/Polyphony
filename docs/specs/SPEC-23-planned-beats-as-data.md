@@ -172,6 +172,19 @@ place.
 - The round trip is exact for promote-format rows. Author text after the block ends up before it,
   and continuation lines come back joined into their beat's line.
 
+### Final fix-up (principal code gate, NB-2 and W-1)
+
+- **No author text is ever lost.** Migration 0019 and the chapter-restore path convert a legacy
+  "Planned beats:" block only when the remaining summary plus the beats keep every word of the
+  original (`keeps_every_word`). Otherwise (more than 12 beat lines, a `- :` line with no title,
+  text past a field cap) the chapter keeps its summary as written, `planned_beats` stays empty,
+  and 0019 counts it as `skipped`; downgrade leaves it byte-identical.
+- **One beat-cast rule.** `beat_people` in `app/api/books.py` casts a beat as its own cast (its
+  ids plus secondary names that now resolve, via `classify_people`), else the chapter's live
+  cast, with the chapter POV first. Generate-planned and a single scene sent with
+  `planned_beat_id` and no `character_ids` both use it; an explicit cast is used as sent and an
+  unknown explicit id is still a 422.
+
 ## Acceptance
 
 | Criterion | Test |
