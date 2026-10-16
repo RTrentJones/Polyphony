@@ -450,7 +450,7 @@ async def run_ensemble_scene_workflow(
         if book_id is None:
             raise RuntimeError("scene generation needs its book (book is the root)")
         async with get_async_session() as session:
-            setup = await scene_setup(session, book_id, scene_request)
+            setup = await scene_setup(session, book_id, scene_request, scene_id)
         canon_context = setup.canon.full_block()
         canon_hash = _canon_hash(
             setup, chapter_summary, story_position, prior_scene_tail

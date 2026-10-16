@@ -155,7 +155,7 @@ class ChunkStore:
         try:
             query_vector = _vector_literal(await self.embedder.aencode_one(query))
             sql = """
-                SELECT id, text, chunk_type, source_location, word_count,
+                SELECT id, source_id, text, chunk_type, source_location, word_count,
                        1 - (embedding <=> CAST(:q AS vector)) AS score
                 FROM voice_chunks
                 WHERE character_id = :character_id
@@ -196,6 +196,7 @@ class ChunkStore:
         results = [
             {
                 "id": str(row["id"]) if row.get("id") is not None else None,
+                "source_id": str(row["source_id"]) if row.get("source_id") else None,
                 "text": row["text"],
                 "score": float(row["score"]) if row["score"] is not None else None,
                 "chunk_type": row["chunk_type"],

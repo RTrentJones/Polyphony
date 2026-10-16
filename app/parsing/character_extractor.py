@@ -29,6 +29,22 @@ def _normalize_quotes(text: str) -> str:
     return text.translate(_SMART_QUOTES)
 
 
+def source_paragraphs(text: str) -> list[str]:
+    """A source's paragraphs, unstripped: the ONE paragraph rule. A chunk's
+    `source_location` ("dialogue_9", "paragraph_9", "narration_9") indexes
+    this list."""
+    return text.split("\n\n")
+
+
+_LOCATION = re.compile(r"[a-z]+_(\d+)")
+
+
+def source_paragraph(location: str) -> Optional[int]:
+    """The paragraph index of a `source_location` this module wrote, or None."""
+    m = _LOCATION.fullmatch(location or "")
+    return int(m.group(1)) if m else None
+
+
 # A section heading that names its first-person narrator: "Jonathan Harker's
 # Journal", "_Dr. Seward's Diary._", "Letter, Mina Murray to Lucy Westenra",
 # "Telegram from X to Y". Matched on short, heading-like paragraphs only.
@@ -84,7 +100,7 @@ def self_named_narrators(text: str) -> list[str]:
     first appearance. Quoted speech is excluded: a character saying "My name is
     X" to someone is a speaker, not the narrator."""
     out: list[str] = []
-    for para in text.split("\n\n"):
+    for para in source_paragraphs(text):
         narration = _narration_only(para)
         for rx in _SELF_NAMING:
             for m in rx.finditer(narration):
@@ -118,7 +134,7 @@ def narrator_sections(text: str) -> list[tuple[str, list[tuple[int, str]]]]:
     narrator or chapter heading (SPEC-09, eval-audit backlog item 1)."""
     sections: list[tuple[str, list[tuple[int, str]]]] = []
     current: Optional[tuple[str, list[tuple[int, str]]]] = None
-    for i, para in enumerate(text.split("\n\n")):
+    for i, para in enumerate(source_paragraphs(text)):
         para = para.strip()
         if not para:
             continue
@@ -390,7 +406,7 @@ def attribute_speech(text: str) -> list[list[dict]]:
     result: list[list[dict]] = []
     exchange: list[str] = []  # speakers of the current back-and-forth
     carry: Optional[str] = None  # speaker of the last paragraph's open quote
-    for raw in text.split("\n\n"):
+    for raw in source_paragraphs(text):
         para = _normalize_quotes(raw.strip())
         if not para:
             result.append([])
@@ -600,7 +616,7 @@ JSON array:"""
         """
         index, speaks = self._paragraph_indexer(text, character_name, aliases, cast)
         chunks: List[Dict[str, str]] = []
-        for i, para in enumerate(text.split("\n\n")):
+        for i, para in enumerate(source_paragraphs(text)):
             para = para.strip()
             # Paragraphs where they speak, or that name them ("X's Journal" is
             # a heading, not voice — SPEC-09 attributes the section beneath it).
@@ -705,7 +721,7 @@ JSON array:"""
             for a in aliases or []
             if a.strip()
         ]
-        for i, para in enumerate(text.split("\n\n")):
+        for i, para in enumerate(source_paragraphs(text)):
             para = para.strip()
             if (
                 para
@@ -744,7 +760,7 @@ JSON array:"""
                 self_named = owners.pop()
 
         if not sections and (is_narrator or self_named == character_name):
-            for i, para in enumerate(text.split("\n\n")):
+            for i, para in enumerate(source_paragraphs(text)):
                 para = para.strip()
                 if para and _FIRST_PERSON.search(_narration_only(para)):
                     chunks += index(i, para, "narration")

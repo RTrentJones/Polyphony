@@ -56,7 +56,7 @@ async def run(payload: dict) -> None:
         draft = scene.draft
         request = rv.cast_request(scene)
         summary, position = await scene_chapter(session, scene)
-        setup = await scene_setup(session, book_id, request)
+        setup = await scene_setup(session, book_id, request, scene.id)
     canon = setup.canon
     if rv.text_hash(draft) != base_hash:
         raise RevisionConflict(DRAFT_EDITED)

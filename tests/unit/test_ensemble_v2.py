@@ -8,8 +8,9 @@ import pytest
 
 from app.core.config import settings
 from app.orchestration import ensemble as ens
+from tests.unit.factories import make_scope
 
-_SCOPE = ens.SceneScope((), (), (), frozenset(), "", "")
+_SCOPE = make_scope()
 
 pytestmark = pytest.mark.unit
 

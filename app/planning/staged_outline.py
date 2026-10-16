@@ -44,6 +44,7 @@ from app.core.prompt_markers import (
     ACT_CHAPTERS_HEADER,
     CONFIRMED_PREMISE_NOTE,
     CURRENT_BEAT_MARK,
+    EARLIER_BEATS,
     OUTLINE_CHAPTERS_HEADER,
 )
 from app.llm.client import get_llm_client
@@ -199,7 +200,6 @@ JSON:"""
     return extract_json_array(result.text)
 
 
-EARLIER_BEATS = "Beats already planned in earlier acts:"
 INTRODUCE_NO_EARLIER = (
     "Introduce each person no earlier than the chapter that introduces them."
 )
@@ -219,7 +219,7 @@ def outline_context(
         else:
             lines.append(f"  {n}. {ch.get('title', '')}: {ch.get('summary', '')}")
     if earlier:
-        lines.append(EARLIER_BEATS)
+        lines.append(EARLIER_BEATS.format(what="earlier acts"))
     # Model output: a node or a beat that is not an object is skipped.
     for ch in (c for c in earlier if isinstance(c, dict)):
         kids = [b for b in ch.get("children") or [] if isinstance(b, dict)]

@@ -237,7 +237,7 @@ async def test_the_apps_prompts_pass_every_contract_check(
         character=milo,
         prompt=gt["canonical_beats"][0]["title"],
         context="",
-        scope=SceneScope.of(canon, [milo], (), ""),
+        scope=SceneScope.of(canon, [milo], (), (), {}),
     )
     assert any(r["purpose"] == "dialogue" for r in fake.records)
 

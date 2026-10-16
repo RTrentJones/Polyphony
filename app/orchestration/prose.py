@@ -89,19 +89,24 @@ def scene_cast(canon, scene_request: dict) -> list:
 
 
 class SceneSetup(NamedTuple):
-    """What a scene is written against (SPEC-29/30)."""
+    """What a scene is written against (SPEC-29/30, SPEC-40/43)."""
 
     canon: Canon
     cast: list  # Character rows, from scene_cast
     scope: SceneScope
     pov: Pov
     secondary_block: str  # render_secondaries; "" without Also-named people
+    plan: list  # book_plan: (Chapter.number, planned beat) for the whole book
+    earlier: list  # earlier_beats: (title, beat lines) of the scenes before it
 
 
-async def scene_setup(session, book_id: UUID, scene_request: dict) -> SceneSetup:
+async def scene_setup(
+    session, book_id: UUID, scene_request: dict, scene_id: UUID
+) -> SceneSetup:
     """The one scene setup for prose, ensemble and revise: the book's canon, the
     request's cast from it, the scene scope with its Also-named secondaries,
-    the POV and the rendered secondary block."""
+    the POV, the rendered secondary block, the book's plan and what the
+    chapter's earlier scenes already planned."""
     from app.planning.secondaries import render_secondaries, scene_secondaries
 
     canon = await build_canon(session, book_id)
@@ -109,9 +114,13 @@ async def scene_setup(session, book_id: UUID, scene_request: dict) -> SceneSetup
     secondaries = await scene_secondaries(session, book_id, names, canon)
     cast = scene_cast(canon, scene_request)
     brief = scene_request.get("scene_description") or ""
-    scope = SceneScope.of(canon, cast, names, brief)
+    scope = SceneScope.of(canon, cast, names, (brief,) if brief else (), {})
     pov = resolve_pov(scene_request, canon)
-    return SceneSetup(canon, cast, scope, pov, render_secondaries(secondaries))
+    plan = await book_plan(session, book_id)
+    earlier = await earlier_beats(session, await session.get(Scene, scene_id))
+    return SceneSetup(
+        canon, cast, scope, pov, render_secondaries(secondaries), plan, earlier
+    )
 
 
 # A last-beat instruction that keeps the close inside the scene (SPEC-24, W2-4):
@@ -154,6 +163,59 @@ async def scene_prior_tail(session, scene) -> str:
         .limit(1)
     )
     return prose_tail(scene_text(prev)) if prev is not None else ""
+
+
+async def book_plan(session, book_id: UUID) -> list[tuple[int, dict]]:
+    """(Chapter.number, planned beat) for every live chapter's planned beats,
+    by chapter position then beat order: the ONE reading of the book's plan
+    (SPEC-40, SPEC-43). A beat's line is `beat_scene_description(beat)`."""
+    from app.planning.planned_beat import normalize_planned_beats
+
+    chapters = await session.scalars(
+        select(Chapter)
+        .where(Chapter.book_id == book_id, Chapter.deleted_at.is_(None))
+        .order_by(Chapter.position)
+    )
+    return [
+        (chapter.number, beat)
+        for chapter in chapters
+        for beat in normalize_planned_beats(chapter.planned_beats)
+    ]
+
+
+async def earlier_beats(session, scene) -> list[tuple[str, list[str]]]:
+    """(title, beat lines) of the chapter's live completed scenes before
+    `scene`, by position then beat_number (SPEC-43); [] without a chapter."""
+    from app.jobs.scene_batch import scene_title
+
+    if scene is None or scene.chapter_id is None:
+        return []
+    earlier = (
+        await session.scalars(
+            select(Scene)
+            .where(
+                Scene.chapter_id == scene.chapter_id,
+                Scene.status == "completed",
+                Scene.position < scene.position,
+                Scene.deleted_at.is_(None),
+            )
+            .order_by(Scene.position)
+        )
+    ).all()
+    beats = (
+        await session.scalars(
+            select(SceneBeat)
+            .where(SceneBeat.scene_id.in_([s.id for s in earlier]))
+            .order_by(SceneBeat.beat_number)
+        )
+    ).all()
+    return [
+        (
+            s.title or scene_title(s.scene_request or {}),
+            [b.description or "" for b in beats if b.scene_id == s.id],
+        )
+        for s in earlier
+    ]
 
 
 def _sentence_starts(paragraph: str) -> list[int]:
@@ -239,7 +301,7 @@ def trim_seam_repeat(prose: str, prior: str) -> str:
     return rest or prose
 
 
-def _beats_block(all_beats: list[dict], beat_index: int) -> str:
+def beats_block(all_beats: list[dict], beat_index: int) -> str:
     """The scene's whole beat plan, numbered from 1, with the current beat
     marked — so the model knows where its beat ends (SPEC-18, B5)."""
     lines = []
@@ -315,7 +377,7 @@ async def write_beat_prose(
         n, total = beat_index + 1, len(all_beats)
         plan = (
             f"The scene's beats, in order (→ marks beat {n}, the one you are "
-            f"writing):\n{_beats_block(all_beats, beat_index)}\n\n"
+            f"writing):\n{beats_block(all_beats, beat_index)}\n\n"
         )
         if n < total:
             stop_line = (
@@ -399,8 +461,8 @@ async def run_prose_scene_workflow(
         if book_id is None:
             raise RuntimeError("scene generation needs its book (book is the root)")
         async with get_async_session() as session:
-            setup = await scene_setup(session, book_id, scene_request)
-        canon, cast, scope, pov, secondary_block = setup
+            setup = await scene_setup(session, book_id, scene_request, scene_id)
+        canon, cast, scope, pov, secondary_block, *_ = setup
         canon_block = canon.full_block()
         request = {**scene_request, "characters": [c.name for c in cast]}
         canon_hash = _canon_hash(

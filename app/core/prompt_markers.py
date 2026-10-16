@@ -9,7 +9,7 @@ changes only here.
 This module lives in `app/core` and imports nothing from `app`. Instruction
 wording that nothing parses stays in its emitter.
 
-Frozen for wave 3 (day-0 contract); changes go through the orchestrator.
+Frozen for the wave (day-0 contract); changes go through the orchestrator.
 """
 
 from __future__ import annotations
@@ -69,6 +69,12 @@ CONFIRMED_PREMISE_NOTE = " (confirmed by the author: treat it as authoritative)"
 ACT_CHAPTERS_HEADER = "Here are the chapters of act {number}, in order:"  # .format
 OUTLINE_CHAPTERS_HEADER = (
     "The whole book, chapter by chapter (→ marks this act's chapters):"
+)
+# .format(what=<"earlier acts" | "the earlier scenes of this chapter">)
+EARLIER_BEATS = "Beats already planned in {what}:"
+# The chapter's planned scenes for the beat planner (orchestration/workflow).
+CHAPTER_SCENES_HEADER = (
+    "This chapter's planned scenes, in order (→ marks the one being planned):"
 )
 
 

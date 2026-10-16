@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.core.config import settings
+from tests.unit.factories import make_scope
 
 pytestmark = pytest.mark.unit
 
@@ -199,7 +200,7 @@ class TestEnsembleFullCast:
             user_id=None,
             book_id=None,
             canon_context="",
-            scope=ens.SceneScope((), (), (), frozenset(), "", ""),
+            scope=make_scope(),
         )
         # only 3 propose, but the editor validates ALL FIVE (D and E, over the cap,
         # are flagged rather than silently dropped)

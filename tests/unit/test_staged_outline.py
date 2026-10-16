@@ -298,11 +298,13 @@ class TestBeatsStageSeesThePlan:
         JSON below), before the act header; later acts see earlier beats."""
         from app.core.prompt_markers import OUTLINE_CHAPTERS_HEADER as HEADER
 
+        # (R) the moved marker formats to wave 4's text, byte for byte.
+        EARLIER = "Beats already planned in earlier acts:"
         fake = await self._run(monkeypatch)
         act1, act2 = fake.prompts["outline:beats"]
         for prompt, lines in (
             (act1, ["→ 1. Ch1", "  2. Ch2: Edric Thane yields"]),
-            (act2, ["  1. Ch1: Milo Voss signs on", "→ 2. Ch2", so.EARLIER_BEATS]),
+            (act2, ["  1. Ch1: Milo Voss signs on", "→ 2. Ch2", EARLIER]),
         ):
             block = prompt.split(f"{HEADER}\n")[1].split("\n\n")[0].splitlines()
             assert block[: len(lines)] == lines

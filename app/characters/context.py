@@ -13,7 +13,7 @@ unreachable.
 """
 
 import re
-from typing import Iterable, NamedTuple, Optional
+from typing import Iterable, Mapping, NamedTuple, Optional
 from uuid import UUID
 
 from sqlalchemy import select
@@ -35,19 +35,29 @@ CONTEXT_ONLY_REASON = "context only"
 
 
 class SceneScope(NamedTuple):
-    """What a scene is about and who it may mention (SPEC-30, SPEC-36).
-    Built once per scene (or per probe), never per beat."""
+    """What the book plans, and who a scene may mention (SPEC-30, -36, -40).
+    Built once per scene (or per probe), never per beat; the scene's own beat
+    lines join `plot` once planned."""
 
     cast: tuple  # the SCENE's Character rows: _centres' "others"
     book_cast: tuple  # every live Character of the book
     secondary_names: tuple[str, ...]  # the scene request's secondary_names
     known: frozenset[str]  # canon.canon_terms()
     known_text: str  # canon_known_text(canon), raw
-    brief: str  # the scene request's scene_description: the event being written
+    # Every line of the plan a movement sample may not restate: the book's
+    # planned scenes (the brief is one), the chapter's earlier written beat
+    # lines, and this scene's beat lines once planned.
+    plot: tuple[str, ...]
+    later_from: Mapping[str, int]  # source_id -> first paragraph of later plot
 
     @classmethod
     def of(
-        cls, canon, scene_cast: Iterable, secondary_names: Iterable[str], brief: str
+        cls,
+        canon,
+        scene_cast: Iterable,
+        secondary_names: Iterable[str],
+        plot: Iterable[str],
+        later_from: Mapping[str, int],
     ) -> "SceneScope":
         from app.planning.fidelity import canon_known_text
 
@@ -57,7 +67,8 @@ class SceneScope(NamedTuple):
             tuple(secondary_names),
             frozenset(canon.canon_terms()),
             canon_known_text(canon),
-            brief,
+            tuple(plot),
+            later_from,
         )
 
 
@@ -420,7 +431,7 @@ async def character_samples(
             or _centres(s.get("text") or "", name, scope.cast, aliases)
         )
         and not names_outside_scene(s.get("text") or "", character, scope)
-        and not restates_brief(s.get("text") or "", scope.brief)
+        and not any(restates_brief(s.get("text") or "", p) for p in scope.plot)
     ][:k_move]
     return words, body
 

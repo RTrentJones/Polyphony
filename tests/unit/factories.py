@@ -1,13 +1,20 @@
-"""Shared test rows: a chapter, and a scene that may write a planned beat."""
+"""Shared test rows: a chapter (planned or not), a scene that may write a
+planned beat, its beat rows, and a scene scope."""
 
-from app.core.orm_models import Chapter, Scene
+from app.characters.context import SceneScope
+from app.core.orm_models import Chapter, Scene, SceneBeat
 
 
-async def add_chapter(session, book, position=0, title="Intake") -> Chapter:
-    chapter = Chapter(book_id=book.id, position=position, title=title)
+async def add_chapter(session, book, position=0, title="Intake", **kw) -> Chapter:
+    chapter = Chapter(book_id=book.id, position=position, title=title, **kw)
     session.add(chapter)
     await session.flush()
     return chapter
+
+
+async def add_planned_chapter(session, book, beats, position=0) -> Chapter:
+    """A chapter whose planned scenes are `beats` (PlannedBeat dicts)."""
+    return await add_chapter(session, book, position, planned_beats=beats)
 
 
 async def add_scene(
@@ -26,3 +33,28 @@ async def add_scene(
     session.add(scene)
     await session.flush()
     return scene
+
+
+async def add_scene_beats(session, scene, lines: list[str]) -> list[SceneBeat]:
+    """The scene's written beats, numbered from 0 as the scene jobs store them."""
+    beats = [
+        SceneBeat(scene_id=scene.id, beat_number=i, description=line)
+        for i, line in enumerate(lines)
+    ]
+    session.add_all(beats)
+    await session.flush()
+    return beats
+
+
+def make_scope(**fields) -> SceneScope:
+    """A SceneScope with every field empty unless given."""
+    empty = {
+        "cast": (),
+        "book_cast": (),
+        "secondary_names": (),
+        "known": frozenset(),
+        "known_text": "",
+        "plot": (),
+        "later_from": {},
+    }
+    return SceneScope(**{**empty, **fields})

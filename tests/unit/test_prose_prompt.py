@@ -125,7 +125,7 @@ class TestProseTail:
         tail = prose_tail(text)
         assert "\n\n" in tail
         assert " ".join(tail.split()[-PREV_TAIL_WORDS:]) == legacy
-        setup = SceneSetup(Canon("c"), [], None, None, "")
+        setup = SceneSetup(Canon("c"), [], None, None, "", [], [])
         assert _canon_hash(setup, "ch", None, tail) == _canon_hash(
             setup, "ch", None, legacy
         )

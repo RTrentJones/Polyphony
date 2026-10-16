@@ -20,6 +20,7 @@ from app.parsing.character_extractor import (
     attribute_speech,
     speaker_matches,
 )
+from tests.unit.factories import make_scope
 
 pytestmark = pytest.mark.unit
 
@@ -402,9 +403,7 @@ def _s(i, text, chunk_type, source="paragraph_1", score=0.5):
 
 
 def _scope(*cast):
-    from app.characters.context import SceneScope
-
-    return SceneScope(tuple(cast), tuple(cast), (), frozenset(), "", "")
+    return make_scope(cast=tuple(cast), book_cast=tuple(cast))
 
 
 def _blocks(out):
@@ -603,7 +602,9 @@ async def _milo_moves(monkeypatch, texts, scene, secondaries=(), synopsis=True, 
     )
     monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
     cast = [by["Milo"], *(by[n] for n in scene)]
-    scope = ctx.SceneScope.of(canon, cast, secondaries, kw.get("brief", ""))
+    scope = ctx.SceneScope.of(
+        canon, cast, secondaries, (kw["brief"],) if kw.get("brief") else (), {}
+    )
     who = by[kw.get("who", "Milo")]
     out = await ctx.build_character_context(
         who, who.name, kw.get("query", "x"), scope=scope
@@ -630,7 +631,7 @@ class TestMovementInScene:
         canon, by = _cel()
         chief = "The chief reason was the form."
         assert _centres(chief, "Milo Voss", [by["Milo"], by["Edric"]], ["Milo"])
-        scope = SceneScope.of(canon, [by["Milo"], by["Zara"]], (), "")
+        scope = SceneScope.of(canon, [by["Milo"], by["Zara"]], (), (), {})
         assert names_outside_scene(chief, by["Milo"], scope) == []
         # Edric is still seen by any of his forms, capitalised.
         lich = "Milo bowed to the Lich."

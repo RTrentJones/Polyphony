@@ -21,7 +21,7 @@ from app.characters import context as ctx_mod
 from app.core.config import settings
 from app.core.orm_models import Chapter, Job, Scene
 from app.jobs import scene_batch
-from tests.unit.factories import add_scene
+from tests.unit.factories import add_scene, make_scope
 from tests.unit.test_outline_handoff import _bind, _cast, _structured_plan, _worker
 from tests.unit.test_voice_workbench import _LLM, _PLAN, _Ctx, duo  # noqa: F401
 
@@ -149,7 +149,7 @@ async def test_ensemble_records_context_only_characters(
         user_id=duo.book.user_id,
         book_id=duo.book.id,
         canon_context="",
-        scope=ens.SceneScope((duo.milo, duo.zara), (), (), frozenset(), "", ""),
+        scope=make_scope(cast=(duo.milo, duo.zara)),
     )
     by_char = {e["character_id"]: e for e in result["grounding"]}
     assert by_char[str(duo.milo.id)]["chunk_id"] == "m-1"
