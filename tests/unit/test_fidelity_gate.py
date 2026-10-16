@@ -324,3 +324,12 @@ def test_labels_and_a_title_after_our_are_not_names():
         "Bartholomew Quince",
         "Consolidated Continuance Pool",
     ]
+    # (F) NB-1: a mid-sentence "The" before a longer name is trimmed, not kept.
+    mid = (
+        "In the morning, The Consolidated Continuance Pool opened. "
+        "He went to the market, then to The Marrow Exchange."
+    )
+    assert unknown_proper_nouns(mid, set(), canon_text="milo zara") == [
+        "Consolidated Continuance Pool",
+        "Marrow Exchange",
+    ]
