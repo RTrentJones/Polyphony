@@ -1145,12 +1145,6 @@ async def step_prose(ctx: StepContext) -> dict:
     planned = chapter.get("planned_beats") or []
     alias_forms = [f for fs in forms.values() for f in fs]
     owned = gt.get("owned_phrases") or {}
-    outline = ctx.cache.get("outline", f"{gt['synopsis']}|{OUTLINE_CACHE_KEY}") or {}
-    lines = [  # the run's plan lines by chapter, as the gold reads them
-        [f"{b.get('title')}: {b.get('summary')}" for b in n.get("children") or []]
-        for n in outline.get("content") or []
-    ]
-    result["unplaced_events"] = plot.unplaced(gt.get("excerpt_events") or [], lines)
     detail, prev_text = [], ""
     for i, sc in enumerate(scenes):
         checks = _grade_scene_checks(sc, prev_text, forms)
@@ -1596,5 +1590,8 @@ async def prompt_contract_result(
             records,
             **prompt_contract.corpus_inputs(ctx.ground_truth, load_style(ctx.book)),
             movement_store=movement_store,
+        ),
+        **prompt_contract.placement_report(
+            records, ctx.ground_truth.get("excerpt_events") or []
         ),
     }

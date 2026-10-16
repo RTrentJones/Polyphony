@@ -1,0 +1,40 @@
+{
+  "run": "W5d",
+  "outline_hash": "d5e9f9d5b0251f7ea7899d617da56ff0e1d24b2cfae30ea83fb8480c5cfd7d3d",
+  "signed_by": "PM",
+  "signed_at": "2026-10-16T18:04:59Z",
+  "placements": {
+    "intake": {
+      "chapter": 1,
+      "line": "Retained: Prava slides a laminated org chart across the desk and tells Milo that his skills are a strong culture fit. Milo, who has never been told his boredom was valuable, feels seen and agrees before anyone asks. He goes from newly dead to employed."
+    },
+    "training": {
+      "chapter": null,
+      "line": null
+    },
+    "partition": {
+      "chapter": 1,
+      "line": "Read the Appendices: At the next desk in Reconciliations, Zara tells him to read the appendices and thank no one. Milo hears it as mentorship and pitches trackers and quick wins at her. She gives him one rule: close what is in his queue and open nothing else. The rule plants the first boundary he will later cross."
+    },
+    "bell": {
+      "chapter": 1,
+      "line": "Four Minutes: The Bell account arrives. Milo zeroes Halvard Bell's tenure, initials the form, and Bell is sent under by lunch while Facilities clears his desk. Milo's eager question about where Bell goes gets only 'He goes under' from Zara and a remark from Old Fen that nobody reads the appendices. Milo is unsettled for the first time, though he could not say why."
+    },
+    "drawer": {
+      "chapter": 1,
+      "line": "The Drawer: That night Milo locks the ledger in his desk drawer, which nobody asked him to do. It is his first act of keeping something back from the Pipeline."
+    },
+    "summons": {
+      "chapter": 2,
+      "line": "The Memo: A heavy memo signed by Edric Thane summons Milo personally. Milo takes it as a career signal. Zara tells him it is not normal: bring nothing, sign nothing, and stand if offered a chair. Her warning is the first time she has openly taken his side."
+    },
+    "corner office": {
+      "chapter": 2,
+      "line": "Appetite: In the cold corner office the Lich invites Milo to sit, and Milo, to his own surprise, stays standing. Edric names Milo's four-minute close of the Bell account as appetite rather than diligence, and warns that the reason Milo was retained is not the reason he will be kept. Milo leaves knowing he is being watched and measured."
+    },
+    "discrepancy": {
+      "chapter": 2,
+      "line": "Moved, Not Zeroed: Milo unlocks his drawer and finds that, in a column nobody has explained to him, Bell's tenure was moved rather than zeroed. Bringing it to Zara as a discrepancy in search of a stakeholder, he hears her say he has finally read an appendix and should sit down because they have paperwork to do. Milo goes from obedient clerk to someone who knows."
+    }
+  }
+}

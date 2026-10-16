@@ -1,0 +1,40 @@
+{
+  "run": "W4b2",
+  "outline_hash": "82c3306682a35b1d60d4beb25fe53f44b521cf421338350b526d53237dbdf8da",
+  "signed_by": "PM",
+  "signed_at": "2026-10-16T18:05:24Z",
+  "placements": {
+    "intake": {
+      "chapter": 1,
+      "line": "Strong Culture Fit: Prava slides a laminated org chart across a laminate desk and tells him, warmly, that he has been retained and will start Monday in Reconciliations; Milo, told for the first time that his boredom is an asset, says yes before anyone offers him a choice, and Prava remembers his name in a way he does not yet find strange."
+    },
+    "training": {
+      "chapter": null,
+      "line": null
+    },
+    "partition": {
+      "chapter": 1,
+      "line": "Lanyard, Desk, Mentor: Orientation hands Milo a lanyard, a vocabulary sheet and an org chart on which the CEL looks like a subsidiary; he is seated at a desk beside Zara Okafor, who does not look up, and he mistakes her flat courtesy for the beginning of a friendship."
+    },
+    "bell": {
+      "chapter": 2,
+      "line": "Halvard Bell: Milo opens the account of Halvard Bell, a former dentist with ninety years in Retention, restructured at nine that morning; the tenure on file does not match ninety years of labor, and the difference has gone somewhere the form has no box for."
+    },
+    "drawer": {
+      "chapter": null,
+      "line": null
+    },
+    "summons": {
+      "chapter": 5,
+      "line": "Reply All: The all-staff email goes out, for once completely honest about what the Pipeline does, and the Marrow District stops hoping on schedule; within the hour a summons arrives for Milo to attend the quarterly review in the corner office of Edric Thane."
+    },
+    "corner office": {
+      "chapter": 6,
+      "line": "The Corner Office: Milo enters the one office no employee returns from unchanged and meets Edric Thane, measured and courteous, who reviews Milo's excellent closing record and offers him the climb; Milo sees exactly who he would have become."
+    },
+    "discrepancy": {
+      "chapter": 2,
+      "line": "Where Did It Go: Milo turns to Zara and, for the first time in his life or death, asks the next question: where did the tenure go? Zara finally looks up, and does not answer, and the not-answering is the start of something."
+    }
+  }
+}

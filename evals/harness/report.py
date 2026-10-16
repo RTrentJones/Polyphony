@@ -8,9 +8,17 @@ Two outputs from one run:
 
 from __future__ import annotations
 
+import csv
 import json
+from pathlib import Path
 
 from evals.graders.prompt_contract import CHECKS as _CONTRACT_CHECKS
+
+HISTORY = Path(__file__).resolve().parent.parent / "history.csv"
+ACT_RULE = (
+    "Act rule (PM, wave 7): untouched_share < 0.5 or R2 mean < 0.90 in both draws "
+    "of a wave makes the item P0 next wave."
+)
 
 
 def scorecard(run: dict) -> str:
@@ -99,6 +107,27 @@ def scorecard(run: dict) -> str:
         )
         lines.append(f"  {name:14s}  {score_str}   {extra}")
     return "\n".join(lines)
+
+
+def history(path: Path) -> str:
+    """W7-6 (a), reported and never gated: one row per past gating draw from
+    the checked-in CSV, the act rule under it, and the pairs where it fires."""
+    with open(path, newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    cols = list(rows[0])
+    lines = ["  ".join(cols), *("  ".join(r[c] or "-" for c in cols) for r in rows)]
+    misses: dict[str, dict[str, list[bool]]] = {}
+    for r in rows:
+        pair = misses.setdefault(r["pair"], {"untouched_share": [], "R2 mean": []})
+        pair["untouched_share"].append(float(r["untouched_share"] or 1) < 0.5)
+        pair["R2 mean"].append(float(r["r2_mean"]) < 0.90)
+    fired = [
+        f"{signal} ({p})"
+        for p, signals in misses.items()
+        for signal, missed in signals.items()
+        if len(missed) > 1 and all(missed)
+    ]
+    return "\n".join([*lines, ACT_RULE, f"Fires on: {', '.join(fired) or 'nothing'}"])
 
 
 # A step "passes" when its score clears this floor — a coarse boolean so Tracer
