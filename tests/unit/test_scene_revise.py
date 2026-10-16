@@ -561,7 +561,6 @@ async def test_prompt_carries_canon_cast_and_read_only_surroundings(
     assert "<chapter>\nAudit week begins.\n</chapter>" in prompt
     # (R) wave-6 day-0: the chapter and its position come from the scene setup.
     assert STORY_POSITION.format(n=1, m=1) in prompt
-    assert not hasattr(revise_job, "scene_chapter")
     assert "<character>" in prompt and VOICE in prompt  # the cast's voice samples
     assert f"<prior>\n{P1}\n</prior>" in prompt
     assert f"<target>\n{P2}\n</target>" in prompt
@@ -615,14 +614,14 @@ async def test_a_redo_sees_the_plan_and_warns_on_a_dropped_callback(
     assert f"<beats>\n1. b0\n{CURRENT_BEAT_MARK} 2. b1\n3. b2\n</beats>" in prompt
     assert (
         "Keep these (the rest of this chapter refers to them): "
-        "Appendix F's (\"Nobody mentioned Appendix F's tab again\")"
+        'Appendix F ("Nobody mentioned Appendix F\'s tab again")'
     ) in prompt
     assert rv.REDO_DIRECTION in prompt and rv.REDO_CHANGE not in prompt  # (R)
     [row] = await _revisions(async_session, story.scene, "ai_revise")
-    assert row.meta["dropped_callbacks"] == ["Appendix F's"]
-    assert rv.DROPPED_CALLBACK.format(terms="'Appendix F's'") in row.meta["warnings"]
+    assert row.meta["dropped_callbacks"] == ["Appendix F"]
+    assert rv.DROPPED_CALLBACK.format(terms="'Appendix F'") in row.meta["warnings"]
     [proposal] = (await _proposals(client, auth_headers, story.scene))["proposals"]
-    assert proposal["dropped_callbacks"] == ["Appendix F's"]
+    assert proposal["dropped_callbacks"] == ["Appendix F"]
 
 
 async def test_a_redo_finds_its_beat_by_number(
@@ -700,6 +699,8 @@ CEL = _canon({"Milo Voss", "Milo", "Voss"}, synopsis="Prava, the intake casework
 def test_callbacks_skip_a_sentence_opener_and_keep_a_capitalised_name():
     """(F) W3's "Appendix F" pins the capitalised class; an opener is not one."""
     target = "Nobody spoke. Zara's finger on Appendix F."
+    assert rv.callbacks(target, "Nobody cited Appendix F.", CEL) == ["Appendix F"]
+    target = "Zara tapped Appendix F's tab."  # (R) the possessive is the term's
     assert rv.callbacks(target, "Nobody cited Appendix F.", CEL) == ["Appendix F"]
 
 

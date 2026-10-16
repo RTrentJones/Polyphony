@@ -105,7 +105,7 @@ NAMING_RULE = (
     "unnamed: 'a man from Procurement'."
 )
 # Wide and one-head modes alike: the hindsight two drafts narrated (SPEC-48).
-_NO_FORESHADOWING = "no foreshadowing — never 'he would later learn'"
+_NO_FORESHADOWING = "no foreshadowing — never 'would later learn'"
 
 
 def pov_instruction(pov: Pov) -> str:

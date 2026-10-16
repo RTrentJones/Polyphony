@@ -265,7 +265,10 @@ def callbacks(target: str, rest: str, canon) -> list[str]:
     canon_text = canon_known_text(canon)
     found: dict[str, str] = {}
     for m in _CALLBACK.finditer(target):
-        term, key = m.group(0), m.group(0).lower()
+        term = m.group(0)
+        if m.lastgroup == "cap":  # "Appendix F's" is the callback "Appendix F"
+            term = re.sub(r"['’]s$", "", term)
+        key = term.lower()
         if key in found or key in known or known & set(key.split()):
             continue
         if m.lastgroup == "cap" and (

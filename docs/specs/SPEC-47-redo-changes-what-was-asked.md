@@ -6,7 +6,8 @@
 - **Direction line (D7).** An instruction is a *direction* when, after one regex removes its leading `Redo beat N[.:]` (any case), it is non-empty. A redo with a direction prints `REDO_CHANGE`: "Change what the instruction asks for. Keep every other sentence of the beat as written, unless it must change to fit the change." A terse one ("Redo beat 2.") keeps `REDO_DIRECTION`. A range or whole-scene revise prints neither (SPEC-41).
 - **Number words with their noun (D5).** A number word is a callback only as "number + the next word of its sentence" ("nine days", "two fingers"), and that pair must recur in `rest`. A bare "two" is never one. Digits, hyphenated forms, capitals and dash-led fragments are unchanged.
 - **Callbacks with context (D5).** `KEEP_LINE` renders each term as `term ("context")`. `callback_context(term, rest)` is one lookup over the same `callbacks()` output: the term's first use in `rest`, as its sentence's words from up to three before it to up to three after it, at most 8 words, outer punctuation trimmed. A sentence ends at `. ! ? …` (with closing quotes) before whitespace, or at a newline. No scene label.
-- **Quoting.** `DROPPED_CALLBACK` quotes each term with `'…'`, never Python `repr` ("This version drops 'Appendix F's', …").
+- **Quoting.** `DROPPED_CALLBACK` quotes each term with `'…'`, never Python `repr` ("This version drops 'Appendix F', …").
+- **Possessives.** A capitalised term drops a trailing `'s` / `’s`: "Appendix F's" is the callback "Appendix F", so a redo that writes "Appendix F" keeps it.
 - **The beat by its number (wave-5 Could 5).** The job reads `(beat_number, description)` and marks the position of `beat_number == beat_index`, the beat the API located, so a gap in the numbers cannot mark the wrong beat.
 - **`untouched_share`** (W6-2 (d)) is E1's report; RA stays with the judge (D6).
 
