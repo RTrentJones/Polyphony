@@ -308,7 +308,7 @@ async def journey(page: Page) -> None:
         await picker.get_by_role("button", name=re.compile("Milo Voss")).click()
         await picker.get_by_role("button", name=re.compile("Zara Okafor")).click()
         await page.get_by_placeholder("What happens in this scene...").fill(
-            "Zara tells Milo to read the appendices before thanking anyone."
+            "Zara tells Milo to read the appendices before thanking Gary."
         )
         await page.get_by_placeholder(re.compile("dimly lit tavern")).fill(
             "the intake atrium"
@@ -510,6 +510,9 @@ async def journey(page: Page) -> None:
         STATE["scene_id"] = re.search(r"scene=([0-9a-f-]+)", page.url).group(1)
         editor = page.get_by_placeholder("Write your scene...")
         await expect(editor).not_to_be_empty()
+        # SPEC-48: the stub seeds "Gary"; the stored warning names him.
+        warning = r"this scene named people or places not in the canon.*Gary"
+        await expect(page.get_by_text(re.compile(warning))).to_be_visible()
         original = await editor.input_value()
         await editor.fill("Milo closed the appendices. Nobody thanked anyone.")
         await page.get_by_role("button", name="Save").click()

@@ -36,6 +36,7 @@ from fastapi.responses import JSONResponse
 from app.core.prompt_markers import (
     ACT_CHAPTERS_HEADER,
     BEAT_TO_WRITE_LABEL,
+    CURRENT_BEAT_MARK,
     NAME_HEADING,
 )
 
@@ -366,6 +367,10 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
         # its scene (revise beat mode can find it).
         what = " ".join(beat.group(1).rstrip(".!? ").split()[:14])
         named = cast[:3] or [lead]
+        if (
+            "Gary" in prompt and f"{CURRENT_BEAT_MARK} 1." in prompt
+        ):  # SPEC-48 journey seed
+            what += ", thinking of Gary"
         return " ".join(f"{name} weighed it: {what}." for name in named)
     return (
         f"{people} stood in the doorway while the rain kept on. "
