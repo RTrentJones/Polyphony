@@ -19,6 +19,7 @@ fix the prompt (or the marker), never soften the check.
 import json
 import types
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -28,6 +29,7 @@ from app.core.prompt_markers import ACT_CHAPTERS_HEADER
 from evals import stub_llm
 from evals.graders import prompt_contract as pc
 from evals.steps import pipeline
+from tests.unit.factories import add_chapter, add_scene, add_scene_beats
 
 pytestmark = pytest.mark.unit
 
@@ -196,6 +198,7 @@ async def test_the_apps_prompts_pass_every_contract_check(
         "setting": beat.get("setting") or "",
         "emotional_tone": beat.get("tone") or "",
         "secondary_names": beat.get("secondary_names") or [],
+        "planned_beat_id": beat["node_id"],
     }
     assert request["secondary_names"], beat
     await plan_scene_beats(
@@ -205,17 +208,25 @@ async def test_the_apps_prompts_pass_every_contract_check(
         pov=resolve_pov(request, canon),
         story_position=StoryPosition(1, 2),
         secondary_block="",
+        plan=[(1, b) for b in chapter["children"]],
+        earlier=[],
     )
 
     # 3. A whole planned scene: the POV comes from the style guide, the
-    # position from the chapter rows (B-4: computed, not typed in).
-    row = Chapter(
-        book_id=test_book.id,
+    # position from the chapter rows (B-4: computed, not typed in). It is the
+    # chapter's second planned scene; the first is written (plan_sees_chapter).
+    first = {"node_id": str(uuid4()), "title": "Before", "summary": "Milo waits."}
+    row = await add_chapter(
+        async_session,
+        test_book,
         title=chapter["title"],
-        position=0,
         summary=chapter["summary"],
+        planned_beats=[first, *chapter["children"]],
     )
-    async_session.add(row)
+    written = await add_scene(
+        async_session, test_book, row, beat=first["node_id"], title="Before"
+    )
+    await add_scene_beats(async_session, written, ["Milo waits in the atrium."])
     await async_session.commit()
     assert row.number == 1
     scene_request = {
@@ -227,7 +238,7 @@ async def test_the_apps_prompts_pass_every_contract_check(
     scene = Scene(
         user_id=test_book.user_id,
         chapter_id=row.id,
-        position=0,
+        position=1,
         status="processing",
         scene_request=scene_request,
     )
@@ -291,9 +302,9 @@ async def test_the_apps_prompts_pass_every_contract_check(
     )
     ran = {c: out[c] for c in pc.CHECKS if out[c]["n"]}
     failing = {c: r["failures"] for c, r in ran.items() if r["rate"] != 1.0}
+    # B-3: the gold sees real samples, and none of them is plot.
     assert out["samples_not_plot"]["classified"] > 0
-    if not hasattr(ctx_mod, "later_plot_from"):  # until E2's plot rule (SPEC-40)
-        assert "drawer" in str(failing.pop("samples_not_plot"))
+    assert out["samples_not_plot"]["later_plot_slots"] == 0
     assert not failing, json.dumps(failing, indent=1)[:4000]
     assert set(ran) == set(pc.CHECKS)
     assert out["plan_cast_from_beat"]["unmatched"] == []

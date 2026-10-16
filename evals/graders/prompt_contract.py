@@ -78,9 +78,11 @@ from app.core.prompt_markers import (
     BEAT_TO_WRITE_LABEL,
     BEATS_FENCE,
     CHAPTER_FENCE,
+    CHAPTER_SCENES_HEADER,
     CHARACTERS_SECTION,
     CONFIRMED_PREMISE_NOTE,
     CURRENT_BEAT_MARK,
+    EARLIER_BEATS,
     EMOTIONAL_TONE_LABEL,
     INTRODUCED_LABEL,
     MOVEMENT_LABEL,
@@ -573,6 +575,11 @@ class OutlineIndex:
                 "summary": _squash(str(ch.get("summary") or "")),
                 "pov": str(ch.get("pov") or "").strip(),
                 "people": self._people(ch),
+                "titles": [
+                    str(c["title"])
+                    for c in ch.get("children") or []
+                    if isinstance(c, dict) and c.get("title")
+                ],
             }
             self.chapters.append(chapter)
             for child in ch.get("children") or []:
@@ -721,18 +728,67 @@ def check_sample_lift(prompt: str, answer: str) -> tuple[list[str], int]:
     )
 
 
+_MARKED_ITEM = re.compile(rf"^({re.escape(CURRENT_BEAT_MARK)}| ) \d+\. (.*)$")
+
+
+def marked_block(prompt: str, header: str, marks: int | None):
+    """S-5: the ONE parser of a `marked_plan` block. (items, marked indices,
+    whether an EARLIER_BEATS list follows, reasons), or None without `header`;
+    `marks` is the expected count of → (None: one or more)."""
+    at = prompt.find(header)
+    if at == -1:
+        return None
+    lines = prompt[at + len(header) :].split("\n\n", 1)[0].splitlines()[1:]
+    found = list(takewhile(bool, map(_MARKED_ITEM.match, lines)))
+    marked = [i for i, m in enumerate(found) if m.group(1) != " "]
+    after = lines[len(found)] if len(found) < len(lines) else ""
+    earlier = after.startswith(EARLIER_BEATS.split("{what}")[0])
+    ok = len(marked) == marks if marks else bool(marked)
+    reasons = [] if ok else [f"{len(marked)} {CURRENT_BEAT_MARK} marks"]
+    return [m.group(2) for m in found], marked, earlier, reasons
+
+
 def check_whole_outline(prompt: str, titles: set[str]) -> list[str]:
     """W4-5: the act's prompt shows the whole book — its OUTLINE_CHAPTERS_HEADER
-    block names every chapter title (SPEC-38)."""
-    at = prompt.find(OUTLINE_CHAPTERS_HEADER)
-    if at == -1:
+    block names every chapter title, this act's marked (SPEC-38)."""
+    parsed = marked_block(prompt, OUTLINE_CHAPTERS_HEADER, None)
+    if parsed is None:
         return ["no whole-outline block"]
-    listing = prompt[at:].split("\n\n", 1)[0]
-    return [
+    items, _, _, reasons = parsed
+    listing = "\n".join(items)
+    return reasons + [
         f"{t!r} is not in the whole-outline block"
         for t in sorted(titles)
         if t not in listing
     ]
+
+
+def check_plan_sees_chapter(prompt: str, titles: list[str]) -> list[str]:
+    """W5-4: the planner sees its chapter's scenes, its own marked, and what
+    the earlier ones planned (SPEC-43)."""
+    parsed = marked_block(prompt, CHAPTER_SCENES_HEADER, 1)
+    if parsed is None:
+        return ["no chapter-scenes block"]
+    items, marked, earlier, reasons = parsed
+    if marked and marked[0] > 0 and not earlier:
+        reasons.append("no earlier-beats list after a scene that is not the first")
+    listing = "\n".join(items)
+    return reasons + [
+        f"{t!r} is not in the chapter-scenes block" for t in titles if t not in listing
+    ]
+
+
+# The redo's "Beat N" line (app/orchestration/revise.py, SPEC-41).
+_REDO_BEAT = re.compile(r"(?m)^Beat (\d+) of this scene's plan:")
+
+
+def check_redo_sees_plan(prompt: str) -> list[str]:
+    """W5-2: a redo of beat N shows the scene's whole plan with item N marked."""
+    n = int(_REDO_BEAT.search(prompt).group(1))
+    current = _current_beat(block(prompt, BEATS_FENCE))
+    if current is None:
+        return [f"no <beats> block marking beat {n}"]
+    return [] if current[0] == n else [f"<beats> marks beat {current[0]}, not beat {n}"]
 
 
 def check_samples_not_plot(
@@ -790,6 +846,8 @@ CHECKS = (
     "sample_lift",
     "beats_see_whole_outline",
     # wave 5
+    "plan_sees_chapter",
+    "redo_sees_plan",
     "samples_not_plot",
 )
 
@@ -885,6 +943,10 @@ def grade(
                 plan_unmatched.append(str(rec.get("id")))
             else:
                 tallies["plan_cast_from_beat"].add(rec, cast)
+            if planned := outline.beat_for(prompt):
+                tallies["plan_sees_chapter"].add(
+                    rec, check_plan_sees_chapter(prompt, planned["chapter"]["titles"])
+                )
         if pur in ("plan_beats", "beat_prose"):
             tallies["no_blank_setting"].add(rec, check_no_blank_setting(prompt))
             if style_tone.strip():
@@ -967,6 +1029,8 @@ def grade(
             reasons, shared = check_sample_lift(prompt, rec.get("answer") or "")
             tallies["sample_lift"].add(rec, reasons)
             lifts.append(shared)
+        if pur == "scene_revise" and _REDO_BEAT.search(prompt):
+            tallies["redo_sees_plan"].add(rec, check_redo_sees_plan(prompt))
         if gold and re.search(r"(?im)^\s*voice samples\b", prompt):
             reasons, counts = check_voice(prompt, gold, other)
             for k, v in counts.items():

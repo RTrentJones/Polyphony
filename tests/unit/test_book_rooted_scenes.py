@@ -20,7 +20,7 @@ from app.core.orm_models import (
     SceneBeat,
     SceneRevision,
 )
-from tests.unit.factories import add_scene
+from tests.unit.factories import add_chapter, add_scene
 
 pytestmark = pytest.mark.unit
 
@@ -327,6 +327,17 @@ class TestBookOrder:
         url = f"/api/v1/books/{book_id}/scenes"
         listed = (await client.get(url, headers=auth_headers)).json()["scenes"]
         assert [s["id"] for s in listed] == [b0, a0, a1, str(newer.id), str(loose.id)]
+
+
+async def test_a_scene_in_a_trashed_chapter_reads_as_unfiled(
+    client, auth_headers, async_session, test_book
+):
+    chapter = await add_chapter(async_session, test_book)
+    scene = await add_scene(async_session, test_book, chapter)
+    chapter.deleted_at = datetime.now(timezone.utc)
+    await async_session.commit()
+    body = (await client.get(f"/api/v1/scenes/{scene.id}", headers=auth_headers)).json()
+    assert (body["chapter"], body["neighbours"]) == (None, {"prev": None, "next": None})
 
 
 def test_no_query_lists_scenes_by_user_id_alone():

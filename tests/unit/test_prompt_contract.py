@@ -127,6 +127,12 @@ FAILING = [
         "Here are the chapters of act 1, in order:\n[]",
         "",
     ),
+    # W4 record 0031: a redo shown one plan line and no <beats> (SPEC-41).
+    (
+        "scene_revise",
+        "Beat 2 of this scene's plan: Prava slides an org chart across.\nRedo beat 2.",
+        "",
+    ),
 ]
 
 REASONS = {
@@ -152,6 +158,8 @@ REASONS = {
     "sample_lift": "20 word 8-grams of its samples: 'a tracker or some kind of shared doc'",
     "beats_see_whole_outline": "'Drawer' is not in the whole-outline block",
     "samples_not_plot": "Milo Voss: paragraph 0: narrates intake (ch 1)",
+    "plan_sees_chapter": "no chapter-scenes block",
+    "redo_sees_plan": "no <beats> block marking beat 2",
 }
 
 
@@ -192,6 +200,12 @@ def test_every_check_fails_its_failing_fixture(tmp_path):
     # W3-3: the planner's POV line is graded too (record 2 has none).
     pov = out["pov_line_has_mode_and_character"]
     assert "2" in [f["id"] for f in pov["failures"]]
+
+
+def test_redo_sees_plan_wants_the_redone_beat_marked():
+    """(F) SPEC-41: the marked item is the beat the redo names."""
+    wrong = "Beat 2 of this scene's plan: b\n<beats>\n→ 1. a\n2. b\n</beats>"
+    assert pc.check_redo_sees_plan(wrong) == ["<beats> marks beat 1, not beat 2"]
 
 
 def test_prior_keeps_its_paragraphs_and_starts_a_sentence():

@@ -23,6 +23,9 @@ from app.core.prompt_markers import (
     ALSO_NAMED_LABEL,
     AVAILABLE_CAST_LABEL,
     CHAPTER_FENCE,
+    CHAPTER_SCENES_HEADER,
+    CURRENT_BEAT_MARK,
+    EARLIER_BEATS,
     EMOTIONAL_TONE_LABEL,
     SCENE_DESCRIPTION_LABEL,
     SETTING_LABEL,
@@ -31,6 +34,7 @@ from app.core.prompt_markers import (
 from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_array
 from app.orchestration.pov import Pov, plan_pov_instruction
+from app.planning.planned_beat import beat_scene_description
 
 logger = setup_logging("orchestration.workflow")
 
@@ -58,6 +62,41 @@ def chapter_context(chapter_summary: str, position: Optional[StoryPosition]) -> 
         story_position_line(position),
     )
     return "\n".join(p for p in parts if p)
+
+
+def marked_plan(
+    header: str, items: list[str], current: set[int], earlier_header: str, earlier
+) -> list[str]:
+    """The ONE marked-list renderer (S-5): numbered `items` under `header`,
+    those in `current` marked, then `earlier` under `earlier_header` if any.
+    The outline's acts (SPEC-38) and a chapter's scenes (SPEC-43) use it."""
+    lines = [header]
+    for i, item in enumerate(items):
+        lines.append(f"{CURRENT_BEAT_MARK if i in current else ' '} {i + 1}. {item}")
+    return [*lines, earlier_header, *earlier] if earlier else lines
+
+
+def chapter_plan_block(plan, story_position, scene_request, earlier) -> str:
+    """This chapter's planned scenes, the one being planned marked, and the
+    beat lines its earlier scenes already planned (SPEC-43); "" without a plan."""
+    chapter = story_position.chapter if story_position else None
+    beats = [b for n, b in plan if n == chapter]
+    if not beats:
+        return ""
+    here = scene_request.get("planned_beat_id")
+    lines = marked_plan(
+        CHAPTER_SCENES_HEADER,
+        [_one_line(beat_scene_description(b)) for b in beats],
+        {i for i, b in enumerate(beats) if b["node_id"] == here},
+        EARLIER_BEATS.format(what="the earlier scenes of this chapter"),
+        [f"- {_one_line(t)}: {_one_line(' '.join(ls))}" for t, ls in earlier],
+    )
+    if earlier:
+        lines.append(
+            "Keep the days, times and objects these establish; do not introduce "
+            "again what an earlier scene already introduced."
+        )
+    return "\n".join(lines)
 
 
 def _one_line(value) -> str:
@@ -101,6 +140,13 @@ def scene_block(scene_request: dict) -> str:
     return as_quoted_block("\n".join(parts), "scene")
 
 
+# Only with an Also-named list: alone, it read as a missing list (SPEC-43).
+ALSO_NAMED_NOTE = (
+    ' A person listed as "Also named" in the scene brief may appear by name, but'
+    " is not listed in a beat's characters."
+)
+
+
 async def plan_scene_beats(
     scene_request: dict,
     user_id: Optional[UUID] = None,
@@ -110,6 +156,8 @@ async def plan_scene_beats(
     pov: Pov,
     story_position: Optional[StoryPosition],
     secondary_block: str,
+    plan: list,
+    earlier: list,
 ) -> list[dict]:
     """Break the scene into 3-5 beats via one planning call.
 
@@ -120,9 +168,12 @@ async def plan_scene_beats(
 
     The cast is offered as AVAILABLE, not mandatory (SPEC-24, W2-1): the old
     "the scene's cast is exactly" made every beat of a Milo-and-a-caseworker
-    scene a Milo-and-Zara scene.
+    scene a Milo-and-Zara scene. `plan`/`earlier` are SceneSetup's (SPEC-43).
     """
     cast: list[str] = list(scene_request.get("characters") or [])
+    also_named = ALSO_NAMED_NOTE if secondary_names(scene_request) else ""
+    chapter_plan = chapter_plan_block(plan, story_position, scene_request, earlier)
+    chapter_plan += "\n\n" if chapter_plan else ""
     pov_and_secondaries = "\n\n".join(
         p for p in (plan_pov_instruction(pov), secondary_block) if p
     )
@@ -132,17 +183,16 @@ async def plan_scene_beats(
 
 {chapter_context(chapter_summary, story_position)}
 
-{scene_block(scene_request)}
+{chapter_plan}{scene_block(scene_request)}
 {pov_and_secondaries}
 
 You are a narrative planner. Break this scene of THIS book into 3-5 beats
 (smaller moments), consistent with the canon above.
 {AVAILABLE_CAST_LABEL}: {", ".join(cast) or "(none)"}
 These are the characters who MAY appear; a beat need not use all of them. Each
-beat lists which of them are present in it — use only names from that list. A
-person listed as "Also named" in the scene brief may appear by name, but is not
-listed in a beat's characters. Unnamed functional figures (a caseworker, a
-clerk, a guard) may appear without a name; do not invent names for them.
+beat lists which of them are present in it — use only names from that list.{also_named}
+Unnamed functional figures (a caseworker, a clerk, a guard) may appear without a
+name; do not invent names for them.
 
 Return ONLY a JSON array:
 [{{"description": "what happens, plus its emotional subtext, in one sentence",

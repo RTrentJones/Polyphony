@@ -476,6 +476,8 @@ async def run_ensemble_scene_workflow(
                 # The planner sees the secondaries; the narrator and agent
                 # prompts do not yet (W3-10).
                 secondary_block=setup.secondary_block,
+                plan=setup.plan,
+                earlier=setup.earlier,
             )
             checkpoint = {
                 "canon_hash": canon_hash,
@@ -485,6 +487,8 @@ async def run_ensemble_scene_workflow(
                 "progress": {"stage": "beats", "done": 0, "total": len(beats)},
             }
             await _save()
+        plot = setup.scope.plot + tuple(b["description"] for b in beats)
+        setup = setup._replace(scope=setup.scope._replace(plot=plot))
         prose_parts: list[str] = list(checkpoint.get("prose") or [])
         evaluations: list[dict] = list(checkpoint.get("evaluations") or [])
         # {beat_index: [{character_id, chunk_id, score}]} — the prose workflow's
