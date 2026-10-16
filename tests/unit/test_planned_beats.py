@@ -821,3 +821,43 @@ async def test_a_promoted_nodes_suggestions_come_from_its_chapter_beats(
     await client.get(base, headers=auth_headers)
     # Promoted: the chapter's beats. Unpromoted: the outline children.
     assert seen == [["Node", "Fen", "Node", "Other"]]
+
+
+# --- the beat editor reads the chapter (SPEC-35) ----------------------------------------
+
+
+async def test_the_chapter_lists_its_written_beats_and_scene_titles(
+    client, auth_headers, async_session, test_book
+):
+    """(F) GET /chapters/{id} carries `written` (beat id -> scene id) and
+    each scene's title, so the editor links a written beat to its scene."""
+    _, promoted, (b1, b2, _) = await _beat_book(
+        client, auth_headers, async_session, test_book
+    )
+    url = f"/api/v1/books/chapters/{promoted['chapter_id']}"
+    assert (await client.get(url, headers=auth_headers)).json()["written"] == {}
+    r = await client.post(
+        _PLANNED.format(promoted["chapter_id"]), json={}, headers=auth_headers
+    )
+    assert r.status_code == 200, r.text
+    (scene,) = (await async_session.execute(select(Scene))).scalars().all()
+    scene.title = "Intake"
+    await async_session.commit()
+
+    body = (await client.get(url, headers=auth_headers)).json()
+    assert body["written"] == {b1: str(scene.id)}
+    assert [s["title"] for s in body["scenes"]] == ["Intake"]
+
+
+async def test_setting_and_tone_round_trip_through_the_patch(
+    client, auth_headers, async_session, test_book
+):
+    """(R) The editor's setting and tone fields are stored as sent."""
+    _, promoted, _ = await _beat_book(client, auth_headers, async_session, test_book)
+    url = f"/api/v1/books/chapters/{promoted['chapter_id']}"
+    beats = (await client.get(url, headers=auth_headers)).json()["planned_beats"]
+    beats[1] |= {"setting": "The canteen", "tone": "wry"}
+    r = await client.patch(url, json={"planned_beats": beats}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    got = (await client.get(url, headers=auth_headers)).json()["planned_beats"][1]
+    assert (got["setting"], got["tone"]) == ("The canteen", "wry")
