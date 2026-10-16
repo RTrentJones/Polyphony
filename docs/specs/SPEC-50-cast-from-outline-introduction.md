@@ -10,7 +10,7 @@ same naming sentence (through its first appositive, less a trailing "and"), "" w
 them. `introduction(sentence, name)` first drops a comma-led clause before the name, so "On his
 first day, Prava, the intake caseworker, processes his file." gives "Prava, the intake
 caseworker"; "There is Prava, ..." (no comma before the name) is unchanged. `scene_secondaries`
-passes the name too, so the prompt's "Introduced:" line and "Add to cast" use one rule. The Outline panel's "Add <name> to cast" creates the minor character with
+passes the name too, and so does the eval harness's minor cast (`name` is required), so the prompt's "Introduced:" line, "Add to cast" and the eval use one rule. The Outline panel's "Add <name> to cast" creates the minor character with
 `description: introduction`; the whole `synopsis_sentence` stays the chip's tooltip.
 
 For cel, Prava's description becomes "There is Prava, the intake caseworker who onboarded Milo

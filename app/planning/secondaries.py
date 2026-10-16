@@ -73,12 +73,12 @@ def intro_sentence(name: str, texts: Iterable[str]) -> str:
     return ""
 
 
-def introduction(sentence: str, name: str = "") -> str:
+def introduction(sentence: str, name: str) -> str:
     """The naming sentence through its first appositive (SPEC-40): cut before
     the second comma, less a trailing "and" / "and who" / "and which", capped.
     The canon block still carries the whole sentence (BRD R1.1). A comma-led
     clause before `name` is dropped first ("On his first day, Prava, ...")."""
-    if name and sentence[: max(sentence.find(name), 0)].rstrip().endswith(","):
+    if sentence[: max(sentence.find(name), 0)].rstrip().endswith(","):
         sentence = sentence[sentence.find(name) :]
     head = ",".join(sentence.split(",")[:2]).strip()
     return _cap(re.sub(r"\s+and(?:\s+(?:who|which))?$", "", head))

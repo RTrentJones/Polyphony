@@ -692,7 +692,7 @@ async def step_outline(ctx: StepContext) -> dict:
     texts = [gt["synopsis"], load_excerpts(ctx.book)]
     minor = {}
     for name in gt.get("secondary_cast") or []:
-        intro = introduction(intro_sentence(name, texts))
+        intro = introduction(intro_sentence(name, texts), name)
         made = await ctx.client.create_character(
             name, book["id"], role="minor", description=intro
         )
