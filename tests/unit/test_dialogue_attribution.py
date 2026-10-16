@@ -8,6 +8,7 @@ samples" and "How they move", and the `reindex-voice` command.
 """
 
 import json
+import re
 import types
 import uuid
 from pathlib import Path
@@ -916,7 +917,16 @@ async def test_a_sample_that_restates_any_plot_line_goes(
     "outline, chapter, cut",
     # (F) best match "Halvard Bell" (ch 2, 13 shared) / "The Memo" (ch 2, 5). Not
     # paragraph 3 (R): 4 with "Plain Language" (ch 6), 5 with a ch-1 scene.
-    [("w4b2", 1, 9), ("w4", 1, 14), ("w4b2", 6, None), ("w4", 6, None)],
+    # (F) W5b: paragraph 4's speech ("low-hanging fruit") names a ch-4 title; the
+    # narration places events, so the cut is not 4.
+    [
+        ("w4b2", 1, 9),
+        ("w4", 1, 14),
+        ("w4b2", 6, None),
+        ("w4", 6, None),
+        ("w5b", 1, 9),
+        ("w5b", 2, 14),
+    ],
 )
 def test_later_plot_begins_at_a_later_chapters_best_match(outline, chapter, cut):
     assert later_plot_from(PARAGRAPHS, chapter, _plan(outline)) == cut
@@ -952,6 +962,10 @@ async def test_an_owned_phrase_is_named_only_where_its_owner_is_absent(monkeypat
     monkeypatch.setattr(ctx, "get_chunk_store", lambda: TypedStore([]))
     scope = ctx.SceneScope.of(canon, [milo], ["Prava"], (), {})
     without = await ctx.build_cast_context([milo], "x", scope=scope)
-    assert without.count("Only Edric Thane says: 'Mr. Voss'") == 1
+    owned = f"{ctx.OWNED_PHRASES_NOTE}\n<owned>\nEdric Thane: 'Mr. Voss'\n</owned>"
+    assert without.count(owned) == 1
+    # (F) the line is not a stray card: every <character> block has a heading
+    cards = re.findall(r"<character>\n(.*?)</character>", without, re.S)
+    assert cards and all(c.startswith("### ") for c in cards)
     with_him = await ctx.build_cast_context([milo, edric], "x", scope=scope)
-    assert "Only Edric" not in with_him
+    assert "<owned>" not in with_him and ctx.OWNED_PHRASES_NOTE not in with_him

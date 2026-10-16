@@ -271,14 +271,15 @@ def later_plot_from(
 ) -> Optional[int]:
     """The first paragraph of a source whose event the plan places after
     `chapter`, or None (SPEC-40). A paragraph's chapter is that of the plan line
-    it shares the most content words with, at RESTATES_MIN or more; a tie goes
-    to the earlier chapter."""
+    its narration (speech left out: one speech rule) shares the most content
+    words with, at RESTATES_MIN or more; a tie goes to the earlier chapter."""
+    from app.parsing.character_extractor import narration_of
     from app.planning.fidelity import FUNCTION_WORDS
     from app.planning.planned_beat import beat_scene_description
 
     lines = [(n, _words(beat_scene_description(b), FUNCTION_WORDS)) for n, b in plan]
     for i, paragraph in enumerate(paragraphs):
-        words = _words(paragraph)
+        words = _words(narration_of(paragraph))
         shared, earlier = max(((len(words & w), -n) for n, w in lines), default=(0, 0))
         if shared >= RESTATES_MIN and -earlier > chapter:
             return i
@@ -304,6 +305,10 @@ def _later_plot(sample: dict, scope: SceneScope) -> bool:
 
 
 _QUOTED = re.compile(r"(?<!\w)['‘\"“]([^'‘’\"“”]+)['’\"”](?!\w)")
+
+
+# Not a marker (nothing parses it): the sentence above the `<owned>` block.
+OWNED_PHRASES_NOTE = "Phrases only their owner says (no one in this beat may say them):"
 
 
 def owned_phrases(character) -> list[str]:
@@ -529,9 +534,9 @@ async def build_cast_context(
 
     Each block is story material (bible text and voice samples can originate in
     an uploaded file), so it is fenced with `as_quoted_block`
-    (docs/ADR-002-book-as-root.md §4). Then, once and fenced the same way, each
-    owned phrase of a book cast member who is not in the beat: "Only {name}
-    says: '{phrase}'" (SPEC-42).
+    (docs/ADR-002-book-as-root.md §4). Then, once, `OWNED_PHRASES_NOTE` and an
+    `<owned>` block: "{name}: '{phrase}'" for each book cast member who is not
+    in the beat and owns a phrase (SPEC-42).
     """
     blocks = []
     for character in characters:
@@ -546,11 +551,12 @@ async def build_cast_context(
         blocks.append(as_quoted_block(block, "character"))
     beat = {c.name for c in characters}
     owned = [
-        clean_for_llm(f"Only {m.name} says: " + ", ".join(f"'{p}'" for p in phrases))
+        clean_for_llm(f"{m.name}: " + ", ".join(f"'{p}'" for p in phrases))
         for m in scope.book_cast
         if m.name not in beat and (phrases := owned_phrases(m))
     ]
-    blocks.append(as_quoted_block("\n".join(owned), "character"))
+    fenced = as_quoted_block("\n".join(owned), "owned")
+    blocks.append(fenced and f"{OWNED_PHRASES_NOTE}\n{fenced}")
     return "\n\n".join(b for b in blocks if b)
 
 

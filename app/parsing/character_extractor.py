@@ -388,6 +388,11 @@ def _attribute_paragraph(para: str) -> tuple[list[dict], str]:
     return out, " ".join(outside)
 
 
+def narration_of(paragraph: str) -> str:
+    """A source paragraph minus its quoted speech, by the extractor's split."""
+    return _attribute_paragraph(_normalize_quotes(paragraph.strip()))[1]
+
+
 def attribute_speech(text: str) -> list[list[dict]]:
     """Per paragraph (``text.split("\\n\\n")`` indices), each quoted span and the
     speaker it is credited to: ``{"text", "speaker"}``. ``speaker`` is the tag's
