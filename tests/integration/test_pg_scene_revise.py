@@ -201,7 +201,9 @@ async def test_revise_accept_round_trip_through_the_worker(monkeypatch):
                         break
             assert job.status == "succeeded", job.error
             assert [p for p, _ in fake.prompts] == ["scene_revise"]
-            assert "refers to them): Form K-9\n" in fake.prompts[0][1]
+            assert (
+                'refers to them): Form K-9 ("Form K-9, again")\n' in fake.prompts[0][1]
+            )
 
             listing = (
                 await client.get(
