@@ -21,6 +21,7 @@ from app.characters import context as ctx_mod
 from app.core.config import settings
 from app.core.orm_models import Chapter, Job, Scene
 from app.jobs import scene_batch
+from tests.unit.factories import add_scene
 from tests.unit.test_outline_handoff import _bind, _cast, _structured_plan, _worker
 from tests.unit.test_voice_workbench import _LLM, _PLAN, _Ctx, duo  # noqa: F401
 
@@ -538,6 +539,9 @@ async def test_a_batch_over_budget_queues_what_fits_and_defers_the_rest(
     assert body["estimate"]["tokens"] == 3 * one
     (job,) = (await async_session.execute(select(Job))).scalars().all()
     assert len(job.payload["batch"]["remaining"]) == 2
+    running = (await client.post(url, json={}, headers=auth_headers)).json()
+    assert running["already_running"] is True
+    assert (running["deferred"], running["reason"]) == (0, None)
 
 
 async def test_the_deferred_scene_is_written_once_the_budget_frees_up(
@@ -564,16 +568,7 @@ async def test_the_deferred_scene_is_written_once_the_budget_frees_up(
     (job,) = (await async_session.execute(select(Job))).scalars().all()
     job.status = "completed"
     for i, beat in enumerate(chapter.planned_beats[1:3], start=1):
-        async_session.add(
-            Scene(
-                user_id=test_user.id,
-                book_id=test_book.id,
-                chapter_id=chapter.id,
-                position=i,
-                scene_request={"planned_beat_id": beat["node_id"]},
-                status="completed",
-            )
-        )
+        await add_scene(async_session, test_book, chapter, i, beat["node_id"])
     now = datetime.now(timezone.utc)
     for _ in range(3):
         async_session.add(
@@ -582,7 +577,7 @@ async def test_the_deferred_scene_is_written_once_the_budget_frees_up(
     await async_session.commit()
 
     again = await client.post(url, json={}, headers=auth_headers)
-    assert again.status_code == 429 or again.json()["deferred"] >= 1, again.text
+    assert again.status_code == 429, again.text
 
     await async_session.execute(
         update(APIUsage).values(timestamp=now - timedelta(hours=25))
@@ -594,33 +589,8 @@ async def test_the_deferred_scene_is_written_once_the_budget_frees_up(
     assert (body["queued"], body["skipped"], body["deferred"]) == (1, 3, 0)
     assert body["reason"] is None
 
-
-async def test_every_planned_scenes_return_says_nothing_was_deferred(
-    client, auth_headers, async_session, test_book, test_user
-):
-    _, chapter_id = await _two_beat_chapter(
-        client, auth_headers, async_session, test_book
-    )
-    url = f"/api/v1/books/chapters/{chapter_id}/scenes/generate-planned"
-    first = (await client.post(url, json={}, headers=auth_headers)).json()
-    assert (first["deferred"], first["reason"]) == (0, None)
-    running = (await client.post(url, json={}, headers=auth_headers)).json()
-    assert running["already_running"] is True
-    assert (running["deferred"], running["reason"]) == (0, None)
-
-    (job,) = (await async_session.execute(select(Job))).scalars().all()
-    job.status = "completed"
-    chapter = await async_session.get(Chapter, uuid.UUID(chapter_id))
-    async_session.add(
-        Scene(
-            user_id=test_user.id,
-            book_id=test_book.id,
-            chapter_id=chapter.id,
-            position=1,
-            scene_request={"planned_beat_id": chapter.planned_beats[1]["node_id"]},
-            status="completed",
-        )
-    )
+    for job in (await async_session.execute(select(Job))).scalars():
+        job.status = "completed"  # the rest's chain ran too
     await async_session.commit()
     done = (await client.post(url, json={}, headers=auth_headers)).json()
     assert done["status"] == "nothing_to_do"

@@ -251,7 +251,7 @@ def restates_brief(text: str, brief: str) -> bool:
     def content(t: str) -> set[str]:
         return {w for w in re.findall(r"[a-z]+", t.lower()) if len(w) > 3}
 
-    return len(content(text) & content(brief) - FUNCTION_WORDS) >= RESTATES_MIN
+    return len(content(text) & (content(brief) - FUNCTION_WORDS)) >= RESTATES_MIN
 
 
 def _own_narration(sample: dict) -> bool:

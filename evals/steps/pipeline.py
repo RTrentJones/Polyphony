@@ -636,9 +636,8 @@ OUTLINE_CACHE_KEY = "minor-v1"
 @step("outline", needs_api=True)
 async def step_outline(ctx: StepContext) -> dict:
     from app.planning.fidelity import flatten_outline
-    from evals.graders.fidelity import grade_fidelity
-
     from app.planning.secondaries import intro_sentence
+    from evals.graders.fidelity import grade_fidelity
 
     gt = ctx.ground_truth
     book = await _book_with_cast(ctx, f"eval-{gt['book']}", genre="")
@@ -887,7 +886,9 @@ async def _planned_scenes(ctx: StepContext, book: dict) -> dict:
             "queued": started["queued"],
             "deferred": started["deferred"],
             "estimate_over_actual": (
-                round(started["estimate"]["tokens"] / spent, 4) if spent else None
+                round(started["estimate"]["tokens"] / spent, 4)
+                if spent and started.get("estimate")
+                else None
             ),
             "chapter": {
                 "id": ch["chapter_id"],

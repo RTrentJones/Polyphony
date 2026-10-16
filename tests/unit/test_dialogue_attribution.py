@@ -591,17 +591,25 @@ def _cel(synopsis=True):
     return canon, {c.name.split()[0]: c for c in cast}
 
 
-async def _milo_moves(monkeypatch, texts, scene, secondaries=(), synopsis=True):
-    """Milo's movement lines in a scene of Milo + `scene` (first names)."""
+async def _milo_moves(monkeypatch, texts, scene, secondaries=(), synopsis=True, **kw):
+    """(voice block, movement lines) for `who` (Milo) in a scene of Milo +
+    `scene` (first names), with one dialogue chunk and `texts` as actions."""
     import app.characters.context as ctx
 
     canon, by = _cel(synopsis)
-    store = TypedStore([_s(f"a{i}", t, "action") for i, t in enumerate(texts)])
+    store = TypedStore(
+        [_s("d0", "Is there a dashboard or a tracker?", "dialogue", "dialogue_1")]
+        + [_s(f"a{i}", t, "action") for i, t in enumerate(texts)]
+    )
     monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
     cast = [by["Milo"], *(by[n] for n in scene)]
-    scope = ctx.SceneScope.of(canon, cast, secondaries, "")
-    out = await ctx.build_character_context(by["Milo"], "Milo Voss", "x", scope=scope)
-    return [ln[2:] for ln in _blocks(out)[1].splitlines() if ln.startswith("- ")]
+    scope = ctx.SceneScope.of(canon, cast, secondaries, kw.get("brief", ""))
+    who = by[kw.get("who", "Milo")]
+    out = await ctx.build_character_context(
+        who, who.name, kw.get("query", "x"), scope=scope
+    )
+    voice, move = _blocks(out)
+    return voice, [ln[2:] for ln in move.splitlines() if ln.startswith("- ")]
 
 
 class TestMovementInScene:
@@ -615,8 +623,10 @@ class TestMovementInScene:
         """B-2: "the" and "chief" are not Edric, in his scene or out of it."""
         from app.characters.context import SceneScope, _centres, names_outside_scene
 
-        assert await _milo_moves(monkeypatch, [self.WALK], ["Zara"]) == [self.WALK]
-        assert await _milo_moves(monkeypatch, [self.DUSK], ["Edric"]) == [self.DUSK]
+        assert (await _milo_moves(monkeypatch, [self.WALK], ["Zara"]))[1] == [self.WALK]
+        assert (await _milo_moves(monkeypatch, [self.DUSK], ["Edric"]))[1] == [
+            self.DUSK
+        ]
         canon, by = _cel()
         chief = "The chief reason was the form."
         assert _centres(chief, "Milo Voss", [by["Milo"], by["Edric"]], ["Milo"])
@@ -634,13 +644,13 @@ class TestMovementInScene:
         + [([EDRIC], ["Edric"], [EDRIC])],
     )
     async def test_outside_names_drop(self, monkeypatch, texts, scene, kept):
-        assert await _milo_moves(monkeypatch, texts, scene) == kept
+        assert (await _milo_moves(monkeypatch, texts, scene))[1] == kept
 
     async def test_a_named_secondary_belongs_to_the_scene(self, monkeypatch):
         # Without the synopsis, nothing else makes Old Fen known.
-        fen = await _milo_moves(monkeypatch, [self.FEN], [], synopsis=False)
+        _, fen = await _milo_moves(monkeypatch, [self.FEN], [], synopsis=False)
         assert fen == []
-        fen = await _milo_moves(monkeypatch, [self.FEN], [], ["Old Fen"], False)
+        _, fen = await _milo_moves(monkeypatch, [self.FEN], [], ["Old Fen"], False)
         assert fen == [self.FEN]
 
 
@@ -803,72 +813,48 @@ INTAKE = (
 
 
 @pytest.mark.parametrize(
-    "brief, sample, shared, drops",
+    "brief, sample, drops",
     [
-        (DRAWER, LOCKED, 6, True),  # asked desk drawer ledger milo night
-        (RETAINED, INTAKE, 5, True),  # chart desk laminate laminated milo
-        (RETAINED, LOCKED, 2, False),
-        (NEXT_DESK, INTAKE, 2, False),
-        (NEXT_DESK, LOOKED, 2, False),
-        (NEXT_DESK, LOCKED, 2, False),
-        (FOUR_MINUTES, LOCKED, 2, False),
-        (FOUR_MINUTES, LOOKED, 2, False),
-        (TRAINS, LOCKED, 1, False),
-        (TRAINS, LOOKED, 1, False),
-        (TRAINS, INTAKE, 1, False),
+        (DRAWER, LOCKED, True),  # shares 6: asked desk drawer ledger milo night
+        (RETAINED, INTAKE, True),  # shares 5: chart desk laminate laminated milo
+        (RETAINED, LOCKED, False),  # shares 2
+        (NEXT_DESK, INTAKE, False),  # shares 2
+        (NEXT_DESK, LOOKED, False),  # shares 2
+        (NEXT_DESK, LOCKED, False),  # shares 2
+        (FOUR_MINUTES, LOCKED, False),  # shares 2
+        (FOUR_MINUTES, LOOKED, False),  # shares 2
+        (TRAINS, LOCKED, False),  # shares 1
+        (TRAINS, LOOKED, False),  # shares 1
+        (TRAINS, INTAKE, False),  # shares 1
     ],
 )
-def test_the_eleven_archive_pairs_drop_exactly_the_two_events(
-    brief, sample, shared, drops
-):
+def test_the_eleven_archive_pairs_drop_exactly_the_two_events(brief, sample, drops):
     """(F) RESTATES_MIN = 4 sits midway between unrelated (<= 2) and event (5-6)."""
-    from app.characters.context import RESTATES_MIN, restates_brief
+    from app.characters.context import restates_brief
 
-    assert (shared >= RESTATES_MIN) is drops
     assert restates_brief(sample, brief) is drops
     assert restates_brief(sample, "") is False  # no brief: a probe, a manual scene
-
-
-async def _moves(monkeypatch, who, texts, brief, query="x"):
-    """(voice, movement) blocks for `who` in a cel scene with `brief`."""
-    import app.characters.context as ctx
-
-    canon, by = _cel()
-    store = TypedStore(
-        [_s("d0", "Is there a dashboard or a tracker?", "dialogue", "dialogue_1")]
-        + [_s(f"a{i}", t, "action") for i, t in enumerate(texts)]
-    )
-    monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
-    scope = ctx.SceneScope.of(canon, [by["Milo"], by["Zara"]], (), brief)
-    out = await ctx.build_character_context(by[who], who, query, scope=scope)
-    return _blocks(out)
 
 
 async def test_the_drawer_sample_leaves_the_drawer_scene(monkeypatch):
     """(F) The brief carries the event; the sample that narrates it goes, with
     no refill, and the voice samples are untouched."""
-    voice, move = await _moves(monkeypatch, "Milo", [LOCKED, INTAKE], DRAWER)
+    voice, move = await _milo_moves(
+        monkeypatch, [LOCKED, INTAKE], ["Zara"], brief=DRAWER
+    )
     assert LOCKED not in move and INTAKE in move
     assert "Is there a dashboard or a tracker?" in voice
 
 
 async def test_a_revise_span_never_drops_a_gesture(monkeypatch):
     """(R) B-1: revise retrieves with the author's prose span (here the run-W3
-    scene-1 beat, sharing 7 content words with Zara's gesture). The rule reads
+    scene-1 beat, cut to the words it shares with Zara's gesture: 7). The rule reads
     the brief only, so the gesture stays."""
     span = (
-        "Tighten this.\nThe account came over the partition face down, pushed by "
-        "two fingers. Zara did not say anything. She did not need to; it had "
-        "RESTRUCTURED stamped across the back in red, and Milo had learned that "
-        "much by Wednesday.\n\nHe flipped it, zeroed the tenure, initialled the box "
-        "marked INITIAL HERE, and slid it back. Three minutes, maybe less. He had "
-        "not timed it, but he had the sense of having been fast, the way you know "
-        'you have parked well.\n\n"Done," he said. "And honestly, that one was '
-        "super clean. Whoever set up the intake fields did a great job, so, kudos "
-        'upstream."\n\nZara picked up the form. She looked at his initials for a '
-        "long time. Her grey eyes did not change at all.\n\nMilo waited. Nothing "
-        "came. He decided that, from her, nothing was probably a very good "
-        "review.\n\nShe put the form in her out-tray and did not look up again."
+        "Three minutes, maybe less.\n\nZara picked up the form. She looked at his "
+        "initials for a long time. Her grey eyes did not change at all."
     )
-    _, move = await _moves(monkeypatch, "Zara", [LOOKED], FOUR_MINUTES, query=span)
+    _, move = await _milo_moves(
+        monkeypatch, [LOOKED], ["Zara"], brief=FOUR_MINUTES, query=span, who="Zara"
+    )
     assert LOOKED in move

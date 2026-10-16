@@ -205,15 +205,16 @@ INTRODUCE_NO_EARLIER = (
 )
 
 
-def outline_context(outline: list[dict], act_index: int, earlier: list[dict]) -> str:
+def outline_context(
+    outline: list[dict], act_chapters: list[dict], earlier: list[dict]
+) -> str:
     """The whole book for one act's beats (SPEC-38): every chapter in order,
     this act's marked (their summaries are in the act's JSON below), and the
     beat titles earlier acts already have, so an act cannot bring a person in
     before the chapter that introduces them (W4-5)."""
-    mine = {id(c) for c in _by_act(outline).get(act_index, [])}
     lines = [OUTLINE_CHAPTERS_HEADER]
     for n, ch in enumerate(outline, 1):
-        if id(ch) in mine:
+        if ch in act_chapters:
             lines.append(f"{CURRENT_BEAT_MARK} {n}. {ch.get('title', '')}")
         else:
             lines.append(f"  {n}. {ch.get('title', '')}: {ch.get('summary', '')}")
@@ -253,7 +254,7 @@ async def _stage_beats_for_act(
 
 {plan}{_act_brief(skeleton, act_index)}
 
-{outline_context(outline, act_index, earlier)}
+{outline_context(outline, act_chapters, earlier)}
 
 {ACT_CHAPTERS_HEADER.format(number=number)}
 {_json(act_chapters)}
