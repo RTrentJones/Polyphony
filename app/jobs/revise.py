@@ -21,7 +21,7 @@ from sqlalchemy import select
 
 from app.core.database import get_async_session
 from app.core.logging_config import log_business_event, setup_logging
-from app.core.orm_models import Scene, SceneRevision
+from app.core.orm_models import Scene, SceneBeat, SceneRevision
 from app.jobs.context import current_job
 from app.orchestration.revise import JOB_KIND
 
@@ -57,17 +57,42 @@ async def run(payload: dict) -> None:
         request = rv.cast_request(scene)
         summary, position = await scene_chapter(session, scene)
         setup = await scene_setup(session, book_id, request, scene.id)
+        lines = list(
+            await session.scalars(
+                select(SceneBeat.description)
+                .where(SceneBeat.scene_id == scene_id)
+                .order_by(SceneBeat.beat_number)
+            )
+        )
+        redo, later = payload.get("beat_index"), []
+        if redo is not None and scene.chapter_id is not None:
+            later = await session.scalars(  # the chapter's live later scenes
+                select(Scene)
+                .where(
+                    Scene.chapter_id == scene.chapter_id,
+                    Scene.status == "completed",
+                    Scene.position > scene.position,
+                    Scene.deleted_at.is_(None),
+                )
+                .order_by(Scene.position)
+            )
+        later = [s.draft for s in later]
     canon = setup.canon
     if rv.text_hash(draft) != base_hash:
         raise RevisionConflict(DRAFT_EDITED)
 
     span = rv.Span(*payload["range"])
     prior, target, after = span.split(draft)
+    # SPEC-41: no movement sample restates this scene's beats (B-1); a redo
+    # keeps what the rest of the chapter refers to.
+    scope = setup.scope._replace(plot=(*setup.scope.plot, *filter(None, lines)))
+    rest = "\n\n".join((prior, after, *later))
+    keep = rv.callbacks(target, rest, canon) if redo is not None else []
     ctx = current_job()
     revised = (ctx.checkpoint or {}).get("revised")
     if revised is None:
         cast_context = await build_cast_context(
-            setup.cast, f"{instruction}\n{target}", scope=setup.scope
+            setup.cast, f"{instruction}\n{target}", scope=scope
         )
         prompt = rv.build_revise_prompt(
             canon_block=canon.full_block(),
@@ -80,11 +105,8 @@ async def run(payload: dict) -> None:
             pov=setup.pov,
             story_position=position,
             secondary_block=setup.secondary_block,
-            beat=(
-                (payload["beat_index"], payload.get("beat_description"))
-                if payload.get("beat_index") is not None
-                else None
-            ),
+            beat=(redo, lines) if redo is not None else None,
+            keep=keep,
         )
         revised = await rv.generate_revision(
             prompt, target_chars=len(target), user_id=user_id
@@ -105,6 +127,9 @@ async def run(payload: dict) -> None:
         if unknown
         else []
     )
+    dropped = rv.dropped_callbacks(revised, keep)
+    if dropped:
+        warnings.append(rv.DROPPED_CALLBACK.format(terms=", ".join(map(repr, dropped))))
 
     async with get_async_session() as session:
         scene = await session.get(Scene, scene_id)
@@ -127,6 +152,7 @@ async def run(payload: dict) -> None:
                 "base_text_hash": base_hash,
                 "warnings": warnings,
                 "unknown_names": unknown,
+                "dropped_callbacks": dropped,
             },
         )
         session.add(row)

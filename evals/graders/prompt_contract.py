@@ -771,6 +771,19 @@ def check_plan_sees_chapter(prompt: str, titles: list[str]) -> list[str]:
     ]
 
 
+# The redo's "Beat N" line (app/orchestration/revise.py, SPEC-41).
+_REDO_BEAT = re.compile(r"(?m)^Beat (\d+) of this scene's plan:")
+
+
+def check_redo_sees_plan(prompt: str) -> list[str]:
+    """W5-2: a redo of beat N shows the scene's whole plan with item N marked."""
+    n = int(_REDO_BEAT.search(prompt).group(1))
+    current = _current_beat(block(prompt, BEATS_FENCE))
+    if current is None:
+        return [f"no <beats> block marking beat {n}"]
+    return [] if current[0] == n else [f"<beats> marks beat {current[0]}, not beat {n}"]
+
+
 def _json_object(text: str) -> dict:
     t = (text or "").strip().replace("```json", "").replace("```", "")
     start, end = t.find("{"), t.rfind("}")
@@ -807,6 +820,7 @@ CHECKS = (
     "beats_see_whole_outline",
     # wave 5
     "plan_sees_chapter",
+    "redo_sees_plan",
 )
 
 
@@ -967,6 +981,8 @@ def grade(
             reasons, shared = check_sample_lift(prompt, rec.get("answer") or "")
             tallies["sample_lift"].add(rec, reasons)
             lifts.append(shared)
+        if pur == "scene_revise" and _REDO_BEAT.search(prompt):
+            tallies["redo_sees_plan"].add(rec, check_redo_sees_plan(prompt))
         if gold and re.search(r"(?im)^\s*voice samples\b", prompt):
             reasons, counts = check_voice(prompt, gold, other)
             for k, v in counts.items():
