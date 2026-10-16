@@ -9,6 +9,8 @@ from app.planning.canon import build_canon
 from app.planning.fidelity import audit_outline
 
 pytestmark = pytest.mark.unit
+# (F) W6-4 (a): the outline:beats line
+D9 = "Write each scene summary as what the chapter's POV character witnesses; never what they fail to notice or will later learn."
 
 
 _PRINCIPALS = [
@@ -27,10 +29,12 @@ class FakeLLM:
             k: list(v) if isinstance(v, list) else v for k, v in responses.items()
         }
         self.calls: list[str] = []
+        self.formats: set[str] = set()
         self.prompts: dict[str, list[str]] = {}
 
     async def generate(self, messages, *, purpose, **kw):
         self.calls.append(purpose)
+        self.formats.add(str(kw.get("response_format")))
         self.prompts.setdefault(purpose, []).append(messages[0]["content"])
         val = self.responses.get(purpose)
         text = val.pop(0) if isinstance(val, list) else val
@@ -245,6 +249,8 @@ class TestBeatsStageSeesThePlan:
             assert "organises the afterlife's clerks" in prompt
             assert "Milo's union against Edric Thane's quotas" in prompt
             assert "authoritative" not in prompt  # not confirmed by the author
+            assert D9 in prompt
+            assert "Do not reuse a chapter title as a scene title." in prompt
         assert "This is act 1 of 2: Onboarding" in act1
         assert "Act 1 goal: Milo learns the rules" in act1
         assert "Milo refuses a soul-quota" in act1
@@ -369,3 +375,33 @@ class TestGenerateEndpointEnqueues:
         )
         assert len(jobs) == 1
         assert jobs[0].payload["plan_id"] == body["plan_id"]
+
+
+def test_a_chapter_lists_everyone_its_scenes_name():
+    """(F) W6-4 (c): W5b's "Signature Sheet" gains Edric; (R) W4b2's "Retained"."""
+    sheet = ["Milo Voss", "Zara Okafor", "Prava", "Old Fen", "Halvard Bell"]
+    kept = ["Milo Voss", "Prava", "Zara Okafor"]
+    nodes = [{"people": sheet, "children": [{"people": ["Edric Thane"]}]}]
+    nodes.append({"people": kept, "children": [{"people": ["Prava"]}]})
+    merged = [n["people"] for n in so.merge_structural([], nodes)]
+    assert merged == [[*sheet, "Edric Thane"], kept]
+
+
+async def test_each_outline_and_plan_call_asks_the_provider_for_json(monkeypatch):
+    """(F) W6-6 (a), D11: the four calls send JSON_OBJECT; arrays are {"items"}."""
+    from app.llm.json_utils import JSON_OBJECT
+    from app.orchestration import workflow as wf
+    from app.orchestration.pov import Pov
+
+    fake = await TestBeatsStageSeesThePlan()._run(monkeypatch)
+    fake.responses["plan_beats"] = "[]"
+    monkeypatch.setattr(wf, "get_llm_client", lambda: fake)
+    scene = {"scene_description": "Intake.", "characters": ["Milo Voss"]}
+    no_plan = dict(chapter_summary="", story_position=None, plan=[], earlier=[])
+    await wf.plan_scene_beats(
+        scene, canon_block="", pov=Pov("first person"), secondary_block="", **no_plan
+    )
+    assert set(fake.formats) == {str(JSON_OBJECT)}
+    assert len(fake.calls) == 5
+    for purpose in ("outline:chapters", "outline:beats", "plan_beats"):
+        assert '{"items": [' in fake.prompts[purpose][0], purpose

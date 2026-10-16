@@ -143,7 +143,7 @@ def test_sentence_falls_back_to_canon_entries():
         {
             "name": "Old Fen",
             "synopsis_sentence": "Old Fen keeps it.",
-            "introduction": "",
+            "introduction": "Old Fen keeps it.",
         }
     ]
 
@@ -209,6 +209,8 @@ def test_the_prompt_introduction_ends_at_the_first_appositive(cel):
     assert {p.name: p.intro_sentence for p in people} == INTROS
     (offer,) = suggested_characters(["Prava"], cel)
     assert "private ledger" in offer["synopsis_sentence"]
+    # (F) W6-5 (a): "Add to cast" gets the same cut; was ""
+    assert offer["introduction"] == INTROS["Prava"]
 
 
 async def test_scene_setup_builds_plot_and_later_plot(

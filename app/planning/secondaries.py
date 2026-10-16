@@ -142,7 +142,8 @@ def suggested_characters(names: Iterable[str], canon) -> list[dict]:
     classify_people (against canon's current cast, with known_text from canon) puts in
     `secondary`, deduped case-insensitively, in the given order.
     synopsis_sentence is the first synopsis sentence naming them, else the
-    first canon-entry sentence naming them, capped at 400 chars.
+    first canon-entry sentence naming them, capped at 400 chars; introduction
+    its SPEC-40 cut, which "Add to cast" stores (W6-5).
 
     The caller collects `names` (the declared `secondary_names` of the outline
     and its promoted chapters; app/api/plans.py)."""
@@ -151,12 +152,12 @@ def suggested_characters(names: Iterable[str], canon) -> list[dict]:
     cast = CastIndex(getattr(canon, "characters", None) or [])
     people = classify_people(names, cast, norm(canon_known_text(canon)))
     synopsis = getattr(canon, "synopsis", "") or ""
-    return [
-        {
-            "name": name,
-            "synopsis_sentence": intro_sentence(name, [synopsis])
-            or intro_sentence(name, _entry_texts(canon)),
-            "introduction": "",
-        }
+    entries = _entry_texts(canon)
+    sentences = [
+        intro_sentence(name, [synopsis]) or intro_sentence(name, entries)
         for name in people.secondary
+    ]
+    return [
+        {"name": name, "synopsis_sentence": s, "introduction": introduction(s)}
+        for name, s in zip(people.secondary, sentences)
     ]
