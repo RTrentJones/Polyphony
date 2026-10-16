@@ -78,8 +78,9 @@ def introduction(sentence: str, name: str) -> str:
     the second comma, less a trailing "and" / "and who" / "and which", capped.
     The canon block still carries the whole sentence (BRD R1.1). A comma-led
     clause before `name` is dropped first ("On his first day, Prava, ...")."""
-    if sentence[: max(sentence.find(name), 0)].rstrip().endswith(","):
-        sentence = sentence[sentence.find(name) :]
+    at = sentence.lower().find(name.lower())  # outlines may differ in case
+    if sentence[: max(at, 0)].rstrip().endswith(","):
+        sentence = sentence[at:]
     head = ",".join(sentence.split(",")[:2]).strip()
     return _cap(re.sub(r"\s+and(?:\s+(?:who|which))?$", "", head))
 

@@ -213,6 +213,7 @@ def test_the_prompt_introduction_ends_at_the_first_appositive(cel):
     assert offer["introduction"] == INTROS["Prava"]  # (F) W6-5 (a); was ""
     lead = "On his first day, Prava, the intake caseworker, processes his file."
     assert introduction(lead, "Prava") == "Prava, the intake caseworker"  # (F)
+    assert introduction(lead, "prava") == "Prava, the intake caseworker"  # (R)
 
 
 async def test_scene_setup_builds_plot_and_later_plot(
