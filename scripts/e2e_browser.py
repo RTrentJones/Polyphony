@@ -809,69 +809,64 @@ async def journey(page: Page) -> None:
             await other.close()
 
     async def a_batch_over_budget_writes_what_fits():
-        """SPEC-34: a fresh author's four-beat chapter on a long synopsis; the
-        batch queues what the rolling 24-hour budget covers and defers the rest."""
-        invite = await page.request.post(
-            f"{BASE}/api/v1/auth/invites",
-            data={"max_uses": 1},
-            headers=await api_headers(),
-        )
+        """SPEC-34: a fresh author's four-beat chapter on a long synopsis."""
+        code = (
+            await (
+                await page.request.post(
+                    f"{BASE}/api/v1/auth/invites",
+                    data={"max_uses": 1},
+                    headers=await api_headers(),
+                )
+            ).json()
+        )["code"]
         ctx = await page.context.browser.new_context()
-        p4 = await ctx.new_page()
+        p4, who = await ctx.new_page(), ("budget@example.com", "budget-pass-12345")
         try:
-            email, password = "budget-author@example.com", "budget-pass-12345"
-            reg = await p4.request.post(
-                f"{BASE}/api/v1/auth/register",
-                data={
-                    "email": email,
-                    "password": password,
-                    "invite_code": (await invite.json())["code"],
-                },
-            )
-            auth = {"Authorization": f"Bearer {(await reg.json())['access_token']}"}
 
-            async def post(path, body, method="post"):
-                r = await getattr(p4.request, method)(
-                    f"{BASE}/api/v1{path}", data=body, headers=auth
+            async def call(method, path, body):
+                r = await p4.request.fetch(
+                    f"{BASE}/api/v1{path}",
+                    method=method,
+                    data=body,
+                    headers=STATE.get("p4", {}),
                 )
                 assert r.ok, f"{path}: {r.status} {await r.text()}"
                 return await r.json()
 
-            book = await post(
-                "/books/", {"title": "Long Ledger", "synopsis": SYNOPSIS * 180}
+            reg = await call(
+                "POST",
+                "/auth/register",
+                {"email": who[0], "password": who[1], "invite_code": code},
             )
-            milo = await post(
-                "/characters/", {"name": "Milo Voss", "book_id": book["id"]}
+            STATE["p4"] = {"Authorization": f"Bearer {reg['access_token']}"}
+            book = await call(
+                "POST", "/books/", {"title": "Ledger", "synopsis": SYNOPSIS * 180}
             )
-            chapter = await post(f"/books/{book['id']}/chapters", {"title": "Q4"})
+            milo = await call(
+                "POST", "/characters/", {"name": "Milo Voss", "book_id": book["id"]}
+            )
+            ch = await call("POST", f"/books/{book['id']}/chapters", {"title": "Q4"})
             beats = [
                 {
                     "node_id": f"00000000-0000-4000-8000-00000000000{i}",
                     "title": f"Beat {i}",
-                    "summary": "Milo files a memo.",
                     "character_ids": [milo["id"]],
                 }
-                for i in range(1, 5)
+                for i in range(4)
             ]
-            await post(
-                f"/books/chapters/{chapter['id']}",
-                {"planned_beats": beats},
-                method="patch",
-            )
-            await sign_in(p4, email, password)
+            await call("PATCH", f"/books/chapters/{ch['id']}", {"planned_beats": beats})
+            await sign_in(p4, *who)
             await p4.goto(f"{BASE}/books/detail?id={book['id']}")
             await p4.get_by_role("button", name="Chapters", exact=True).first.click()
-            button = chapter_row(p4, chapter["id"]).get_by_role(
-                "button", name="Generate all planned scenes"
-            )
             async with p4.expect_response(re.compile("generate-planned$")) as resp:
-                await button.click()
+                await chapter_row(p4, ch["id"]).get_by_role(
+                    "button", name="Generate all planned scenes"
+                ).click()
             started = await (await resp.value).json()
             await expect(
                 p4.get_by_text(re.compile(r"\d of 4 scenes fit your budget now")).first
             ).to_be_visible()
             assert started["deferred"] >= 1, started
-            await shot(p4, "partial-batch")
         finally:
             await ctx.close()
 
