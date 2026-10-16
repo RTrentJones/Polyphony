@@ -41,7 +41,7 @@ class RevisionConflict(RuntimeError):
 async def run(payload: dict) -> None:
     from app.characters.context import build_cast_context
     from app.orchestration import revise as rv
-    from app.orchestration.prose import scene_chapter, scene_setup
+    from app.orchestration.prose import scene_setup
 
     scene_id = UUID(payload["scene_id"])
     book_id = UUID(payload["book_id"])
@@ -55,7 +55,6 @@ async def run(payload: dict) -> None:
             raise RevisionConflict("The scene was deleted.")
         draft = scene.draft
         request = rv.cast_request(scene)
-        summary, position = await scene_chapter(session, scene)
         setup = await scene_setup(session, book_id, request, scene.id)
         lines = list(
             await session.scalars(
@@ -96,14 +95,14 @@ async def run(payload: dict) -> None:
         )
         prompt = rv.build_revise_prompt(
             canon_block=canon.full_block(),
-            chapter_summary=summary,
+            chapter_summary=setup.chapter_summary,
             cast_context=cast_context,
             prior=prior,
             target=target,
             after=after,
             instruction=instruction,
             pov=setup.pov,
-            story_position=position,
+            story_position=setup.position,
             secondary_block=setup.secondary_block,
             beat=(redo, lines) if redo is not None else None,
             keep=keep,

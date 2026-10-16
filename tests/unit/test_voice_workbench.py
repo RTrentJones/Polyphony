@@ -253,6 +253,7 @@ async def test_prose_records_grounding_for_every_beat_and_cast_member(
     )
     assert result["status"] == "completed", result
     _assert_grounded(scene, duo)
+    assert scene.evaluation_scores["name_warnings"] == []
 
 
 async def test_ensemble_records_grounding_the_same_way(async_session, duo, monkeypatch):
@@ -283,7 +284,12 @@ async def test_ensemble_records_grounding_the_same_way(async_session, duo, monke
 
     monkeypatch.setattr(ens, "load_characters_for_book", _cast)
 
-    scene = Scene(user_id=duo.book.user_id, book_id=duo.book.id, status="processing")
+    scene = Scene(
+        user_id=duo.book.user_id,
+        book_id=duo.book.id,
+        status="processing",
+        evaluation_scores={"kept": True},
+    )
     async_session.add(scene)
     await async_session.commit()
     result = await ens.run_ensemble_scene_workflow(
@@ -297,6 +303,9 @@ async def test_ensemble_records_grounding_the_same_way(async_session, duo, monke
     assert result["status"] == "completed", result
     assert scene.evaluation_scores["mode"] == "ensemble"
     _assert_grounded(scene, duo)
+    # (F) wave-6 day-0: the prose writer's merge form, with name_warnings.
+    assert scene.evaluation_scores["kept"] is True
+    assert scene.evaluation_scores["name_warnings"] == []
 
 
 # --- grounding endpoint (acceptance 3) ----------------------------------------

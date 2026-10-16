@@ -557,10 +557,12 @@ async def run_ensemble_scene_workflow(
             # Scene.evaluation_scores is already a JSON metadata bucket — reuse it
             # (no migration) for the ensemble's per-beat reviews.
             scene.evaluation_scores = {
+                **(scene.evaluation_scores or {}),
                 "mode": "ensemble",
                 "converged": converged,
                 "beats": evaluations,
                 "grounding": grounding,
+                "name_warnings": [],
             }
             await session.commit()
 

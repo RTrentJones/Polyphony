@@ -98,6 +98,8 @@ class SceneSetup(NamedTuple):
     secondary_block: str  # render_secondaries; "" without Also-named people
     plan: list  # book_plan: (Chapter.number, planned beat) for the whole book
     earlier: list  # earlier_beats: (title, beat lines) of the scenes before it
+    chapter_summary: str  # scene_chapter: "" without a chapter
+    position: Optional[StoryPosition]  # scene_chapter: None without a live chapter
 
 
 async def scene_setup(
@@ -130,7 +132,7 @@ async def scene_setup(
         .order_by(Source.uploaded_at)
     )
     sources = [(str(sid), text) for sid, text in rows if text]
-    position = (await scene_chapter(session, scene))[1] if scene else None
+    summary, position = await scene_chapter(session, scene) if scene else ("", None)
     later_from = {}
     for sid, text in sources if position else []:
         cut = later_plot_from(source_paragraphs(text), position.chapter, plan)
@@ -139,10 +141,8 @@ async def scene_setup(
     scope = SceneScope.of(
         canon, cast, names, dict.fromkeys(filter(None, plot)), later_from
     )
-    secondaries = scene_secondaries(names, canon, sources, later_from)
-    return SceneSetup(
-        canon, cast, scope, pov, render_secondaries(secondaries), plan, earlier
-    )
+    block = render_secondaries(scene_secondaries(names, canon, sources, later_from))
+    return SceneSetup(canon, cast, scope, pov, block, plan, earlier, summary, position)
 
 
 # A last-beat instruction that keeps the close inside the scene (SPEC-24, W2-4):
@@ -596,6 +596,7 @@ async def run_prose_scene_workflow(
                 **(scene.evaluation_scores or {}),
                 "mode": "prose",
                 "grounding": grounding,
+                "name_warnings": [],
             }
             for beat_idx, beat in enumerate(beats):
                 session.add(

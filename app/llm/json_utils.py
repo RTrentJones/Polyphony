@@ -11,6 +11,9 @@ from app.core.logging_config import setup_logging
 
 logger = setup_logging("llm.json_utils")
 
+# The response_format of every call whose prompt asks for JSON only.
+JSON_OBJECT = {"type": "json_object"}
+
 
 def extract_json_array(text: str) -> list:
     """Best-effort extraction of a JSON array from an LLM reply.

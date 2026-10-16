@@ -55,6 +55,7 @@ const scene: SceneDetail = {
   title: null,
   chapter: null,
   neighbours: { prev: null, next: null },
+  name_warnings: [],
 }
 
 const proposal: RevisionProposal = {

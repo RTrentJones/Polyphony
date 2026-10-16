@@ -516,7 +516,7 @@ async def test_prior_scene_tail_keeps_paragraph_breaks(
     assert tail.startswith("Milo counted form ")  # a sentence, not a fragment
     # A checkpoint fingerprinted with the old flat tail still matches.
     legacy = " ".join(content.split()[-PREV_TAIL_WORDS:])
-    setup = SceneSetup(Canon("c"), [], None, None, "", [], [])
+    setup = SceneSetup(Canon("c"), [], None, None, "", [], [], "", None)
     assert _canon_hash(setup, "s", None, tail) == _canon_hash(setup, "s", None, legacy)
 
 

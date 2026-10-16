@@ -53,8 +53,8 @@ function outline(overrides: Partial<BookPlan> = {}): BookPlan {
     ],
     updated_at: null,
     suggested_characters: [
-      { name: 'Prava', synopsis_sentence: PRAVA_SENTENCE },
-      { name: 'Old Fen', synopsis_sentence: '' },
+      { name: 'Prava', synopsis_sentence: PRAVA_SENTENCE, introduction: '' },
+      { name: 'Old Fen', synopsis_sentence: '', introduction: '' },
     ],
     ...overrides,
   }

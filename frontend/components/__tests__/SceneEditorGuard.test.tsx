@@ -32,6 +32,7 @@ const scene: SceneDetail = {
   title: 'Retained',
   chapter: { id: 'c1', number: 1, title: 'Strong Culture Fit' },
   neighbours: { prev: null, next: 's2' },
+  name_warnings: [],
 }
 const revision: SceneRevision = {
   id: 'r1',

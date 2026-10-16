@@ -138,8 +138,8 @@ def render_secondaries(people: list[Secondary]) -> str:
 
 
 def suggested_characters(names: Iterable[str], canon) -> list[dict]:
-    """[{"name", "synopsis_sentence"}]: each of `names` that classify_people
-    (against canon's current cast, with known_text from canon) puts in
+    """[{"name", "synopsis_sentence", "introduction"}]: each of `names` that
+    classify_people (against canon's current cast, with known_text from canon) puts in
     `secondary`, deduped case-insensitively, in the given order.
     synopsis_sentence is the first synopsis sentence naming them, else the
     first canon-entry sentence naming them, capped at 400 chars.
@@ -156,6 +156,7 @@ def suggested_characters(names: Iterable[str], canon) -> list[dict]:
             "name": name,
             "synopsis_sentence": intro_sentence(name, [synopsis])
             or intro_sentence(name, _entry_texts(canon)),
+            "introduction": "",
         }
         for name in people.secondary
     ]

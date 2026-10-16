@@ -222,6 +222,8 @@ export interface SceneDetail extends Scene {
   /** null only for an unfiled scene. */
   chapter: { id: string; number: number; title: string } | null
   neighbours: SceneNeighbours
+  /** Names not in the canon when the scene was generated (warn-only). */
+  name_warnings: string[]
 }
 
 /** GET /scenes/ */
@@ -349,6 +351,8 @@ export type PlannedBeatInput = Omit<PlannedBeat, 'cast_ids'>
 export interface SuggestedCharacter {
   name: string
   synopsis_sentence: string
+  /** A short introduction: SPEC-40's cut of synopsis_sentence. */
+  introduction: string
 }
 
 /** GET /books/{id} */

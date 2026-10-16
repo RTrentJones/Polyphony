@@ -34,7 +34,12 @@ from app.jobs.handlers import Handler
 from app.jobs.worker import JobWorker
 from app.llm.errors import QuotaExhaustedError
 from app.orchestration import revise as rv
-from app.core.prompt_markers import CURRENT_BEAT_MARK, POV_LIMIT_OPEN, POV_LINE_RE
+from app.core.prompt_markers import (
+    CURRENT_BEAT_MARK,
+    POV_LIMIT_OPEN,
+    POV_LINE_RE,
+    STORY_POSITION,
+)
 from app.orchestration.pov import Pov
 from tests.unit.factories import add_scene
 
@@ -554,6 +559,9 @@ async def test_prompt_carries_canon_cast_and_read_only_surroundings(
     canon = await build_canon(async_session, story.book.id)
     assert canon.full_block() in prompt  # the WHOLE canon, untruncated
     assert "<chapter>\nAudit week begins.\n</chapter>" in prompt
+    # (R) wave-6 day-0: the chapter and its position come from the scene setup.
+    assert STORY_POSITION.format(n=1, m=1) in prompt
+    assert not hasattr(revise_job, "scene_chapter")
     assert "<character>" in prompt and VOICE in prompt  # the cast's voice samples
     assert f"<prior>\n{P1}\n</prior>" in prompt
     assert f"<target>\n{P2}\n</target>" in prompt

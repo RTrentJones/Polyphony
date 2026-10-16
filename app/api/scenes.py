@@ -131,6 +131,7 @@ async def get_scene(
         "word_count": scene.word_count,
         "generation_time_ms": scene.generation_time_ms,
         "evaluation_scores": scene.evaluation_scores,
+        "name_warnings": (scene.evaluation_scores or {}).get("name_warnings", []),
         "created_at": scene.created_at.isoformat() if scene.created_at else None,
         "beats": [
             {

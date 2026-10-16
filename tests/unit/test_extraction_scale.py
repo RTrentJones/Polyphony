@@ -1060,3 +1060,21 @@ class TestNarratorVoice:
             test_source.id, test_book.id, test_book.user_id, [str(jon.id)]
         )
         assert len(indexed["Jonathan Harker"]) == 1
+
+
+async def test_extraction_requests_json_object(monkeypatch):
+    """(R) wave-6 day-0: extraction's response_format is JSON_OBJECT, unchanged."""
+    from app.llm.json_utils import JSON_OBJECT
+
+    sent = []
+
+    class _LLM:
+        async def generate(self, messages, **kw):
+            sent.append(kw["response_format"])
+            return types.SimpleNamespace(text="{}", tokens_in=1, tokens_out=1)
+
+    monkeypatch.setattr(ce, "get_llm_client", lambda: _LLM())
+    await ce._json_call(
+        "p", fast=True, max_tokens=8, user_id=None, purpose="extraction_map", stats={}
+    )
+    assert sent == [JSON_OBJECT] == [{"type": "json_object"}]

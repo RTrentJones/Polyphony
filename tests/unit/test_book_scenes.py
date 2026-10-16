@@ -76,6 +76,7 @@ class TestBookScenes:
             )
             for i, text in enumerate(("  First. Second.\n", "Bare."))
         )
+        beaten.evaluation_scores = {"mode": "prose", "name_warnings": ["Gary"]}
         async_session.add_all([beaten, bare])
         await async_session.flush()
         async_session.add_all(
@@ -95,8 +96,10 @@ class TestBookScenes:
             {"beat_number": 0, "description": None, "content": "1."},
             {"beat_number": 1, "description": "d1", "content": "2."},
         ]
+        assert body["name_warnings"] == ["Gary"]  # (F) wave-6 day-0
         url = f"/api/v1/scenes/{bare.id}"
-        assert (await client.get(url, headers=auth_headers)).json()["beats"] == []
+        body = (await client.get(url, headers=auth_headers)).json()
+        assert body["beats"] == [] and body["name_warnings"] == []
 
 
 class TestSceneTitles:

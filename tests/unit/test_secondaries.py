@@ -139,7 +139,13 @@ def test_sentence_falls_back_to_canon_entries():
         ],
     )
     out = suggested_characters(["Old Fen"], canon)
-    assert out == [{"name": "Old Fen", "synopsis_sentence": "Old Fen keeps it."}]
+    assert out == [
+        {
+            "name": "Old Fen",
+            "synopsis_sentence": "Old Fen keeps it.",
+            "introduction": "",
+        }
+    ]
 
 
 def test_sentence_is_capped_at_a_word_boundary():
