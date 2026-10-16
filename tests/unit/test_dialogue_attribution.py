@@ -14,12 +14,16 @@ from pathlib import Path
 
 import pytest
 
+from app.characters.context import later_plot_from
 from app.core.models import ChunkType
 from app.parsing.character_extractor import (
     CharacterExtractor,
     attribute_speech,
+    source_paragraphs,
     speaker_matches,
 )
+from app.planning.planned_beat import beat_scene_description
+from evals.steps.pipeline import load_excerpts
 from tests.unit.factories import make_scope
 
 pytestmark = pytest.mark.unit
@@ -599,12 +603,12 @@ async def _milo_moves(monkeypatch, texts, scene, secondaries=(), synopsis=True, 
     store = TypedStore(
         [_s("d0", "Is there a dashboard or a tracker?", "dialogue", "dialogue_1")]
         + [_s(f"a{i}", t, "action") for i, t in enumerate(texts)]
+        + list(kw.get("chunks", ()))
     )
     monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
     cast = [by["Milo"], *(by[n] for n in scene)]
-    scope = ctx.SceneScope.of(
-        canon, cast, secondaries, (kw["brief"],) if kw.get("brief") else (), {}
-    )
+    plot = kw.get("plot", (kw["brief"],) if kw.get("brief") else ())
+    scope = ctx.SceneScope.of(canon, cast, secondaries, plot, kw.get("later", {}))
     who = by[kw.get("who", "Milo")]
     out = await ctx.build_character_context(
         who, who.name, kw.get("query", "x"), scope=scope
@@ -831,10 +835,10 @@ INTAKE = (
 )
 def test_the_eleven_archive_pairs_drop_exactly_the_two_events(brief, sample, drops):
     """(F) RESTATES_MIN = 4 sits midway between unrelated (<= 2) and event (5-6)."""
-    from app.characters.context import restates_brief
+    from app.characters.context import restates
 
-    assert restates_brief(sample, brief) is drops
-    assert restates_brief(sample, "") is False  # no brief: a probe, a manual scene
+    assert restates(sample, brief) is drops
+    assert restates(sample, "") is False  # no brief: a probe, a manual scene
 
 
 async def test_the_drawer_sample_leaves_the_drawer_scene(monkeypatch):
@@ -859,3 +863,101 @@ async def test_a_revise_span_never_drops_a_gesture(monkeypatch):
         monkeypatch, [LOOKED], ["Zara"], brief=FOUR_MINUTES, query=span, who="Zara"
     )
     assert LOOKED in move
+
+
+# --- SPEC-40: samples show manner, never plot (W5-1 (a), (b)) -----------------------
+# Beat lines (cut to their first clause) of the W4 and W4b2 archives.
+RETAINED_B1 = (
+    "Milo comes to mid-thought in a bright, windowless atrium, still halfway through "
+    "a complaint about a meeting, and finds himself seated across a laminate desk "
+    "from a smiling caseworker whose nameplate reads PRAVA."
+)
+RETAINED_B2 = "Prava slides a laminated org chart across the desk"
+ZARA_BEATS = (  # the own beat lines closest to Zara's gesture (2 shared each)
+    "He introduces himself brightly and she gives her name, Zara Okafor, in two "
+    "flat words and one second of grey-eyed attention.",
+    "Milo introduces himself at length and Zara answers in a few flat words, correct "
+    "and courteous and final, without raising her eyes",
+)
+PARAGRAPHS = source_paragraphs(load_excerpts("cel"))
+
+
+def _plan(outline):
+    fixture = Path(__file__).parents[1] / "fixtures" / "w4_outlines.json"
+    return [(e["chapter"], e) for e in json.loads(fixture.read_text())[outline]]
+
+
+def _lines(outline, *titles):
+    plan = [b for _, b in _plan(outline) if not titles or b["title"] in titles]
+    return tuple(beat_scene_description(b) for b in plan)
+
+
+W4, W4B2 = _lines("w4"), _lines("w4b2")
+
+
+@pytest.mark.parametrize(
+    "plot, sample, kept",
+    [
+        # "Retained", beats 1 and 2: the scene's own beat lines (5 and 3 shared)
+        ((*_lines("w4", "Retained"), RETAINED_B1, RETAINED_B2), INTAKE, False),
+        (W4B2, INTAKE, False),  # "Strong Culture Fit", 5
+        (W4, LOCKED, False),  # "The Locked Drawer", 6
+        # "Across the Partition": "Retained"'s written beat 1 is an earlier line
+        ((*_lines("w4", "Across the Partition"), RETAINED_B1), INTAKE, False),
+        # (R) Zara's gesture: <= 2 with her own beat lines, <= 3 with any plan line
+        ((*W4, *W4B2, *ZARA_BEATS), LOOKED, True),
+    ],
+)
+async def test_a_sample_that_restates_any_plot_line_goes(
+    monkeypatch, plot, sample, kept
+):
+    """The rule over `plot` (day-0 reads it); what fills `plot` is pinned (F) by
+    test_secondaries' scene_setup case and the prose plot-line case."""
+    who = "Zara" if sample == LOOKED else "Milo"
+    _, move = await _milo_moves(monkeypatch, [sample], ["Zara"], plot=plot, who=who)
+    assert (sample in move) is kept
+
+
+@pytest.mark.parametrize(
+    "outline, chapter, cut",
+    # (F) best match "Halvard Bell" (ch 2, 13 shared) / "The Memo" (ch 2, 5). Not
+    # paragraph 3 (R): 4 with "Plain Language" (ch 6), 5 with a ch-1 scene.
+    [("w4b2", 1, 9), ("w4", 1, 14), ("w4b2", 6, None), ("w4", 6, None)],
+)
+def test_later_plot_begins_at_a_later_chapters_best_match(outline, chapter, cut):
+    assert later_plot_from(PARAGRAPHS, chapter, _plan(outline)) == cut
+
+
+async def test_samples_from_later_plot_are_not_shown(monkeypatch):
+    """(F) W4b2's chapter-1 cut (9): Milo keeps "So!…" (4) and "Totally…" (6); the
+    summons (15) and the drawer (13) go; another source is unaffected."""
+    chunks = [
+        {**_s(i, PARAGRAPHS[i], "dialogue", f"dialogue_{i}"), "source_id": "s1"}
+        for i in (4, 6, 15)
+    ] + [
+        {**_s("m13", LOCKED, "action", "paragraph_13"), "source_id": "s1"},
+        {**_s("m20", LOCKED + " Again.", "action", "paragraph_20"), "source_id": "s2"},
+    ]
+    voice, move = await _milo_moves(monkeypatch, [], [], chunks=chunks, later={"s1": 9})
+    assert voice.count("\n- ") == 3 and "Personally" not in voice
+    assert move == [LOCKED + " Again."]
+
+
+# --- SPEC-42: owned phrases (W5-3 (a)) -----------------------------------------------
+
+
+async def test_an_owned_phrase_is_named_only_where_its_owner_is_absent(monkeypatch):
+    """(F) Edric's voice field quotes 'Mr. Voss' and 'one': only the 2+-word span
+    is owned, and it is named in a beat without him, never in one with him."""
+    import app.characters.context as ctx
+
+    canon, by = _cel()
+    milo, edric = by["Milo"], by["Edric"]
+    edric.voice_characteristics = "The impersonal 'one'; calls Milo 'Mr. Voss'; don't"
+    assert (ctx.owned_phrases(edric), ctx.owned_phrases(milo)) == (["Mr. Voss"], [])
+    monkeypatch.setattr(ctx, "get_chunk_store", lambda: TypedStore([]))
+    scope = ctx.SceneScope.of(canon, [milo], ["Prava"], (), {})
+    without = await ctx.build_cast_context([milo], "x", scope=scope)
+    assert without.count("Only Edric Thane says: 'Mr. Voss'") == 1
+    with_him = await ctx.build_cast_context([milo, edric], "x", scope=scope)
+    assert "Only Edric" not in with_him

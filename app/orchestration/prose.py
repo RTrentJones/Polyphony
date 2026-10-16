@@ -22,7 +22,7 @@ from app.characters.context import SceneScope, build_cast_context
 from app.core.database import get_async_session
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.logging_config import log_business_event, log_error, setup_logging
-from app.core.orm_models import Chapter, Scene, SceneBeat
+from app.core.orm_models import Chapter, Scene, SceneBeat, Source
 from app.core.prompt_markers import (
     BEAT_TO_WRITE_LABEL,
     BEATS_FENCE,
@@ -107,17 +107,39 @@ async def scene_setup(
     request's cast from it, the scene scope with its Also-named secondaries,
     the POV, the rendered secondary block, the book's plan and what the
     chapter's earlier scenes already planned."""
+    from app.characters.context import later_plot_from
+    from app.parsing.character_extractor import source_paragraphs
+    from app.planning.planned_beat import beat_scene_description
     from app.planning.secondaries import render_secondaries, scene_secondaries
 
     canon = await build_canon(session, book_id)
     names = secondary_names(scene_request)
-    secondaries = await scene_secondaries(session, book_id, names, canon)
     cast = scene_cast(canon, scene_request)
-    brief = scene_request.get("scene_description") or ""
-    scope = SceneScope.of(canon, cast, names, (brief,) if brief else (), {})
     pov = resolve_pov(scene_request, canon)
     plan = await book_plan(session, book_id)
-    earlier = await earlier_beats(session, await session.get(Scene, scene_id))
+    scene = await session.get(Scene, scene_id)
+    earlier = await earlier_beats(session, scene)
+    # SPEC-40: every plan line a movement sample may not restate, and where each
+    # source's later plot begins (nowhere without a story position).
+    plot = [scene_request.get("scene_description") or ""]
+    plot += [beat_scene_description(b) for _, b in plan]
+    plot += [line for _, lines in earlier for line in lines]
+    rows = await session.execute(
+        select(Source.id, Source.content_text)
+        .where(Source.book_id == book_id, Source.deleted_at.is_(None))
+        .order_by(Source.uploaded_at)
+    )
+    sources = [(str(sid), text) for sid, text in rows if text]
+    position = (await scene_chapter(session, scene))[1] if scene else None
+    later_from = {}
+    for sid, text in sources if position else []:
+        cut = later_plot_from(source_paragraphs(text), position.chapter, plan)
+        if cut is not None:
+            later_from[sid] = cut
+    scope = SceneScope.of(
+        canon, cast, names, dict.fromkeys(filter(None, plot)), later_from
+    )
+    secondaries = scene_secondaries(names, canon, sources, later_from)
     return SceneSetup(
         canon, cast, scope, pov, render_secondaries(secondaries), plan, earlier
     )
@@ -498,6 +520,7 @@ async def run_prose_scene_workflow(
                 "progress": {"stage": "beats", "done": 0, "total": len(beats)},
             }
             await _save(save_checkpoint, checkpoint)
+        scope = scope._replace(plot=scope.plot + tuple(b["description"] for b in beats))
 
         target_total = int(scene_request.get("target_word_count") or 500)
         per_beat_words = max(120, target_total // max(1, len(beats)))

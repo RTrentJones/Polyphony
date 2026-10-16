@@ -6,7 +6,6 @@ import uuid
 
 import pytest
 
-from app.core.orm_models import Source
 from app.parsing import character_extractor as ce
 from app.planning.canon import Canon
 from app.planning.secondaries import (
@@ -154,23 +153,15 @@ def test_sentence_is_capped_at_a_word_boundary():
 # --- the scene's secondary block (SPEC-29) ------------------------------------------
 
 
-async def _secondaries(session, book, canon, names, text):
-    session.add(
-        Source(book_id=book.id, user_id=book.user_id, title="s", content_text=text)
-    )
-    await session.commit()
-    return await scene_secondaries(session, book.id, names, canon)
+def _secondaries(canon, names, text, later_from=None):
+    return scene_secondaries(names, canon, [("s1", text)], later_from or {})
 
 
-async def test_secondaries_get_their_introduction_and_own_lines(
-    async_session, test_book, cel, monkeypatch
-):
+def test_secondaries_get_their_introduction_and_own_lines(cel, monkeypatch):
     calls = []
     real = ce.attribute_speech
     monkeypatch.setattr(ce, "attribute_speech", lambda t: calls.append(1) or real(t))
-    fen, prava = await _secondaries(
-        async_session, test_book, cel, ["Old Fen", "Prava"], load_excerpts("cel")
-    )
+    fen, prava = _secondaries(cel, ["Old Fen", "Prava"], load_excerpts("cel"))
     assert calls == [1]  # once per source, not once per name
     assert fen.intro_sentence.startswith("There is Old Fen, who has been in Records")
     assert fen.samples == ["Nobody reads the appendices. That's what they're for."]
@@ -184,10 +175,71 @@ async def test_secondaries_get_their_introduction_and_own_lines(
     assert render_secondaries([]) == ""
 
 
-async def test_a_tag_two_cast_members_share_credits_nobody(async_session, test_book):
+def test_a_tag_two_cast_members_share_credits_nobody():
     """A "said Okafor" tag matches two cast members: a secondary called Okafor
     is never credited with it."""
     canon = Canon(title="T", characters=[_person("Zara Okafor"), _person("Ada Okafor")])
     text = '"Close every account tonight," Okafor said.'
-    (okafor,) = await _secondaries(async_session, test_book, canon, ["Okafor"], text)
+    (okafor,) = _secondaries(canon, ["Okafor"], text)
     assert okafor.samples == []
+
+
+# --- SPEC-40: introductions and later plot (W5-1 (b), (c)) ---------------------------
+
+
+INTROS = {  # (F) through the first appositive
+    "Prava": "There is Prava, the intake caseworker who onboarded Milo with such "
+    "practiced warmth",
+    "Old Fen": "There is Old Fen, who has been in Records so long that he has begun "
+    "to file himself",
+    "Halvard Bell": "Halvard Bell had been a dentist, then a soul in Retention for "
+    "ninety years",
+}
+
+
+def test_the_prompt_introduction_ends_at_the_first_appositive(cel):
+    """(F) The scene block's introduction; (R) the "Add to cast" one is whole."""
+    people = _secondaries(cel, list(INTROS), load_excerpts("cel"))
+    assert {p.name: p.intro_sentence for p in people} == INTROS
+    (offer,) = suggested_characters(["Prava"], cel)
+    assert "private ledger" in offer["synopsis_sentence"]
+
+
+def test_a_secondarys_own_lines_stop_at_later_plot(cel):
+    """(F) Old Fen's line is paragraph 12, past W4b2's chapter-1 cut (9)."""
+    (fen,) = _secondaries(cel, ["Old Fen"], load_excerpts("cel"), {"s1": 9})
+    assert fen.samples == []
+
+
+async def test_scene_setup_builds_plot_and_later_plot(
+    async_session, test_book, test_source
+):
+    """(F) `plot` is the brief, the book's plan lines and the chapter's earlier
+    written beat lines; the excerpt's later plot begins at W4's cut (14)."""
+    import json
+    from pathlib import Path
+
+    from app.orchestration.prose import scene_setup
+    from app.planning.planned_beat import beat_scene_description
+    from tests.unit.factories import add_planned_chapter, add_scene, add_scene_beats
+
+    fixture = Path(__file__).parents[1] / "fixtures" / "w4_outlines.json"
+    plan = json.loads(fixture.read_text())["w4"]
+    test_book.synopsis = load_corpus("cel")[1]["synopsis"]
+    chapters = [
+        await add_planned_chapter(
+            async_session, test_book, [b for b in plan if b["chapter"] == n], n - 1
+        )
+        for n in range(1, 7)
+    ]
+    first = await add_scene(async_session, test_book, chapters[0])
+    await add_scene_beats(async_session, first, ["Milo signs.", "Prava smiles."])
+    scene = await add_scene(async_session, test_book, chapters[0], 1)
+    test_source.content_text = load_excerpts("cel")
+    await async_session.commit()
+    request = {"scene_description": "Brief", "secondary_names": ["Prava"]}
+    setup = await scene_setup(async_session, test_book.id, request, scene.id)
+    lines = [beat_scene_description(b) for b in plan]
+    assert setup.scope.plot == ("Brief", *lines, "Milo signs.", "Prava smiles.")
+    assert setup.scope.later_from == {str(test_source.id): 14}
+    assert "practiced warmth\n" in setup.secondary_block
