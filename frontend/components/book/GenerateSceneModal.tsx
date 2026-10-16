@@ -131,14 +131,14 @@ export default function GenerateSceneModal({
   // pre-select them when the cast loads or the target chapter changes. Only
   // characters still in the book's cast are selected.
   // The chapter's live POV chip is locked on (R-2, CastChips).
-  const povLock = chapterPovLock(activeChapter, cast.map((c) => c.id))
+  const locked = chapterPovLock(activeChapter, cast.map((c) => c.id))
   useEffect(() => {
     if (loadingCast || !activeChapter) return
     const ids = (activeChapter.character_ids ?? []).filter((id) => byId.has(id))
-    if (povLock && !ids.includes(povLock)) ids.unshift(povLock)
+    if (locked && !ids.includes(locked)) ids.unshift(locked)
     if (ids.length === 0) return
     setSelected(ids)
-    setPovId(povLock ?? '')
+    setPovId(locked ?? '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingCast, activeChapter?.id])
 
@@ -253,7 +253,7 @@ export default function GenerateSceneModal({
             <CastChips
               cast={cast}
               selected={selected}
-              locked={povLock}
+              locked={locked}
               onToggle={toggle}
               label="Who is in this scene?"
             />
