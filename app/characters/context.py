@@ -46,7 +46,8 @@ class SceneScope(NamedTuple):
     known_text: str  # canon_known_text(canon), raw
     # Every line of the plan a movement sample may not restate: the book's
     # planned scenes (the brief is one), the chapter's earlier written beat
-    # lines, and this scene's beat lines once planned.
+    # lines, and this scene's beat lines once planned. Positional: a scene's
+    # plot[0] is its brief, kept even when empty (the scripted rule reads it).
     plot: tuple[str, ...]
     later_from: Mapping[str, int]  # source_id -> first paragraph of later plot
 

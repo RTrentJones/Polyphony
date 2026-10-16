@@ -246,6 +246,8 @@ async def test_scene_setup_builds_plot_and_later_plot(
     setup = await scene_setup(async_session, test_book.id, request, scene.id)
     lines = [beat_scene_description(b) for b in plan]
     assert setup.scope.plot == ("Brief", *lines, "Milo signs.", "Prava smiles.")
+    unbriefed = await scene_setup(async_session, test_book.id, {}, scene.id)
+    assert unbriefed.scope.plot[:2] == ("", lines[0])  # (R) the brief keeps [0]
     assert setup.scope.later_from == {str(test_source.id): 14}
     assert "practiced warmth\n" in setup.secondary_block
     (fen,) = _secondaries(cel, ["Old Fen"], load_excerpts("cel"), {"s1": 9})

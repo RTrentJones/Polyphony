@@ -368,8 +368,8 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
         what = " ".join(beat.group(1).rstrip(".!? ").split()[:14])
         named = cast[:3] or [lead]
         if (
-            "Gary" in prompt and f"{CURRENT_BEAT_MARK} 1." in prompt
-        ):  # SPEC-48 journey seed
+            "Procurement" in prompt and f"{CURRENT_BEAT_MARK} 1." in prompt
+        ):  # SPEC-48 journey seed: an invention the brief does not name
             what += ", thinking of Gary"
         return " ".join(f"{name} weighed it: {what}." for name in named)
     return (

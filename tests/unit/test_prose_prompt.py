@@ -272,6 +272,8 @@ def test_scene_name_warnings_on_the_archived_scenes():
     text = "Halvard Bell rang twice. Milo nodded to Imre Kasza, who said nothing."
     also = {"secondary_names": ["Imre Kasza"]}
     assert scene_name_warnings(text, canon, also, "") == []
+    brief = {"scene_description": "Milo nods to Imre Kasza."}
+    assert scene_name_warnings(text, canon, brief, "") == []  # (R) the author's
 
 
 # --- scene_chapter (SPEC-30) ----------------------------------------------------

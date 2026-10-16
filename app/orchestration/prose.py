@@ -139,19 +139,20 @@ async def scene_setup(
         cut = later_plot_from(source_paragraphs(text), position.chapter, plan)
         if cut is not None:
             later_from[sid] = cut
-    scope = SceneScope.of(
-        canon, cast, names, dict.fromkeys(filter(None, plot)), later_from
-    )
+    # The brief stays at plot[0], even empty (the scripted rule reads it there).
+    plot = dict.fromkeys([plot[0], *filter(None, plot[1:])])
+    scope = SceneScope.of(canon, cast, names, plot, later_from)
     block = render_secondaries(scene_secondaries(names, canon, sources, later_from))
     return SceneSetup(canon, cast, scope, pov, block, plan, earlier, summary, position)
 
 
 def scene_name_warnings(prose, canon, scene_request, earlier) -> list[str]:
     """Possible inventions a generated scene names (SPEC-48; warn-only)."""
+    brief = scene_request.get("scene_description") or ""  # the author's names
     return unknown_proper_nouns(
         prose,
         {*canon.canon_terms(), *secondary_names(scene_request)},
-        canon_text=canon_known_text(canon) + "\n" + earlier,
+        canon_text="\n".join((canon_known_text(canon), brief, earlier)),
     )
 
 
