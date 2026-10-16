@@ -513,7 +513,8 @@ async def journey(page: Page) -> None:
         original = await editor.input_value()
         await editor.fill("Milo closed the appendices. Nobody thanked anyone.")
         await page.get_by_role("button", name="Save").click()
-        await expect(page.get_by_text(re.compile("saved"))).to_be_visible()
+        # The toast exactly: "• saved just now" also matches a bare "saved".
+        await expect(page.get_by_text("Scene saved", exact=True).first).to_be_visible()
         await page.get_by_role("button", name=re.compile("^Revision 1")).click()
         await page.get_by_role("button", name="Restore").click()
         await expect(editor).to_have_value(original)
