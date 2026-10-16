@@ -46,8 +46,10 @@ PROVIDERS: dict[str, Provider] = {
         kind="openai",
         env_key="GEMINI_API_KEY",
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-        default_model="gemini-2.5-flash",
-        fast_model="gemini-2.5-flash-lite",
+        # The 2.5 models are served only to projects that already used them
+        # (models page, re-checked 2026-10-16); a new key gets a 404.
+        default_model="gemini-3.6-flash",
+        fast_model="gemini-3.5-flash-lite",
         max_rpm=8,  # AI Studio free tier is ~10 RPM; leave headroom
         # Google no longer publishes a universal free-tier table: limits are
         # per project and shown in AI Studio (re-checked 2026-10). The reset at
@@ -57,11 +59,11 @@ PROVIDERS: dict[str, Provider] = {
         max_rpd=250,
         fast_max_rpd=1000,
         rpd_reset_tz="America/Los_Angeles",
-        # 2.5 models are thinking models on the OpenAI-compat endpoint, and
-        # thinking tokens count against max_tokens — small caps starve the
-        # actual output. This app's calls are structured/functional, so turn
-        # thinking off (supported on flash/flash-lite).
-        extra_body={"reasoning_effort": "none"},
+        # Gemini 3 models cannot turn thinking off, and thinking tokens count
+        # against max_tokens. This app's calls are structured, so ask for the
+        # least thinking both models accept ("none" is 2.5-only, and 3.8 Flash
+        # bottoms out at "low"); _thinking_guard adds headroom for it.
+        extra_body={"reasoning_effort": "minimal"},
     ),
     "groq": Provider(
         id="groq",
