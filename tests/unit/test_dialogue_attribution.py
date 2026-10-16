@@ -350,9 +350,16 @@ class TestChunking:
             ("dialogue", "Read it all first.")
         ]
 
-    def test_paragraph_with_someone_elses_speech_is_not_indexed_for_them(self):
+    def test_paragraph_with_someone_elses_speech_gives_them_its_narration_only(self):
+        # SPEC-53: an uncredited (pronoun-tagged) span keeps its words out, not
+        # the narration; a span credited to someone else keeps everything out.
         text = 'The clerk stood. "Sign here, please," she said. Milo took the pen.'
-        assert CharacterExtractor().extract_character_content(text, "Milo") == []
+        got = CharacterExtractor().extract_character_content(text, "Milo")
+        assert [(c["source_location"], c["text"]) for c in got] == [
+            ("paragraph_0", "The clerk stood. Milo took the pen.")
+        ]
+        credited = text.replace("she said", "said Zara")
+        assert CharacterExtractor().extract_character_content(credited, "Milo") == []
 
     def test_scare_quotes_do_not_drop_a_paragraph(self):
         text = "Milo hated the word 'synergy' and walked out."
@@ -1007,3 +1014,87 @@ async def test_an_owned_phrase_is_named_only_where_its_owner_is_absent(monkeypat
     assert cards and all(c.startswith("### ") for c in cards)
     with_him = await ctx.build_cast_context([milo, edric], "x", scope=scope)
     assert "<owned>" not in with_him and ctx.OWNED_PHRASES_NOTE not in with_him
+
+
+# --- SPEC-53: the narration around a line is movement (W7-1) ------------------------
+
+
+async def _shown(monkeypatch, who, i, plot=(), later=None):
+    """What a scene of the three cel principals shows `who` from the chunks the
+    product indexes for them from paragraph `i` (retrieval's filters included)."""
+    import app.characters.context as ctx
+
+    canon, by = _cel()
+    cast = [{"name": c.name, "aliases": c.aliases} for c in by.values()]
+    got = CharacterExtractor().extract_character_content(
+        load_excerpts("cel"), by[who].name, aliases=by[who].aliases, cast=cast
+    )
+    store = TypedStore(
+        [
+            {**_s(n, c["text"], c["chunk_type"], c["source_location"]), "source_id": 1}
+            for n, c in enumerate(got)
+            if c["source_location"].endswith(f"_{i}")
+        ]
+    )
+    monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
+    scope = ctx.SceneScope.of(canon, list(by.values()), (), plot, later or {})
+    _, move = await ctx.character_samples(
+        by[who], "beat", 3, scope=scope, threshold=settings.RAG_SCORE_THRESHOLD
+    )
+    return [s["text"] for s in move]
+
+
+MILO_4 = ("Milo", 4, "rolling his chair an inch closer to the partition.")
+# The pronoun-tagged span is credited to no one, and does not block.
+ZARA_2 = ("Zara", 2, "Zara Okafor, at the next desk, did not look up.")
+ROWS = [MILO_4, ZARA_2, ("Zara", 11, "Zara set down her pen.")]
+ROWS += [("Edric", 20, "Edric Thane opened the ledger without looking at it.")]
+
+
+@pytest.mark.parametrize("who, i, line", [*ROWS, ("Zara", 5, None)])
+async def test_the_narration_around_a_line_is_movement(monkeypatch, who, i, line):
+    """(F) D1's rows, through `character_samples`; p5's "Zara said." is too short."""
+    assert await _shown(monkeypatch, who, i) == ([line] if line else [])
+
+
+PLANS = json.loads(
+    (Path(__file__).parents[1] / "fixtures/w6_archives.json").read_text()
+)
+
+
+@pytest.mark.parametrize("run", ["W5d", "W6", "W6b"])
+@pytest.mark.parametrize("who, i, line", [MILO_4, ZARA_2])
+async def test_a_chapter_one_scene_shows_the_line_on_every_plan(
+    monkeypatch, run, who, i, line
+):
+    """(F) §1.5 on the real extraction: the book's plan lines and the later-plot
+    cut keep each line; (R) on W6b the cut (9) still drops Zara's p11."""
+    chapters = PLANS["plans"][run]["plan"]
+    plan = [
+        (n, dict(zip(("title", "summary"), ln.split(": ", 1))))
+        for n, ch in enumerate(chapters, 1)
+        for ln in ch
+    ]
+    later = {1: later_plot_from(PARAGRAPHS, 1, plan)}
+    lines = tuple(ln for ch in chapters for ln in ch)
+    assert await _shown(monkeypatch, who, i, lines, later) == [line]
+    if run == "W6b":
+        assert await _shown(monkeypatch, "Zara", 11, lines, later) == []
+
+
+def test_the_cel_voice_chunks_are_unchanged():
+    """(R) SPEC-53 adds movement only: every cel dialogue chunk is as at 231087f."""
+    import hashlib
+
+    _, by = _cel()
+    cast = [{"name": c.name, "aliases": c.aliases} for c in by.values()]
+    voice = [
+        (c["name"], x["text"], x["source_location"])
+        for c in cast
+        for x in CharacterExtractor().extract_character_content(
+            load_excerpts("cel"), c["name"], aliases=c["aliases"], cast=cast
+        )
+        if x["chunk_type"] == ChunkType.DIALOGUE.value
+    ]
+    digest = hashlib.sha256(json.dumps(voice).encode()).hexdigest()
+    assert digest == "5171b0d0ee755190d9c2a648cf8d43bd6558353e823555e626db702776f79117"

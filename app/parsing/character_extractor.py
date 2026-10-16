@@ -358,6 +358,16 @@ def tag_spans(paragraph: str) -> list[tuple[int, int]]:
     return sorted({t[:2] for *_, after, before in tags for t in (after, before) if t})
 
 
+def _tagless_narration(paragraph: str) -> str:
+    """A speech paragraph's narration without its quoted spans or its tag
+    clauses (`tag_spans`); punctuation left on its own is dropped (SPEC-53):
+    `"So!" Milo said, rolling his chair closer.` → "rolling his chair closer."."""
+    text = _normalize_quotes(paragraph)
+    cut = [(s - 1, e + 1) for s, e, _ in _quote_spans(text)] + tag_spans(text)
+    kept = "".join(c for k, c in enumerate(text) if not any(a <= k < b for a, b in cut))
+    return " ".join(w for w in kept.split() if re.search(r"\w", w))
+
+
 _NEW_SENTENCE = re.compile(r"[.!?]\s+\S")
 
 
@@ -565,10 +575,11 @@ class CharacterExtractor:
 
         A paragraph where the character speaks yields a `dialogue` chunk of
         THEIR words only (SPEC-17): the narration around a line is not their
-        voice. A paragraph that carries anyone else's speech is not indexed for
-        them at all, so another speaker's words can never become their sample.
-        Other paragraphs that name them are indexed as action / thought /
-        description ("how they move").
+        voice. Another speaker's words never become their sample: a paragraph
+        with a span credited to someone else gives them nothing, and one with
+        long uncredited speech only its tag-less narration (SPEC-53), which
+        their own speech paragraphs give too. Other paragraphs that name them
+        are indexed as action / thought / description ("how they move").
         """
         index, speaks = self._paragraph_indexer(text, character_name, aliases, cast)
         chunks: List[Dict[str, str]] = []
@@ -593,9 +604,12 @@ class CharacterExtractor:
         - where they speak: their own lines, as `dialogue` — each at least
           `SPEECH_MIN_WORDS` words, so a lone vocative is no voice sample;
         - where anyone else speaks (a credited span, or an uncredited one of
-          `SPEECH_MIN_WORDS`+ words): nothing — in their own narration
+          `SPEECH_MIN_WORDS`+ words): no paragraph — in their own narration
           (`where == "narration"`) "said I" is them, not someone else;
-        - otherwise the paragraph, typed as action / thought / description."""
+        - otherwise the paragraph, typed as action / thought / description.
+        A speech paragraph not indexed whole also gives them its tag-less
+        narration as `paragraph_{i}` (SPEC-53) unless a span is credited to
+        someone else; retrieval's `_centres` decides whom it is shown to."""
         attributed = attribute_speech(text)
         own: Dict[int, List[str]] = {}
         for i, line in spoken_lines(
@@ -606,20 +620,29 @@ class CharacterExtractor:
 
         def index(i: int, para: str, where: str) -> List[Dict[str, str]]:
             themselves = ("i", "we") if where == "narration" else ()
-            if i in own:
-                found = [
-                    (line, ChunkType.DIALOGUE.value, f"dialogue_{i}")
-                    for line in own[i]
-                    if len(line.split()) >= SPEECH_MIN_WORDS
-                ]
-            elif any(
+            spans = attributed[i]
+            if i not in own and not any(
                 s["speaker"] not in themselves
                 and (s["speaker"] or len(s["text"].split()) >= SPEECH_MIN_WORDS)
-                for s in attributed[i]
+                for s in spans
             ):
-                return []
-            else:
                 found = [(para, self._classify_chunk(para), f"{where}_{i}")]
+            else:
+                found = [
+                    (line, ChunkType.DIALOGUE.value, f"dialogue_{i}")
+                    for line in own.get(i, [])
+                    if len(line.split()) >= SPEECH_MIN_WORDS
+                ]
+                bare = _tagless_narration(para)
+                # One word longer than a voice sample's floor: a bare "Zara
+                # said." is no manner. A pronoun tag credits no one (SPEC-17).
+                if len(bare.split()) >= SPEECH_MIN_WORDS + 1 and not any(
+                    s["speaker"] not in _PRONOUNS
+                    and not speaker_matches(s["speaker"], character_name, aliases, cast)
+                    for s in spans
+                    if s["speaker"]
+                ):
+                    found.append((bare, self._classify_chunk(bare), f"paragraph_{i}"))
             out = []
             for chunk_text, kind, location in found:
                 if chunk_text.lower() not in seen:
