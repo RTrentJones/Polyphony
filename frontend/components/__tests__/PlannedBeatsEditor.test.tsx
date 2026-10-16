@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import PlannedBeatsEditor from '@/components/book/PlannedBeatsEditor'
@@ -89,6 +89,14 @@ describe('PlannedBeatsEditor (SPEC-35)', () => {
     fireEvent.click(chip(1, 'Milo'))
     fireEvent.click(chip(1, 'Zara'))
     fireEvent.click(chip(1, 'Edric'))
+    save()
+    expect((await sent()).planned_beats[0].character_ids).toEqual(['c-milo', 'c-edric'])
+  })
+
+  it('two chip toggles in one render both reach Save', async () => {
+    open()
+    const [zara, edric] = [chip(1, 'Zara'), chip(1, 'Edric')]
+    act(() => [zara, edric].forEach((c) => c.click()))
     save()
     expect((await sent()).planned_beats[0].character_ids).toEqual(['c-milo', 'c-edric'])
   })

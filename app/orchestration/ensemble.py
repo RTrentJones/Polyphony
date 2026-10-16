@@ -476,6 +476,8 @@ async def run_ensemble_scene_workflow(
                 # The planner sees the secondaries; the narrator and agent
                 # prompts do not yet (W3-10).
                 secondary_block=setup.secondary_block,
+                plan=setup.plan,
+                earlier=setup.earlier,
             )
             checkpoint = {
                 "canon_hash": canon_hash,

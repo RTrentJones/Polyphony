@@ -113,7 +113,13 @@ class TestProseCallBudget:
             context = {"pov": Pov("first person")}
             context.update(story_position=None, secondary_block="")
             beats = await prose_module.plan_scene_beats(
-                scene_request, None, canon_block="", chapter_summary="", **context
+                scene_request,
+                None,
+                canon_block="",
+                chapter_summary="",
+                plan=[],
+                earlier=[],
+                **context,
             )
             assert len(beats) == 4
             for beat in beats:

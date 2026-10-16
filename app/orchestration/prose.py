@@ -490,6 +490,8 @@ async def run_prose_scene_workflow(
                 pov=pov,
                 story_position=story_position,
                 secondary_block=secondary_block,
+                plan=setup.plan,
+                earlier=setup.earlier,
             )
             checkpoint = {
                 "canon_hash": canon_hash,

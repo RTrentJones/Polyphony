@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
-from app.parsing.names import mentions, norm
+from app.parsing.names import HONORIFICS, NON_NAME_TOKENS, mentions, norm
 from app.planning.outline import classify_people, people_refs
 
 _STOP_CAPS = {
@@ -152,8 +152,10 @@ FUNCTION_WORDS = _STOP_CAPS | _CONNECTIVES | _CALENDAR
 # (fields are joined with two spaces), a comma or a line break, so "Debt" ending
 # one title and "In" opening the next summary are two words, not "Debt  In".
 # An all-caps token (a sign or a stamp: INITIAL HERE) is never a candidate
-# (SPEC-33, N10).
-_PROPER = re.compile(r"\b[A-Z][a-z]+(?:[ ][A-Z][a-z]+)*\b")
+# (SPEC-33, N10). An honorific with its period joins the run ("Mr. Quince").
+_HONORIFIC = "|".join(sorted(h.capitalize() for h in HONORIFICS))
+_TOKEN = rf"(?:(?:{_HONORIFIC})\.[ ])?[A-Z][a-z]+"
+_PROPER = re.compile(rf"\b{_TOKEN}(?:[ ]{_TOKEN})*\b")
 _WORD = re.compile(r"[A-Za-z]+")
 _OPENERS = '.!?;:"“(—'
 
@@ -209,6 +211,12 @@ def principal_recall(
     return round(len(present) / len(principals), 4), present, missing
 
 
+def _function_word(word: str) -> bool:
+    """A function or calendar word; a calendar word also as a plural ("Fridays")."""
+    w = word.lower()
+    return w in FUNCTION_WORDS or (w.endswith("s") and w[:-1] in _CALENDAR)
+
+
 def _is_sentence_initial(text: str, start: int) -> bool:
     """True when the match at `start` opens a field or a sentence."""
     if start == 0:
@@ -240,12 +248,10 @@ def _candidates(text: str):
         initial = opens = _is_sentence_initial(text, m.start())
         # Mid-sentence, a function word before ONE word opens a title ("a
         # slide called Our Values"): it stays, so the run reads as a fragment.
-        while (
-            words and words[0].lower() in FUNCTION_WORDS and (opens or len(words) > 2)
-        ):
+        while words and _function_word(words[0]) and (opens or len(words) > 2):
             words.pop(0)
             initial = False  # what is left no longer opens the sentence
-        while words and words[-1].lower() in FUNCTION_WORDS:
+        while words and _function_word(words[-1]):
             words.pop()
         if words:
             yield words, initial
@@ -292,23 +298,31 @@ def unknown_proper_nouns(
     found: dict[str, str] = {}
     for words, initial in _candidates(outline_text):
         lowered = [w.lower() for w in words]
-        if any(w in FUNCTION_WORDS for w in lowered):
+        if any(_function_word(w) for w in words):
             continue  # title-case fragment
         if all(w in lower_words for w in lowered):
             continue  # common words, capitalised
         key = norm(" ".join(words))
         if initial and len(words) == 1 and key not in mid:
             continue  # only ever opens a sentence ("Silence fell.")
-        if key:
+        if set(key.split()) - HONORIFICS - NON_NAME_TOKENS:  # SPEC-44
             found.setdefault(key, " ".join(words))
-    unknown = [
-        surface
-        for key, surface in found.items()
-        if not (
-            all(tok in known_tokens for tok in key.split())
-            or any(key == k or key in k.split() or k in key.split() for k in known_norm)
+    unknown: list[str] = []
+    for key, surface in found.items():
+        name = " ".join(t for t in key.split() if t not in HONORIFICS)
+        if all(tok in known_tokens for tok in name.split()) or any(
+            name == k or name in k.split() or k in name.split() for k in known_norm
+        ):
+            continue
+        # Two reported runs joined by " and " / " of " are one name (SPEC-44).
+        both = unknown and re.search(
+            rf"{re.escape(unknown[-1])} (?:and|of) {re.escape(surface)}\b",
+            outline_text,
         )
-    ]
+        if both:
+            unknown[-1] = both.group(0)
+        else:
+            unknown.append(surface)
     return sorted(unknown)
 
 
