@@ -67,11 +67,11 @@ to FAIL on the base commit; the wave-1 packages make them pass.
   (voice indexing runs; curated entries are untouched) → outline (memoised from the outline step;
   stored into this book with `PUT /plans` as names, since ids are per book) → `promote-all` →
   the first chapter whose cast holds ≥ 2 principals → `generate-planned` → wait for the chain →
-  each scene with its beats. Fallback, when the product path is unavailable: one scene from
-  canonical beat 2 at "Reconciliations floor, Aeon Holdings, Marrow District".
+  each scene with its beats. There is no fallback scene: when no promoted chapter can be
+  written, the step reports `path: "failed"` (SPEC-39).
   Per scene: deterministic cast recall (caps R1), beat-seam and scene-seam 6-gram overlap at the
   junction (last 60 words of one piece vs first 60 of the next; caps R4), name invention; then
-  R1–R5 by the judge (`EVAL_PROSE_JUDGE_SCENES`, default 3 scenes).
+  R1–R5 by the judge (up to five scenes; SPEC-39).
   R2 sees each speaker's gold lines and the scene's spoken lines with tags and names removed
   (`pipeline.strip_tags`). `scene score = R1 × mean(R2..R5)`; the step score is the mean.
   Beats come from the scene payload when the API exposes them, else a read-only `SELECT` on

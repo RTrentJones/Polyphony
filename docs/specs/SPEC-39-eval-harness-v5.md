@@ -21,11 +21,19 @@ graded one unplanned scene in a new last chapter, which hid the very refusal SPE
   `intro_sentence` over the excerpt, then the synopsis (the synopsis never names Bell). The prose
   book does not commit them.
 - **`prior_paragraphs`.** A `<prior>` whose first 40 squashed characters equal the answer of a
-  beat-1 prompt (`→ marks beat 1,`) is the scene's own opening and passes whatever it starts with.
+  beat-1 prompt is the scene's own opening and passes whatever it starts with. Beat 1 is found
+  from the `<beats>` block's `CURRENT_BEAT_MARK` (`_current_beat`, which `_is_last_beat` also
+  reads), never from the plan sentence's wording.
+- **Wave-4 checks.** `sample_lift` (SPEC-36) is gated 0 / 0; its W3 baseline is 2/20 under the
+  wave-4 label (3/20 as measured under the wave-3 label), because day-0 changed `MOVEMENT_LABEL`.
+  `beats_see_whole_outline` (SPEC-38) checks only the header on a resumed outline whose archive
+  has outline:beats records but no outline:chapters record.
 - **App rule (product, M5).** `_candidates` skips a capitalised run followed by a label token (a
   single capital, a number or a code: "Appendix F", "Form 9", "Desk R-14"). "Our" is a function
-  word, and a capitalised function word mid-sentence opens a title ("a slide called Our Values"),
-  so it is kept and the run reads as a title fragment. `revise.new_names(revised, draft, canon)`
+  word. Mid-sentence, a capitalised function word before one word opens a title ("a slide called
+  Our Values"), so it is kept and the run reads as a title fragment; before two or more words it
+  is trimmed, so "The Marrow Exchange" is still reported. The cost: a one-word name after a
+  mid-sentence "The" is not reported. `revise.new_names(revised, draft, canon)`
   checks against `canon_known_text(canon)` plus the draft, the outline audit's known text, so
   "God help him" in the synopsis is not an invention.
 

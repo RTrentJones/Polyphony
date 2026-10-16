@@ -42,7 +42,7 @@ route, change the spec in the same PR so it stays true. The acceptance criteria 
 | [SPEC-20](SPEC-20-book-page-phone-and-export.md) | Book page at phone width, and the export dialog | B4, B9 (UI) | S | SPEC-21 | ✅ |
 | [SPEC-21](SPEC-21-manuscript-hygiene.md) | Manuscript hygiene: clean export, honest outline warnings, upload types | B9 (backend), B14, relay invented-names finding | S | — | ✅ (promote-time title cleanup: SPEC-23) |
 | [SPEC-22](SPEC-22-eval-harness-v2.md) | Eval harness v2: an eval that tests the product | eval plan §3.5 fixes 1–8 | M | — | ✅ |
-| [SPEC-23](SPEC-23-planned-beats-as-data.md) | Planned beats as data | W2-1 (backend), B9 (promote title), B7 (backend) | L | SPEC-10, SPEC-12, SPEC-13 | ✅ (API; editable beat list is W2-7) |
+| [SPEC-23](SPEC-23-planned-beats-as-data.md) | Planned beats as data | W2-1 (backend), B9 (promote title), B7 (backend) | L | SPEC-10, SPEC-12, SPEC-13 | ✅ (editable beat list: SPEC-35) |
 | [SPEC-24](SPEC-24-beat-cast-secondaries-pov.md) | Generation prompts: beat cast, named secondaries, POV | W2-1 (prompts), W2-2, W2-4 | L | wave-2 day-0 contracts | ✅ (prose mode; ensemble prompts not covered) |
 | [SPEC-25](SPEC-25-revise-ui.md) | Revise UI, and planned beats read as data in the frontend | W2-3 (B3 UI), W2-1 (frontend) | M+ | SPEC-16, SPEC-19, SPEC-23 | ✅ |
 | [SPEC-26](SPEC-26-character-bible-extraction.md) | Extraction writes a real character bible; beat prompts stop repeating it | W2-5, W2-12 | M | SPEC-09, SPEC-17 | ✅ |
@@ -53,6 +53,12 @@ route, change the spec in the same PR so it stays true. The acceptance criteria 
 | [SPEC-31](SPEC-31-located-continuity.md) | Located continuity: each finding quotes the prose and opens it | W3-4 (B10 / W2-8 core) | M | SPEC-02 | ✅ (quote not selected in the editor; mark-fixed is W3-11) |
 | [SPEC-32](SPEC-32-chapter-rows-and-generate.md) | Chapter rows are unambiguous, and Generate is never a dead end | W3-6 (B12 rest) | M | SPEC-23, SPEC-24 | ✅ |
 | [SPEC-33](SPEC-33-eval-harness-v4.md) | Eval harness v4: honest denominators, one name rule | W3-7 | M | wave-3 day-0 contracts | ✅ |
+| [SPEC-34](SPEC-34-partial-planned-batch.md) | The planned batch writes what fits | W4-1 (NO path) | M | SPEC-12, SPEC-23 | ✅ (cached tokens not measured) |
+| [SPEC-35](SPEC-35-chapter-and-beat-editor.md) | Edit the chapter and its planned beats before you generate | W4-2 | M | wave-4 day-0 contracts | ✅ (beat reorder cut) |
+| [SPEC-36](SPEC-36-manner-not-material.md) | Draft in the author's voice, not the author's sentences | W4-3 | S/M | wave-4 day-0 labels, `SceneScope.brief` | ✅ |
+| [SPEC-37](SPEC-37-scene-identity.md) | Scenes have names, and the editor knows where you are | W4-4 | M | wave-4 day-0 contracts | ✅ |
+| [SPEC-38](SPEC-38-outline-history.md) | An outline you can go back to, whose acts see the whole book | W4-5 | S/M | wave-4 day-0 contracts | ✅ |
+| [SPEC-39](SPEC-39-eval-harness-v5.md) | Eval harness v5: grade the path authors use | W4-6 | S/M | SPEC-33, SPEC-34 | ✅ |
 
 SPEC-01 to SPEC-15 close review findings (`F…`). SPEC-16 to SPEC-22 are wave 1 of the 2026-10
 cycle: they close product-backlog items (`B…`) and findings from the relay eval run, and SPEC-22
@@ -61,6 +67,11 @@ merged first so the "before" and "after" evals share one harness. SPEC-23 to SPE
 SPEC-33 are wave 3 (backlog items `W3-…`). Wave 3 also amended two earlier specs in place: SPEC-17
 (one voice retrieval and renderer, and the voice probe, W3-5) and SPEC-24 (the POV paragraph in the
 planner and revise, W3-3).
+
+SPEC-34 to SPEC-39 are wave 4 (backlog items `W4-…`), built on one day-0 contract commit (markers,
+`Chapter.number`, `written_beats`, the scene brief and the wave-4 API types); their BRD and
+feature-set edits landed with the wave. Wave 4 also amended SPEC-22 (no fallback scene, up to five
+judged scenes) and SPEC-23 (`scene_batch.written_beats`) in place.
 
 ## Sequencing
 
