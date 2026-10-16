@@ -316,22 +316,12 @@ async def test_the_apps_prompts_pass_every_contract_check(
     )
     ran = {c: out[c] for c in pc.CHECKS if out[c]["n"]}
     failing = {c: r["failures"] for c, r in ran.items() if r["rate"] != 1.0}
-    # Merge order E4 -> E1 (D14): until E4's outline and plan_beats calls pass
-    # JSON_OBJECT, they are json_mode_where_json's only failures. Once any
-    # outline call carries it, this allowance is void; delete it at the E1 merge.
-    sent = {r["id"]: r for r in fake.records}
-    if not any(
-        r["response_format"] for r in sent.values() if "outline" in r["purpose"]
-    ):
-        e4 = ("outline:skeleton", "outline:chapters", "outline:beats", "plan_beats")
-        fails = failing.pop("json_mode_where_json", [])
-        assert {sent[f["id"]]["purpose"] for f in fails} <= set(e4), fails
     # B-3: the gold sees real samples, and none of them is plot.
     assert out["samples_not_plot"]["classified"] > 0
     assert out["samples_not_plot"]["later_plot_slots"] == 0
     assert out["voice_dialogue"]["voice_coverage"] >= 0.8, out["voice_dialogue"]
     assert not failing, json.dumps(failing, indent=1)[:4000]
-    assert set(ran) == set(pc.CHECKS)
+    assert set(ran) == set(pc.CHECKS)  # 22, each n > 0, json_mode_where_json strict
     assert out["plan_cast_from_beat"]["unmatched"] == []
     assert out["voice_dialogue"]["short_samples"] == 0
     assert out["sample_lift"]["max_shared"] == 0
