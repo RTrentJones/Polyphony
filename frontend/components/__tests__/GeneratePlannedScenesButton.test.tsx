@@ -100,6 +100,19 @@ describe('GeneratePlannedScenesButton (SPEC-10)', () => {
       /already has a scene/
     )
   })
+
+  it("adds the server's reason when part of the batch is deferred (SPEC-34)", () => {
+    const reason =
+      '3 of 4 scenes fit your budget now; generate again as your 24-hour budget frees up to write the other 1 (written scenes are skipped).'
+    const base = { chapter_id: 'c', scene_id: 's', job_id: 'j', status: 'x', total: 4, skipped: 0 }
+    expect(plannedScenesMessage({ ...base, queued: 3, deferred: 1, reason })).toBe(
+      `Writing 3 planned scenes in order. ${reason}`
+    )
+    // A full batch reads as before.
+    expect(plannedScenesMessage({ ...base, queued: 4, deferred: 0, reason: null })).toBe(
+      'Writing 4 planned scenes in order.'
+    )
+  })
 })
 
 describe('planned beats come from the server (SPEC-23/25)', () => {

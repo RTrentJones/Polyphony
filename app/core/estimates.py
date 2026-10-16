@@ -7,12 +7,14 @@ today (tokens left in their rolling budget, requests left in the provider's
 day) and whether the action is allowed.
 
 Estimates are deliberately upper-bound-ish: refusing a job that would have
-fitted is cheaper for the author than a job that half-writes and pauses.
+fitted is cheaper for the author than a job that half-writes and pauses. A
+batch of scenes is not one job: it queues the scenes that fit (`affordable`).
 """
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from itertools import accumulate
 from typing import Optional
 from uuid import UUID
 
@@ -186,6 +188,14 @@ def extraction(*, text: str) -> Estimate:
     )
     est.notes.append(f"{p['windows']} window(s), {p['reduce_calls']} reduce call(s).")
     return est
+
+
+def affordable(per_scene: list[Estimate], remaining: int) -> int:
+    """How many of these scenes, in order, fit `remaining` tokens: the batch
+    queues that prefix and defers the rest (SPEC-34). The ONE partial rule."""
+    return sum(
+        1 for spent in accumulate(e.tokens for e in per_scene) if spent <= remaining
+    )
 
 
 async def requests_left_today() -> Optional[int]:

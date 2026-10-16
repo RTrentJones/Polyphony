@@ -81,7 +81,11 @@
       ]
     }
   },
-  "voice_probe": "A storm has kept everyone indoors, and a frightened friend asks what you saw last night. Say a few sentences to them.",
+  "voice_probe": {
+    "Aldous Kerr": "A storm has kept everyone indoors, and a frightened friend asks what you saw last night. Say a few sentences to them.",
+    "Nora Vance": "A storm has kept everyone indoors, and a frightened friend asks what you saw last night. Say a few sentences to them.",
+    "Elias Ward": "A storm has kept everyone indoors, and a frightened friend asks what you saw last night. Say a few sentences to them."
+  },
   "canonical_beats": [
     {
       "title": "The prisoner in the castle",

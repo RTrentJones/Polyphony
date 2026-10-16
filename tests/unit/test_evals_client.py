@@ -103,3 +103,23 @@ async def test_scene_beats_reads_the_scene_api_only():
     get.return_value = _resp(200, {"id": "s1"})
     assert await c.scene_beats("s1") == []
     assert "database_url" not in EvalConfig.__dataclass_fields__
+
+
+async def test_generate_planned_waits_for_the_queued_scenes_only():
+    """D16: a partial batch (SPEC-34) settles when the queued scenes are
+    written; the deferred beat has no scene to wait for."""
+    c = PolyphonyClient("http://localhost:8000")
+    c._http.post = AsyncMock(
+        return_value=_resp(200, {"total": 4, "queued": 2, "skipped": 1, "deferred": 1})
+    )
+    seen = {}
+
+    async def poll(path, done, **kw):
+        scenes = [{"status": "completed", "position": i} for i in range(3)]
+        seen["settled"] = [done({"scenes": scenes}) for _ in range(2)]
+        return {"scenes": scenes}
+
+    c.poll = poll
+    out = await c.generate_planned("cid")
+    assert seen["settled"] == [False, True] and len(out["scenes"]) == 3
+    await c.aclose()

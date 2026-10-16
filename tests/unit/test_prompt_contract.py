@@ -147,11 +147,53 @@ def test_every_check_fails_its_failing_fixture(tmp_path):
 
 def test_prior_keeps_its_paragraphs_and_starts_a_sentence():
     para = " ".join(["He read the ledger line by line."] * 20)  # 140 words
-    assert pc.check_prior(para) == []  # one paragraph needs no break
-    assert pc.check_prior(f"{para}\n\n{para}") == []
-    assert pc.check_prior(f"{para} {para}") == ["<prior> lost its paragraph breaks"]
-    assert pc.check_prior("and then he left.") == ["<prior> starts mid-sentence"]
-    assert pc.check_prior("“Read it,” she said.") == []
+    none: set[str] = set()
+    assert pc.check_prior(para, none) == []  # one paragraph needs no break
+    assert pc.check_prior(f"{para}\n\n{para}", none) == []
+    assert pc.check_prior(f"{para} {para}", none) == [
+        "<prior> lost its paragraph breaks"
+    ]
+    assert pc.check_prior("and then he left.", none) == ["<prior> starts mid-sentence"]
+    assert pc.check_prior("“Read it,” she said.", none) == []
+
+
+# W3b: scene 1 opens in medias res, mid-sentence by design.
+OPENING = (
+    '"—and honestly, this could have been an email," Milo said, and opened his '
+    "eyes.\n\nHe was not in the conference room."
+)
+
+
+def _beat_prompt(n: int, prior: str | None) -> str:
+    fence = f"<prior>\n{prior}\n</prior>\n" if prior else "This beat opens the scene.\n"
+    return (
+        f"The scene's beats, in order (→ marks beat {n}, the one you are writing):\n"
+        f"<beats>\n→ {n}. x\n</beats>\n{fence}"
+    )
+
+
+def _prior_failures(tmp_path, records) -> list[str]:
+    tmp_path.mkdir()
+    for i, (prompt, answer) in enumerate(records):
+        _write(tmp_path, _rec(str(i), "beat_prose", prompt, answer, created=float(i)))
+    out = pc.grade(pc.load_archive(tmp_path))
+    return [f["id"] for f in out["prior_paragraphs"]["failures"]]
+
+
+def test_a_prior_that_is_the_scenes_own_opening_passes(tmp_path):
+    """M15/S3: a scene that opens mid-sentence is the author's choice; the
+    beat-2 <prior> that starts with it is that opening, not a cut tail."""
+    scene_1 = [(_beat_prompt(1, None), OPENING), (_beat_prompt(2, OPENING), "")]
+    assert _prior_failures(tmp_path / "w3b", scene_1) == []
+    # Scene 2's beat 1 HAS a <prior> (scene 1's tail); its opening counts too.
+    tail = "Milo signed the form."
+    scene_2 = [
+        (_beat_prompt(1, tail), "—and honestly, nobody reads these."),
+        (_beat_prompt(2, "—and honestly, nobody reads these."), ""),
+    ]
+    assert _prior_failures(tmp_path / "s2", scene_2) == []
+    # The same <prior> with no beat-1 answer to match is a cut tail.
+    assert _prior_failures(tmp_path / "cut", scene_2[1:]) == ["0"]
 
 
 def test_a_neutral_tone_the_plan_chose_is_kept():

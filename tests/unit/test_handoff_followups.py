@@ -490,32 +490,141 @@ async def test_generate_planned_needs_planned_beats(
     assert r.status_code == 422
 
 
-async def test_generate_planned_is_preflighted(
+async def _four_beat_chapter(client, auth_headers, async_session, test_book):
+    ids, chapter_id = await _two_beat_chapter(
+        client, auth_headers, async_session, test_book
+    )
+    chapter = await async_session.get(Chapter, uuid.UUID(chapter_id))
+    two = chapter.planned_beats
+    chapter.planned_beats = [
+        *two,
+        *({**b, "node_id": str(uuid.uuid4()), "title": f"{b['title']} 2"} for b in two),
+    ]
+    await async_session.commit()
+    return ids, chapter_id
+
+
+async def _one_scene_tokens(client, auth_headers, url, monkeypatch) -> int:
+    """A limit below one scene: refused with today's message, and the 429
+    carries the first scene's estimate."""
+    monkeypatch.setattr(settings, "USER_DAILY_TOKEN_LIMIT", 1)
+    r = await client.post(url, json={}, headers=auth_headers)
+    assert r.status_code == 429, r.text
+    detail = r.json()["detail"]
+    assert "remain in today's budget" in detail["message"]
+    return detail["estimate"]["tokens"]
+
+
+async def test_a_batch_over_budget_queues_what_fits_and_defers_the_rest(
     client, auth_headers, async_session, test_book, monkeypatch
 ):
-    from app.core import estimates
+    """SPEC-34: three of four scenes fit; the fourth is deferred, and says why."""
+    _, chapter_id = await _four_beat_chapter(
+        client, auth_headers, async_session, test_book
+    )
+    url = f"/api/v1/books/chapters/{chapter_id}/scenes/generate-planned"
+    one = await _one_scene_tokens(client, auth_headers, url, monkeypatch)
+    assert (await async_session.execute(select(Job))).scalars().all() == []
 
+    monkeypatch.setattr(settings, "USER_DAILY_TOKEN_LIMIT", 3 * one + one // 2)
+    r = await client.post(url, json={}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert (body["total"], body["queued"], body["deferred"]) == (4, 3, 1)
+    assert body["reason"] == (
+        "3 of 4 scenes fit your budget now; generate again as your 24-hour "
+        "budget frees up to write the other 1 (written scenes are skipped)."
+    )
+    assert body["estimate"]["tokens"] == 3 * one
+    (job,) = (await async_session.execute(select(Job))).scalars().all()
+    assert len(job.payload["batch"]["remaining"]) == 2
+
+
+async def test_the_deferred_scene_is_written_once_the_budget_frees_up(
+    client, auth_headers, async_session, test_book, test_user, monkeypatch
+):
+    """S1: the rolling 24 hours, not "tomorrow": a click while the batch's
+    spend is in the window defers again; 25 hours later it queues the rest."""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import update
+
+    from app.core.orm_models import APIUsage
+
+    _, chapter_id = await _four_beat_chapter(
+        client, auth_headers, async_session, test_book
+    )
+    url = f"/api/v1/books/chapters/{chapter_id}/scenes/generate-planned"
+    one = await _one_scene_tokens(client, auth_headers, url, monkeypatch)
+    monkeypatch.setattr(settings, "USER_DAILY_TOKEN_LIMIT", 3 * one + one // 2)
+    assert (await client.post(url, json={}, headers=auth_headers)).json()["queued"] == 3
+
+    # The chain wrote its three scenes and spent their tokens.
+    chapter = await async_session.get(Chapter, uuid.UUID(chapter_id))
+    (job,) = (await async_session.execute(select(Job))).scalars().all()
+    job.status = "completed"
+    for i, beat in enumerate(chapter.planned_beats[1:3], start=1):
+        async_session.add(
+            Scene(
+                user_id=test_user.id,
+                book_id=test_book.id,
+                chapter_id=chapter.id,
+                position=i,
+                scene_request={"planned_beat_id": beat["node_id"]},
+                status="completed",
+            )
+        )
+    now = datetime.now(timezone.utc)
+    for _ in range(3):
+        async_session.add(
+            APIUsage(user_id=test_user.id, tokens_used=one, cost_usd=0, timestamp=now)
+        )
+    await async_session.commit()
+
+    again = await client.post(url, json={}, headers=auth_headers)
+    assert again.status_code == 429 or again.json()["deferred"] >= 1, again.text
+
+    await async_session.execute(
+        update(APIUsage).values(timestamp=now - timedelta(hours=25))
+    )
+    await async_session.commit()
+    later = await client.post(url, json={}, headers=auth_headers)
+    assert later.status_code == 200, later.text
+    body = later.json()
+    assert (body["queued"], body["skipped"], body["deferred"]) == (1, 3, 0)
+    assert body["reason"] is None
+
+
+async def test_every_planned_scenes_return_says_nothing_was_deferred(
+    client, auth_headers, async_session, test_book, test_user
+):
     _, chapter_id = await _two_beat_chapter(
         client, auth_headers, async_session, test_book
     )
-    seen = {}
+    url = f"/api/v1/books/chapters/{chapter_id}/scenes/generate-planned"
+    first = (await client.post(url, json={}, headers=auth_headers)).json()
+    assert (first["deferred"], first["reason"]) == (0, None)
+    running = (await client.post(url, json={}, headers=auth_headers)).json()
+    assert running["already_running"] is True
+    assert (running["deferred"], running["reason"]) == (0, None)
 
-    async def refuse(db, user_id, est):
-        seen["calls"] = est.calls
-        return {"allowed": False, "reason": "Needs more than you have."}
-
-    monkeypatch.setattr(estimates, "assess", refuse)
-    r = await client.post(
-        f"/api/v1/books/chapters/{chapter_id}/scenes/generate-planned",
-        json={},
-        headers=auth_headers,
+    (job,) = (await async_session.execute(select(Job))).scalars().all()
+    job.status = "completed"
+    chapter = await async_session.get(Chapter, uuid.UUID(chapter_id))
+    async_session.add(
+        Scene(
+            user_id=test_user.id,
+            book_id=test_book.id,
+            chapter_id=chapter.id,
+            position=1,
+            scene_request={"planned_beat_id": chapter.planned_beats[1]["node_id"]},
+            status="completed",
+        )
     )
-    assert r.status_code == 429
-    one = estimates.scene(
-        canon_chars=0, cast_context_chars=0, target_words=800, cast_size=2
-    )
-    assert seen["calls"] == 2 * one.calls  # both scenes, not just the first
-    assert (await async_session.execute(select(Job))).scalars().all() == []
+    await async_session.commit()
+    done = (await client.post(url, json={}, headers=auth_headers)).json()
+    assert done["status"] == "nothing_to_do"
+    assert (done["deferred"], done["reason"]) == (0, None)
 
 
 async def test_the_chain_runs_in_order_and_each_scene_sees_the_one_before(

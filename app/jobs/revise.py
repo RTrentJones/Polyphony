@@ -96,7 +96,7 @@ async def run(payload: dict) -> None:
         )
 
     proposal = rv.splice(draft, span, revised)
-    unknown = rv.new_names(revised, draft, canon.canon_terms())
+    unknown = rv.new_names(revised, draft, canon)
     warnings = (
         [
             "The revision introduces names not in the canon or the scene "

@@ -23,7 +23,7 @@ from sqlalchemy.orm import selectinload
 from app.api.jobs import latest_jobs
 from app.characters.cast import resolve_cast
 from app.core import estimates
-from app.core.budget import check_user_budget
+from app.core.budget import check_user_budget, remaining_budget_24h
 from app.core.database import get_db
 from app.core.orm_models import (
     Book as BookORM,
@@ -1076,12 +1076,14 @@ async def generate_planned_scenes(
     scene takes its beat's cast (else the chapter's), setting and tone, plus the
     chapter's POV character; editing the chapter summary changes none of it.
 
-    Same gates as a single scene: budget check, the scene estimator's preflight
-    for ALL the scenes (refused with the estimate rather than stopping halfway),
+    Same gates as a single scene: budget check, the scene estimator's preflight,
     the "llm" route class, and a dedupe key — one batch per chapter in flight, a
-    repeat returns it. The jobs run as a chain (app/jobs/scene_batch.py): only
-    the first is enqueued now, and each completed scene enqueues the next, so
-    every scene starts from the one before it.
+    repeat returns it. The batch queues the scenes that fit the rolling 24-hour
+    budget now and defers the rest (`deferred`, `reason`; SPEC-34): a later
+    click writes them. It is refused only when not even the first fits. The
+    jobs run as a chain (app/jobs/scene_batch.py): only the first is enqueued
+    now, and each completed scene enqueues the next, so every scene starts from
+    the one before it.
     """
     chapter = await _owned_chapter(chapter_id, current_user, db)
     key = scene_batch.batch_key(current_user.id, chapter_id)
@@ -1101,6 +1103,8 @@ async def generate_planned_scenes(
             # Scenes of the batch not yet completed, this one included.
             "queued": 1 + len(batch.get("remaining") or []),
             "skipped": batch.get("skipped", 0),
+            "deferred": 0,
+            "reason": None,
         }
 
     if (found := await _existing()) is not None:
@@ -1123,6 +1127,8 @@ async def generate_planned_scenes(
             "total": len(beats),
             "queued": 0,
             "skipped": len(beats),
+            "deferred": 0,
+            "reason": None,
         }
 
     await check_user_budget(db, current_user.id)
@@ -1149,8 +1155,9 @@ async def generate_planned_scenes(
             )
     pov = index.names.get(pov_id) if pov_id is not None else None
 
-    # Preflight ALL the scenes with the single-scene estimator (SPEC-12): the
-    # sum of each scene's estimate, so a beat's own cast size counts.
+    # Each scene's estimate (SPEC-12), so a beat's own cast size counts. The
+    # scenes that fit are queued and the rest deferred (SPEC-34); when none
+    # fits, assessing the first refuses with its estimate.
     canon = await build_canon(db, chapter.book_id)
     canon_chars = len(canon.full_block())
     per_scene = [
@@ -1165,13 +1172,15 @@ async def generate_planned_scenes(
         )
         for _, ids, _ in plans
     ]
-    n = len(todo)
+    remaining = await remaining_budget_24h(db, current_user.id)
+    fit = estimates.affordable(per_scene, remaining)
+    head = per_scene[: max(fit, 1)]
     est = replace(
-        per_scene[0],
-        calls=sum(e.calls for e in per_scene),
-        input_tokens=sum(e.input_tokens for e in per_scene),
-        output_tokens=sum(e.output_tokens for e in per_scene),
-        notes=[*per_scene[0].notes, f"{n} scene(s), written one after another."],
+        head[0],
+        calls=sum(e.calls for e in head),
+        input_tokens=sum(e.input_tokens for e in head),
+        output_tokens=sum(e.output_tokens for e in head),
+        notes=[*head[0].notes, f"{len(head)} scene(s), written one after another."],
     )
     assessed = await estimates.assess(db, current_user.id, est)
     if not assessed["allowed"]:
@@ -1179,6 +1188,8 @@ async def generate_planned_scenes(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail={"message": assessed["reason"], "estimate": assessed},
         )
+    n, deferred = fit, len(todo) - fit
+    plans = plans[:n]
 
     requests = [
         {
@@ -1209,7 +1220,7 @@ async def generate_planned_scenes(
         # The chapter's planned-beat count (the API's `total`), not this chain's
         # length: beats written before the batch started are `skipped`.
         "total": len(beats),
-        "skipped": len(beats) - n,
+        "skipped": len(beats) - len(todo),
         "remaining": requests[1:],
     }
     for attempt in (1, 2):
@@ -1251,7 +1262,15 @@ async def generate_planned_scenes(
         "status": scene.status,
         "total": len(beats),
         "queued": n,
-        "skipped": len(beats) - n,
+        "skipped": len(beats) - len(todo),
+        "deferred": deferred,
+        "reason": (
+            f"{n} of {len(todo)} scenes fit your budget now; generate again as "
+            "your 24-hour budget frees up to write the other "
+            f"{deferred} (written scenes are skipped)."
+            if deferred
+            else None
+        ),
         "mode_requested": payload.mode,
         "mode_used": mode_used,
         "estimate": assessed,
