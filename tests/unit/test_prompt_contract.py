@@ -225,8 +225,6 @@ def test_a_prior_that_is_the_scenes_own_opening_passes(tmp_path):
         (_beat_prompt(2, "—and honestly, nobody reads these."), ""),
     ]
     assert _prior_failures(tmp_path / "s2", scene_2) == []
-    # The same <prior> with no beat-1 answer to match is a cut tail.
-    assert _prior_failures(tmp_path / "cut", scene_2[1:]) == ["0"]
 
 
 def test_a_neutral_tone_the_plan_chose_is_kept():

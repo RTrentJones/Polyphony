@@ -19,6 +19,7 @@ from app.core.orm_models import (
     SceneBeat,
     SceneRevision,
 )
+from tests.unit.factories import add_scene
 
 pytestmark = pytest.mark.unit
 
@@ -278,7 +279,7 @@ class TestUserLevelSceneRoutes:
 
 class TestBookOrder:
     async def test_get_scene_knows_its_chapter_and_neighbours_in_book_order(
-        self, client, auth_headers, async_session, test_book, test_user
+        self, client, auth_headers, async_session, test_book
     ):
         """SPEC-37: neighbours follow chapter position, then scene position,
         skipping trashed scenes; an unfiled scene has no chapter and no
@@ -296,8 +297,7 @@ class TestBookOrder:
         assert r.status_code == 200
         r = await client.delete(f"/api/v1/scenes/{b1}", headers=auth_headers)
         assert r.status_code == 204
-        loose = Scene(user_id=test_user.id, book_id=test_book.id, position=0)
-        async_session.add(loose)
+        loose = await add_scene(async_session, test_book)
         await async_session.commit()
 
         async def where(sid):
@@ -315,6 +315,9 @@ class TestBookOrder:
             {"prev": a0, "next": None},
         )
         assert await where(loose.id) == (None, {"prev": None, "next": None})
+        url = f"/api/v1/books/{book_id}/scenes"
+        listed = (await client.get(url, headers=auth_headers)).json()["scenes"]
+        assert [s["id"] for s in listed] == [b0, a0, a1, str(loose.id)]
 
 
 def test_no_query_lists_scenes_by_user_id_alone():

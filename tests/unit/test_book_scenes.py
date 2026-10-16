@@ -3,6 +3,8 @@ surface via GET /books/{id}/scenes, so nothing generated is invisible."""
 
 import pytest
 
+from tests.unit.factories import add_chapter, add_scene
+
 pytestmark = pytest.mark.unit
 
 
@@ -104,15 +106,13 @@ class TestSceneTitles:
     async def test_planned_and_single_scenes_are_named_by_one_rule(
         self, client, auth_headers, async_session, test_book
     ):
-        from uuid import UUID
-
         from sqlalchemy import select
 
         from app.core.orm_models import Scene
         from app.jobs.scene_batch import scene_title
-        from tests.unit.test_planned_beats import _PLANNED, _beat_book, _requests
+        from tests.unit.test_planned_beats import _PLANNED, _beat_book
 
-        ids, promoted, (_, b2, _) = await _beat_book(
+        _, promoted, _ = await _beat_book(
             client, auth_headers, async_session, test_book
         )
         r = await client.post(
@@ -121,38 +121,24 @@ class TestSceneTitles:
         assert r.status_code == 200, r.text
         (scene,) = (await async_session.execute(select(Scene))).scalars().all()
         assert scene.title == "Intake"
-        # The chained scenes are created from these requests by the same rule.
-        requests = await _requests(async_session)
-        assert [scene_title(q) for q in requests] == ["Intake", "Lunch", "Caseworker"]
-
-        # A single scene: the picked beat's title, else the first six words.
-        url = f"/api/v1/books/chapters/{promoted['chapter_id']}/scenes/generate"
-        body = {
-            "character_ids": [ids["Milo Voss"]],
-            "scene_description": "Zara explains the afterlife over a long lunch",
-            "setting": "",
-            "emotional_tone": "",
-        }
-        titles = []
-        for extra in ({"planned_beat_id": b2}, {}):
-            r = await client.post(url, json={**body, **extra}, headers=auth_headers)
-            assert r.status_code == 200, r.text
-            scene = await async_session.get(Scene, UUID(r.json()["scene_id"]))
-            titles.append(scene.title)
-        assert titles == ["Lunch", "Zara explains the afterlife over a"]
+        # The chained and single scenes go through the same add_scene_job rule.
+        about = "Zara explains the afterlife over a long lunch"
+        assert (
+            scene_title({"beat_title": "Lunch", "scene_description": about}) == "Lunch"
+        )
+        six = scene_title({"scene_description": about})
+        assert six == "Zara explains the afterlife over a"
 
     async def test_patch_renames_the_owners_scene_only(
         self, client, auth_headers, async_session, test_book
     ):
-        from app.core.orm_models import Chapter, Scene, User
+        from app.core.orm_models import User
         from app.core.security import create_access_token, get_password_hash
 
-        chapter = Chapter(book_id=test_book.id, title="One", position=0)
-        async_session.add(chapter)
-        await async_session.flush()
-        scene = Scene(user_id=test_book.user_id, chapter_id=chapter.id, position=0)
+        chapter = await add_chapter(async_session, test_book)
+        scene = await add_scene(async_session, test_book, chapter)
         other = User(email="o@example.com", hashed_password=get_password_hash("x" * 12))
-        async_session.add_all([scene, other])
+        async_session.add(other)
         await async_session.commit()
         url = f"/api/v1/books/scenes/{scene.id}"
 

@@ -532,12 +532,8 @@ async def test_a_failed_planned_path_fails_loudly_and_is_tried_again(tmp_path):
     assert out["score"] is None and "fallback" not in json.dumps(out)
     again = await pipeline.step_prose(_cel_ctx(tmp_path, _ProductClient()))
     assert again["path"] == "planned" and again["score"] is not None
-
-
-async def test_prose_reports_the_batch_and_its_estimate_over_actual(tmp_path):
-    out = await pipeline.step_prose(_cel_ctx(tmp_path, _ProductClient()))
-    assert (out["queued"], out["deferred"]) == (2, 0)
-    assert out["estimate_over_actual"] == 1.2
+    assert (again["queued"], again["deferred"]) == (2, 0)
+    assert again["estimate_over_actual"] == 1.2
 
 
 @pytest.mark.parametrize("n, judged", [(4, 4), (7, 5)])

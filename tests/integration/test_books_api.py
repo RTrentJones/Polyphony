@@ -74,45 +74,6 @@ class TestBooksCRUD:
         titles = [c["title"] for c in detail.json()["chapters"]]
         assert titles == ["C", "A", "B"]
 
-    @pytest.mark.asyncio
-    async def test_scenes_tab_is_in_book_order(
-        self, client, auth_headers, async_session, test_user, book
-    ):
-        """SPEC-37: chapter position, then scene position; trashed scenes
-        skipped; unfiled scenes last."""
-        from uuid import UUID
-
-        from app.core.orm_models import Scene
-
-        ids, scenes = [], []
-        for title in ("A", "B"):
-            r = await client.post(
-                f"/api/v1/books/{book['id']}/chapters",
-                json={"title": title},
-                headers=auth_headers,
-            )
-            ids.append(r.json()["id"])
-            for i in range(2):
-                r = await client.post(
-                    f"/api/v1/books/chapters/{ids[-1]}/scenes",
-                    json={"title": f"{title}{i}"},
-                    headers=auth_headers,
-                )
-                scenes.append(r.json()["scene_id"])
-        await client.patch(
-            f"/api/v1/books/chapters/{ids[1]}/position",
-            json={"position": 0},
-            headers=auth_headers,
-        )
-        await client.delete(f"/api/v1/scenes/{scenes[2]}", headers=auth_headers)
-        async_session.add(
-            Scene(user_id=test_user.id, book_id=UUID(book["id"]), title="loose")
-        )
-        await async_session.commit()
-        r = await client.get(f"/api/v1/books/{book['id']}/scenes", headers=auth_headers)
-        titles = [s["title"] for s in r.json()["scenes"]]
-        assert titles == ["B1", "A0", "A1", "loose"]
-
 
 @pytest.mark.integration
 class TestDraftEditing:
