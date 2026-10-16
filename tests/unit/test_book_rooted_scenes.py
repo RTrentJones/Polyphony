@@ -5,6 +5,7 @@ their beats and revisions) with it; deleting a chapter never silently orphans
 prose — the author moves its scenes or deletes them, and a bare delete is a 409.
 """
 
+from datetime import datetime, timedelta, timezone
 import re
 from pathlib import Path
 from uuid import UUID
@@ -297,7 +298,15 @@ class TestBookOrder:
         assert r.status_code == 200
         r = await client.delete(f"/api/v1/scenes/{b1}", headers=auth_headers)
         assert r.status_code == 204
-        loose = await add_scene(async_session, test_book)
+        then = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        loose = await add_scene(async_session, test_book, created_at=then)
+        # A newer unfiled scene with a higher leftover position still lists first.
+        newer = await add_scene(
+            async_session,
+            test_book,
+            position=5,
+            created_at=then + timedelta(minutes=1),
+        )
         await async_session.commit()
 
         async def where(sid):
@@ -317,7 +326,7 @@ class TestBookOrder:
         assert await where(loose.id) == (None, {"prev": None, "next": None})
         url = f"/api/v1/books/{book_id}/scenes"
         listed = (await client.get(url, headers=auth_headers)).json()["scenes"]
-        assert [s["id"] for s in listed] == [b0, a0, a1, str(loose.id)]
+        assert [s["id"] for s in listed] == [b0, a0, a1, str(newer.id), str(loose.id)]
 
 
 def test_no_query_lists_scenes_by_user_id_alone():
