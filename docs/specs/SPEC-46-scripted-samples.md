@@ -1,0 +1,16 @@
+# SPEC-46 — A voice sample never scripts the beat's own line
+
+**Closes**: W6-1 (a)(d) · **Size**: S · **Depends on**: SPEC-17, -40, -42. (b) salvage and (c) bible fallback are cut (PM Q2 ruling; wave 7).
+
+## Design
+- **The rule** (`context.word_runs`, `character_samples`). A voice sample is dropped from a beat when it shares a run of `SCRIPTED_RUN` = 6 words with the beat line or the brief, after folding `his|her|your|my|their`, `he|she|you|i|they` and `him|me|them` to one token each (words: lowercase `[a-z0-9]` with inner apostrophes, curly quotes straightened). The beat already scripts that line, so the sample adds only a copy instruction that "never copy a sample's words" then forbids (W5, W5c, W5d: Zara's "Close the accounts in your queue…").
+- **One statement of eligibility.** The drop is a clause of `spoken`, the `keep` predicate the store applies before the threshold and `k` (SPEC-40), and of the first-person narration taken as voice. A dropped line's slot goes to the next eligible line of the existing pool; there is no refill.
+- **The lines.** The beat line is the retrieval's query: the beat line in beat prose and the ensemble, the instruction plus the target passage in revise, the moment in the voice probe. The brief is `scope.plot[0]`: `scene_setup` puts the request's `scene_description` (required) first; the API probe's plot is empty, so it checks the query only. Other plan lines are not checked: the scene's next beat may script a line this beat does not (w5c 0027).
+- **Why 6 folded words.** The 8-gram (`sample_lift`'s unit) catches 0 of the 119 wave-5 voice slots; the folded 6-run catches 7, all genuine. No grader re-implements it (wave-6 B-4); the eval reports folded-6 hits and content share.
+
+## Investigation (W6-1 (a)): the excerpt is sparse; the classifier does not under-label
+- **cel** (866 words, 31 paragraphs). The store is Milo 10 (5 speech + movement p0, 3, 9, 13, 27), Zara 6 (4 + p3, p29), Edric 5 (3 + p14, p17), as in W5d. Every narration paragraph indexed got a typed label (0 untyped). Of the paragraphs holding a narration sentence each principal leads (Milo 7, Zara 5, Edric 3), 8 are speech paragraphs, which give only the speaker's words (SPEC-17): "Zara set down her pen", "Edric Thane opened the ledger without looking at it", "Milo read it twice". Zara's p2 ("Don't thank her," she said) is indexed for no one: pronoun-tagged speech blocks the paragraph and is credited to nobody.
+- **dracula** (290 paragraphs, diary form). Movement is plentiful when the cast carries first-name aliases: the full-name gate alone gives Cora Ellis 0 movement (27 led sentences) and Count Vasska 1; with "Cora"/"Count" aliases they get 26 and 9. Speech is near-empty (Verhoeven 1): most of it is credited to no speaker (p270 "presently said to me: “Now you go home…”").
+- **So** the cel gap is the excerpt plus the speech-paragraph rule, not the classifier. Levers for wave 7: the narration around a character's own line as movement, pronoun-tag credit to the paragraph's lead, and committing aliases in the dracula eval.
+
+**Tests**: `test_scripted_samples.py` (the fixture's `scripted` table: 7 dropped, 2 kept; after a drop the next eligible line is shown at k = 1 and 3).

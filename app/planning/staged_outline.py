@@ -47,12 +47,12 @@ from app.core.prompt_markers import (
     OUTLINE_CHAPTERS_HEADER,
 )
 from app.llm.client import get_llm_client
-from app.llm.json_utils import extract_json_array, extract_json_object
-from app.orchestration.workflow import marked_plan
+from app.llm.json_utils import JSON_OBJECT, extract_json_array, extract_json_object
 from app.planning.canon import Canon
 from app.parsing import names
 from app.planning.fidelity import FidelityAudit, audit_outline, canon_known_text
 from app.planning.outline import CastIndex, validate_outline_nodes
+from app.planning.planned_beat import marked_plan
 
 logger = setup_logging("planning.staged_outline")
 
@@ -89,6 +89,7 @@ JSON:"""
         max_tokens=2048,
         user_id=user_id,
         purpose="outline:skeleton",
+        response_format=JSON_OBJECT,
     )
     return extract_json_object(result.text)
 
@@ -181,13 +182,13 @@ Acts, numbered from 1 (each chapter's act_index is its act's 0-based index):
 Break the acts into chapters.
 {_cast_rules(canon)}{repair}
 
-Return ONLY a JSON array of chapters:
-[
+Return ONLY a JSON object whose "items" are the chapters:
+{{"items": [
   {{"title": "chapter title", "summary": "1-2 sentences of what CHANGES",
     "act_index": <int, 0-based>, "pov": "canon character name or ''",
     "people": ["everyone named in this chapter"],
     "threads": ["optional plot threads"]}}
-]
+]}}
 
 JSON:"""
     result = await get_llm_client().generate(
@@ -196,6 +197,7 @@ JSON:"""
         max_tokens=4096,
         user_id=user_id,
         purpose="outline:chapters",
+        response_format=JSON_OBJECT,
     )
     return extract_json_array(result.text)
 
@@ -269,11 +271,13 @@ end on its turn. Give each beat its own `people`: everyone named in THAT beat
 (not the whole chapter's), plus `setting` where it happens and `tone` its
 emotional tone. A functional figure the canon does not name (a clerk, a guard)
 stays unnamed.
+Write each scene summary as what the chapter's POV character witnesses; never what they fail to notice or will later learn.
+Do not reuse a chapter title as a scene title.
 
-Return ONLY a JSON array mirroring the chapters, each with its beats as
-children. Echo each chapter's title, summary, act_index, pov, people and
-threads unchanged:
-[
+Return ONLY a JSON object, its "items" mirroring the chapters, each with its
+beats as children. Echo each chapter's title, summary, act_index, pov, people
+and threads unchanged:
+{{"items": [
   {{"title": <chapter title>, "summary": <chapter summary>,
     "act_index": <int>, "pov": <pov>, "people": [<names>],
     "threads": [<threads>],
@@ -281,7 +285,7 @@ threads unchanged:
       "people": [<everyone named in this beat>],
       "setting": <where it happens>, "tone": <its emotional tone>,
       "children": []}}]}}
-]
+]}}
 
 JSON:"""
     result = await get_llm_client().generate(
@@ -290,6 +294,7 @@ JSON:"""
         max_tokens=4096,
         user_id=user_id,
         purpose="outline:beats",
+        response_format=JSON_OBJECT,
     )
     return extract_json_array(result.text)
 
@@ -311,8 +316,20 @@ def merge_structural(chapters: list[dict], nodes: list[dict]) -> list[dict]:
             for key in _STRUCTURAL:
                 if node.get(key) in _EMPTY and source.get(key) not in _EMPTY:
                     node[key] = source[key]
-        merged.append(node)
+        merged.append(_with_scene_people(node))
     return merged
+
+
+def _with_scene_people(node):
+    """W6-4 (c): a chapter's `people` also lists everyone its scenes name."""
+    if not isinstance(node, dict) or not isinstance(node.get("people"), list):
+        return node
+    people = list(node["people"])
+    for scene in node.get("children") or []:
+        named = scene.get("people") if isinstance(scene, dict) else None
+        if isinstance(named, list):
+            people += [p for p in named if p not in people]
+    return {**node, "people": people}
 
 
 def _by_act(chapters: list[dict]) -> dict[int, list[dict]]:

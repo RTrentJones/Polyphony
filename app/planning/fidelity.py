@@ -385,6 +385,14 @@ def _structural_cast(
     return names, bad
 
 
+# D9 (SPEC-49): a scene summary that says what its POV character cannot witness.
+_POV_LEAK = re.compile(
+    r"\b(does not see|does not notice|the reader|will later|would later|cannot see)\b",
+    re.IGNORECASE,
+)
+POV_LEAK_WARNING = "Scene summaries say what their POV character cannot witness (edit them in the beat editor): "
+
+
 def audit_outline(
     nodes: list[dict],
     principals: list[dict],
@@ -433,4 +441,13 @@ def audit_outline(
             "Outline introduces names not in the canon (may be inventions): "
             + ", ".join(unknown[:12])
         )
+    leaks = [  # chapters numbered from 1 in outline order
+        f'chapter {i} "{scene.get("title", "")}" ("{m.group(1).lower()}")'
+        for i, chapter in enumerate((n for n in nodes if isinstance(n, dict)), 1)
+        for scene in chapter.get("children") or []
+        if isinstance(scene, dict)
+        and (m := _POV_LEAK.search(str(scene.get("summary") or "")))
+    ]
+    if leaks:
+        warnings.append(POV_LEAK_WARNING + "; ".join(leaks))
     return FidelityAudit(recall, present, missing, unknown, warnings)

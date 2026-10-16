@@ -229,7 +229,7 @@ async def test_prose_records_grounding_for_every_beat_and_cast_member(
     import app.orchestration.workflow as wf_mod
     from app.orchestration.prose import run_prose_scene_workflow
 
-    llm = _LLM({"plan_beats": _PLAN, "beat_prose": "Prose. " * 20})
+    llm = _LLM({"plan_beats": _PLAN, "beat_prose": "Prose for Gary. " * 20})
     monkeypatch.setattr(prose_mod, "get_async_session", lambda: _Ctx(async_session))
     monkeypatch.setattr(prose_mod, "get_llm_client", lambda: llm)
     monkeypatch.setattr(wf_mod, "get_llm_client", lambda: llm)
@@ -253,7 +253,8 @@ async def test_prose_records_grounding_for_every_beat_and_cast_member(
     )
     assert result["status"] == "completed", result
     _assert_grounded(scene, duo)
-    assert scene.evaluation_scores["name_warnings"] == []
+    # (F) SPEC-48 (D8): the invented name is stored at generation.
+    assert scene.evaluation_scores["name_warnings"] == ["Gary"]
 
 
 async def test_ensemble_records_grounding_the_same_way(async_session, duo, monkeypatch):
@@ -268,7 +269,7 @@ async def test_ensemble_records_grounding_the_same_way(async_session, duo, monke
         {
             "plan_beats": _PLAN,
             "ensemble:proposal": '{"intent":"i","actions":["nods"],"lines":["Hi"]}',
-            "ensemble:narration": "Milo nods and Zara watches him. " * 3,
+            "ensemble:narration": "Milo nods and Zara watches Gary. " * 3,
             "ensemble:review": '{"satisfied":true,"arc_fit":0.9,"beat_coverage":0.9,'
             '"characters_acting":["Milo","Zara"],"objections":[]}',
         }
@@ -305,7 +306,7 @@ async def test_ensemble_records_grounding_the_same_way(async_session, duo, monke
     _assert_grounded(scene, duo)
     # (F) wave-6 day-0: the prose writer's merge form, with name_warnings.
     assert scene.evaluation_scores["kept"] is True
-    assert scene.evaluation_scores["name_warnings"] == []
+    assert scene.evaluation_scores["name_warnings"] == ["Gary"]  # (F) SPEC-48
 
 
 # --- grounding endpoint (acceptance 3) ----------------------------------------

@@ -27,6 +27,7 @@ vi.mock('@/lib/books-store', () => ({
 import OutlinePanel from '@/components/book/OutlinePanel'
 
 const PRAVA_SENTENCE = 'Prava, the intake caseworker, processes his file.'
+const PRAVA_INTRO = 'Prava, the intake caseworker'
 
 function outline(overrides: Partial<BookPlan> = {}): BookPlan {
   return {
@@ -53,7 +54,7 @@ function outline(overrides: Partial<BookPlan> = {}): BookPlan {
     ],
     updated_at: null,
     suggested_characters: [
-      { name: 'Prava', synopsis_sentence: PRAVA_SENTENCE, introduction: '' },
+      { name: 'Prava', synopsis_sentence: PRAVA_SENTENCE, introduction: PRAVA_INTRO },
       { name: 'Old Fen', synopsis_sentence: '', introduction: '' },
     ],
     ...overrides,
@@ -89,7 +90,7 @@ describe('Outline suggested cast (SPEC-27)', () => {
     expect(screen.queryByTestId('suggested-cast')).not.toBeInTheDocument()
   })
 
-  it('a click creates a minor character described by the synopsis sentence, then refetches', async () => {
+  it('a click creates a minor character described by the introduction, then refetches', async () => {
     createCharacter.mockResolvedValue({ id: 'c-prava', name: 'Prava', book_id: 'book-1' })
     const addToast = vi.fn()
     const value = renderWithBook(<OutlinePanel addToast={addToast} />, bookValue())
@@ -104,7 +105,7 @@ describe('Outline suggested cast (SPEC-27)', () => {
     expect(createCharacter).toHaveBeenCalledWith('book-1', {
       name: 'Prava',
       role: 'minor',
-      description: PRAVA_SENTENCE,
+      description: PRAVA_INTRO,
     })
     expect(fetchPlans).toHaveBeenCalledWith('book-1')
     expect(value.refreshCharacters).toHaveBeenCalled()

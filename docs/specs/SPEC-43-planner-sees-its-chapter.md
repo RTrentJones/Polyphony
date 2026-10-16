@@ -13,7 +13,7 @@ chapter")` with one `- title: beat lines` line each, and "Keep the days, times a
 establish; do not introduce again what an earlier scene already introduced." No plan for the
 chapter (or no story position): no block. The canon block is unchanged (R1.1).
 
-**One renderer** (S-5): `workflow.marked_plan(header, items, current, earlier_header, earlier)`
+**One renderer** (S-5): `planned_beat.marked_plan(header, items, current, earlier_header, earlier)`
 renders this block and `outline_context` (byte-identical, pinned). **Also named**: the "may appear
 by name" sentence is printed only with an Also-named list (alone it read as a missing list).
 

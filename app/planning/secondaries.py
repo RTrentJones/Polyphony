@@ -73,10 +73,13 @@ def intro_sentence(name: str, texts: Iterable[str]) -> str:
     return ""
 
 
-def introduction(sentence: str) -> str:
+def introduction(sentence: str, name: str = "") -> str:
     """The naming sentence through its first appositive (SPEC-40): cut before
     the second comma, less a trailing "and" / "and who" / "and which", capped.
-    The canon block still carries the whole sentence (BRD R1.1)."""
+    The canon block still carries the whole sentence (BRD R1.1). A comma-led
+    clause before `name` is dropped first ("On his first day, Prava, ...")."""
+    if name and sentence[: max(sentence.find(name), 0)].rstrip().endswith(","):
+        sentence = sentence[sentence.find(name) :]
     head = ",".join(sentence.split(",")[:2]).strip()
     return _cap(re.sub(r"\s+and(?:\s+(?:who|which))?$", "", head))
 
@@ -114,7 +117,7 @@ def scene_secondaries(
             key=lambda line: len(line.split()) < PREFERRED_SAMPLE_WORDS,
         )
         intro = intro_sentence(name, [canon.synopsis or "", *entries, *texts])
-        out.append(Secondary(name, introduction(intro), said[:SAMPLES]))
+        out.append(Secondary(name, introduction(intro, name), said[:SAMPLES]))
     return out
 
 
@@ -154,9 +157,11 @@ def suggested_characters(names: Iterable[str], canon) -> list[dict]:
     return [
         {
             "name": name,
-            "synopsis_sentence": intro_sentence(name, [synopsis])
-            or intro_sentence(name, _entry_texts(canon)),
-            "introduction": "",
+            "synopsis_sentence": (
+                s := intro_sentence(name, [synopsis])
+                or intro_sentence(name, _entry_texts(canon))
+            ),
+            "introduction": introduction(s, name),  # what "Add to cast" stores
         }
         for name in people.secondary
     ]

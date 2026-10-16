@@ -13,6 +13,8 @@ from uuid import UUID, uuid4, uuid5
 
 from pydantic import BaseModel, Field, StringConstraints
 
+from app.core.prompt_markers import CURRENT_BEAT_MARK
+
 MAX_PLANNED_BEATS = 12
 MAX_SECONDARY_NAMES = 12
 
@@ -49,6 +51,18 @@ def beat_scene_description(beat: dict) -> str:
     before the migration were linked to their beats by migration 0019
     (scene_request.planned_beat_id)."""
     return f"{beat.get('title', '')}: {beat.get('summary', '')}".strip()
+
+
+def marked_plan(
+    header: str, items: list[str], current: set[int], earlier_header: str, earlier
+) -> list[str]:
+    """The ONE marked-list renderer (S-5): numbered `items` under `header`,
+    those in `current` marked, then `earlier` under `earlier_header` if any.
+    The outline's acts (SPEC-38) and a chapter's scenes (SPEC-43) use it."""
+    lines = [header]
+    for i, item in enumerate(items):
+        lines.append(f"{CURRENT_BEAT_MARK if i in current else ' '} {i + 1}. {item}")
+    return [*lines, earlier_header, *earlier] if earlier else lines
 
 
 def normalize_planned_beats(value: Any) -> list[dict]:

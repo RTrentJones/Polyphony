@@ -432,6 +432,13 @@ function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: stri
         </div>
       )}
 
+      {scene.name_warnings.length > 0 && (
+        <p className="mb-2 text-xs text-yellow-800">
+          When it was generated, this scene named people or places not in the canon (may be
+          inventions): {scene.name_warnings.join(', ')}
+        </p>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Editor */}
         <div className="lg:col-span-3">

@@ -317,7 +317,7 @@ export default function OutlinePanel({
       await canonApi.createCharacter(bookId, {
         name: s.name,
         role: 'minor',
-        description: s.synopsis_sentence || undefined,
+        description: s.introduction || undefined,
       })
     } catch (err: any) {
       addToast(err.message || `Failed to add ${s.name}`, 'error')
