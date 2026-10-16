@@ -57,6 +57,9 @@ from playwright.async_api import Page, async_playwright, expect
 BASE = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
 EMAIL = os.getenv("ADMIN_EMAIL", "admin@e2e.test")
 PASSWORD = os.getenv("ADMIN_PASSWORD", "admin-pass-12345")
+ADMIN = (EMAIL, PASSWORD)
+# Registered by second_author_is_isolated; a step using it must run after that.
+SECOND_AUTHOR = ("second-author@example.com", "second-pass-12345")
 SHOTS = Path(os.getenv("E2E_SHOTS", "e2e-shots"))
 STUB = os.getenv("STUB_URL", "http://127.0.0.1:8099").rstrip("/")
 TIMEOUT = 90_000
@@ -151,16 +154,30 @@ class dismissing_dialogs:
 async def journey(page: Page) -> None:
     page.set_default_timeout(TIMEOUT)
 
-    async def api_headers() -> dict:
-        """A bearer token for the admin author, for the API-level checks."""
-        if "token" not in STATE:
-            login = await page.request.post(
+    async def api_headers(who=ADMIN) -> dict:
+        """A bearer token per author, for the API-level checks. It logs in on a
+        cookie jar of its own, so the page's refresh cookie is never replaced."""
+        tokens = STATE.setdefault("tokens", {})
+        if who not in tokens:
+            jar = await page.context.browser.new_context()
+            login = await jar.request.post(
                 f"{BASE}/api/v1/auth/login",
-                form={"username": EMAIL, "password": PASSWORD},
+                form={"username": who[0], "password": who[1]},
             )
-            assert login.ok, f"API login failed: {login.status}"
-            STATE["token"] = (await login.json())["access_token"]
-        return {"Authorization": f"Bearer {STATE['token']}"}
+            assert login.ok, f"API login as {who[0]} failed: {login.status}"
+            tokens[who] = (await login.json())["access_token"]
+            await jar.close()
+        return {"Authorization": f"Bearer {tokens[who]}"}
+
+    async def api(method: str, path: str, data=None, who=ADMIN):
+        r = await page.request.fetch(
+            f"{BASE}/api/v1{path}",
+            method=method,
+            data=data,
+            headers=await api_headers(who),
+        )
+        assert r.ok, f"{method} {path}: {r.status} {await r.text()}"
+        return await r.json()
 
     async def api_get(path: str, **params):
         r = await page.request.get(
@@ -806,25 +823,15 @@ async def journey(page: Page) -> None:
         await expect(page.get_by_text("Bored to Undeath").first).to_be_visible()
 
     async def second_author_is_isolated():
-        login = await page.request.post(
-            f"{BASE}/api/v1/auth/login",
-            form={"username": EMAIL, "password": PASSWORD},
-        )
-        token = (await login.json())["access_token"]
-        invite = await page.request.post(
-            f"{BASE}/api/v1/auth/invites",
-            data={"max_uses": 1},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        code = (await invite.json())["code"]
+        code = (await api("POST", "/auth/invites", {"max_uses": 1}))["code"]
         other = await page.context.browser.new_context()
         p2 = await other.new_page()
         try:
             await p2.goto(f"{BASE}/auth/register/")
             await p2.fill("input[name=fullName]", "Second Author")
-            await p2.fill("input[name=email]", "second-author@example.com")
-            await p2.fill("input[name=password]", "second-pass-12345")
-            await p2.fill("input[name=confirmPassword]", "second-pass-12345")
+            await p2.fill("input[name=email]", SECOND_AUTHOR[0])
+            await p2.fill("input[name=password]", SECOND_AUTHOR[1])
+            await p2.fill("input[name=confirmPassword]", SECOND_AUTHOR[1])
             await p2.fill("input[name=inviteCode]", code)
             await p2.get_by_role(
                 "button", name=re.compile("Create|Register|Sign up")
@@ -845,30 +852,19 @@ async def journey(page: Page) -> None:
     async def a_batch_over_budget_writes_what_fits():
         """SPEC-34: the second author (no spend yet; registering a third would
         pass the per-IP limit) plans a four-beat chapter on a long synopsis."""
-        who = ("second-author@example.com", "second-pass-12345")
+        who = SECOND_AUTHOR  # registered by second_author_is_isolated
         ctx = await page.context.browser.new_context()
         p4 = await ctx.new_page()
         try:
-            login = await p4.request.post(
-                f"{BASE}/api/v1/auth/login",
-                form={"username": who[0], "password": who[1]},
+            book = await api(
+                "POST", "/books/", {"title": "L", "synopsis": SYNOPSIS * 180}, who
             )
-            auth = {"Authorization": f"Bearer {(await login.json())['access_token']}"}
-
-            async def call(method, path, body):
-                r = await p4.request.fetch(
-                    f"{BASE}/api/v1{path}", method=method, data=body, headers=auth
-                )
-                assert r.ok, f"{path}: {r.status} {await r.text()}"
-                return await r.json()
-
-            book = await call(
-                "POST", "/books/", {"title": "L", "synopsis": SYNOPSIS * 180}
+            milo = await api(
+                "POST", "/characters/", {"name": "Milo", "book_id": book["id"]}, who
             )
-            milo = await call(
-                "POST", "/characters/", {"name": "Milo", "book_id": book["id"]}
+            ch = await api(
+                "POST", f"/books/{book['id']}/chapters", {"title": "Q4"}, who
             )
-            ch = await call("POST", f"/books/{book['id']}/chapters", {"title": "Q4"})
             beats = [
                 {
                     "node_id": f"00000000-0000-4000-8000-00000000000{i}",
@@ -877,7 +873,9 @@ async def journey(page: Page) -> None:
                 }
                 for i in range(4)
             ]
-            await call("PATCH", f"/books/chapters/{ch['id']}", {"planned_beats": beats})
+            await api(
+                "PATCH", f"/books/chapters/{ch['id']}", {"planned_beats": beats}, who
+            )
             await sign_in(p4, *who)
             await p4.goto(f"{BASE}/books/detail?id={book['id']}")
             await p4.get_by_role("button", name="Chapters", exact=True).first.click()
@@ -889,7 +887,7 @@ async def journey(page: Page) -> None:
             fit = re.compile(r"\d of 4 scenes fit your budget now")
             await expect(p4.get_by_text(fit).first).to_be_visible()
             assert started["deferred"] >= 1, started
-            written = re.compile(r"[1-4] of 4 planned scenes written")  # S2, SPEC-35
+            written = re.compile(r"[1-3] of 4 planned scenes written")  # S2, SPEC-35
             await expect(chapter_row(p4, ch["id"])).to_contain_text(written)
         finally:
             await ctx.close()
@@ -1308,12 +1306,8 @@ async def journey(page: Page) -> None:
         # The accepted revision rewrote REVISE_PHRASE; "Milo" is still there.
         await ask_to_revise(editor, panel, "Make it warmer.", False, "Milo")
         # Another tab saves a different draft meanwhile.
-        r = await page.request.put(
-            f"{BASE}/api/v1/books/scenes/{STATE['scene_id']}/content",
-            data={"content": "Saved elsewhere. The appendices were never read."},
-            headers=await api_headers(),
-        )
-        assert r.ok, f"saving elsewhere: {r.status}"
+        content = {"content": "Saved elsewhere. The appendices were never read."}
+        await api("PUT", f"/books/scenes/{STATE['scene_id']}/content", content)
         await panel.get_by_role("button", name="Ask for a revision").click()
         await expect(alert).to_contain_text(
             "The scene changed; reselect and try again."
@@ -1326,19 +1320,9 @@ async def journey(page: Page) -> None:
         """SPEC-26: the import review shows each character's name mentions,
         and ranks the protagonist above the others (a scratch book, so the
         journey's own book is untouched)."""
-        headers = await api_headers()
-        book = await page.request.post(
-            f"{BASE}/api/v1/books/", data={"title": "Review check"}, headers=headers
-        )
-        assert book.ok, f"scratch book: {book.status}"
-        book_id = (await book.json())["id"]
-        pasted = await page.request.post(
-            f"{BASE}/api/v1/sources/paste",
-            data={"title": "Opening", "content_text": SOURCE, "book_id": book_id},
-            headers=headers,
-        )
-        assert pasted.ok, f"paste: {pasted.status} {await pasted.text()}"
-        run = (await pasted.json())["extraction_run_id"]
+        book_id = (await api("POST", "/books/", {"title": "Review check"}))["id"]
+        source = {"title": "Opening", "content_text": SOURCE, "book_id": book_id}
+        run = (await api("POST", "/sources/paste", source))["extraction_run_id"]
         await page.goto(f"{BASE}/sources/review?book={book_id}&run={run}")
         await expect(page.get_by_text("Review extracted canon")).to_be_visible()
         names = page.get_by_placeholder("Name", exact=True)
