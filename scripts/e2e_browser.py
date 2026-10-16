@@ -843,6 +843,10 @@ async def journey(page: Page) -> None:
             ).click()
             await p2.wait_for_url(re.compile(r"/dashboard"))
             await p2.goto(f"{BASE}/books/")
+            # Let the page's token refresh land before leaving: a navigation
+            # that aborts it leaves the rotated-out cookie, whose reuse on the
+            # next page revokes the session (app/core/security.py).
+            await p2.wait_for_load_state("networkidle")
             await expect(p2.get_by_text("Bored to Undeath")).to_have_count(0)
             await p2.goto(STATE["book_url"])
             await expect(p2.get_by_text("Book not found").first).to_be_visible()
