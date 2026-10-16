@@ -81,6 +81,7 @@ SYNOPSIS = (
 # A person the synopsis names who is not in the cast (the source never names
 # her): the outline may use her, and offers her as a suggested character.
 SECONDARY = "Prava"
+BRIEF = "The ledger drawer stays shut tonight"  # an edited beat summary (SPEC-35)
 SOURCE = """Milo Voss opened his eyes in the intake atrium.
 
 "You've been retained," the caseworker said. Milo Voss nodded slowly.
@@ -888,6 +889,8 @@ async def journey(page: Page) -> None:
             fit = re.compile(r"\d of 4 scenes fit your budget now")
             await expect(p4.get_by_text(fit).first).to_be_visible()
             assert started["deferred"] >= 1, started
+            written = re.compile(r"[1-4] of 4 planned scenes written")  # S2, SPEC-35
+            await expect(chapter_row(p4, ch["id"])).to_contain_text(written)
         finally:
             await ctx.close()
 
@@ -1053,6 +1056,45 @@ async def journey(page: Page) -> None:
         await toast("Scene saved")
         await nxt.click()
         await page.wait_for_url(re.compile(rf"scene={second}"))
+
+    async def edit_beat_cast_brief_and_title():
+        """SPEC-35, one Save: beat 1's chips, beat 2's summary, the title."""
+        book = await (await api_get(f"/books/{STATE['book_id']}")).json()
+        cid = next(c["id"] for c in book["chapters"] if c["planned_beats"])
+        row = chapter_row(page, cid)
+        await row.get_by_role("button", name=re.compile("^Expand chapter")).click()
+        await row.get_by_role("button", name=re.compile(r"^Edit chapter \d+$")).click()
+        chips = row.get_by_role("group", name=re.compile("^Cast of beat 1 of"))
+        await axe_clean(page, f'[data-chapter-id="{cid}"]')
+        free = "button:not([aria-disabled=true])"  # the POV chip is locked
+        await chips.locator(f"{free}[aria-pressed=true]").first.click()
+        await chips.locator(f"{free}[aria-pressed=false]").first.click()
+        on = await chips.locator("[aria-pressed=true]").all_inner_texts()
+        STATE["beat1_cast"] = {t.split("·")[0].strip() for t in on}
+        await row.get_by_label(re.compile("^Beat 2 of .*, summary")).fill(BRIEF)
+        await row.get_by_label(re.compile("^Title of chapter")).fill("Renamed")
+        await row.get_by_role("button", name=re.compile("^Save chapter")).click()
+        await toast("Chapter saved")
+
+    async def edited_beats_are_written():
+        cid = STATE["planned_chapter"]
+        detail = await (await api_get(f"/books/chapters/{cid}")).json()
+        sid = detail["written"][detail["planned_beats"][0]["node_id"]]
+        scene = await (await api_get(f"/scenes/{sid}")).json()
+        assert set(scene["characters"]) == STATE["beat1_cast"], scene["characters"]
+        r = await page.request.get(f"{STUB}/__stub/requests", params={"limit": 200})
+        assert re.search(rf"Scene description: [^\\]*{BRIEF}", await r.text())
+        await page.reload()
+        await page.wait_for_load_state("networkidle")
+        await tab("Chapters")
+        row = chapter_row(page, cid)
+        await expect(row.get_by_test_id("chapter-title")).to_contain_text("Renamed")
+        await row.get_by_role("button", name=re.compile("^Expand chapter")).click()
+        await expect(row).to_contain_text("2 of 2 planned scenes written")
+        path = f"/books/{STATE['book_id']}/versions/chapter/{cid}"
+        last = (await (await api_get(path)).json())["versions"][0]["version_no"]
+        await row.get_by_role("button", name=re.compile("^History of")).click()
+        await expect(page.get_by_role("dialog").get_by_text(f"v{last}")).to_be_visible()
 
     async def scene_from_a_planned_beat():
         """SPEC-23 (review S7): the single-scene modal picks beat 1 with its
@@ -1422,6 +1464,7 @@ async def journey(page: Page) -> None:
     await step(
         "reorder, delete and restore a chapter", reorder_delete_and_restore_chapter()
     )
+    await step("edit beat cast, brief and title", edit_beat_cast_brief_and_title())
     await step(
         "a scene from a planned beat: its tone, cast and id",
         scene_from_a_planned_beat(),
@@ -1434,6 +1477,7 @@ async def journey(page: Page) -> None:
         "planned scenes: beat cast plus POV and title, no default tone",
         planned_scenes_follow_their_beats(),
     )
+    await step("edited beats and title are as edited", edited_beats_are_written())
     await step("editor: Ch N, guarded Next, Previous disabled", editor_walks_the_book())
     await step(
         '"Redo beat 2" on a planned scene opens a proposal', redo_a_planned_beat()
