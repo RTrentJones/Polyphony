@@ -541,7 +541,8 @@ async def test_a_batch_over_budget_queues_what_fits_and_defers_the_rest(
     assert len(job.payload["batch"]["remaining"]) == 2
     running = (await client.post(url, json={}, headers=auth_headers)).json()
     assert running["already_running"] is True
-    assert (running["deferred"], running["reason"]) == (0, None)
+    # A repeat while the batch runs still says what it deferred.
+    assert (running["deferred"], running["reason"]) == (1, body["reason"])
 
 
 async def test_the_deferred_scene_is_written_once_the_budget_frees_up(

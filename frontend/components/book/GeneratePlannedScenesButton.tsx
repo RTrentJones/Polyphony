@@ -20,8 +20,9 @@ import { useBookStore } from '@/lib/books-store'
 import type { BookChapter, PlannedScenesResponse } from '@/lib/types'
 
 export function plannedScenesMessage(r: PlannedScenesResponse): string {
+  const deferred = r.deferred > 0 ? ` ${r.reason}` : ''
   if (r.already_running) {
-    return 'The planned scenes for this chapter are already being written.'
+    return `The planned scenes for this chapter are already being written.${deferred}`
   }
   if (r.queued === 0) {
     return 'Every planned beat in this chapter already has a scene.'
@@ -29,7 +30,6 @@ export function plannedScenesMessage(r: PlannedScenesResponse): string {
   const skipped = r.skipped
     ? ` (${r.skipped} already written, skipped)`
     : ''
-  const deferred = r.deferred > 0 ? ` ${r.reason}` : ''
   return `Writing ${r.queued} planned scene${r.queued === 1 ? '' : 's'} in order${skipped}.${deferred}`
 }
 

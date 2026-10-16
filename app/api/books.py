@@ -1115,8 +1115,8 @@ async def generate_planned_scenes(
             # Scenes of the batch not yet completed, this one included.
             "queued": 1 + len(batch.get("remaining") or []),
             "skipped": batch.get("skipped", 0),
-            "deferred": 0,
-            "reason": None,
+            "deferred": batch.get("deferred", 0),
+            "reason": batch.get("reason"),
         }
 
     if (found := await _existing()) is not None:
@@ -1202,6 +1202,13 @@ async def generate_planned_scenes(
         )
     n, deferred = fit, len(todo) - fit
     plans = plans[:n]
+    reason = (
+        f"{n} of {len(todo)} scenes fit your budget now; generate again as "
+        "your 24-hour budget frees up to write the other "
+        f"{deferred} (written scenes are skipped)."
+        if deferred
+        else None
+    )
 
     requests = [
         {
@@ -1233,6 +1240,9 @@ async def generate_planned_scenes(
         # length: beats written before the batch started are `skipped`.
         "total": len(beats),
         "skipped": len(beats) - len(todo),
+        # Kept so a repeat while the batch runs still says what is deferred.
+        "deferred": deferred,
+        "reason": reason,
         "remaining": requests[1:],
     }
     for attempt in (1, 2):
@@ -1276,13 +1286,7 @@ async def generate_planned_scenes(
         "queued": n,
         "skipped": len(beats) - len(todo),
         "deferred": deferred,
-        "reason": (
-            f"{n} of {len(todo)} scenes fit your budget now; generate again as "
-            "your 24-hour budget frees up to write the other "
-            f"{deferred} (written scenes are skipped)."
-            if deferred
-            else None
-        ),
+        "reason": reason,
         "mode_requested": payload.mode,
         "mode_used": mode_used,
         "estimate": assessed,

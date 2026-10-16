@@ -112,6 +112,10 @@ describe('GeneratePlannedScenesButton (SPEC-10)', () => {
     expect(plannedScenesMessage({ ...base, queued: 4, deferred: 0, reason: null })).toBe(
       'Writing 4 planned scenes in order.'
     )
+    // A repeat while the batch runs keeps the deferral.
+    expect(
+      plannedScenesMessage({ ...base, queued: 2, deferred: 1, reason, already_running: true })
+    ).toBe(`The planned scenes for this chapter are already being written. ${reason}`)
   })
 })
 
