@@ -316,6 +316,21 @@ describe('Scene editor safety net and header (SPEC-16 B1, SPEC-37)', () => {
     await waitFor(() => expect(booksApi.updateSceneTitle).toHaveBeenLastCalledWith('s1', 'Second'))
   })
 
+  it('a revert typed while a save is in flight is saved after it', async () => {
+    let finish: (v: { id: string; title: string }) => void = () => {}
+    booksApi.updateSceneTitle
+      .mockReturnValueOnce(new Promise((r) => (finish = r)))
+      .mockResolvedValueOnce({ id: 's1', title: 'Retained' })
+    await renderEditor()
+    const title = screen.getByLabelText('Scene title')
+    fireEvent.change(title, { target: { value: 'New' } })
+    fireEvent.blur(title)
+    fireEvent.change(title, { target: { value: 'Retained' } })
+    fireEvent.blur(title)
+    await act(async () => finish({ id: 's1', title: 'New' }))
+    await waitFor(() => expect(booksApi.updateSceneTitle).toHaveBeenLastCalledWith('s1', 'Retained'))
+  })
+
   it('a failed title save keeps the author on the scene', async () => {
     booksApi.updateSceneTitle.mockRejectedValue(new Error('Server error'))
     await renderEditor()

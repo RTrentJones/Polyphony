@@ -176,6 +176,8 @@ async def restore_entity_version(
                 select(BookPlanORM).where(
                     BookPlanORM.id == entity_id, BookPlanORM.book_id == book_id
                 )
+                # Locked, so a generation committing "generating" first is seen.
+                .with_for_update()
             )
         ).scalar_one_or_none()
         if plan is None:
