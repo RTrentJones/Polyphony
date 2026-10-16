@@ -253,6 +253,9 @@ class _ProductClient:
     async def get_character(self, cid):
         return {**self.chars[cid], "voice_stats": {"total_chunks": 4}}
 
+    async def voice_chunks(self, cid, chunk_type):
+        return [{"word_count": n} for n in (2, 3, 9)]  # "So!"-short is not speech
+
     async def get_canon(self, book_id):
         return {"entries": [], "style": self.style.get(book_id)}
 
@@ -481,6 +484,7 @@ async def test_prose_writes_the_planned_scenes_of_a_two_principal_chapter(tmp_pa
     assert upload[1] == commit[1] and upload[2].startswith("Milo Voss opened")
     assert all(set(c) == {"name"} for c in commit[2]["characters"])
     assert out["voice"]["chunks"]["Zara Okafor"] == 4
+    assert out["voice"]["speech"]["Edric Thane"] == 2  # >= 3-word dialogue (D9)
 
     s1, s2 = out["scenes"]
     # Scene 1 repeats a sentence across its beat seam: R4 is capped at 0.
@@ -840,16 +844,28 @@ REVISE_DRAFT = (
 )
 
 
-def test_revise_requests_address_a_paragraph_an_exchange_and_a_beat():
-    reqs = pipeline.revise_requests(REVISE_DRAFT, has_beats=True)
-    assert [r["id"] for r in reqs] == ["tighten", "colder", "redo_beat"]
-    tighten = reqs[0]["range"]
+# Beat 1 is the first two paragraphs, beat 2 the exchange.
+REVISE_BEATS = [
+    {"content": "\n\n".join(REVISE_DRAFT.split("\n\n")[:2])},
+    {"content": "\n\n".join(REVISE_DRAFT.split("\n\n")[2:])},
+]
+
+
+def test_tighten_a_paragraph_inside_beat_1_then_ask_the_rest():
+    """S-7: the tighten stays inside beat 1, so the redo meets beat 2 as
+    written; with one beat it is the last paragraph. B-4: no keep clause."""
+    tighten = pipeline.tighten_request(REVISE_DRAFT, REVISE_BEATS)["range"]
     assert REVISE_DRAFT[tighten["start"] : tighten["end"]].startswith("Across")
-    colder = reqs[1]["range"]
+    one = pipeline.tighten_request(REVISE_DRAFT, REVISE_BEATS[:1])["range"]
+    assert REVISE_DRAFT[one["start"] :].startswith('"No," Zara')
+    reqs = pipeline.revise_requests(REVISE_DRAFT, has_beats=True)
+    assert [r["id"] for r in reqs] == ["colder", "redo_beat"]
+    colder = reqs[0]["range"]
     assert REVISE_DRAFT[colder["start"] : colder["end"]].startswith('"No," Zara')
-    assert reqs[2] == {
+    assert reqs[1] == {
         "id": "redo_beat",
-        "instruction": "Redo beat 2.",
+        "instruction": "Redo beat 2: let Milo notice one thing about the room "
+        "that unsettles him.",
         "beat_index": 1,
     }
     assert "redo_beat" not in [
@@ -887,52 +903,60 @@ def test_revision_checks_outside_bytes_and_new_names():
 
 
 class _ReviseClient(_ProductClient):
+    """The revise API on one scene with two beats: a proposal is the draft
+    without the paragraph's padding, and accepting it makes it the draft."""
+
     def __init__(self):
         super().__init__()
-        self.revised: list[dict] = []
-        self.discarded: list[str] = []
+        self.draft, self.revised, self.discarded = REVISE_DRAFT, [], []
+        self.proposals: dict[str, dict] = {}
 
     async def get_scene(self, sid):
-        return {"id": sid, "book_id": "book-1", "content": REVISE_DRAFT}
+        content = {"content": self.draft, "characters": ["Milo Voss"]}
+        return {"id": sid, "book_id": "book-1", **content, "beats": REVISE_BEATS}
 
     async def create_scene(self, chapter_id, content="", characters=None):
         return {"id": "rev-scene"}
 
     async def revise_draft(self, sid):
-        return REVISE_DRAFT
+        return self.draft
 
     async def revise(self, scene_id, body):
-        self.revised.append(body)
-        start, end = body["range"]["start"], body["range"]["end"]
-        span = REVISE_DRAFT[start:end]
-        new = span.replace(" very quietly and without any hurry at all,", "")
-        proposal = {
-            "id": f"p{len(self.revised)}",
-            "content": REVISE_DRAFT[:start] + new + REVISE_DRAFT[end:],
+        self.revised.append({**body, "draft": self.draft})
+        span = body.get("range") or {"start": self.draft.index('"Is it')}
+        start, end = span["start"], span.get("end", len(self.draft))
+        new = self.draft[start:end].replace(
+            " very quietly and without any hurry at all,", ""
+        )
+        pid = f"p{len(self.revised)}"
+        self.proposals[pid] = {
+            "id": pid,
+            "content": self.draft[:start] + new + self.draft[end:],
             "range": [start, end],
             "status": "proposed",
+            "dropped_callbacks": ["B-flat"],
         }
-        return {
-            "job": {"status": "completed"},
-            "proposal": proposal,
-            "draft": REVISE_DRAFT,
-        }
+        return {"job": {}, "proposal": self.proposals[pid], "draft": self.draft}
+
+    async def accept_proposal(self, scene_id, revision_id):
+        self.draft = self.proposals[revision_id]["content"]
 
     async def discard_proposal(self, scene_id, revision_id):
         self.discarded.append(revision_id)
 
 
-async def test_revise_step_grades_each_revision(tmp_path):
+async def test_revise_step_accepts_the_tighten_and_asks_the_rest_of_it(tmp_path):
     client = _ReviseClient()
     judge = _RubricJudge()
     ctx = _cel_ctx(tmp_path, client, judge)
     await ctx.client.create_book("x", "s")  # book-1 for the canon block
     out = await pipeline.step_revise(ctx)
-    assert out["scene"] == "created scene (no beats)"
-    assert [r["id"] for r in out["revisions"]] == ["tighten", "colder"]
-    assert out["outside_identical"] == "2/2" and out["new_names"] == []
-    assert out["score"] == pytest.approx((0.8 + 0.7) / 2)
-    assert client.discarded == ["p1", "p2"]
+    tighten, colder, redo = out["revisions"]
+    assert tighten["accepted"] is True and client.discarded == ["p2", "p3"]
+    accepted = client.proposals["p1"]["content"]
+    assert [r["draft"] for r in client.revised] == [REVISE_DRAFT, accepted, accepted]
+    assert colder["outside_identical"] and redo["dropped_callbacks"] == ["B-flat"]
+    assert redo["borrowed_phrase"] == []
     seen = [c for rid, c in judge.seen if rid == "RA"][0]
     assert "INSTRUCTION: Tighten this paragraph" in seen
     assert (
@@ -940,21 +964,20 @@ async def test_revise_step_grades_each_revision(tmp_path):
     )
 
 
-async def test_revise_step_scores_a_refused_revision_zero_and_goes_on(tmp_path):
+async def test_revise_step_records_a_409_as_refused_and_goes_on(tmp_path):
     class Refusing(_ReviseClient):
         async def revise(self, scene_id, body):
-            if "colder" in body["instruction"]:
+            if "beat_index" in body:
                 raise EvalClientError("revise failed (409): The beat was edited")
             return await super().revise(scene_id, body)
 
-    client = Refusing()
-    ctx = _cel_ctx(tmp_path, client)
+    ctx = _cel_ctx(tmp_path, Refusing())
     await ctx.client.create_book("x", "s")
     out = await pipeline.step_revise(ctx)
-    tighten, colder = out["revisions"]
-    assert colder["score"] == 0.0 and "409" in colder["error"]
-    assert tighten["outside_identical"] is True
-    assert out["score"] == pytest.approx((0.75 + 0.0) / 2)
+    tighten, colder, redo = out["revisions"]
+    assert (redo["refused"], redo["score"]) == (True, None)
+    assert "409" in redo["error"] and tighten["accepted"] is True
+    assert out["score"] == pytest.approx((tighten["score"] + colder["score"]) / 2)
 
 
 def test_portable_outline_swaps_ids_in_beat_children_too():
