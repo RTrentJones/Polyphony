@@ -8,20 +8,28 @@ whole planned scene (so `resolve_pov`, `scene_chapter` and the first and
 last beat prompts run), a beat revise of it and the extraction reduce. Written as an archive, every prompt_contract
 check must run and pass.
 
+The store also holds three cel movement paragraphs (the intake, the drawer and
+Zara's look), and the outline and the book plan put W4's "The Locked Drawer"
+in chapter 2, so `samples_not_plot` grades real samples (B-3).
+
 A failure here is a contract break between the app's prompts and the grader:
 fix the prompt (or the marker), never soften the check.
 """
 
 import json
 import types
+from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
 import app.llm.client as llm_client
 from app.core.orm_models import Chapter, Character, Scene, Source, StyleGuide
+from app.core.prompt_markers import ACT_CHAPTERS_HEADER
 from evals import stub_llm
 from evals.graders import prompt_contract as pc
 from evals.steps import pipeline
+from tests.unit.factories import add_chapter, add_scene, add_scene_beats
 
 pytestmark = pytest.mark.unit
 
@@ -34,7 +42,7 @@ class CapturingLLM:
 
     async def generate(self, messages, *, purpose="", **kw):
         prompt = "\n\n".join(str(m.get("content") or "") for m in messages)
-        answer = stub_llm._answer(prompt)
+        answer = _plan_the_drawer(prompt, stub_llm._answer(prompt))
         self.records.append(
             {
                 "id": f"{len(self.records):04d}",
@@ -45,6 +53,24 @@ class CapturingLLM:
             }
         )
         return types.SimpleNamespace(text=answer, tokens_in=1, tokens_out=1)
+
+
+_DRAWER = next(
+    {k: n[k] for k in ("title", "summary")}
+    for n in json.loads(
+        (Path(__file__).parents[1] / "fixtures" / "w4_outlines.json").read_text()
+    )["w4"]
+    if n["title"] == "The Locked Drawer"
+)
+
+
+def _plan_the_drawer(prompt: str, answer: str) -> str:
+    """Act 1's second chapter also plans W4's "The Locked Drawer"."""
+    if ACT_CHAPTERS_HEADER.format(number=1) not in prompt:
+        return answer
+    chapters = json.loads(answer)
+    chapters[1]["children"].append({**_DRAWER, "people": ["Milo Voss"], "children": []})
+    return json.dumps(chapters)
 
 
 class _Session:
@@ -63,17 +89,29 @@ class _Session:
 
 
 class _GoldStore:
-    """Voice retrieval answering with each character's own corpus lines."""
+    """Retrieval answering with each character's own corpus lines and, as
+    `action` rows of the cel source, the excerpt paragraphs `moves` gives them."""
 
-    def __init__(self, lines_by_id: dict[str, list[str]]):
-        self.lines = lines_by_id
+    def __init__(self, lines_by_id: dict[str, list[str]], moves=None, source_id=""):
+        self.lines, self.moves, self.source_id = lines_by_id, moves or {}, source_id
+        self.paragraphs = pipeline.load_excerpts("cel").split("\n\n")
 
-    async def retrieve_similar(self, *, character_id, k=5, **kw):
-        return [
+    async def retrieve_similar(
+        self, *, character_id, k=5, chunk_type=None, keep=None, **kw
+    ):
+        words = [
             {"id": f"{character_id}-{i}", "text": t, "score": 1.0 - i / 10}
             | {"chunk_type": "dialogue"}
             for i, t in enumerate(self.lines.get(character_id, [])[:k])
         ]
+        moves = [
+            {"id": f"{character_id}-p{n}", "text": self.paragraphs[n], "score": 0.5}
+            | {"chunk_type": "action", "source_id": self.source_id}
+            | {"source": f"paragraph_{n}"}
+            for n in self.moves.get(character_id, [])[:k]
+        ]
+        rows = {"dialogue": words, "action": moves, None: words + moves}
+        return [r for r in rows.get(chunk_type, []) if keep is None or keep(r)]
 
 
 async def _cel_book(session, book):
@@ -88,19 +126,22 @@ async def _cel_book(session, book):
         cast.append(Character(book_id=book.id, user_id=book.user_id, **payload))
     session.add_all(cast)
     excerpt = pipeline.load_excerpts("cel")
-    session.add_all(
-        [
-            Source(
-                book_id=book.id,
-                user_id=book.user_id,
-                title="cel excerpts",
-                content_text=excerpt,
-                word_count=len(excerpt.split()),
-                status="completed",
-            ),
-            Chapter(book_id=book.id, title="The second", position=1, summary=""),
-        ]
+    source = Source(
+        book_id=book.id,
+        user_id=book.user_id,
+        title="cel excerpts",
+        content_text=excerpt,
+        word_count=len(excerpt.split()),
+        status="completed",
     )
+    second = Chapter(
+        book_id=book.id,
+        title="The second",
+        position=1,
+        summary="",
+        planned_beats=[_DRAWER],
+    )
+    session.add_all([source, second])
     session.add(
         StyleGuide(
             book_id=book.id,
@@ -108,7 +149,7 @@ async def _cel_book(session, book):
         )
     )
     await session.commit()
-    return gt, style, {c.name: c for c in cast}
+    return gt, style, {c.name: c for c in cast}, str(source.id)
 
 
 async def test_the_apps_prompts_pass_every_contract_check(
@@ -125,7 +166,7 @@ async def test_the_apps_prompts_pass_every_contract_check(
     from app.planning.planned_beat import beat_scene_description
     from app.planning.staged_outline import generate_staged_outline
 
-    gt, style, cast = await _cel_book(async_session, test_book)
+    gt, style, cast, source_id = await _cel_book(async_session, test_book)
     fake = CapturingLLM()
     monkeypatch.setattr(llm_client, "_client", fake)
     monkeypatch.setattr(prose_mod, "get_async_session", lambda: _Session(async_session))
@@ -134,7 +175,10 @@ async def test_the_apps_prompts_pass_every_contract_check(
         for n, c in cast.items()
         if n in gt["gold_lines"]
     }
-    monkeypatch.setattr(ctx_mod, "get_chunk_store", lambda: _GoldStore(gold))
+    # The intake and the drawer are Milo's movement, the look at the column Zara's.
+    moves = {str(cast["Milo Voss"].id): [0, 13], str(cast["Zara Okafor"].id): [29]}
+    store = _GoldStore(gold, moves, source_id)
+    monkeypatch.setattr(ctx_mod, "get_chunk_store", lambda: store)
 
     # 1. The staged outline: skeleton, chapters and beats.
     canon = await build_canon(async_session, test_book.id)
@@ -155,6 +199,7 @@ async def test_the_apps_prompts_pass_every_contract_check(
         "setting": beat.get("setting") or "",
         "emotional_tone": beat.get("tone") or "",
         "secondary_names": beat.get("secondary_names") or [],
+        "planned_beat_id": beat["node_id"],
     }
     assert request["secondary_names"], beat
     await plan_scene_beats(
@@ -164,17 +209,25 @@ async def test_the_apps_prompts_pass_every_contract_check(
         pov=resolve_pov(request, canon),
         story_position=StoryPosition(1, 2),
         secondary_block="",
+        plan=[(1, b) for b in chapter["children"]],
+        earlier=[],
     )
 
     # 3. A whole planned scene: the POV comes from the style guide, the
-    # position from the chapter rows (B-4: computed, not typed in).
-    row = Chapter(
-        book_id=test_book.id,
+    # position from the chapter rows (B-4: computed, not typed in). It is the
+    # chapter's second planned scene; the first is written (plan_sees_chapter).
+    first = {"node_id": str(uuid4()), "title": "Before", "summary": "Milo waits."}
+    row = await add_chapter(
+        async_session,
+        test_book,
         title=chapter["title"],
-        position=0,
         summary=chapter["summary"],
+        planned_beats=[first, *chapter["children"]],
     )
-    async_session.add(row)
+    written = await add_scene(
+        async_session, test_book, row, beat=first["node_id"], title="Before"
+    )
+    await add_scene_beats(async_session, written, ["Milo waits in the atrium."])
     await async_session.commit()
     assert row.number == 1
     scene_request = {
@@ -186,7 +239,7 @@ async def test_the_apps_prompts_pass_every_contract_check(
     scene = Scene(
         user_id=test_book.user_id,
         chapter_id=row.id,
-        position=0,
+        position=1,
         status="processing",
         scene_request=scene_request,
     )
@@ -220,7 +273,6 @@ async def test_the_apps_prompts_pass_every_contract_check(
             "instruction": "Redo beat 2.",
             "range": [span.start, span.end],
             "beat_index": 1,
-            "beat_description": span.beat,
         }
     )
     assert fake.records[-1]["purpose"] == "scene_revise"
@@ -237,7 +289,7 @@ async def test_the_apps_prompts_pass_every_contract_check(
         character=milo,
         prompt=gt["canonical_beats"][0]["title"],
         context="",
-        scope=SceneScope.of(canon, [milo], (), ""),
+        scope=SceneScope.of(canon, [milo], (), (), {}),
     )
     assert any(r["purpose"] == "dialogue" for r in fake.records)
 
@@ -250,6 +302,10 @@ async def test_the_apps_prompts_pass_every_contract_check(
     )
     ran = {c: out[c] for c in pc.CHECKS if out[c]["n"]}
     failing = {c: r["failures"] for c, r in ran.items() if r["rate"] != 1.0}
+    # B-3: the gold sees real samples, and none of them is plot.
+    assert out["samples_not_plot"]["classified"] > 0
+    assert out["samples_not_plot"]["later_plot_slots"] == 0
+    assert out["voice_dialogue"]["voice_coverage"] >= 0.8, out["voice_dialogue"]
     assert not failing, json.dumps(failing, indent=1)[:4000]
     assert set(ran) == set(pc.CHECKS)
     assert out["plan_cast_from_beat"]["unmatched"] == []

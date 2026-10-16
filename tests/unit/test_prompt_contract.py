@@ -5,6 +5,7 @@ Passing prompts come from the app itself (`test_prompt_roundtrip.py`); this
 file keeps one FAILING fixture per check, so each check is shown to bite."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -12,9 +13,12 @@ from app.core.prompt_markers import (
     ALSO_NAMED_LABEL,
     MOVEMENT_LABEL,
     OUTLINE_CHAPTERS_HEADER,
+    SCENE_CHARACTERS_SECTION,
     VOICE_SAMPLES_LABEL,
 )
+from evals.graders import plot
 from evals.graders import prompt_contract as pc
+from evals.steps import pipeline
 
 pytestmark = pytest.mark.unit
 
@@ -35,8 +39,14 @@ CHAPTER = {
     "summary": "Milo dies and is onboarded.",
     "pov": "Milo Voss",
     "people": ["Milo Voss", "Zara Okafor", "Prava"],
-    "children": [{"title": "Intake", "summary": "x", "people": ["Milo", "Prava"]}],
+    "children": [
+        {"title": "Intake", "summary": "x", "people": ["Milo", "Prava"]},
+        {"title": "Retained", "summary": "Milo is retained.", "people": ["Milo"]},
+    ],
 }
+CEL = pipeline.load_corpus("cel")[1]
+PARAS = pipeline.load_excerpts("cel").split("\n\n")
+PLOT_GOLD = {"excerpt_events": CEL["excerpt_events"], "excerpt": "\n\n".join(PARAS)}
 
 # Run-W3 record 1792100839-0017: Milo's sample, and the answer that lifts it.
 LIFT_PROMPT = (
@@ -106,11 +116,22 @@ FAILING = [
         "",
     ),
     ("beat_prose", LIFT_PROMPT, LIFT_ANSWER),
+    (  # C2, W4b2 0025: the revise's cast block is graded too
+        "scene_revise",
+        f"{SCENE_CHARACTERS_SECTION} — x\n### Milo Voss\n{MOVEMENT_LABEL}\n- {PARAS[0]}\n",
+        "",
+    ),
     ("outline:chapters", "", json.dumps([{"title": "Intake"}, {"title": "Drawer"}])),
     (
         "outline:beats",
         f"{OUTLINE_CHAPTERS_HEADER}\n→ 1. Intake\n\n"
         "Here are the chapters of act 1, in order:\n[]",
+        "",
+    ),
+    # W4 record 0031: a redo shown one plan line and no <beats> (SPEC-41).
+    (
+        "scene_revise",
+        "Beat 2 of this scene's plan: Prava slides an org chart across.\nRedo beat 2.",
         "",
     ),
 ]
@@ -137,6 +158,9 @@ REASONS = {
     "'Milo carried the memo up to Edric.'",
     "sample_lift": "20 word 8-grams of its samples: 'a tracker or some kind of shared doc'",
     "beats_see_whole_outline": "'Drawer' is not in the whole-outline block",
+    "samples_not_plot": "Milo Voss: paragraph 0: narrates intake (ch 1)",
+    "plan_sees_chapter": "no chapter-scenes block",
+    "redo_sees_plan": "no <beats> block marking beat 2",
 }
 
 
@@ -165,6 +189,7 @@ def test_every_check_fails_its_failing_fixture(tmp_path):
         principals=PRINCIPALS,
         style_tone="Dry, deadpan",
         descriptions=[MILO_DESC],
+        **PLOT_GOLD,
     )
     assert sorted(REASONS) == sorted(pc.CHECKS)
     for check, reason in REASONS.items():
@@ -176,6 +201,12 @@ def test_every_check_fails_its_failing_fixture(tmp_path):
     # W3-3: the planner's POV line is graded too (record 2 has none).
     pov = out["pov_line_has_mode_and_character"]
     assert "2" in [f["id"] for f in pov["failures"]]
+
+
+def test_redo_sees_plan_wants_the_redone_beat_marked():
+    """(F) SPEC-41: the marked item is the beat the redo names."""
+    wrong = "Beat 2 of this scene's plan: b\n<beats>\n→ 1. a\n2. b\n</beats>"
+    assert pc.check_redo_sees_plan(wrong) == ["<beats> marks beat 1, not beat 2"]
 
 
 def test_prior_keeps_its_paragraphs_and_starts_a_sentence():
@@ -311,3 +342,173 @@ def test_movement_counts_the_scene_and_reports_coverage(tmp_path, brief):
     ]
     assert out["movement_coverage"] == round(1 / 3, 4)
     assert out["movement_lines"] == {"Milo Voss": 2, "Zara Okafor": 0, "Edric Thane": 0}
+
+
+def _outline(name: str) -> dict:
+    """One outline:beats record holding an archived outline's six chapters."""
+    plan = json.loads(
+        (Path(__file__).parents[1] / "fixtures" / "w4_outlines.json").read_text()
+    )[name]
+    chapters = [
+        {"title": f"Chapter {n}", "children": [s for s in plan if s["chapter"] == n]}
+        for n in range(1, 7)
+    ]
+    prompt = "Here are the chapters of act 1, in order:\n[]"
+    return _rec("o", "outline:beats", prompt, json.dumps(chapters), created=0.0)
+
+
+@pytest.mark.parametrize(
+    "outline, placed",
+    [  # partition: chapter 1 on all five, by "partition" (W4, W5), "lanyard"
+        # (W4b2, W5b) or "next desk" (W5d's "Read the Appendices")
+        ("w4", [1, 1, 1, 1, 2, 2, 3]),
+        # "Reply All" (ch 5) summons Milo to the corner office: that line places
+        # the summons, so the meeting is "The Corner Office" (ch 6).
+        ("w4b2", [1, 1, 2, None, 5, 6, 4]),
+        ("w5", [1, 1, 2, 4, 1, 2, 2]),
+        ("w5b", [1, 1, 2, None, 6, 6, 4]),
+        ("w5d", [1, 1, 1, 1, 2, 2, 2]),
+    ],
+)
+def test_locate_places_each_event_by_the_first_line_naming_it(outline, placed):
+    events = ["intake", "partition", "bell", "drawer", "summons", "corner office"]
+    events += ["discrepancy"]
+    got = plot.locate(CEL["excerpt_events"], plot.outline_chapters([_outline(outline)]))
+    assert [got.get(e) for e in events] == placed
+
+
+def test_an_event_whose_lines_are_all_taken_still_places():
+    """C1: an unplaced event could never be later plot, so it would pass."""
+    events = [{"event": e, "terms": ["drawer"]} for e in ("drawer", "column")]
+    chapters = [[], ["The Column: Milo opens the drawer."]]
+    assert plot.locate(events, chapters) == {"drawer": 2, "column": 2}
+
+
+def _beat(chapter: int, blocks: dict[str, tuple[list, list]]) -> str:
+    """A beat prompt: per owner, (voice samples, movement samples)."""
+    body = "".join(
+        f"### {who}\n{VOICE_SAMPLES_LABEL}\n"
+        + "".join(f'- "{v}"\n' for v in voice)
+        + f"{MOVEMENT_LABEL}\n"
+        + "".join(f"- {m}\n" for m in moves)
+        for who, (voice, moves) in blocks.items()
+    )
+    return f"This scene is in chapter {chapter} of 6.\nCHARACTERS IN THIS BEAT\n{body}"
+
+
+SUMMONS = "He wants to meet me. Personally. Is that normal?"
+CLOSE = "Close the accounts in your queue. Don't open the ones that aren't."
+
+
+@pytest.mark.parametrize(
+    "outline, blocks, reasons, later",
+    [  # (F) W4 "Retained", beat 2 (the org-chart beat): the intake narrated
+        (
+            "w4",
+            {"Milo Voss": ([], [PARAS[0]])},
+            ["paragraph 0: narrates intake (ch 1)"],
+            0,
+        ),
+        # (F) W4b2 0021: the intake again; the drawer is not planned in W4b2
+        (
+            "w4b2",
+            {"Milo Voss": ([], [PARAS[0], PARAS[13]])},
+            ["paragraph 0: narrates intake (ch 1)"],
+            0,
+        ),
+        # (F) the summons line in a chapter-1 scene of W4b2: chapter-5 plot
+        (
+            "w4b2",
+            {"Milo Voss": ([SUMMONS], [])},
+            ["paragraph 15: voice sample is ch-5 plot in ch 1"],
+            1,
+        ),
+        # (R) Zara's look at the column and her training lines are manner
+        ("w4b2", {"Zara Okafor": ([CLOSE], [PARAS[29]])}, [], 0),
+    ],
+)
+def test_samples_not_plot_grades_against_the_gold(
+    tmp_path, outline, blocks, reasons, later
+):
+    for rec in (_outline(outline), _rec("b", "beat_prose", _beat(1, blocks))):
+        _write(tmp_path, rec)
+    out = pc.grade(pc.load_archive(tmp_path), **PLOT_GOLD)["samples_not_plot"]
+    got = [r.split(": ", 1)[1] for f in out["failures"] for r in f["reasons"]]
+    assert (out["n"], got, out["later_plot_slots"]) == (1, reasons, later)
+    assert out["classified"] == sum(len(v) + len(m) for v, m in blocks.values())
+
+
+def test_blocks_only_plot_could_fill_are_emptied_by_rule(tmp_path):
+    """D6 on W4b's block shape: Milo is only ever shown the intake and the
+    drawer, both planned, so his five empty blocks (four in "The Locked
+    Drawer", one in "The Bell Account") leave coverage; Zara's look is not
+    plot, so her empty block counts against it. Chapter 3: W4 places no event
+    later, so no gold tail (in chapter 1 the look, paragraph 29, is past it)."""
+    milo, zara = ([], [PARAS[13]]), ([], [PARAS[29]])
+    shapes = [{"Milo Voss": ([], [PARAS[0]])}] * 4 + [
+        {"Milo Voss": milo, "Zara Okafor": zara}
+    ] * 4
+    shapes += [{"Milo Voss": milo, "Zara Okafor": ([], [])}, {"Milo Voss": milo}]
+    shapes += [{"Milo Voss": ([], []), "Zara Okafor": zara}, {"Milo Voss": milo}]
+    shapes += [{"Milo Voss": ([], [])}] * 4
+    _write(tmp_path, _outline("w4"))
+    for i, blocks in enumerate(shapes):
+        _write(tmp_path, _rec(f"b{i}", "beat_prose", _beat(3, blocks), created=1.0 + i))
+    out = pc.grade(pc.load_archive(tmp_path), principals=PRINCIPALS, **PLOT_GOLD)
+    move = out["movement_names_in_scene"]
+    assert move["emptied_by_rule"] == {
+        "Milo Voss": 5,
+        "Zara Okafor": 0,
+        "Edric Thane": 0,
+    }
+    assert move["movement_coverage"] == round(16 / 17, 4)
+    # Each emptied block names the plot that left it empty: the Bell Account's
+    # (b10) as much as the four Locked Drawer blocks.
+    assert move["emptied_blocks"][0] == {"id": "b10", "Milo Voss": [0, 13]}
+
+
+def test_d6_reads_the_store_and_the_gold_tail(tmp_path):
+    """(F) W5's shape: Milo's eight chapter-1 blocks are empty, and every chunk
+    the store holds for him is plot there: the intake and the partition (placed
+    in ch 1), and from bell (ch 2) on, the gold tail. Shown lines alone (none)
+    attribute nothing."""
+    _write(tmp_path, _outline("w5"))
+    for i in range(8):
+        _write(tmp_path, _rec(f"b{i}", "beat_prose", _beat(1, {"Milo Voss": ([], [])})))
+    store = {"Milo Voss": [PARAS[i] for i in (0, 3, 9, 13, 27)]}
+    grade = lambda **kw: pc.grade(  # noqa: E731
+        pc.load_archive(tmp_path), principals=PRINCIPALS, **PLOT_GOLD, **kw
+    )["movement_names_in_scene"]
+    assert grade()["emptied_by_rule"]["Milo Voss"] == 0
+    move = grade(movement_store=store)
+    assert move["emptied_by_rule"]["Milo Voss"] == 8
+    assert (move["movement_coverage"], move["every_block_emptied"]) == (None, True)
+    assert move["emptied_blocks"][0] == {"id": "b0", "Milo Voss": [0, 3, 9, 13, 27]}
+
+
+def test_a_run_that_shows_no_sample_is_vacuous(tmp_path):
+    """(F) W5b's shape: every block holds only its heading. Nothing measured
+    voice presence, so the empty cards passed; now voice_coverage is 0 and
+    samples_not_plot's 1.0 is reported vacuous (classified == 0)."""
+    _write(tmp_path, _outline("w5b"))
+    cast = {"Milo Voss": ([], []), "Zara Okafor": ([], [])}
+    for i in range(3):
+        _write(tmp_path, _rec(f"b{i}", "beat_prose", _beat(1, cast)))
+    _write(tmp_path, _rec("v", "beat_prose", _beat(1, {"Zara Okafor": ([CLOSE], [])})))
+    out = pc.grade(pc.load_archive(tmp_path), principals=PRINCIPALS, **PLOT_GOLD)
+    assert out["voice_dialogue"]["voice_coverage"] == round(1 / 7, 4)
+    assert (out["samples_not_plot"]["rate"], out["samples_not_plot"]["vacuous"]) == (
+        1.0,
+        False,
+    )
+    (tmp_path / "v.json").unlink()
+    out = pc.grade(pc.load_archive(tmp_path), principals=PRINCIPALS, **PLOT_GOLD)
+    assert out["voice_dialogue"]["voice_coverage"] == 0
+    assert out["samples_not_plot"]["rate"] == 1.0
+    assert (
+        out["samples_not_plot"]["classified"],
+        out["samples_not_plot"]["vacuous"],
+    ) == (
+        0,
+        True,
+    )

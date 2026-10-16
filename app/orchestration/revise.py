@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass, replace
-from typing import Optional
+from dataclasses import dataclass
+from typing import Optional, Sequence
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
@@ -25,9 +25,14 @@ from sqlalchemy import select
 
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.orm_models import Scene, SceneBeat
-from app.core.prompt_markers import PRIOR_FENCE
+from app.core.prompt_markers import (
+    CURRENT_BEAT_MARK,
+    PRIOR_FENCE,
+    SCENE_CHARACTERS_SECTION,
+)
 from app.llm.client import get_llm_client
 from app.orchestration.pov import Pov, pov_instruction
+from app.orchestration.prose import beats_block
 from app.orchestration.workflow import StoryPosition, chapter_context
 from app.planning.fidelity import canon_known_text, unknown_proper_nouns
 
@@ -88,9 +93,6 @@ class SpanSpec(BaseModel):
 class Span:
     start: int
     end: int
-    # A beat span carries its beat's plan line (SceneBeat.description), which
-    # the prompt states so "redo beat N" knows what beat N was for.
-    beat: Optional[str] = None
 
     def split(self, draft: str) -> tuple[str, str, str]:
         return draft[: self.start], draft[self.start : self.end], draft[self.end :]
@@ -150,8 +152,7 @@ async def resolve_scene_span(db, scene: Scene, spec: SpanSpec) -> Span:
     ).scalar_one_or_none()
     if beat is None or not (beat.content or "").strip():
         raise SpanError("Beat not found", status=404)
-    span = resolve_span(scene.draft, beat_text=beat.content)
-    return replace(span, beat=beat.description)
+    return resolve_span(scene.draft, beat_text=beat.content)
 
 
 def cast_request(scene: Scene) -> dict:
@@ -197,6 +198,66 @@ def clean_revision(text: str) -> str:
     return _LABEL.sub("", out, count=1).strip()
 
 
+# A redo (SPEC-41).
+KEEP_LINE = "Keep these (the rest of this chapter refers to them): {terms}"
+REDO_DIRECTION = (
+    "If the instruction does not say what to change, keep the beat's events and "
+    "facts and change only the telling."
+)
+DROPPED_CALLBACK = (
+    "This version drops {terms}, which the rest of this chapter refers to."
+)
+# The callback classes, each pinned by an archived example (SPEC-41): hyphenated
+# compounds, numbers and number words but "one", dash-led fragments, capitals.
+_NUMBER_WORDS = (
+    "two three four five six seven eight nine ten eleven twelve twenty thirty "
+    "forty fifty sixty seventy eighty ninety hundred thousand million"
+).split()
+_CALLBACK = re.compile(
+    r"\b\w+(?:-\w+)+\b|\b\d[\d,.]*\b|\b(?i:" + "|".join(_NUMBER_WORDS) + r")\b"
+    r"|(?<![\w—-])—[a-z][\w'’-]*"
+    r"|(?P<cap>(?<![\w'’-])[A-Z][a-z][\w'’-]*(?: [A-Z][\w'’-]*)*)"
+)
+
+
+def _opens_sentence(text: str, at: int) -> bool:
+    before = text[:at].rstrip(" \t\n\"“”'‘’(—–-")
+    return not before or before[-1] in ".!?…:"
+
+
+def _uses(text: str, term: str) -> bool:
+    """`term` as a whole word or phrase of `text`, ignoring case; a dash-led
+    fragment by its words."""
+    bare = re.escape(term.lstrip("—"))
+    return re.search(rf"(?<![\w-]){bare}(?![\w-])", text, re.I) is not None
+
+
+def callbacks(target: str, rest: str, canon) -> list[str]:
+    """The ONE callback rule (SPEC-41): the target's distinctive terms that
+    `rest` (the scene around it, the chapter's later scenes) also uses. Never a
+    canon term, nor a capitalised word that opens a sentence."""
+    known = {t.lower() for t in canon.canon_terms()}
+    canon_text = canon_known_text(canon)
+    found: dict[str, str] = {}
+    for m in _CALLBACK.finditer(target):
+        term, key = m.group(0), m.group(0).lower()
+        if key in found or key in known or known & set(key.split()):
+            continue
+        if m.lastgroup == "cap" and (
+            _opens_sentence(target, m.start())
+            or re.search(rf"\b{re.escape(term)}\b", canon_text)
+        ):
+            continue
+        if _uses(rest, term):
+            found[key] = term
+    return list(found.values())
+
+
+def dropped_callbacks(revised: str, keep: list[str]) -> list[str]:
+    """The `keep` terms the revised span no longer uses (warn-only)."""
+    return [t for t in keep if not _uses(revised, t)]
+
+
 def build_revise_prompt(
     *,
     canon_block: str,
@@ -209,19 +270,31 @@ def build_revise_prompt(
     pov: Pov,
     story_position: Optional[StoryPosition],
     secondary_block: str,
-    beat: Optional[tuple[int, Optional[str]]] = None,
+    beat: Optional[tuple[int, list[str]]] = None,
+    keep: Sequence[str] = (),
 ) -> str:
     """The revise prompt. Everything the author wrote reaches the model whole:
     the canon, the chapter and its place in the book, the cast's and the
     secondaries' voice context and the entire draft (prior + target + after) —
     nothing is cut to fit (canon invariant 1).
 
-    `beat` is (beat_index, its plan line) when the author asked to redo a
-    beat: the prompt says which beat of the scene's plan the target is."""
+    `beat` is (beat_index, the scene's beat lines) when the author asked to
+    redo a beat: the prompt names the beat and shows the scene's whole plan
+    with it marked, then `keep` (what the rest of the chapter refers to) and
+    the direction for a terse instruction (SPEC-41)."""
     plan_line = ""
-    description = " ".join(clean_for_llm(beat[1] if beat else "").split())
-    if description:
-        plan_line = f"\nBeat {beat[0] + 1} of this scene's plan: {description}"
+    if beat:
+        index, lines = beat
+        description = " ".join(clean_for_llm(lines[index]).split())
+        plan_line = "\n".join(
+            [
+                f"\nBeat {index + 1} of this scene's plan: {description}",
+                f"The scene's whole plan ({CURRENT_BEAT_MARK} marks beat {index + 1}):",
+                beats_block(lines, index),
+                *([KEEP_LINE.format(terms=", ".join(keep))] if keep else []),
+                REDO_DIRECTION,
+            ]
+        )
     prior_block = (
         "The scene BEFORE the target (read-only: do not rewrite, repeat or "
         "summarise it):\n" + as_quoted_block(prior, PRIOR_FENCE)
@@ -236,7 +309,7 @@ def build_revise_prompt(
     )
     voices = "\n\n".join(p for p in (cast_context, secondary_block) if p)
     cast_block = (
-        "CHARACTERS IN THIS SCENE — keep each one's dialogue in THEIR OWN voice, "
+        f"{SCENE_CHARACTERS_SECTION} — keep each one's dialogue in THEIR OWN voice, "
         "matching their voice samples:\n\n" + voices
         if voices
         else ""

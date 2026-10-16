@@ -11,7 +11,7 @@ Per-character retrieval isolation is a WHERE clause; `ON DELETE CASCADE`
 from characters keeps vectors consistent with the bible.
 """
 
-from typing import Optional
+from typing import Callable, Optional
 import uuid
 
 from sqlalchemy import text
@@ -141,8 +141,12 @@ class ChunkStore:
         score_threshold: Optional[float] = None,
         user_id: Optional[str] = None,
         book_id: Optional[str] = None,
+        keep: Optional[Callable[[dict], bool]] = None,
     ) -> list[dict]:
         """Retrieve a character's most similar chunks for voice grounding.
+
+        `keep` (the caller's eligibility) filters the rows before the threshold,
+        so its fallback returns the closest *eligible* rows (SPEC-40).
 
         Pass user_id and/or book_id for defense-in-depth: even though
         character_id already implies one owner and one book, scoping the vector
@@ -155,7 +159,7 @@ class ChunkStore:
         try:
             query_vector = _vector_literal(await self.embedder.aencode_one(query))
             sql = """
-                SELECT id, text, chunk_type, source_location, word_count,
+                SELECT id, source_id, text, chunk_type, source_location, word_count,
                        1 - (embedding <=> CAST(:q AS vector)) AS score
                 FROM voice_chunks
                 WHERE character_id = :character_id
@@ -196,6 +200,7 @@ class ChunkStore:
         results = [
             {
                 "id": str(row["id"]) if row.get("id") is not None else None,
+                "source_id": str(row["source_id"]) if row.get("source_id") else None,
                 "text": row["text"],
                 "score": float(row["score"]) if row["score"] is not None else None,
                 "chunk_type": row["chunk_type"],
@@ -204,12 +209,9 @@ class ChunkStore:
             }
             for row in rows
         ]
-        above = [r for r in results if r["score"] is None or r["score"] >= threshold]
-        # Never strip a character's grounding to nothing: rows are already scoped
-        # to this character and ordered by similarity, so if the absolute
-        # threshold rejects them all, return the closest ones anyway rather than
-        # generating voice-blind.
-        return above or results
+        return above_threshold(
+            [r for r in results if keep is None or keep(r)], threshold
+        )
 
     async def character_statistics(self, character_id: str) -> dict:
         """Chunk counts / word totals for one character."""
@@ -400,6 +402,15 @@ class ChunkStore:
             return row is not None
         except Exception:
             return False
+
+
+def above_threshold(rows: list[dict], threshold: float) -> list[dict]:
+    """The rows scoring >= `threshold`. Never strips a character's grounding to
+    nothing: rows are scoped to the character and ordered by similarity, so if
+    the threshold rejects them all, the closest ones are returned anyway rather
+    than generating voice-blind."""
+    above = [r for r in rows if r["score"] is None or r["score"] >= threshold]
+    return above or rows
 
 
 _store: Optional[ChunkStore] = None

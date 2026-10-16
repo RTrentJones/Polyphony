@@ -2,9 +2,10 @@
 
 * The migration: `scene_revisions.meta` is JSONB after upgrade, gone after a
   downgrade to the revision before it, and back on re-upgrade.
-* The round trip through the real worker: revise a range → the job stores a
-  proposal (JSONB meta) → accept → the draft outside the range is
-  byte-identical and exactly one snapshot of the old draft was appended.
+* The round trip through the real worker: redo a beat → the job stores a
+  proposal (JSONB meta) → accept → the draft outside the beat is
+  byte-identical and exactly one snapshot of the old draft was appended. The
+  redo keeps what the chapter's later scene refers to, not a trashed one's.
 
 Skipped unless RUN_PG_TESTS is set (CI provides a pgvector service).
 """
@@ -13,7 +14,7 @@ import asyncio
 import os
 import types
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select, text
@@ -113,6 +114,7 @@ async def test_revise_accept_round_trip_through_the_worker(monkeypatch):
     from app.jobs.worker import JobWorker
     from app.main import app
     from app.orchestration import revise as rv
+    from tests.unit.factories import add_scene, add_scene_beats
 
     cfg, _ = _alembic()
     await _alembic_cmd("upgrade", cfg, "head")
@@ -134,7 +136,7 @@ async def test_revise_accept_round_trip_through_the_worker(monkeypatch):
 
     p1, p2, p3 = (
         "Milo kept his eyes on the ledger.",
-        "Zara leaned over the desk and smiled.",
+        "Zara leaned over the desk and tapped Form K-9 and the Harrow Ledger.",
         "Outside, the lifts sighed.",
     )
     draft = f"{p1}\n\n{p2}\n\n{p3}"
@@ -158,6 +160,12 @@ async def test_revise_accept_round_trip_through_the_worker(monkeypatch):
             content=draft,
         )
         s.add(scene)
+        await s.flush()
+        for beat, prose in zip(await add_scene_beats(s, scene, ["b0", "b1"]), (p1, p2)):
+            beat.content = prose
+        await add_scene(s, book, chapter, 1, content="Form K-9, again.")
+        gone = datetime.now(timezone.utc)  # SPEC-41: trashed prose is not context
+        await add_scene(s, book, chapter, 2, content="Harrow Ledger", deleted_at=gone)
         await s.commit()
         user_id, scene_id = user.id, scene.id
 
@@ -173,8 +181,7 @@ async def test_revise_accept_round_trip_through_the_worker(monkeypatch):
                 f"/api/v1/books/scenes/{scene_id}/revise",
                 json={
                     "instruction": "Colder.",
-                    "range": {"start": start, "end": start + len(p2)},
-                    "selected_text": p2,
+                    "beat_index": 1,
                 },
                 headers=headers,
             )
@@ -194,6 +201,7 @@ async def test_revise_accept_round_trip_through_the_worker(monkeypatch):
                         break
             assert job.status == "succeeded", job.error
             assert [p for p, _ in fake.prompts] == ["scene_revise"]
+            assert "refers to them): Form K-9\n" in fake.prompts[0][1]
 
             listing = (
                 await client.get(

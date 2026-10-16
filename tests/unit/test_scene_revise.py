@@ -8,8 +8,10 @@ cancel, death) never touches the draft.
 """
 
 import dataclasses
+import json
 import types
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -32,8 +34,9 @@ from app.jobs.handlers import Handler
 from app.jobs.worker import JobWorker
 from app.llm.errors import QuotaExhaustedError
 from app.orchestration import revise as rv
-from app.core.prompt_markers import POV_LIMIT_OPEN, POV_LINE_RE
+from app.core.prompt_markers import CURRENT_BEAT_MARK, POV_LIMIT_OPEN, POV_LINE_RE
 from app.orchestration.pov import Pov
+from tests.unit.factories import add_scene
 
 pytestmark = pytest.mark.unit
 
@@ -160,15 +163,14 @@ async def story(async_session, test_book, test_user):
     )
     async_session.add(scene)
     await async_session.flush()
-    for i, text in enumerate((P1, P2, P3)):
-        async_session.add(
-            SceneBeat(
-                scene_id=scene.id, beat_number=i, description=f"b{i}", content=text
-            )
-        )
+    beats = [
+        SceneBeat(scene_id=scene.id, beat_number=i, description=f"b{i}", content=text)
+        for i, text in enumerate((P1, P2, P3))
+    ]
+    async_session.add_all(beats)
     await async_session.commit()
     return types.SimpleNamespace(
-        book=test_book, chapter=chapter, scene=scene, milo=milo, zara=zara
+        book=test_book, chapter=chapter, scene=scene, milo=milo, zara=zara, beats=beats
     )
 
 
@@ -433,7 +435,7 @@ async def test_beat_mode_locates_the_beat_and_refuses_an_edited_one(
     assert r.status_code == 200, r.text
     assert r.json()["range"] == [_p2_range()["start"], _p2_range()["end"]]
     job = await async_session.get(Job, UUID(r.json()["job_id"]))
-    assert job.payload["beat_index"] == 1 and job.payload["beat_description"] == "b1"
+    assert job.payload["beat_index"] == 1
 
     # The author rewrote that paragraph since the beat was generated.
     await jobs_repo.mark_cancelled(async_session, job)
@@ -530,11 +532,20 @@ async def test_prompt_carries_canon_cast_and_read_only_surroundings(
 ):
     from app.planning.canon import build_canon
 
-    fake = FakeLLM(["Zara leaned in. Nothing warm in it."])
+    import app.characters.context as ctx_mod
+
+    fake, plots, real = FakeLLM(["Zara leaned in."]), [], ctx_mod.build_cast_context
     _bind(monkeypatch, async_session, fake)
+    monkeypatch.setattr(
+        ctx_mod,
+        "build_cast_context",
+        lambda c, q, *, scope: plots.append(scope.plot) or real(c, q, scope=scope),
+    )
     job = await _run_job(
         client, auth_headers, async_session, story.scene, range=_p2_range()
     )
+    # (F) SPEC-41 (B-1): every revise's movement samples may not restate a beat.
+    assert plots == [("Milo and Zara at the desk.", "b0", "b1", "b2")]
     assert job.status == "succeeded", job.error
     assert fake.purposes == ["scene_revise"]
     prompt = fake.prompts[0]
@@ -549,6 +560,8 @@ async def test_prompt_carries_canon_cast_and_read_only_surroundings(
     assert f"<after>\n{P3}\n</after>" in prompt
     assert "<instruction>\nMake Zara colder.\n</instruction>" in prompt
     assert "of this scene's plan" not in prompt  # a range, not a beat
+    # (R) SPEC-41: the plan, keep line and direction are for a redo only.
+    assert all(x not in prompt for x in ("<beats>", "Keep these", rv.REDO_DIRECTION))
     # S4: one amended sentence, every revise.
     assert "Keep the events, and the facts, people and objects the surrounding" in (
         " ".join(prompt.split())
@@ -567,6 +580,58 @@ async def test_a_beat_revise_prompt_names_the_beat_from_the_plan(
     # W3-3: the whole POV paragraph, the limit included, not the bare label.
     assert POV_LINE_RE.search(prompt) and POV_LIMIT_OPEN in prompt
     assert "can see or hear.\nBeat 2 of this scene's plan: b1\n" in prompt
+
+
+async def test_a_redo_sees_the_plan_and_warns_on_a_dropped_callback(
+    client, auth_headers, async_session, story, monkeypatch
+):
+    """(F) SPEC-41: the plan with beat 2 marked, the keep line, the direction."""
+    p2 = "Zara leaned over the desk and tapped Appendix F."
+    story.scene.content, story.beats[1].content = DRAFT.replace(P2, p2), p2
+    later = "Nobody mentioned Appendix F again."
+    await add_scene(async_session, story.book, story.chapter, 1, content=later)
+    await async_session.commit()
+    fake = FakeLLM(["Zara leaned in."])
+    _bind(monkeypatch, async_session, fake)
+    await _run_job(client, auth_headers, async_session, story.scene, beat_index=1)
+    prompt = fake.prompts[0]
+    assert f"<beats>\n1. b0\n{CURRENT_BEAT_MARK} 2. b1\n3. b2\n</beats>" in prompt
+    assert "Keep these (the rest of this chapter refers to them): Appendix F" in prompt
+    assert rv.REDO_DIRECTION in prompt
+    [row] = await _revisions(async_session, story.scene, "ai_revise")
+    assert row.meta["dropped_callbacks"] == ["Appendix F"]
+    assert rv.DROPPED_CALLBACK.format(terms="'Appendix F'") in row.meta["warnings"]
+    [proposal] = (await _proposals(client, auth_headers, story.scene))["proposals"]
+    assert proposal["dropped_callbacks"] == ["Appendix F"]
+
+
+REDOS = json.loads(
+    (Path(__file__).parents[1] / "fixtures" / "w4_redos.json").read_text("utf-8")
+)
+CEL = _canon({"Milo Voss", "Milo", "Voss"}, synopsis="Prava, the intake caseworker")
+
+
+@pytest.mark.parametrize(
+    "run, must, must_not",
+    [
+        ("w4", {"nine", "six"}, {"Milo", "Prava", "one"}),
+        ("w4b2", {"—list", "B-flat"}, {"Milo"}),
+    ],
+)
+def test_callbacks_on_the_archived_redos(run, must, must_not):
+    """(F) SPEC-41's table; W4's "three intake forms" drops nine and six."""
+    r = REDOS[run]
+    rest = "\n".join((r["prior"], r["after"], r.get("later", "")))
+    keep = rv.callbacks(r["target"], rest, CEL)
+    assert must <= set(keep) and not must_not & set(keep), keep
+    dropped = rv.dropped_callbacks(r["answer"], keep)
+    assert must <= set(dropped) if run == "w4" else dropped == [], dropped
+
+
+def test_callbacks_skip_a_sentence_opener_and_keep_a_capitalised_name():
+    """(F) W3's "Appendix F" pins the capitalised class; an opener is not one."""
+    target = "Nobody spoke. Zara's finger on Appendix F."
+    assert rv.callbacks(target, "Nobody cited Appendix F.", CEL) == ["Appendix F"]
 
 
 async def test_whole_scene_revise_has_no_surroundings(

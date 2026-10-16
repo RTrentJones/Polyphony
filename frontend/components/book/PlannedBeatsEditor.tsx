@@ -94,13 +94,15 @@ export default function PlannedBeatsEditor({
 
   const edit = (i: number, patch: Partial<FormBeat>) =>
     setBeats((bs) => bs.map((b, j) => (j === i ? { ...b, ...patch } : b)))
+  // The ids come from the updater's own list, so two toggles in one render both land.
   const toggle = (i: number, id: string) =>
-    edit(i, {
-      touchedCast: true,
-      cast_ids: beats[i].cast_ids.includes(id)
-        ? beats[i].cast_ids.filter((x) => x !== id)
-        : [...beats[i].cast_ids, id],
-    })
+    setBeats((bs) =>
+      bs.map((b, j) => {
+        if (j !== i) return b
+        const cast_ids = b.cast_ids.includes(id) ? b.cast_ids.filter((x) => x !== id) : [...b.cast_ids, id]
+        return { ...b, touchedCast: true, cast_ids }
+      })
+    )
   const addBeat = () =>
     setBeats((bs) => [
       ...bs,
@@ -151,7 +153,6 @@ export default function PlannedBeatsEditor({
     return (
       <Tag
         aria-label={label}
-        placeholder={label.split(', ')[1]}
         rows={summary ? 2 : undefined}
         className={input}
         value={value}

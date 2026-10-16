@@ -125,10 +125,21 @@ class TestProseTail:
         tail = prose_tail(text)
         assert "\n\n" in tail
         assert " ".join(tail.split()[-PREV_TAIL_WORDS:]) == legacy
-        setup = SceneSetup(Canon("c"), [], None, None, "")
+        setup = SceneSetup(Canon("c"), [], None, None, "", [], [])
         assert _canon_hash(setup, "ch", None, tail) == _canon_hash(
             setup, "ch", None, legacy
         )
+
+    def test_an_edited_plan_changes_the_fingerprint(self):
+        """A paused scene restarts when the plan its planner saw is edited
+        (SPEC-43); with no plan the fingerprint is the old one."""
+        bare = SceneSetup(Canon("c"), [], None, None, "", [], [])
+        planned = bare._replace(plan=[(1, {"title": "Intake", "summary": "a"})])
+        edited = bare._replace(plan=[(1, {"title": "Intake", "summary": "b"})])
+        hashes = {_canon_hash(s, "ch", None) for s in (bare, planned, edited)}
+        assert len(hashes) == 3
+        earlier = bare._replace(earlier=[("Retained", ["Milo signs."])])
+        assert _canon_hash(earlier, "ch", None) != _canon_hash(bare, "ch", None)
 
 
 # --- trim_seam_repeat ---------------------------------------------------------

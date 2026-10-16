@@ -333,3 +333,37 @@ def test_labels_and_a_title_after_our_are_not_names():
         "Consolidated Continuance Pool",
         "Marrow Exchange",
     ]
+
+
+# W5-5 (SPEC-44): one rule for honorifics, calendar plurals and joined names,
+# in a canon that never writes "Mr" (rows measured before the change).
+NAME_RULE = [
+    ('"Welcome aboard, Mr. Voss," she said.', []),  # (F) was ['Mr']
+    ("Then Mr. Quince arrived.", ["Mr. Quince"]),  # (F) was ['Mr']
+    ("He filed the forms on Fridays.", []),  # (F) was ['Fridays']
+    ("He read Monday's memo twice.", []),  # (R)
+    # (F) W4b2; was ['Central Escrow', 'Ledgers']
+    (
+        "He went down to Central Escrow and Ledgers with the form.",
+        ["Central Escrow and Ledgers"],
+    ),
+    # (F) was ['Department', 'Records']
+    ("He walked to the Department of Records at noon.", ["Department of Records"]),
+    ("Prava and Bartholomew Quince waited by the desk.", ["Bartholomew Quince"]),
+    ("Milo and Zara said nothing.", []),  # (R)
+    (  # (R) NB-1
+        "In the morning, The Consolidated Continuance Pool opened.",
+        ["Consolidated Continuance Pool"],
+    ),
+    # (F) a whole-word title never joins across a period; was []
+    ("She bowed to the Count. The Marrow Exchange was shut.", ["Marrow Exchange"]),
+    ("He thanked the Lord. Then Quince left.", ["Quince"]),  # (F) was []
+]
+
+
+@pytest.mark.parametrize("text, flagged", NAME_RULE)
+def test_names_not_honorifics_weekdays_or_split_phrases(text, flagged):
+    from app.planning.fidelity import unknown_proper_nouns
+
+    known = {"Milo Voss", "Zara", "Prava"}
+    assert unknown_proper_nouns(text, known, canon_text=PROBE_DRAFT) == flagged

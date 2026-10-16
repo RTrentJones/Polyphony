@@ -13,7 +13,7 @@ unreachable.
 """
 
 import re
-from typing import Iterable, NamedTuple, Optional
+from typing import Iterable, Mapping, NamedTuple, Optional
 from uuid import UUID
 
 from sqlalchemy import select
@@ -22,7 +22,7 @@ from app.core.database import get_async_session
 from app.core.llm_text import as_quoted_block, clean_for_llm
 from app.core.orm_models import Character
 from app.core.prompt_markers import MOVEMENT_LABEL, NAME_HEADING, VOICE_SAMPLES_LABEL
-from app.parsing.character_extractor import SPEECH_MIN_WORDS
+from app.parsing.character_extractor import SPEECH_MIN_WORDS, source_location
 from app.rag.store import get_chunk_store
 
 # A grounding record keeps a bounded excerpt of each sample's text as it was at
@@ -35,19 +35,29 @@ CONTEXT_ONLY_REASON = "context only"
 
 
 class SceneScope(NamedTuple):
-    """What a scene is about and who it may mention (SPEC-30, SPEC-36).
-    Built once per scene (or per probe), never per beat."""
+    """What the book plans, and who a scene may mention (SPEC-30, -36, -40).
+    Built once per scene (or per probe), never per beat; the scene's own beat
+    lines join `plot` once planned."""
 
     cast: tuple  # the SCENE's Character rows: _centres' "others"
     book_cast: tuple  # every live Character of the book
     secondary_names: tuple[str, ...]  # the scene request's secondary_names
     known: frozenset[str]  # canon.canon_terms()
     known_text: str  # canon_known_text(canon), raw
-    brief: str  # the scene request's scene_description: the event being written
+    # Every line of the plan a movement sample may not restate: the book's
+    # planned scenes (the brief is one), the chapter's earlier written beat
+    # lines, and this scene's beat lines once planned.
+    plot: tuple[str, ...]
+    later_from: Mapping[str, int]  # source_id -> first paragraph of later plot
 
     @classmethod
     def of(
-        cls, canon, scene_cast: Iterable, secondary_names: Iterable[str], brief: str
+        cls,
+        canon,
+        scene_cast: Iterable,
+        secondary_names: Iterable[str],
+        plot: Iterable[str],
+        later_from: Mapping[str, int],
     ) -> "SceneScope":
         from app.planning.fidelity import canon_known_text
 
@@ -57,7 +67,8 @@ class SceneScope(NamedTuple):
             tuple(secondary_names),
             frozenset(canon.canon_terms()),
             canon_known_text(canon),
-            brief,
+            tuple(plot),
+            later_from,
         )
 
 
@@ -227,6 +238,9 @@ def _bible_lines(character: Character) -> list[str]:
 # credited to them, or first-person narration of their own section (SPEC-09).
 # Everything else is movement, under MOVEMENT_LABEL.
 _MOVEMENT_SAMPLES = 3
+# Voice fetches the character's dialogue pool, so the nearest rows cannot all be
+# ineligible; eligibility, then the threshold, then k (SPEC-40).
+_VOICE_POOL = 50
 # Ensemble agents are grounded on how they SPEAK and how they MOVE separately
 # (BRD R6.2): one mixed retrieval lets dialogue crowd action out. The ingest
 # classifier under-labels, so a movement block with fewer than this many hits
@@ -235,28 +249,79 @@ _MOVEMENT_SAMPLES = 3
 _MIN_TYPED_HITS = 2
 _ACTION_TYPES = ("action", "description", "thought")
 _DIALOGUE = "dialogue"
-# Content words a movement sample shares with the brief: it narrates the event
-# being written, which the brief already carries (SPEC-36). Unrelated pairs
-# share at most 2, event pairs 5-6 (the run-W3 archive).
+# Content words a movement sample shares with a plan line: it narrates a planned
+# event, which the plan already carries (SPEC-36, SPEC-40). Unrelated pairs
+# share at most 2-3, event pairs 5-6 (the run-W3, W4 and W4b2 archives).
 RESTATES_MIN = 4
 
 
-def restates_brief(text: str, brief: str) -> bool:
-    """Does `text` narrate the scene's event? The ONE event rule (SPEC-36): it
-    shares RESTATES_MIN content words (`[a-z]+` longer than 3 letters, not
-    function words) with the brief. It reads the brief only, so it means the
-    same in prose, ensemble, revise and the probe; "" makes it inert."""
+def _words(text: str, drop: Iterable[str] = ()) -> set[str]:
+    return {w for w in re.findall(r"[a-z]+", text.lower()) if len(w) > 3} - set(drop)
+
+
+def restates(text: str, line: str) -> bool:
+    """Does `text` narrate one plan line's event (a planned scene, a beat line,
+    the brief)? The ONE event rule (SPEC-36, SPEC-40): RESTATES_MIN shared
+    content words (`[a-z]+` longer than 3 letters, not function words). Plan
+    lines only, never prose; "" makes it inert."""
     from app.planning.fidelity import FUNCTION_WORDS
 
-    def content(t: str) -> set[str]:
-        return {w for w in re.findall(r"[a-z]+", t.lower()) if len(w) > 3}
+    return len(_words(text) & _words(line, FUNCTION_WORDS)) >= RESTATES_MIN
 
-    return len(content(text) & (content(brief) - FUNCTION_WORDS)) >= RESTATES_MIN
+
+def later_plot_from(
+    paragraphs: list[str], chapter: int, plan: list[tuple[int, dict]]
+) -> Optional[int]:
+    """The first paragraph of a source whose event the plan places after
+    `chapter`, or None (SPEC-40). A paragraph's chapter is that of the plan line
+    its narration (speech left out: one speech rule) shares the most content
+    words with, at RESTATES_MIN or more; a tie goes to the earlier chapter."""
+    from app.parsing.character_extractor import narration_of
+    from app.planning.fidelity import FUNCTION_WORDS
+    from app.planning.planned_beat import beat_scene_description
+
+    lines = [(n, _words(beat_scene_description(b), FUNCTION_WORDS)) for n, b in plan]
+    for i, paragraph in enumerate(paragraphs):
+        words = _words(narration_of(paragraph))
+        shared, earlier = max(((len(words & w), -n) for n, w in lines), default=(0, 0))
+        if shared >= RESTATES_MIN and -earlier > chapter:
+            return i
+    return None
+
+
+def _location(sample: dict) -> tuple[str, int] | tuple[None, None]:
+    """A chunk's (kind, paragraph), read by the module that writes the format."""
+    return source_location(str(sample.get("source") or "")) or (None, None)
 
 
 def _own_narration(sample: dict) -> bool:
     """First-person narration indexed for its narrator (SPEC-09): their words."""
-    return str(sample.get("source") or "").startswith("narration_")
+    return _location(sample)[0] == "narration"
+
+
+def _later_plot(sample: dict, scope: SceneScope) -> bool:
+    """Is the sample at or past its source's later plot (SPEC-40)?"""
+    at = _location(sample)[1]
+    return at is not None and at >= scope.later_from.get(
+        sample.get("source_id"), at + 1
+    )
+
+
+_QUOTED = re.compile(r"(?<!\w)['‘\"“]([^'‘’\"“”]+)['’\"”](?!\w)")
+
+
+# Not a marker (nothing parses it): the sentence above the `<owned>` block.
+OWNED_PHRASES_NOTE = "Phrases only their owner says (no one in this beat may say them):"
+
+
+def owned_phrases(character) -> list[str]:
+    """The quoted spans of two or more words in a character's voice field: the
+    phrases the author wrote as theirs alone (SPEC-42). Nothing is inferred."""
+    from app.planning.canon import _render_json_field
+
+    voice = getattr(character, "voice_characteristics", None)
+    spans = _QUOTED.findall(_render_json_field(voice, "Voice") or "")
+    return [p for p in dict.fromkeys(spans) if len(p.split()) >= 2]
 
 
 def _forms(member) -> list[str]:
@@ -368,22 +433,25 @@ async def character_samples(
     is action / description / thought, falling back to untyped retrieval (minus
     dialogue) when the classifier under-labelled. It keeps only narration that
     centres them, names no one outside the scene (`names_outside_scene`) and
-    does not narrate the brief's event (`restates_brief`), with no refill: a
-    filtered block shows what is left (SPEC-30, SPEC-36).
+    restates no line of `scope.plot` (`restates`), with no refill: a filtered
+    block shows what is left (SPEC-30, SPEC-36, SPEC-40). Neither block shows a
+    sample from its source's later plot (`scope.later_from`).
     """
     k_voice, k_move = k, min(_MOVEMENT_SAMPLES, k)
     allowed = set(chunk_types) if chunk_types else None
     voice_types = [_DIALOGUE] if allowed is None or _DIALOGUE in allowed else []
     move_types = [t for t in _ACTION_TYPES if allowed is None or t in allowed]
 
-    words = (
-        [
-            s
-            for s in await _retrieve(character, query, 2 * k_voice, voice_types)
-            if (s.get("chunk_type") or _DIALOGUE) == _DIALOGUE
+    def spoken(s: dict) -> bool:  # voice eligibility, before the threshold
+        return (
+            (s.get("chunk_type") or _DIALOGUE) == _DIALOGUE
             # "So!" and "Zara," carry no voice (W3-5): the speech minimum.
             and len((s.get("text") or "").split()) >= SPEECH_MIN_WORDS
-        ][:k_voice]
+            and not _later_plot(s, scope)
+        )
+
+    words = (
+        (await _retrieve(character, query, _VOICE_POOL, voice_types, spoken))[:k_voice]
         if voice_types
         else []
     )
@@ -407,6 +475,7 @@ async def character_samples(
     )
     if move_types and len(body) < _MIN_TYPED_HITS:
         body += fresh(await _retrieve(character, query, k_move * 2, None))
+    body = [s for s in body if not _later_plot(s, scope)]
     aliases = getattr(character, "aliases", None) or []
     name = getattr(character, "name", "") or ""
     # First-person narration of their own section is their voice, not movement.
@@ -416,11 +485,11 @@ async def character_samples(
         for s in body
         if not _own_narration(s)
         and (
-            not str(s.get("source") or "").startswith("paragraph_")
+            _location(s)[0] != "paragraph"
             or _centres(s.get("text") or "", name, scope.cast, aliases)
         )
         and not names_outside_scene(s.get("text") or "", character, scope)
-        and not restates_brief(s.get("text") or "", scope.brief)
+        and not any(restates(s.get("text") or "", p) for p in scope.plot)
     ][:k_move]
     return words, body
 
@@ -430,6 +499,7 @@ async def _retrieve(
     query: str,
     k: int,
     chunk_types: Optional[Iterable[str]],
+    keep=None,
 ) -> list[dict]:
     """Voice samples for one character. Retrieve across ALL chunk types unless a
     caller asks for specific ones: the ingest-time classifier under-labels, so a
@@ -438,6 +508,7 @@ async def _retrieve(
     common = dict(
         character_id=str(character.id),
         query=query,
+        keep=keep,
         user_id=str(character.user_id) if character.user_id else None,
         book_id=str(character.book_id) if character.book_id else None,
     )
@@ -469,7 +540,9 @@ async def build_cast_context(
 
     Each block is story material (bible text and voice samples can originate in
     an uploaded file), so it is fenced with `as_quoted_block`
-    (docs/ADR-002-book-as-root.md §4).
+    (docs/ADR-002-book-as-root.md §4). Then, once, `OWNED_PHRASES_NOTE` and an
+    `<owned>` block: "{name}: '{phrase}'" for each book cast member who is not
+    in the beat and owns a phrase (SPEC-42).
     """
     blocks = []
     for character in characters:
@@ -482,6 +555,14 @@ async def build_cast_context(
             bible=bible,
         )
         blocks.append(as_quoted_block(block, "character"))
+    beat = {c.name for c in characters}
+    owned = [
+        clean_for_llm(f"{m.name}: " + ", ".join(f"'{p}'" for p in phrases))
+        for m in scope.book_cast
+        if m.name not in beat and (phrases := owned_phrases(m))
+    ]
+    fenced = as_quoted_block("\n".join(owned), "owned")
+    blocks.append(fenced and f"{OWNED_PHRASES_NOTE}\n{fenced}")
     return "\n\n".join(b for b in blocks if b)
 
 

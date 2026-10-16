@@ -9,7 +9,7 @@ changes only here.
 This module lives in `app/core` and imports nothing from `app`. Instruction
 wording that nothing parses stays in its emitter.
 
-Frozen for wave 3 (day-0 contract); changes go through the orchestrator.
+Frozen for the wave (day-0 contract); changes go through the orchestrator.
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ POV_WIDE_OPEN = "The narrator"
 
 # --- the beat prompt (orchestration/prose.write_beat_prose) --------------------
 CHARACTERS_SECTION = "CHARACTERS IN THIS BEAT"
+SCENE_CHARACTERS_SECTION = "CHARACTERS IN THIS SCENE"  # the revise prompt's cast
 BEAT_TO_WRITE_LABEL = "BEAT TO WRITE"
 CURRENT_BEAT_MARK = "→"
 STOP_AT_NEXT_BEAT = "Stop where beat {next} begins"  # .format(next=<n + 1>)
@@ -69,6 +70,12 @@ CONFIRMED_PREMISE_NOTE = " (confirmed by the author: treat it as authoritative)"
 ACT_CHAPTERS_HEADER = "Here are the chapters of act {number}, in order:"  # .format
 OUTLINE_CHAPTERS_HEADER = (
     "The whole book, chapter by chapter (→ marks this act's chapters):"
+)
+# .format(what=<"earlier acts" | "the earlier scenes of this chapter">)
+EARLIER_BEATS = "Beats already planned in {what}:"
+# The chapter's planned scenes for the beat planner (orchestration/workflow).
+CHAPTER_SCENES_HEADER = (
+    "This chapter's planned scenes, in order (→ marks the one being planned):"
 )
 
 

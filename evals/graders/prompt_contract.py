@@ -53,6 +53,13 @@ sample lines in its own prompt (voice and movement); reports ``max_shared`` and
 whole-outline block names every chapter title of the run's latest
 outline:chapters answer (SPEC-38).
 
+Wave 5: ``samples_not_plot``  beat_prose, scene_revise: no sample is plot by
+the corpus gold (``evals.graders.plot``, SPEC-45); reports ``classified``
+(``vacuous`` when 0) and ``later_plot_slots``, and ``emptied_by_rule`` blocks (by
+the indexed ``movement_store`` when given) leave ``movement_coverage``.
+``voice_dialogue.voice_coverage``: the share of beat_prose principal blocks with
+a voice sample.
+
 Each check reports ``{n, passed, rate, failures}``; a check with nothing to
 check (no such call in the archive) reports ``n == 0`` and ``rate = None``, so
 an archive from before a contract existed still grades.
@@ -74,9 +81,11 @@ from app.core.prompt_markers import (
     BEAT_TO_WRITE_LABEL,
     BEATS_FENCE,
     CHAPTER_FENCE,
+    CHAPTER_SCENES_HEADER,
     CHARACTERS_SECTION,
     CONFIRMED_PREMISE_NOTE,
     CURRENT_BEAT_MARK,
+    EARLIER_BEATS,
     EMOTIONAL_TONE_LABEL,
     INTRODUCED_LABEL,
     MOVEMENT_LABEL,
@@ -86,6 +95,7 @@ from app.core.prompt_markers import (
     POV_LIMIT_OPEN,
     POV_LINE_RE,
     PRIOR_FENCE,
+    SCENE_CHARACTERS_SECTION,
     SCENE_DESCRIPTION_LABEL,
     SECONDARY_FENCE,
     SETTING_LABEL,
@@ -95,7 +105,7 @@ from app.core.prompt_markers import (
 )
 from app.orchestration.pov import Pov
 from app.parsing.names import NON_NAME_TOKENS, mentions, norm
-from evals.graders import seams
+from evals.graders import plot, seams
 
 # The house-style paragraph the beat prompt hard-codes today; it must not
 # appear when the author's style guide supplies sample prose.
@@ -450,8 +460,10 @@ def check_story_position(prompt: str) -> list[str]:
 
 
 def characters_section(prompt: str) -> str | None:
-    """The "CHARACTERS IN THIS BEAT" section of a beat prompt (to BEAT TO WRITE)."""
+    """The "CHARACTERS IN THIS BEAT" section of a beat prompt (to BEAT TO WRITE),
+    else the revise prompt's "IN THIS SCENE" one (`orchestration/revise.py`)."""
     at = prompt.find(CHARACTERS_SECTION)
+    at = at if at != -1 else prompt.find(SCENE_CHARACTERS_SECTION)
     if at == -1:
         return None
     end = prompt.find(BEAT_TO_WRITE_LABEL, at)
@@ -566,6 +578,11 @@ class OutlineIndex:
                 "summary": _squash(str(ch.get("summary") or "")),
                 "pov": str(ch.get("pov") or "").strip(),
                 "people": self._people(ch),
+                "titles": [
+                    str(c["title"])
+                    for c in ch.get("children") or []
+                    if isinstance(c, dict) and c.get("title")
+                ],
             }
             self.chapters.append(chapter)
             for child in ch.get("children") or []:
@@ -665,6 +682,11 @@ def _named(text: str, person: dict) -> bool:
     )
 
 
+def _who(name: str, aliases: dict[str, str]) -> str:
+    """A principal's canonical name, as cased in the corpus (else `name`)."""
+    return aliases.get(" ".join(name.split()).lower(), name)
+
+
 def check_movement_in_scene(
     prompt: str, people: list[dict], aliases: dict[str, str]
 ) -> tuple[list[str], list[tuple[str, int]]]:
@@ -673,8 +695,8 @@ def check_movement_in_scene(
     or a principal (an `aliases` value) the scene brief or beat plan names. A
     secondary is in the scene only through the Also-named line (NB-2)."""
 
-    def who(name: str) -> str:  # canonical, as cased in the corpus
-        return aliases.get(" ".join(name.split()).lower(), name)
+    def who(name: str) -> str:
+        return _who(name, aliases)
 
     blocks = [
         (who(o), ls) for o, ls in movement_blocks(characters_section(prompt) or "")
@@ -714,18 +736,87 @@ def check_sample_lift(prompt: str, answer: str) -> tuple[list[str], int]:
     )
 
 
+_MARKED_ITEM = re.compile(rf"^({re.escape(CURRENT_BEAT_MARK)}| ) \d+\. (.*)$")
+
+
+def marked_block(prompt: str, header: str, marks: int | None):
+    """S-5: the ONE parser of a `marked_plan` block. (items, marked indices,
+    whether an EARLIER_BEATS list follows, reasons), or None without `header`;
+    `marks` is the expected count of → (None: one or more)."""
+    at = prompt.find(header)
+    if at == -1:
+        return None
+    lines = prompt[at + len(header) :].split("\n\n", 1)[0].splitlines()[1:]
+    found = list(takewhile(bool, map(_MARKED_ITEM.match, lines)))
+    marked = [i for i, m in enumerate(found) if m.group(1) != " "]
+    after = lines[len(found)] if len(found) < len(lines) else ""
+    earlier = after.startswith(EARLIER_BEATS.split("{what}")[0])
+    ok = len(marked) == marks if marks else bool(marked)
+    reasons = [] if ok else [f"{len(marked)} {CURRENT_BEAT_MARK} marks"]
+    return [m.group(2) for m in found], marked, earlier, reasons
+
+
 def check_whole_outline(prompt: str, titles: set[str]) -> list[str]:
     """W4-5: the act's prompt shows the whole book — its OUTLINE_CHAPTERS_HEADER
-    block names every chapter title (SPEC-38)."""
-    at = prompt.find(OUTLINE_CHAPTERS_HEADER)
-    if at == -1:
+    block names every chapter title, this act's marked (SPEC-38)."""
+    parsed = marked_block(prompt, OUTLINE_CHAPTERS_HEADER, None)
+    if parsed is None:
         return ["no whole-outline block"]
-    listing = prompt[at:].split("\n\n", 1)[0]
-    return [
+    items, _, _, reasons = parsed
+    listing = "\n".join(items)
+    return reasons + [
         f"{t!r} is not in the whole-outline block"
         for t in sorted(titles)
         if t not in listing
     ]
+
+
+def check_plan_sees_chapter(prompt: str, titles: list[str]) -> list[str]:
+    """W5-4: the planner sees its chapter's scenes, its own marked, and what
+    the earlier ones planned (SPEC-43)."""
+    parsed = marked_block(prompt, CHAPTER_SCENES_HEADER, 1)
+    if parsed is None:
+        return ["no chapter-scenes block"]
+    items, marked, earlier, reasons = parsed
+    if marked and marked[0] > 0 and not earlier:
+        reasons.append("no earlier-beats list after a scene that is not the first")
+    listing = "\n".join(items)
+    return reasons + [
+        f"{t!r} is not in the chapter-scenes block" for t in titles if t not in listing
+    ]
+
+
+# The redo's "Beat N" line (app/orchestration/revise.py, SPEC-41).
+_REDO_BEAT = re.compile(r"(?m)^Beat (\d+) of this scene's plan:")
+
+
+def check_redo_sees_plan(prompt: str) -> list[str]:
+    """W5-2: a redo of beat N shows the scene's whole plan with item N marked."""
+    n = int(_REDO_BEAT.search(prompt).group(1))
+    current = _current_beat(block(prompt, BEATS_FENCE))
+    if current is None:
+        return [f"no <beats> block marking beat {n}"]
+    return [] if current[0] == n else [f"<beats> marks beat {current[0]}, not beat {n}"]
+
+
+def check_samples_not_plot(
+    prompt: str, gold: dict, placed: dict[str, int], counts: dict[str, int]
+) -> tuple[list[str], int | None]:
+    """W5-1 (d): (reasons, the scene's chapter) over every sample shown; adds
+    to `counts` (``classified``: placed in a gold paragraph)."""
+    m = STORY_POSITION_RE.search(prompt)
+    chapter = int(m.group("n")) if m else None
+    moves = movement_blocks(characters_section(prompt) or "")
+    reasons = []
+    for kind, owner, sample in [
+        *(("voice", o, s) for o, ss in voice_samples(prompt).items() for s in ss),
+        *(("movement", o, s) for o, ss in moves for s in ss),
+    ]:
+        why, at, later = plot.plot_reasons(kind, sample, chapter, gold, placed)
+        counts["classified"] += at is not None
+        counts["later_plot_slots"] += later
+        reasons += [f"{owner}: {r}" for r in why]
+    return reasons, chapter
 
 
 def _json_object(text: str) -> dict:
@@ -762,6 +853,10 @@ CHECKS = (
     # wave 4
     "sample_lift",
     "beats_see_whole_outline",
+    # wave 5
+    "plan_sees_chapter",
+    "redo_sees_plan",
+    "samples_not_plot",
 )
 
 
@@ -785,6 +880,9 @@ def grade(
     pov: str | None = None,
     descriptions: list[str] | None = None,
     secondary_cast: list | None = None,
+    excerpt_events: list | None = None,
+    excerpt: str = "",
+    movement_store: dict[str, list[str]] | None = None,
 ) -> dict:
     """Run every check over an archive (see the module docstring).
 
@@ -796,7 +894,10 @@ def grade(
     chapter is not in the outline answers), and
     the canon `descriptions` that must appear exactly once per beat prompt.
     `secondary_cast` (names, or {name, aliases}) joins the principals as the
-    people a movement sample may not name outside its scene (wave 3)."""
+    people a movement sample may not name outside its scene (wave 3).
+    `excerpt_events` and the `excerpt` they index are the plot gold (wave 5).
+    `movement_store` is each principal's indexed movement chunks (the prose
+    step's `voice.movement`): D6 reads it, else the lines shown in the run."""
     gold = {
         who: [*(v.get("train") or []), *(v.get("test") or [])]
         for who, v in (gold_lines or {}).items()
@@ -812,6 +913,7 @@ def grade(
     ]
     movement = {n: 0 for n in principal_names}
     moving_blocks: list[bool] = []
+    voiced_blocks: list[bool] = []  # principal blocks with a voice sample
     tallies = {k: _Tally() for k in CHECKS}
     voice_counts = dict.fromkeys(
         ("samples", "own", "misattributed", "not_dialogue", "short"), 0
@@ -826,12 +928,27 @@ def grade(
     openings: set[str] = set()  # records come oldest first (load_archive)
     lifts: list[int] = []
     book_titles: set[str] = set()
+    pg = {"events": excerpt_events or [], "paragraphs": excerpt.split("\n\n")}
+    placed = plot.locate(pg["events"], plot.outline_chapters(records))
+    plotted = dict.fromkeys(("classified", "later_plot_slots"), 0)
+    emptied = dict.fromkeys(principal_names, 0)
+    emptied_blocks: list[dict] = []  # {id, owner: the plot paragraphs}
+    shown: dict[str, set[str]] = {}  # every movement line each owner is shown
+    for rec in (r for r in records if purpose(r) == "beat_prose"):
+        for o, ls in movement_blocks(characters_section(prompt_text(rec)) or ""):
+            shown.setdefault(o, set()).update(ls)
+    if movement_store is not None:  # D6 reads what the store holds
+        shown = {_who(o, aliases): set(ls) for o, ls in movement_store.items()}
 
     for rec in records:
         pur = purpose(rec)
         purposes[pur or "(none)"] = purposes.get(pur or "(none)", 0) + 1
         prompt = prompt_text(rec)
         tallies["no_doubled_voice_label"].add(rec, check_no_doubled_voice(prompt))
+        chapter = None
+        if pur in ("beat_prose", "scene_revise") and pg["events"]:
+            reasons, chapter = check_samples_not_plot(prompt, pg, placed, plotted)
+            tallies["samples_not_plot"].add(rec, reasons)
         if pur == "outline:beats":
             outline.add(rec.get("answer") or "")
         if pur == "plan_beats":
@@ -840,6 +957,10 @@ def grade(
                 plan_unmatched.append(str(rec.get("id")))
             else:
                 tallies["plan_cast_from_beat"].add(rec, cast)
+            if planned := outline.beat_for(prompt):
+                tallies["plan_sees_chapter"].add(
+                    rec, check_plan_sees_chapter(prompt, planned["chapter"]["titles"])
+                )
         if pur in ("plan_beats", "beat_prose"):
             tallies["no_blank_setting"].add(rec, check_no_blank_setting(prompt))
             if style_tone.strip():
@@ -865,8 +986,14 @@ def grade(
             )
             reasons, blocks = check_movement_in_scene(prompt, people, aliases)
             tallies["movement_names_in_scene"].add(rec, reasons)
+            said = {_who(o, aliases) for o, ss in voice_samples(prompt).items() if ss}
+            voiced_blocks += [o in said for o, _ in blocks if o in movement]
             for owner, n in blocks:
-                if owner in movement:
+                why = plot.only_plot(shown.get(owner), chapter, pg, placed)
+                if owner in movement and not n and why:  # D6
+                    emptied[owner] += 1
+                    emptied_blocks.append({"id": rec.get("id"), owner: why})
+                elif owner in movement:
                     movement[owner] += n
                     moving_blocks.append(n > 0)
         if pur == "extraction_reduce" and principal_names:
@@ -918,6 +1045,8 @@ def grade(
             reasons, shared = check_sample_lift(prompt, rec.get("answer") or "")
             tallies["sample_lift"].add(rec, reasons)
             lifts.append(shared)
+        if pur == "scene_revise" and _REDO_BEAT.search(prompt):
+            tallies["redo_sees_plan"].add(rec, check_redo_sees_plan(prompt))
         if gold and re.search(r"(?im)^\s*voice samples\b", prompt):
             reasons, counts = check_voice(prompt, gold, other)
             for k, v in counts.items():
@@ -929,12 +1058,25 @@ def grade(
     out["voice_dialogue"]["samples"] = voice_counts
     # Reported, not gated (§6.3): voice samples too short to carry a voice.
     out["voice_dialogue"]["short_samples"] = short
+    # Gated >= 0.8 per run (§6.2): beat_prose principal blocks with a voice sample.
+    out["voice_dialogue"]["voice_coverage"] = (
+        round(sum(voiced_blocks) / len(voiced_blocks), 4) if voiced_blocks else None
+    )
     out["plan_cast_from_beat"]["unmatched"] = plan_unmatched
     # Reported; gated >= 0.8 by the eval (B-2): principal blocks that move.
     out["movement_names_in_scene"]["movement_coverage"] = (
         round(sum(moving_blocks) / len(moving_blocks), 4) if moving_blocks else None
     )
     out["movement_names_in_scene"]["movement_lines"] = movement
+    out["movement_names_in_scene"]["emptied_by_rule"] = emptied
+    out["movement_names_in_scene"]["emptied_blocks"] = emptied_blocks
+    # The §6.2 gate's n = 0 case: no block counted, and every one listed above.
+    out["movement_names_in_scene"]["every_block_emptied"] = bool(
+        emptied_blocks and not moving_blocks
+    )
+    out["samples_not_plot"].update(plotted, placed=placed)
+    # Gated with classified > 0 (§6.2): a run that showed no sample proves nothing.
+    out["samples_not_plot"]["vacuous"] = plotted["classified"] == 0
     # Gated 0 / 0 by the eval (§6.2): the worst beat, and how many beats lift.
     out["sample_lift"]["max_shared"] = max(lifts, default=0)
     out["sample_lift"]["share_of_beats"] = (
@@ -967,7 +1109,14 @@ def corpus_inputs(gt: dict, style: dict | None) -> dict:
             c["description"] for c in gt.get("characters") or [] if c.get("description")
         ],
         "secondary_cast": list(gt.get("secondary_cast") or []),
+        "excerpt_events": gt.get("excerpt_events"),
+        "excerpt": _excerpt(gt.get("book") or ""),
     }
+
+
+def _excerpt(book: str) -> str:
+    path = Path(__file__).resolve().parent.parent / "corpora" / book / "excerpts.txt"
+    return path.read_text(encoding="utf-8") if book and path.is_file() else ""
 
 
 def main() -> None:
@@ -975,6 +1124,7 @@ def main() -> None:
     ap.add_argument("archive", help="the relay's answered/ directory")
     ap.add_argument("--book", default="cel", help="corpus for gold lines + style")
     ap.add_argument("--since", type=float, default=None)
+    ap.add_argument("--against", nargs="*", default=[], help="archives: replayed")
     args = ap.parse_args()
     corpus = Path(__file__).resolve().parent.parent / "corpora" / args.book
     gt = json.loads((corpus / "ground_truth.json").read_text(encoding="utf-8"))
@@ -984,7 +1134,11 @@ def main() -> None:
         if style_path.exists()
         else {}
     )
-    result = grade(load_archive(args.archive, args.since), **corpus_inputs(gt, style))
+    records = load_archive(args.archive, args.since)
+    result = grade(records, **corpus_inputs(gt, style))
+    if args.against:  # §6.1: answers another archive already gave
+        old = [r for a in args.against for r in load_archive(a)]
+        result["replayed"] = plot.replayed(records, old)
     print(json.dumps(result, indent=2))
 
 

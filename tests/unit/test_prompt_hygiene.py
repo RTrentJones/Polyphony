@@ -17,6 +17,7 @@ import app.characters.context as ctx
 from app.orchestration import prose as prose_module
 from app.orchestration.pov import Pov
 from app.planning.canon import Canon, _render_json_field, render_character
+from tests.unit.factories import make_scope
 
 pytestmark = pytest.mark.unit
 
@@ -55,7 +56,7 @@ class Store:
 
 
 def _scope(cast):
-    return ctx.SceneScope(tuple(cast), tuple(cast), (), frozenset(), "", "")
+    return make_scope(cast=tuple(cast), book_cast=tuple(cast))
 
 
 @pytest.fixture
@@ -149,7 +150,7 @@ def test_scene_scope_of(cast):
 
     edric = _char("Edric Thane", "A courier.")
     canon = Canon(title="Cel", synopsis="Milo dies.", characters=[*cast, edric])
-    scope = ctx.SceneScope.of(canon, cast, ["Old Fen"], "")
+    scope = ctx.SceneScope.of(canon, cast, ["Old Fen"], (), {})
     assert scope.cast == tuple(cast)
     assert scope.book_cast == (*cast, edric)
     assert scope.secondary_names == ("Old Fen",)

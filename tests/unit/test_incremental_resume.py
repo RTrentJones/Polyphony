@@ -21,6 +21,7 @@ from app.jobs.worker import JobWorker
 from app.llm.errors import QuotaExhaustedError
 from app.orchestration import ensemble as ens
 from app.planning import staged_outline as so
+from tests.unit.factories import make_scope
 
 pytestmark = pytest.mark.unit
 
@@ -432,7 +433,7 @@ async def test_ensemble_beat_resumes_after_the_last_agent_call(monkeypatch):
         user_id=None,
         book_id=None,
         canon_context="",
-        scope=ens.SceneScope((), (), (), frozenset(), "", ""),
+        scope=make_scope(),
         save_state=save,
     )
     with pytest.raises(QuotaExhaustedError):
@@ -515,7 +516,7 @@ async def test_prior_scene_tail_keeps_paragraph_breaks(
     assert tail.startswith("Milo counted form ")  # a sentence, not a fragment
     # A checkpoint fingerprinted with the old flat tail still matches.
     legacy = " ".join(content.split()[-PREV_TAIL_WORDS:])
-    setup = SceneSetup(Canon("c"), [], None, None, "")
+    setup = SceneSetup(Canon("c"), [], None, None, "", [], [])
     assert _canon_hash(setup, "s", None, tail) == _canon_hash(setup, "s", None, legacy)
 
 

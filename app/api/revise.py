@@ -101,6 +101,7 @@ def _proposal_view(row: SceneRevisionORM, draft_hash: str) -> dict:
         "job_id": meta.get("job_id"),
         "status": meta.get("status"),
         "warnings": meta.get("warnings") or [],
+        "dropped_callbacks": meta.get("dropped_callbacks") or [],
         # Written against a draft that has since changed: accept would 409.
         "stale": meta.get("base_text_hash") != draft_hash,
     }
@@ -161,7 +162,6 @@ async def revise_scene(
         "instruction": payload.instruction,
         "range": [span.start, span.end],
         "beat_index": payload.beat_index,
-        "beat_description": span.beat,
         "base_text_hash": draft_hash,
     }
     job, inserted = await jobs_repo.enqueue_reporting(

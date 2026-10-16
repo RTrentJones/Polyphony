@@ -28,13 +28,14 @@ REPLY = "Totally, let's circle back on the numbers."
 
 
 class Store:
-    async def retrieve_similar(self, *, chunk_type=None, k=5, **kw):
+    async def retrieve_similar(self, *, chunk_type=None, k=5, keep=None, **kw):
         if chunk_type not in (None, "dialogue"):
             return []
-        return [
+        rows = [
             {"id": f"d{i}", "text": t, "chunk_type": "dialogue", "score": 0.9 - i / 10}
             for i, t in enumerate(LINES)
         ][:k]
+        return [r for r in rows if keep is None or keep(r)]
 
 
 class Embedder:
@@ -61,7 +62,7 @@ def probe(monkeypatch):
     milo = types.SimpleNamespace(
         id=uuid.uuid4(), name="Milo Voss", aliases=["Milo"], user_id=None, book_id=None
     )
-    scope = ctx.SceneScope.of(Canon(title="Cel", characters=[milo]), [milo], (), "")
+    scope = ctx.SceneScope.of(Canon(title="Cel", characters=[milo]), [milo], (), (), {})
     return milo, scope, prompts
 
 

@@ -56,3 +56,19 @@ def test_gold_lines_are_whole_utterances():
     joined = "Close the accounts in your queue. Don't open the ones that aren't."
     assert joined in zara["train"]
     assert "Don't open the ones that aren't." not in zara["train"] + zara["test"]
+
+
+def test_excerpt_events_cover_the_excerpt_in_order():
+    """SPEC-45 gold: the event spans start at paragraph 0 and run in order to
+    the last paragraph, each narrated paragraph lies in its own span, and
+    every owned phrase is in the excerpt."""
+    from evals.steps import pipeline
+
+    _, gt = pipeline.load_corpus("cel")
+    excerpt = pipeline.load_excerpts("cel")
+    events = gt["excerpt_events"]
+    starts = [e["from"] for e in events] + [len(excerpt.split("\n\n"))]
+    assert starts[0] == 0 and starts == sorted(set(starts)) and starts[-1] == 31
+    for e, end in zip(events, starts[1:]):
+        assert all(e["from"] <= i < end for i in e["narrated"]), e
+    assert all(p in excerpt for ps in gt["owned_phrases"].values() for p in ps)

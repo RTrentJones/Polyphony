@@ -190,3 +190,18 @@ async def test_reindex_voice_replaces_old_attributor_chunks(pg):
     before = sorted(await _chunks(pg, milo))
     assert await _reindex_voice(bid) == 1
     assert sorted(await _chunks(pg, milo)) == before
+
+
+async def test_a_retrieved_chunk_carries_its_source_id(pg):
+    """(F) Wave-5 day-0: retrieval returns the chunk's source, which the
+    later-plot cut keys on (SPEC-40)."""
+    import app.parsing.pipeline as pipeline
+    from app.rag.store import get_chunk_store
+
+    uid, bid, sid, ids = await _book_with_source(pg)
+    await pipeline.index_characters_voice(sid, bid, uid, [str(i) for i in ids.values()])
+
+    (hit,) = await get_chunk_store().retrieve_similar(
+        str(ids["Zara Okafor"]), "thank", chunk_type="dialogue", score_threshold=-1.0
+    )
+    assert (hit["text"], hit["source_id"]) == ("Don't thank her.", str(sid))
