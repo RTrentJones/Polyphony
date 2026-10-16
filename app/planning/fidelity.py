@@ -146,7 +146,7 @@ _CALENDAR = {
     "november",
     "december",
 }
-_SKIP_WORDS = _STOP_CAPS | _CONNECTIVES | _CALENDAR
+FUNCTION_WORDS = _STOP_CAPS | _CONNECTIVES | _CALENDAR
 # Capitalised runs joined by a SINGLE space: a run never spans a field boundary
 # (fields are joined with two spaces), a comma or a line break, so "Debt" ending
 # one title and "In" opening the next summary are two words, not "Debt  In".
@@ -227,10 +227,10 @@ def _candidates(text: str):
     for m in _PROPER.finditer(text or ""):
         words = m.group(0).split(" ")
         initial = _is_sentence_initial(text, m.start())
-        while words and words[0].lower() in _SKIP_WORDS:
+        while words and words[0].lower() in FUNCTION_WORDS:
             words.pop(0)
             initial = False  # what is left no longer opens the sentence
-        while words and words[-1].lower() in _SKIP_WORDS:
+        while words and words[-1].lower() in FUNCTION_WORDS:
             words.pop()
         if words:
             yield words, initial
@@ -277,7 +277,7 @@ def unknown_proper_nouns(
     found: dict[str, str] = {}
     for words, initial in _candidates(outline_text):
         lowered = [w.lower() for w in words]
-        if any(w in _SKIP_WORDS for w in lowered):
+        if any(w in FUNCTION_WORDS for w in lowered):
             continue  # title-case fragment
         if all(w in lower_words for w in lowered):
             continue  # common words, capitalised

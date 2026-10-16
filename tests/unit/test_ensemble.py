@@ -7,7 +7,7 @@ import pytest
 from app.core.config import settings
 from app.orchestration import ensemble as ens
 
-_SCOPE = ens.SceneScope((), (), (), frozenset(), "")
+_SCOPE = ens.SceneScope((), (), (), frozenset(), "", "")
 
 pytestmark = pytest.mark.unit
 

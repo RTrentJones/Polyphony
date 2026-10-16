@@ -211,6 +211,19 @@ export interface Scene {
   evaluation_scores?: Record<string, number> | null
 }
 
+export interface SceneNeighbours {
+  prev: string | null
+  next: string | null
+}
+
+/** GET /scenes/{id} only (SPEC-37): its title, chapter and book-order neighbours. */
+export interface SceneDetail extends Scene {
+  title: string | null
+  /** null only for an unfiled scene. */
+  chapter: { id: string; number: number; title: string } | null
+  neighbours: SceneNeighbours
+}
+
 /** GET /scenes/ */
 export interface SceneListResponse {
   scenes: Scene[]
@@ -311,6 +324,8 @@ export interface BookChapter {
   character_ids?: string[]
   /** The chapter's planned scenes as data (SPEC-23). */
   planned_beats?: PlannedBeat[]
+  /** 1-based book order: the one "chapter N" (S9); never compute position + 1. */
+  number: number
 }
 
 /** One planned scene of a chapter (SPEC-23). */
@@ -326,6 +341,9 @@ export interface PlannedBeat {
   /** The live cast the server writes this beat with (SPEC-32). */
   readonly cast_ids: string[]
 }
+
+/** A beat as the client sends it: `cast_ids` is derived and never round-trips. */
+export type PlannedBeatInput = Omit<PlannedBeat, 'cast_ids'>
 
 /** A person the outline names who is in the synopsis/canon but not the cast (SPEC-24). */
 export interface SuggestedCharacter {
@@ -357,6 +375,8 @@ export interface ChapterUpdateData {
   title?: string
   summary?: string
   status?: string
+  /** Omitted when no beat field changed (SPEC-35). */
+  planned_beats?: PlannedBeatInput[]
 }
 
 /** Scene summary inside GET /books/chapters/{id}. */
@@ -368,11 +388,14 @@ export interface ChapterScene {
   word_count?: number | null
   preview?: string | null
   created_at: string | null
+  title: string | null
 }
 
 /** GET /books/chapters/{id} — the chapter plus its ordered scenes. */
 export interface ChapterDetail extends BookChapter {
   scenes: ChapterScene[]
+  /** {beat node_id: scene id} of the beats already written (SPEC-35). */
+  written: Record<string, string>
 }
 
 /** POST /books/chapters/{id}/scenes/generate body. */
@@ -428,10 +451,13 @@ export interface PlannedScenesResponse {
   status: string
   /** Planned beats in the chapter. */
   total: number | null
-  /** Scenes that will be written, one after another. */
+  /** This chain's length: the scenes written now, one after another. */
   queued: number
   /** Beats that already had a scene. */
   skipped?: number
+  /** Beats left for a later click; `reason` is non-null exactly when > 0 (SPEC-34). */
+  deferred: number
+  reason: string | null
   already_running?: boolean
   mode_requested?: 'prose' | 'ensemble'
   mode_used?: 'prose' | 'ensemble'

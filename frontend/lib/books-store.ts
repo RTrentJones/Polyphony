@@ -39,7 +39,7 @@ import type {
   PlotThreadListResponse,
   PromoteAllResponse,
   PromoteNodeResponse,
-  Scene,
+  SceneDetail,
   SceneContentSaveResponse,
   SceneRevisionsResponse,
   ThreadCreateData,
@@ -81,9 +81,9 @@ export const booksApi = {
   // -- Scenes shared with the classic scene endpoints ------------------------
 
   /** GET /scenes/{id} — used to poll generation status. */
-  async getScene(sceneId: string): Promise<Scene> {
+  async getScene(sceneId: string): Promise<SceneDetail> {
     try {
-      const { data } = await apiClient.get<Scene>(`/scenes/${sceneId}`)
+      const { data } = await apiClient.get<SceneDetail>(`/scenes/${sceneId}`)
       return data
     } catch (err) {
       throw toApiError(err)

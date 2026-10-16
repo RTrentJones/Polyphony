@@ -20,7 +20,7 @@ vi.mock('@/components/EstimateHint', () => ({
   },
 }))
 
-const chapter: BookChapter = { id: 'ch-1', book_id: 'book-1', position: 0, title: 'One' }
+const chapter: BookChapter = { id: 'ch-1', book_id: 'book-1', position: 0, number: 1, title: 'One' }
 const cast: Character[] = [
   { id: 'c-ada', name: 'Ada', role: 'protagonist', book_id: 'book-1' },
   { id: 'c-bram', name: 'Bram', book_id: 'book-1' },

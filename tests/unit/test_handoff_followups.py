@@ -148,7 +148,7 @@ async def test_ensemble_records_context_only_characters(
         user_id=duo.book.user_id,
         book_id=duo.book.id,
         canon_context="",
-        scope=ens.SceneScope((duo.milo, duo.zara), (), (), frozenset(), ""),
+        scope=ens.SceneScope((duo.milo, duo.zara), (), (), frozenset(), "", ""),
     )
     by_char = {e["character_id"]: e for e in result["grounding"]}
     assert by_char[str(duo.milo.id)]["chunk_id"] == "m-1"
@@ -401,8 +401,10 @@ async def test_generate_planned_enqueues_the_first_scene_of_a_chain(
     assert request["character_ids"] == [ids["Milo Voss"], ids["Zara Okafor"]]
     assert request["pov_character"] == "Milo Voss"
     assert request["setting"] == "the office"
+    assert request["beat_title"] == "Badge photo"
     (nxt,) = job.payload["batch"]["remaining"]
     assert nxt["scene_description"] == "Lunch: Zara explains the afterlife"
+    assert nxt["beat_title"] == "Lunch"
 
     # A repeat while the batch is in flight returns it, spending nothing.
     again = await client.post(url, json={}, headers=auth_headers)

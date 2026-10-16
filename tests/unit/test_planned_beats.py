@@ -566,6 +566,7 @@ async def test_a_single_scene_from_a_beat_stores_its_id_and_secondaries(
     assert job.payload["request"]["secondary_names"] == ["Prava"]
     scene = await async_session.get(Scene, uuid.UUID(r.json()["scene_id"]))
     assert scene.scene_request["planned_beat_id"] == b3
+    assert scene.scene_request["beat_title"] == "Caseworker"
 
     # A beat the chapter no longer has (a stale modal): stored as None.
     r = await client.post(
@@ -576,6 +577,7 @@ async def test_a_single_scene_from_a_beat_stores_its_id_and_secondaries(
     assert r.status_code == 200, r.text
     scene = await async_session.get(Scene, uuid.UUID(r.json()["scene_id"]))
     assert scene.scene_request["planned_beat_id"] is None
+    assert scene.scene_request["beat_title"] is None
     assert "secondary_names" not in scene.scene_request
 
 

@@ -20,7 +20,7 @@ vi.mock('@/lib/books-store', () => ({
 
 const beat = { node_id: 'n-1', title: 'Badge', summary: '', character_ids: [], secondary_names: [], setting: '', tone: '', cast_ids: [] }
 const paperwork = (id: string, position: number): BookChapter => ({
-  id, book_id: 'book-1', position, title: 'Paperwork', planned_beats: [beat],
+  id, book_id: 'book-1', position, number: position + 1, title: 'Paperwork', planned_beats: [beat],
 })
 const chapters = [paperwork('ch-a', 0), paperwork('ch-b', 1)]
 const book = (character_count: number, chs = chapters) =>

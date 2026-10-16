@@ -35,18 +35,19 @@ CONTEXT_ONLY_REASON = "context only"
 
 
 class SceneScope(NamedTuple):
-    """Who a scene may mention (SPEC-30). Replaces the context builders'
-    `cast`. Built once per scene (or per probe), never per beat."""
+    """What a scene is about and who it may mention (SPEC-30, SPEC-36).
+    Built once per scene (or per probe), never per beat."""
 
     cast: tuple  # the SCENE's Character rows: _centres' "others"
     book_cast: tuple  # every live Character of the book
     secondary_names: tuple[str, ...]  # the scene request's secondary_names
     known: frozenset[str]  # canon.canon_terms()
     known_text: str  # canon_known_text(canon), raw
+    brief: str  # the scene request's scene_description: the event being written
 
     @classmethod
     def of(
-        cls, canon, scene_cast: Iterable, secondary_names: Iterable[str]
+        cls, canon, scene_cast: Iterable, secondary_names: Iterable[str], brief: str
     ) -> "SceneScope":
         from app.planning.fidelity import canon_known_text
 
@@ -56,6 +57,7 @@ class SceneScope(NamedTuple):
             tuple(secondary_names),
             frozenset(canon.canon_terms()),
             canon_known_text(canon),
+            brief,
         )
 
 

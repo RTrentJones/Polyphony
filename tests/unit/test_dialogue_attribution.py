@@ -404,7 +404,7 @@ def _s(i, text, chunk_type, source="paragraph_1", score=0.5):
 def _scope(*cast):
     from app.characters.context import SceneScope
 
-    return SceneScope(tuple(cast), tuple(cast), (), frozenset(), "")
+    return SceneScope(tuple(cast), tuple(cast), (), frozenset(), "", "")
 
 
 def _blocks(out):
@@ -434,9 +434,7 @@ class TestCharacterContext:
         out = await ctx.build_character_context(
             _char(), "Zara Okafor", "the desk", scope=_scope(), grounding=grounding
         )
-        assert (
-            "Voice samples (their own words — match cadence, diction, syntax):" in out
-        )
+        assert ctx.VOICE_SAMPLES_LABEL in out
         voice, move = _blocks(out)
         assert "Don't thank her" in voice
         assert "filed the memo" not in voice and "wondered" not in voice
@@ -601,7 +599,7 @@ async def _milo_moves(monkeypatch, texts, scene, secondaries=(), synopsis=True):
     store = TypedStore([_s(f"a{i}", t, "action") for i, t in enumerate(texts)])
     monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
     cast = [by["Milo"], *(by[n] for n in scene)]
-    scope = ctx.SceneScope.of(canon, cast, secondaries)
+    scope = ctx.SceneScope.of(canon, cast, secondaries, "")
     out = await ctx.build_character_context(by["Milo"], "Milo Voss", "x", scope=scope)
     return [ln[2:] for ln in _blocks(out)[1].splitlines() if ln.startswith("- ")]
 
@@ -622,7 +620,7 @@ class TestMovementInScene:
         canon, by = _cel()
         chief = "The chief reason was the form."
         assert _centres(chief, "Milo Voss", [by["Milo"], by["Edric"]], ["Milo"])
-        scope = SceneScope.of(canon, [by["Milo"], by["Zara"]], ())
+        scope = SceneScope.of(canon, [by["Milo"], by["Zara"]], (), "")
         assert names_outside_scene(chief, by["Milo"], scope) == []
         # Edric is still seen by any of his forms, capitalised.
         lich = "Milo bowed to the Lich."

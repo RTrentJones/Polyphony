@@ -262,6 +262,7 @@ def _chapter_dict(c: ChapterORM, index: CastIndex) -> dict:
         "title": c.title,
         "summary": c.summary,
         "status": c.status,
+        "number": c.number,  # the one "chapter N" (S9)
         # From the outline node it was promoted from (SPEC-10): scene defaults.
         "plan_node_id": str(c.plan_node_id) if c.plan_node_id else None,
         "pov_character_id": str(c.pov_character_id) if c.pov_character_id else None,
@@ -987,6 +988,7 @@ async def generate_scene_into_chapter(
     request_dict["character_ids"] = cast_ids
     request_dict["pov_character"] = pov_character
     request_dict["planned_beat_id"] = beat["node_id"] if beat else None
+    request_dict["beat_title"] = beat["title"] if beat else None
     if beat is not None:
         request_dict["secondary_names"] = secondary
 
@@ -1111,7 +1113,7 @@ async def generate_planned_scenes(
             detail="This chapter has no planned beats. Promote it from the "
             "outline, or generate scenes one at a time.",
         )
-    todo = unwritten_beats(beats, await scene_batch.written_beat_ids(db, chapter_id))
+    todo = unwritten_beats(beats, await scene_batch.written_beats(db, chapter_id))
     if not todo:
         return {
             "chapter_id": str(chapter_id),
@@ -1188,6 +1190,7 @@ async def generate_planned_scenes(
             "emotional_tone": payload.emotional_tone or beat.get("tone") or "",
             "pov_character": pov,
             "planned_beat_id": beat["node_id"],
+            "beat_title": beat["title"],
             "secondary_names": secondary,
             "target_word_count": payload.target_word_count,
             "style_notes": payload.style_notes,

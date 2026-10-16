@@ -105,3 +105,22 @@ async def test_outline_prompt_markers(monkeypatch):
         assert pc._CONFIRMED_PREMISE.search(prompt).group(1) == "Milo wakes up."
     number, act_chapters = stub_llm._act_chapters(fake.prompts["outline:beats"][0])
     assert number == 1 and act_chapters == chapters
+
+
+def test_wave4_markers_are_frozen_and_keep_their_openings():
+    """Wave-4 day-0 §1(a): the exact texts E4 emits and parses; the voice
+    grader still finds its block by the "Voice samples" opening."""
+    assert pm.VOICE_SAMPLES_LABEL == (
+        "Voice samples (their own words, for manner only — match cadence, diction, "
+        "syntax; never copy a sample's words: write new lines in this voice):"
+    )
+    assert pm.MOVEMENT_LABEL == (
+        "How they move (gesture and habit, for manner only: never copy a sample's "
+        "words, and do not reuse these events, objects or names):"
+    )
+    assert pm.OUTLINE_CHAPTERS_HEADER == (
+        f"The whole book, chapter by chapter ({pm.CURRENT_BEAT_MARK} marks this "
+        "act's chapters):"
+    )
+    prompt = f'### Milo Voss\n{pm.VOICE_SAMPLES_LABEL}\n- "So."'
+    assert pc.voice_samples(prompt) == {"Milo Voss": ["So."]}

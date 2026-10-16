@@ -61,7 +61,7 @@ def probe(monkeypatch):
     milo = types.SimpleNamespace(
         id=uuid.uuid4(), name="Milo Voss", aliases=["Milo"], user_id=None, book_id=None
     )
-    scope = ctx.SceneScope.of(Canon(title="Cel", characters=[milo]), [milo], ())
+    scope = ctx.SceneScope.of(Canon(title="Cel", characters=[milo]), [milo], (), "")
     return milo, scope, prompts
 
 

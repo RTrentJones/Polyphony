@@ -31,6 +31,7 @@ const promoted: BookChapter = {
   id: 'ch-1',
   book_id: 'b',
   position: 0,
+  number: 1,
   title: 'Onboarding',
   summary: 'Milo arrives',
   planned_beats: [beat('Badge photo', 'he is dead'), beat('Lunch', 'Zara explains')],
@@ -88,7 +89,7 @@ describe('GeneratePlannedScenesButton (SPEC-10)', () => {
   })
 
   it('words a running batch, a skip and a finished chapter', () => {
-    const base = { chapter_id: 'c', scene_id: null, job_id: null, status: 'x', total: 3 }
+    const base = { chapter_id: 'c', scene_id: null, job_id: null, status: 'x', total: 3, deferred: 0, reason: null }
     expect(plannedScenesMessage({ ...base, queued: 3, already_running: true })).toMatch(
       /already being written/
     )
