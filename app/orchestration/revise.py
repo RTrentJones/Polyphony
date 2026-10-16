@@ -31,7 +31,7 @@ from app.core.prompt_markers import (
     SCENE_CHARACTERS_SECTION,
 )
 from app.llm.client import get_llm_client
-from app.orchestration.pov import Pov, pov_instruction
+from app.orchestration.pov import NAMING_RULE, Pov, pov_instruction
 from app.orchestration.prose import beats_block
 from app.orchestration.workflow import StoryPosition, chapter_context
 from app.planning.fidelity import canon_known_text, unknown_proper_nouns
@@ -198,23 +198,30 @@ def clean_revision(text: str) -> str:
     return _LABEL.sub("", out, count=1).strip()
 
 
-# A redo (SPEC-41).
+# A redo (SPEC-41, SPEC-47).
 KEEP_LINE = "Keep these (the rest of this chapter refers to them): {terms}"
 REDO_DIRECTION = (
     "If the instruction does not say what to change, keep the beat's events and "
     "facts and change only the telling."
 )
+# An instruction is a direction when more than its "Redo beat N." remains.
+REDO_CHANGE = (
+    "Change what the instruction asks for. Keep every other sentence of the beat "
+    "as written, unless it must change to fit the change."
+)
+_REDO_LEAD = re.compile(r"^\s*redo beat \d+\s*[.:]?", re.I)
 DROPPED_CALLBACK = (
     "This version drops {terms}, which the rest of this chapter refers to."
 )
 # The callback classes, each pinned by an archived example (SPEC-41): hyphenated
-# compounds, numbers and number words but "one", dash-led fragments, capitals.
+# compounds, numbers, a number word with the next word of its sentence (SPEC-47:
+# "nine days", never a bare "two"), dash-led fragments, capitals.
 _NUMBER_WORDS = (
     "two three four five six seven eight nine ten eleven twelve twenty thirty "
     "forty fifty sixty seventy eighty ninety hundred thousand million"
 ).split()
 _CALLBACK = re.compile(
-    r"\b\w+(?:-\w+)+\b|\b\d[\d,.]*\b|\b(?i:" + "|".join(_NUMBER_WORDS) + r")\b"
+    r"\b\w+(?:-\w+)+\b|\b\d[\d,.]*\b|\b(?i:" + "|".join(_NUMBER_WORDS) + r")[ \t]+\w+"
     r"|(?<![\w—-])—[a-z][\w'’-]*"
     r"|(?P<cap>(?<![\w'’-])[A-Z][a-z][\w'’-]*(?: [A-Z][\w'’-]*)*)"
 )
@@ -225,11 +232,29 @@ def _opens_sentence(text: str, at: int) -> bool:
     return not before or before[-1] in ".!?…:"
 
 
-def _uses(text: str, term: str) -> bool:
-    """`term` as a whole word or phrase of `text`, ignoring case; a dash-led
-    fragment by its words."""
+def _use(text: str, term: str):
+    """The first use of `term` as a whole word or phrase of `text`, ignoring
+    case; a dash-led fragment by its words."""
     bare = re.escape(term.lstrip("—"))
-    return re.search(rf"(?<![\w-]){bare}(?![\w-])", text, re.I) is not None
+    return re.search(rf"(?<![\w-]){bare}(?![\w-])", text, re.I)
+
+
+_SENTENCE_END = re.compile(r"[.!?…][\"”’')\]]*\s|\n")
+
+
+def callback_context(term: str, rest: str) -> str:
+    """Where `rest` first uses `term` (SPEC-47): its sentence's words from up
+    to three before it to up to three after, at most 8, outer punctuation
+    trimmed."""
+    m = _use(rest, term)
+    ends = _SENTENCE_END.finditer(rest, 0, m.start())
+    start = max((e.end() for e in ends), default=0)
+    stop = _SENTENCE_END.search(rest, m.end())
+    words = re.finditer(r"\S+", rest[: stop.start() + 1 if stop else None])
+    words = [w for w in words if w.end() > start]
+    at = [i for i, w in enumerate(words) if w.end() > m.start() and w.start() < m.end()]
+    span = words[max(0, at[0] - 3) : at[-1] + 4][:8]
+    return " ".join(w.group(0) for w in span).strip(" \"“”'‘’()[]—–-,;:.!?…")
 
 
 def callbacks(target: str, rest: str, canon) -> list[str]:
@@ -248,14 +273,14 @@ def callbacks(target: str, rest: str, canon) -> list[str]:
             or re.search(rf"\b{re.escape(term)}\b", canon_text)
         ):
             continue
-        if _uses(rest, term):
+        if _use(rest, term):
             found[key] = term
     return list(found.values())
 
 
 def dropped_callbacks(revised: str, keep: list[str]) -> list[str]:
     """The `keep` terms the revised span no longer uses (warn-only)."""
-    return [t for t in keep if not _uses(revised, t)]
+    return [t for t in keep if not _use(revised, t)]
 
 
 def build_revise_prompt(
@@ -271,7 +296,7 @@ def build_revise_prompt(
     story_position: Optional[StoryPosition],
     secondary_block: str,
     beat: Optional[tuple[int, list[str]]] = None,
-    keep: Sequence[str] = (),
+    keep: Sequence[tuple[str, str]] = (),
 ) -> str:
     """The revise prompt. Everything the author wrote reaches the model whole:
     the canon, the chapter and its place in the book, the cast's and the
@@ -280,8 +305,8 @@ def build_revise_prompt(
 
     `beat` is (beat_index, the scene's beat lines) when the author asked to
     redo a beat: the prompt names the beat and shows the scene's whole plan
-    with it marked, then `keep` (what the rest of the chapter refers to) and
-    the direction for a terse instruction (SPEC-41)."""
+    with it marked, then `keep` (what the rest of the chapter refers to, as
+    (term, context)) and how much to change (SPEC-41, SPEC-47)."""
     plan_line = ""
     if beat:
         index, lines = beat
@@ -291,8 +316,16 @@ def build_revise_prompt(
                 f"\nBeat {index + 1} of this scene's plan: {description}",
                 f"The scene's whole plan ({CURRENT_BEAT_MARK} marks beat {index + 1}):",
                 beats_block(lines, index),
-                *([KEEP_LINE.format(terms=", ".join(keep))] if keep else []),
-                REDO_DIRECTION,
+                *(
+                    [KEEP_LINE.format(terms=", ".join(f'{t} ("{c}")' for t, c in keep))]
+                    if keep
+                    else []
+                ),
+                (
+                    REDO_CHANGE
+                    if _REDO_LEAD.sub("", instruction).strip()
+                    else REDO_DIRECTION
+                ),
             ]
         )
     prior_block = (
@@ -326,7 +359,8 @@ to you about the TARGET passage. Follow it for the TARGET only.
 
 {cast_block}
 
-{pov_instruction(pov)}{plan_line}
+{pov_instruction(pov)}
+{NAMING_RULE}{plan_line}
 
 {prior_block}
 
@@ -341,10 +375,9 @@ The author's instruction:
 Rewrite ONLY the TARGET passage so that it follows the instruction. Stay
 faithful to the canon above: its people, places, terms and its style guide
 (point of view, tense, tone). Keep the events, and the facts, people and
-objects the surrounding text depends on. Do not introduce named characters who
-are not in the canon or the scene. Do not add headings, labels, quotation of
-the instruction, or commentary — return the revised passage itself, and
-nothing else.
+objects the surrounding text depends on. Do not add headings, labels,
+quotation of the instruction, or commentary — return the revised passage
+itself, and nothing else.
 
 Revised passage:"""
 

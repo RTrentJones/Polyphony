@@ -6,15 +6,17 @@ and never opens mid-sentence, the author's style ahead of any house style, and
 the deterministic seam trim.
 """
 
+import json
 import re
 import types
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
 from app.core.llm_text import as_quoted_block
 from app.orchestration import prose as prose_module
-from app.orchestration.pov import Pov
+from app.orchestration.pov import NAMING_RULE, Pov, pov_instruction
 from app.orchestration.prose import (
     GENERIC_CRAFT_GUIDANCE,
     PREV_TAIL_WORDS,
@@ -22,6 +24,7 @@ from app.orchestration.prose import (
     _canon_hash,
     prose_tail,
     scene_chapter,
+    scene_name_warnings,
     trim_seam_repeat,
     write_beat_prose,
 )
@@ -248,6 +251,29 @@ class TestBeatPrompt:
         assert await _write(_BEATS[0]) == "Prose."
         assert "<beats>" not in fake.prompts[0]
         assert "BEAT TO WRITE: Milo finds the ledger." in fake.prompts[0]
+
+    async def test_the_naming_rule_follows_the_pov_rule(self, fake):
+        """(F) SPEC-48 (D10): the words the author keeps get the naming rule."""
+        await _write(_BEATS[0])
+        pov = pov_instruction(Pov("first person"))
+        assert f"{pov}\n{NAMING_RULE}\n" in fake.prompts[0]
+
+
+def test_scene_name_warnings_on_the_archived_scenes():
+    """(F) SPEC-48 (D8): the fixture's rows. W5d's invented Gary and W5c's
+    Derek are warned with the institution; (R) Prava, a canon secondary the
+    scene names, is not, nor (R) Halvard Bell or an Also-named person."""
+    w5 = json.loads(
+        (Path(__file__).parents[1] / "fixtures" / "w5_archives.json").read_text("utf-8")
+    )
+    terms = set(w5["canon"]["terms"])
+    synopsis = (Path(__file__).parents[2] / w5["canon"]["synopsis"]).read_text("utf-8")
+    canon = types.SimpleNamespace(synopsis=synopsis, canon_terms=lambda: terms)
+    for r in w5["name_warnings"]["rows"]:
+        assert scene_name_warnings(r["prose"], canon, {}, "") == r["names"], r["run"]
+    text = "Halvard Bell rang twice. Milo nodded to Imre Kasza, who said nothing."
+    also = {"secondary_names": ["Imre Kasza"]}
+    assert scene_name_warnings(text, canon, also, "") == []
 
 
 # --- scene_chapter (SPEC-30) ----------------------------------------------------

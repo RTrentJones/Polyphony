@@ -440,6 +440,7 @@ async def run_ensemble_scene_workflow(
         _canon_hash,
         plan_scene_beats,
         prose_tail,
+        scene_name_warnings,
         scene_setup,
         trim_seam_repeat,
     )
@@ -562,7 +563,9 @@ async def run_ensemble_scene_workflow(
                 "converged": converged,
                 "beats": evaluations,
                 "grounding": grounding,
-                "name_warnings": [],
+                "name_warnings": scene_name_warnings(
+                    scene_text, setup.canon, scene_request, prior_scene_tail
+                ),
             }
             await session.commit()
 

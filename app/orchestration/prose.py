@@ -34,8 +34,9 @@ from app.core.prompt_markers import (
 from app.llm.client import get_llm_client
 from app.llm.errors import QuotaExhaustedError
 from app.planning.canon import Canon, build_canon
+from app.planning.fidelity import canon_known_text, unknown_proper_nouns
 
-from .pov import Pov, pov_instruction, resolve_pov
+from .pov import NAMING_RULE, Pov, pov_instruction, resolve_pov
 from .workflow import (
     StoryPosition,
     chapter_context,
@@ -143,6 +144,19 @@ async def scene_setup(
     )
     block = render_secondaries(scene_secondaries(names, canon, sources, later_from))
     return SceneSetup(canon, cast, scope, pov, block, plan, earlier, summary, position)
+
+
+def scene_name_warnings(
+    prose: str, canon, scene_request: dict, earlier: str
+) -> list[str]:
+    """People or places a generated scene names that neither the canon, the
+    scene's Also-named people nor the text before it does: possible inventions,
+    stored at completion (SPEC-48; warn-only, like revise's `new_names`)."""
+    return unknown_proper_nouns(
+        prose,
+        {*canon.canon_terms(), *secondary_names(scene_request)},
+        canon_text=canon_known_text(canon) + "\n" + earlier,
+    )
 
 
 # A last-beat instruction that keeps the close inside the scene (SPEC-24, W2-4):
@@ -427,7 +441,8 @@ faithful to the canon above: its people, places, terms, and its style guide
 (point of view, tense, tone) unless the author's notes below override it.
 
 {scene_block(scene_request)}
-{pov_instruction(pov)}{overrides}
+{pov_instruction(pov)}
+{NAMING_RULE}{overrides}
 
 {plan}{CHARACTERS_SECTION} — write each one's dialogue in THEIR OWN voice,
 matching their voice samples:
@@ -596,7 +611,9 @@ async def run_prose_scene_workflow(
                 **(scene.evaluation_scores or {}),
                 "mode": "prose",
                 "grounding": grounding,
-                "name_warnings": [],
+                "name_warnings": scene_name_warnings(
+                    scene_text, canon, scene_request, prior_scene_tail
+                ),
             }
             for beat_idx, beat in enumerate(beats):
                 session.add(
