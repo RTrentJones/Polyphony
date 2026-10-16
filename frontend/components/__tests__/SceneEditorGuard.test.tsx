@@ -69,6 +69,7 @@ describe('Scene editor safety net and header (SPEC-16 B1, SPEC-37)', () => {
   it('does not ask when there is nothing unsaved', async () => {
     await renderEditor()
     fireEvent.click(screen.getByRole('button', { name: 'Back to book' }))
+    await act(async () => {})
     expect(confirmSpy).not.toHaveBeenCalled()
     expect(router.push).toHaveBeenCalledWith('/books/detail?id=b1')
   })
@@ -77,6 +78,7 @@ describe('Scene editor safety net and header (SPEC-16 B1, SPEC-37)', () => {
     const editor = await renderEditor()
     type(editor, 'Twenty minutes of revision.')
     fireEvent.click(screen.getByRole('button', { name: 'Back to book' }))
+    await act(async () => {})
     expect(confirmSpy).toHaveBeenCalledTimes(1)
     expect(router.push).not.toHaveBeenCalled()
     expect(router.replace).not.toHaveBeenCalled()
@@ -88,6 +90,7 @@ describe('Scene editor safety net and header (SPEC-16 B1, SPEC-37)', () => {
     type(editor, 'Twenty minutes of revision.')
     confirmSpy.mockReturnValue(true)
     fireEvent.click(screen.getByRole('button', { name: 'Back to book' }))
+    await act(async () => {})
     expect(router.replace).toHaveBeenCalledWith('/books/detail?id=b1')
     expect(router.push).not.toHaveBeenCalled()
   })
@@ -166,6 +169,7 @@ describe('Scene editor safety net and header (SPEC-16 B1, SPEC-37)', () => {
     window.dispatchEvent(unload)
     expect(unload.defaultPrevented).toBe(false)
     fireEvent.click(screen.getByRole('button', { name: 'Back to book' }))
+    await act(async () => {})
     expect(confirmSpy).not.toHaveBeenCalled()
   })
 
@@ -181,6 +185,7 @@ describe('Scene editor safety net and header (SPEC-16 B1, SPEC-37)', () => {
     expect(booksApi.saveSceneContent).not.toHaveBeenCalled()
     // Restored text is unsaved, so the guard is live.
     fireEvent.click(screen.getByRole('button', { name: 'Back to book' }))
+    await act(async () => {})
     expect(confirmSpy).toHaveBeenCalled()
   })
 
@@ -329,6 +334,17 @@ describe('Scene editor safety net and header (SPEC-16 B1, SPEC-37)', () => {
     fireEvent.blur(title)
     await act(async () => finish({ id: 's1', title: 'New' }))
     await waitFor(() => expect(booksApi.updateSceneTitle).toHaveBeenLastCalledWith('s1', 'Retained'))
+  })
+
+  it('Back to book also waits for the title save, and stays when it fails', async () => {
+    booksApi.updateSceneTitle.mockRejectedValue(new Error('Server error'))
+    await renderEditor()
+    const title = screen.getByLabelText('Scene title')
+    fireEvent.change(title, { target: { value: 'The Next Desk' } })
+    fireEvent.blur(title)
+    fireEvent.click(screen.getByRole('button', { name: 'Back to book' }))
+    await act(async () => {})
+    expect(router.push).not.toHaveBeenCalled()
   })
 
   it('a failed title save keeps the author on the scene', async () => {

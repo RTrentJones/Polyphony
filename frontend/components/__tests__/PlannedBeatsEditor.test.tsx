@@ -83,6 +83,17 @@ describe('PlannedBeatsEditor (SPEC-35)', () => {
     expect((await sent()).planned_beats[0].character_ids).toEqual(['c-edric'])
   })
 
+  it('keeps stored ids while the cast has not loaded', async () => {
+    const props = { chapter: chapter(), onSaved: vi.fn(), onCancel: vi.fn() }
+    renderWithBook(
+      <PlannedBeatsEditor {...props} />,
+      bookValue({ characters: [], refreshCharacters: vi.fn().mockResolvedValue([]) })
+    )
+    fireEvent.change(screen.getByLabelText('Beat 1 of chapter 1, summary'), { target: { value: 'New' } })
+    save()
+    expect((await sent()).planned_beats[1].character_ids).toEqual(['c-edric'])
+  })
+
   it("toggling beat 1's chips sends the shown chips; the POV chip cannot be removed", async () => {
     open()
     expect(chip(1, 'Milo')).toHaveAttribute('aria-disabled', 'true')

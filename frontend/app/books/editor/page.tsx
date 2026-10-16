@@ -295,10 +295,12 @@ function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: stri
     )
   }
 
-  const goTo = async (id: string | null) => {
+  /** Leaves once the title save settles; a failed save keeps the author here. */
+  const leaveTo = async (href: string | null) => {
     if (!(await titleSave.current)) return
-    if (id) guardedPush(`/books/editor?scene=${id}&book=${bookId}`)
+    if (href) guardedPush(href)
   }
+  const goTo = (id: string | null) => leaveTo(id && `/books/editor?scene=${id}&book=${bookId}`)
 
   const backHref = bookId ? `/books/detail?id=${bookId}` : '/books'
 
@@ -339,7 +341,7 @@ function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: stri
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => guardedPush(backHref)}
+            onClick={() => leaveTo(backHref)}
             className="mb-2"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />

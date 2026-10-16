@@ -30,7 +30,11 @@ const toInput = (
   live: Set<string>
 ): PlannedBeatInput => ({
   ...b,
-  character_ids: touchedCast ? cast_ids : b.character_ids.filter((id) => live.has(id)),
+  character_ids: touchedCast
+    ? cast_ids
+    : live.size // empty until the cast has loaded: keep the stored ids
+    ? b.character_ids.filter((id) => live.has(id))
+    : b.character_ids,
 })
 const stored = (ch: ChapterDetail): PlannedBeatInput[] =>
   (ch.planned_beats ?? []).map(({ cast_ids, ...b }) => b)
