@@ -885,6 +885,7 @@ async def _planned_scenes(ctx: StepContext, book: dict) -> dict:
             # estimate ran over what the ledger recorded (target <= 1.3).
             "queued": started["queued"],
             "deferred": started["deferred"],
+            "reason": started.get("reason"),
             "estimate_over_actual": (
                 round(started["estimate"]["tokens"] / spent, 4)
                 if spent and started.get("estimate")
@@ -1066,6 +1067,7 @@ async def step_prose(ctx: StepContext) -> dict:
         "path": produced.get("path"),
         "queued": produced.get("queued"),
         "deferred": produced.get("deferred"),
+        "reason": produced.get("reason"),
         "estimate_over_actual": produced.get("estimate_over_actual"),
         "chapter": (produced.get("chapter") or {}).get("title"),
         "voice": produced.get("voice"),
