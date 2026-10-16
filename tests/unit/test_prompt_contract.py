@@ -137,6 +137,7 @@ REASONS = {
     "'Milo carried the memo up to Edric.'",
     "sample_lift": "20 word 8-grams of its samples: 'a tracker or some kind of shared doc'",
     "beats_see_whole_outline": "'Drawer' is not in the whole-outline block",
+    "plan_sees_chapter": "no chapter-scenes block",
 }
 
 

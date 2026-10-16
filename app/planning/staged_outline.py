@@ -43,12 +43,12 @@ from app.core.logging_config import setup_logging
 from app.core.prompt_markers import (
     ACT_CHAPTERS_HEADER,
     CONFIRMED_PREMISE_NOTE,
-    CURRENT_BEAT_MARK,
     EARLIER_BEATS,
     OUTLINE_CHAPTERS_HEADER,
 )
 from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_array, extract_json_object
+from app.orchestration.workflow import marked_plan
 from app.planning.canon import Canon
 from app.parsing import names
 from app.planning.fidelity import FidelityAudit, audit_outline, canon_known_text
@@ -212,19 +212,19 @@ def outline_context(
     this act's marked (their summaries are in the act's JSON below), and the
     beat titles earlier acts already have, so an act cannot bring a person in
     before the chapter that introduces them (W4-5)."""
-    lines = [OUTLINE_CHAPTERS_HEADER]
-    for n, ch in enumerate(outline, 1):
-        if ch in act_chapters:
-            lines.append(f"{CURRENT_BEAT_MARK} {n}. {ch.get('title', '')}")
-        else:
-            lines.append(f"  {n}. {ch.get('title', '')}: {ch.get('summary', '')}")
-    if earlier:
-        lines.append(EARLIER_BEATS.format(what="earlier acts"))
     # Model output: a node or a beat that is not an object is skipped.
+    done = []
     for ch in (c for c in earlier if isinstance(c, dict)):
         kids = [b for b in ch.get("children") or [] if isinstance(b, dict)]
         titles = "; ".join(str(b.get("title") or "") for b in kids)
-        lines.append(f"- {ch.get('title', '')}: {titles}")
+        done.append(f"- {ch.get('title', '')}: {titles}")
+    mine = {i for i, ch in enumerate(outline) if ch in act_chapters}
+    items = [
+        ch.get("title", "") + ("" if i in mine else f": {ch.get('summary', '')}")
+        for i, ch in enumerate(outline)
+    ]
+    earlier_header = EARLIER_BEATS.format(what="earlier acts")
+    lines = marked_plan(OUTLINE_CHAPTERS_HEADER, items, mine, earlier_header, done)
     return "\n".join([*lines, INTRODUCE_NO_EARLIER])
 
 
