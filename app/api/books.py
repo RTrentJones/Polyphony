@@ -15,7 +15,7 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel, Field, StringConstraints, model_validator
-from sqlalchemy import Select, and_, func, select
+from sqlalchemy import Select, and_, case, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -240,7 +240,8 @@ def book_order(query: Select) -> Select:
         and_(SceneORM.chapter_id == ChapterORM.id, ChapterORM.deleted_at.is_(None)),
     ).order_by(
         ChapterORM.position.nulls_last(),
-        SceneORM.position,
+        # An unfiled scene's leftover position does not order it.
+        case((ChapterORM.id.is_not(None), SceneORM.position)),
         SceneORM.created_at.desc(),
     )
 

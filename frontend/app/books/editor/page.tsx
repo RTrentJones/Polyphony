@@ -126,6 +126,8 @@ function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: stri
   const [title, setTitle] = useState('')
   /** The pending title save: Previous/Next wait for it. */
   const titleSave = useRef<Promise<boolean>>(Promise.resolve(true))
+  // The title the server last returned for this scene.
+  const savedTitle = useRef('')
   const [content, setContent] = useState('')
   const [savedContent, setSavedContent] = useState('')
   const [revisions, setRevisions] = useState<SceneRevision[]>([])
@@ -172,6 +174,7 @@ function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: stri
         const data = await booksApi.getScene(sceneId)
         setScene(data)
         setTitle(data.title ?? '')
+        savedTitle.current = data.title ?? ''
         const serverText = data.content || ''
         setContent(serverText)
         setSavedContent(serverText)
@@ -271,19 +274,24 @@ function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: stri
   const saveTitle = () => {
     const next = title.trim()
     if (!scene) return
-    titleSave.current = Promise.resolve(true)
-    if (next === (scene.title ?? '')) return
-    if (!next) return setTitle(scene.title ?? '')
+    if (!next) return setTitle(savedTitle.current)
+    // Chained, and compared with the server's title only once the save before
+    // it settles, so the latest edit always lands last (a revert included).
     // Resolves false on failure, so Previous/Next keep the author on this scene.
-    titleSave.current = booksApi.updateSceneTitle(sceneId, next).then(
-      (r) => {
-        setScene({ ...scene, title: r.title })
-        return true
-      },
-      (err: any) => {
-        addToast(err.message || 'Failed to rename the scene', 'error')
-        return false
-      }
+    titleSave.current = titleSave.current.then(() =>
+      next === savedTitle.current
+        ? true
+        : booksApi.updateSceneTitle(sceneId, next).then(
+            (r) => {
+              savedTitle.current = r.title ?? ''
+              setScene((s) => (s ? { ...s, title: r.title } : s))
+              return true
+            },
+            (err: any) => {
+              addToast(err.message || 'Failed to rename the scene', 'error')
+              return false
+            }
+          )
     )
   }
 

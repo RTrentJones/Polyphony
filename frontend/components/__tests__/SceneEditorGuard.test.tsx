@@ -290,13 +290,45 @@ describe('Scene editor safety net and header (SPEC-16 B1, SPEC-37)', () => {
     const title = screen.getByLabelText('Scene title')
     fireEvent.change(title, { target: { value: 'The Next Desk' } })
     fireEvent.blur(title)
-    expect(booksApi.updateSceneTitle).toHaveBeenCalledWith('s1', 'The Next Desk')
+    await waitFor(() => expect(booksApi.updateSceneTitle).toHaveBeenCalledWith('s1', 'The Next Desk'))
 
     fireEvent.click(screen.getByRole('button', { name: 'Next scene' }))
     await act(async () => {})
     expect(router.push).not.toHaveBeenCalled()
     await act(async () => finish({ id: 's1', title: 'The Next Desk' }))
     await waitFor(() => expect(router.push).toHaveBeenCalledWith('/books/editor?scene=s2&book=b1'))
+  })
+
+  it('a second title save waits for the first, so the latest edit lands last', async () => {
+    let finish: (v: { id: string; title: string }) => void = () => {}
+    booksApi.updateSceneTitle
+      .mockReturnValueOnce(new Promise((r) => (finish = r)))
+      .mockResolvedValueOnce({ id: 's1', title: 'Second' })
+    await renderEditor()
+    const title = screen.getByLabelText('Scene title')
+    fireEvent.change(title, { target: { value: 'First' } })
+    fireEvent.blur(title)
+    fireEvent.change(title, { target: { value: 'Second' } })
+    fireEvent.blur(title)
+    await act(async () => {})
+    expect(booksApi.updateSceneTitle).toHaveBeenCalledTimes(1)
+    await act(async () => finish({ id: 's1', title: 'First' }))
+    await waitFor(() => expect(booksApi.updateSceneTitle).toHaveBeenLastCalledWith('s1', 'Second'))
+  })
+
+  it('a revert typed while a save is in flight is saved after it', async () => {
+    let finish: (v: { id: string; title: string }) => void = () => {}
+    booksApi.updateSceneTitle
+      .mockReturnValueOnce(new Promise((r) => (finish = r)))
+      .mockResolvedValueOnce({ id: 's1', title: 'Retained' })
+    await renderEditor()
+    const title = screen.getByLabelText('Scene title')
+    fireEvent.change(title, { target: { value: 'New' } })
+    fireEvent.blur(title)
+    fireEvent.change(title, { target: { value: 'Retained' } })
+    fireEvent.blur(title)
+    await act(async () => finish({ id: 's1', title: 'New' }))
+    await waitFor(() => expect(booksApi.updateSceneTitle).toHaveBeenLastCalledWith('s1', 'Retained'))
   })
 
   it('a failed title save keeps the author on the scene', async () => {
