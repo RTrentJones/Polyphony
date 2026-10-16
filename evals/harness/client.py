@@ -489,9 +489,11 @@ class PolyphonyClient:
         if r.status_code != 200:
             raise EvalClientError(f"accept failed ({r.status_code}): {r.text[:400]}")
 
-    async def voice_chunks(self, character_id: str, chunk_type: str) -> list[dict]:
-        """A character's indexed chunks of one type (the first 200)."""
-        params = {"chunk_type": chunk_type, "limit": 200}
+    async def voice_chunks(
+        self, character_id: str, chunk_type: str | None = None
+    ) -> list[dict]:
+        """A character's indexed chunks, of one type or all (the first 200)."""
+        params = {"limit": 200, **({"chunk_type": chunk_type} if chunk_type else {})}
         r = await self._get(f"/api/v1/characters/{character_id}/chunks", params=params)
         r.raise_for_status()
         return r.json().get("chunks") or []

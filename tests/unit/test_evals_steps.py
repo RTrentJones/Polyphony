@@ -253,8 +253,9 @@ class _ProductClient:
     async def get_character(self, cid):
         return {**self.chars[cid], "voice_stats": {"total_chunks": 4}}
 
-    async def voice_chunks(self, cid, chunk_type):
-        return [{"word_count": n} for n in (2, 3, 9)]  # "So!"-short is not speech
+    async def voice_chunks(self, cid, chunk_type=None):
+        said = [{"chunk_type": "dialogue", "word_count": n} for n in (2, 3, 9)]
+        return [*said, {"chunk_type": "action", "text": "He sat.", "word_count": 9}]
 
     async def get_canon(self, book_id):
         return {"entries": [], "style": self.style.get(book_id)}
@@ -485,6 +486,7 @@ async def test_prose_writes_the_planned_scenes_of_a_two_principal_chapter(tmp_pa
     assert all(set(c) == {"name"} for c in commit[2]["characters"])
     assert out["voice"]["chunks"]["Zara Okafor"] == 4
     assert out["voice"]["speech"]["Edric Thane"] == 2  # >= 3-word dialogue (D9)
+    assert out["voice"]["movement"]["Edric Thane"] == ["He sat."]  # D6 reads it
 
     s1, s2 = out["scenes"]
     # Scene 1 repeats a sentence across its beat seam: R4 is capped at 0.

@@ -235,6 +235,17 @@
       "narrated": []
     },
     {
+      "event": "partition",
+      "from": 3,
+      "terms": [
+        "partition",
+        "lanyard"
+      ],
+      "narrated": [
+        3
+      ]
+    },
+    {
       "event": "bell",
       "from": 9,
       "terms": [

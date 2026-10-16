@@ -304,6 +304,7 @@ async def test_the_apps_prompts_pass_every_contract_check(
     # B-3: the gold sees real samples, and none of them is plot.
     assert out["samples_not_plot"]["classified"] > 0
     assert out["samples_not_plot"]["later_plot_slots"] == 0
+    assert out["voice_dialogue"]["voice_coverage"] >= 0.8, out["voice_dialogue"]
     assert not failing, json.dumps(failing, indent=1)[:4000]
     assert set(ran) == set(pc.CHECKS)
     assert out["plan_cast_from_beat"]["unmatched"] == []

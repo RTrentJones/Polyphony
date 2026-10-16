@@ -359,15 +359,18 @@ def _outline(name: str) -> dict:
 
 @pytest.mark.parametrize(
     "outline, placed",
-    [
-        ("w4", [1, 1, 1, 2, 2, 3]),
+    [  # partition: chapter 1 on all four, by "partition" (W4, W5) or "lanyard"
+        ("w4", [1, 1, 1, 1, 2, 2, 3]),
         # "Reply All" (ch 5) summons Milo to the corner office: that line places
         # the summons, so the meeting is "The Corner Office" (ch 6).
-        ("w4b2", [1, 2, None, 5, 6, 4]),
+        ("w4b2", [1, 1, 2, None, 5, 6, 4]),
+        ("w5", [1, 1, 2, 4, 1, 2, 2]),
+        ("w5b", [1, 1, 2, None, 6, 6, 4]),
     ],
 )
 def test_locate_places_each_event_by_the_first_line_naming_it(outline, placed):
-    events = ["intake", "bell", "drawer", "summons", "corner office", "discrepancy"]
+    events = ["intake", "partition", "bell", "drawer", "summons", "corner office"]
+    events += ["discrepancy"]
     got = plot.locate(CEL["excerpt_events"], plot.outline_chapters([_outline(outline)]))
     assert [got.get(e) for e in events] == placed
 
@@ -437,7 +440,8 @@ def test_blocks_only_plot_could_fill_are_emptied_by_rule(tmp_path):
     """D6 on W4b's block shape: Milo is only ever shown the intake and the
     drawer, both planned, so his five empty blocks (four in "The Locked
     Drawer", one in "The Bell Account") leave coverage; Zara's look is not
-    plot, so her empty block counts against it."""
+    plot, so her empty block counts against it. Chapter 3: W4 places no event
+    later, so no gold tail (in chapter 1 the look, paragraph 29, is past it)."""
     milo, zara = ([], [PARAS[13]]), ([], [PARAS[29]])
     shapes = [{"Milo Voss": ([], [PARAS[0]])}] * 4 + [
         {"Milo Voss": milo, "Zara Okafor": zara}
@@ -447,7 +451,7 @@ def test_blocks_only_plot_could_fill_are_emptied_by_rule(tmp_path):
     shapes += [{"Milo Voss": ([], [])}] * 4
     _write(tmp_path, _outline("w4"))
     for i, blocks in enumerate(shapes):
-        _write(tmp_path, _rec(f"b{i}", "beat_prose", _beat(1, blocks), created=1.0 + i))
+        _write(tmp_path, _rec(f"b{i}", "beat_prose", _beat(3, blocks), created=1.0 + i))
     out = pc.grade(pc.load_archive(tmp_path), principals=PRINCIPALS, **PLOT_GOLD)
     move = out["movement_names_in_scene"]
     assert move["emptied_by_rule"] == {
@@ -459,3 +463,50 @@ def test_blocks_only_plot_could_fill_are_emptied_by_rule(tmp_path):
     # Each emptied block names the plot that left it empty: the Bell Account's
     # (b10) as much as the four Locked Drawer blocks.
     assert move["emptied_blocks"][0] == {"id": "b10", "Milo Voss": [0, 13]}
+
+
+def test_d6_reads_the_store_and_the_gold_tail(tmp_path):
+    """(F) W5's shape: Milo's eight chapter-1 blocks are empty, and every chunk
+    the store holds for him is plot there: the intake and the partition (placed
+    in ch 1), and from bell (ch 2) on, the gold tail. Shown lines alone (none)
+    attribute nothing."""
+    _write(tmp_path, _outline("w5"))
+    for i in range(8):
+        _write(tmp_path, _rec(f"b{i}", "beat_prose", _beat(1, {"Milo Voss": ([], [])})))
+    store = {"Milo Voss": [PARAS[i] for i in (0, 3, 9, 13, 27)]}
+    grade = lambda **kw: pc.grade(  # noqa: E731
+        pc.load_archive(tmp_path), principals=PRINCIPALS, **PLOT_GOLD, **kw
+    )["movement_names_in_scene"]
+    assert grade()["emptied_by_rule"]["Milo Voss"] == 0
+    move = grade(movement_store=store)
+    assert move["emptied_by_rule"]["Milo Voss"] == 8
+    assert (move["movement_coverage"], move["every_block_emptied"]) == (None, True)
+    assert move["emptied_blocks"][0] == {"id": "b0", "Milo Voss": [0, 3, 9, 13, 27]}
+
+
+def test_a_run_that_shows_no_sample_is_vacuous(tmp_path):
+    """(F) W5b's shape: every block holds only its heading. Nothing measured
+    voice presence, so the empty cards passed; now voice_coverage is 0 and
+    samples_not_plot's 1.0 is reported vacuous (classified == 0)."""
+    _write(tmp_path, _outline("w5b"))
+    cast = {"Milo Voss": ([], []), "Zara Okafor": ([], [])}
+    for i in range(3):
+        _write(tmp_path, _rec(f"b{i}", "beat_prose", _beat(1, cast)))
+    _write(tmp_path, _rec("v", "beat_prose", _beat(1, {"Zara Okafor": ([CLOSE], [])})))
+    out = pc.grade(pc.load_archive(tmp_path), principals=PRINCIPALS, **PLOT_GOLD)
+    assert out["voice_dialogue"]["voice_coverage"] == round(1 / 7, 4)
+    assert (out["samples_not_plot"]["rate"], out["samples_not_plot"]["vacuous"]) == (
+        1.0,
+        False,
+    )
+    (tmp_path / "v.json").unlink()
+    out = pc.grade(pc.load_archive(tmp_path), principals=PRINCIPALS, **PLOT_GOLD)
+    assert out["voice_dialogue"]["voice_coverage"] == 0
+    assert out["samples_not_plot"]["rate"] == 1.0
+    assert (
+        out["samples_not_plot"]["classified"],
+        out["samples_not_plot"]["vacuous"],
+    ) == (
+        0,
+        True,
+    )

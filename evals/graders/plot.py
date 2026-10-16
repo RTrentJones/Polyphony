@@ -80,13 +80,22 @@ def plot_reasons(kind, sample, chapter, gold: dict, placed: dict) -> tuple:
     return [f"paragraph {i}: {r}" for r in reasons], i, later
 
 
+def gold_tail(chapter, gold: dict, placed: dict) -> int | None:
+    """The first paragraph of the first event, in source order, placed after
+    `chapter`: the gold form of the later-plot cut (W5-1 (b))."""
+    later = (
+        e for e in gold["events"] if chapter and placed.get(e["event"], 0) > chapter
+    )
+    return next((e["from"] for e in later), None)
+
+
 def only_plot(lines, chapter, gold: dict, placed: dict) -> list[int]:
     """D6: the paragraphs of an owner's movement lines when every one is plot
-    here, else []."""
+    here (part 1, or at or past the gold tail), else []."""
+    tail = gold_tail(chapter, gold, placed)
     hits = [plot_reasons("movement", m, chapter, gold, placed) for m in lines or ()]
-    return (
-        sorted({i for _, i, _ in hits}) if hits and all(r for r, _, _ in hits) else []
-    )
+    plot = [r or (tail is not None and i is not None and i >= tail) for r, i, _ in hits]
+    return sorted({i for _, i, _ in hits}) if hits and all(plot) else []
 
 
 def borrowed_phrase(text: str, cast: list[str], owned: dict[str, list[str]]) -> list:

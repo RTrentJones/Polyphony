@@ -219,7 +219,10 @@ async def run(book: str, step_names: list[str], out: str, repeat: int = 1) -> di
         if cfg.relay_archive:
             # Over the whole run's archive, once (not per pass).
             try:
-                contract = await pipeline.prompt_contract_result(ctx)
+                voice = (result["steps"].get("prose") or {}).get("voice") or {}
+                contract = await pipeline.prompt_contract_result(
+                    ctx, voice.get("movement")
+                )
             except Exception as e:  # a grader bug never loses the run's scores
                 contract = {"error": f"{type(e).__name__}: {e}"}
             result["steps"]["prompt_contract"] = contract

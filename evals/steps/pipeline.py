@@ -116,7 +116,8 @@ async def _index_voice(ctx: StepContext, book_id: str, names: list[str]) -> dict
     """Upload the excerpt into the book, commit the canon cast from it (names
     only, so the curated entries are not overwritten) and wait for voice
     indexing. Returns {source_id, chunks: {name: n}, speech: {name: dialogue
-    chunks of >= 3 words}} (SPEC-42's diagnostic)."""
+    chunks of >= 3 words}} (SPEC-42's diagnostic), and movement: {name: the
+    text of every chunk that is not dialogue} (D6 reads it, SPEC-45)."""
     up = await ctx.client.upload_source(
         f"{ctx.book}-voice.txt",
         load_excerpts(ctx.book).encode("utf-8"),
@@ -132,13 +133,20 @@ async def _index_voice(ctx: StepContext, book_id: str, names: list[str]) -> dict
         {"characters": [{"name": n} for n in names], "canon_entries": []},
     )
     chars = await ctx.client.wait_voice_indexed(up["id"])
-    chunks, speech = {}, {}
+    chunks, speech, movement = {}, {}, {}
     for c in chars:
         stats = (await ctx.client.get_character(c["id"])).get("voice_stats") or {}
         chunks[c["name"]] = stats.get("total_chunks", 0)
-        rows = await ctx.client.voice_chunks(c["id"], "dialogue")
-        speech[c["name"]] = sum(r.get("word_count", 0) >= 3 for r in rows)
-    return {"source_id": up["id"], "chunks": chunks, "speech": speech}
+        rows = await ctx.client.voice_chunks(c["id"])
+        said = [r for r in rows if r.get("chunk_type") == "dialogue"]
+        speech[c["name"]] = sum(r.get("word_count", 0) >= 3 for r in said)
+        movement[c["name"]] = [r["text"] for r in rows if r not in said]
+    return {
+        "source_id": up["id"],
+        "chunks": chunks,
+        "speech": speech,
+        "movement": movement,
+    }
 
 
 def load_corpus(book: str) -> tuple[str, dict]:
@@ -937,8 +945,8 @@ async def _planned_scenes(ctx: StepContext, book: dict) -> dict:
 
 # Bumped when what a generation records changes (v4: no fallback path, the
 # batch's queued/deferred; v5: its reason, and minor cast ported as secondary
-# names), so a stale cache entry is regenerated, not regraded.
-PROSE_CACHE_KEY = "planned-v6"
+# names; v7: voice.movement), so a stale cache entry is regenerated, not regraded.
+PROSE_CACHE_KEY = "planned-v7"
 
 
 def _planned_beat_text(scene: dict, beat: dict | None) -> str:
@@ -1525,7 +1533,9 @@ async def step_ensemble(ctx: StepContext) -> dict:
 # so it is the strongest before/after signal. Not a registered step: it grades
 # the whole run, so `evals.run` adds it after every pass when
 # EVAL_RELAY_ARCHIVE / EVAL_RELAY_DIR is set (reported as steps.prompt_contract).
-async def prompt_contract_result(ctx: StepContext) -> dict:
+async def prompt_contract_result(
+    ctx: StepContext, movement_store: dict | None = None
+) -> dict:
     from evals.graders import prompt_contract
     from evals.harness.config import load as load_config
 
@@ -1545,5 +1555,6 @@ async def prompt_contract_result(ctx: StepContext) -> dict:
         **prompt_contract.grade(
             records,
             **prompt_contract.corpus_inputs(ctx.ground_truth, load_style(ctx.book)),
+            movement_store=movement_store,
         ),
     }

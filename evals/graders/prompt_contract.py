@@ -54,8 +54,11 @@ whole-outline block names every chapter title of the run's latest
 outline:chapters answer (SPEC-38).
 
 Wave 5: ``samples_not_plot``  beat_prose, scene_revise: no sample is plot by
-the corpus gold (``evals.graders.plot``, SPEC-45); reports ``classified`` and
-``later_plot_slots``, and ``emptied_by_rule`` blocks leave ``movement_coverage``.
+the corpus gold (``evals.graders.plot``, SPEC-45); reports ``classified``
+(``vacuous`` when 0) and ``later_plot_slots``, and ``emptied_by_rule`` blocks (by
+the indexed ``movement_store`` when given) leave ``movement_coverage``.
+``voice_dialogue.voice_coverage``: the share of beat_prose principal blocks with
+a voice sample.
 
 Each check reports ``{n, passed, rate, failures}``; a check with nothing to
 check (no such call in the archive) reports ``n == 0`` and ``rate = None``, so
@@ -679,6 +682,11 @@ def _named(text: str, person: dict) -> bool:
     )
 
 
+def _who(name: str, aliases: dict[str, str]) -> str:
+    """A principal's canonical name, as cased in the corpus (else `name`)."""
+    return aliases.get(" ".join(name.split()).lower(), name)
+
+
 def check_movement_in_scene(
     prompt: str, people: list[dict], aliases: dict[str, str]
 ) -> tuple[list[str], list[tuple[str, int]]]:
@@ -687,8 +695,8 @@ def check_movement_in_scene(
     or a principal (an `aliases` value) the scene brief or beat plan names. A
     secondary is in the scene only through the Also-named line (NB-2)."""
 
-    def who(name: str) -> str:  # canonical, as cased in the corpus
-        return aliases.get(" ".join(name.split()).lower(), name)
+    def who(name: str) -> str:
+        return _who(name, aliases)
 
     blocks = [
         (who(o), ls) for o, ls in movement_blocks(characters_section(prompt) or "")
@@ -874,6 +882,7 @@ def grade(
     secondary_cast: list | None = None,
     excerpt_events: list | None = None,
     excerpt: str = "",
+    movement_store: dict[str, list[str]] | None = None,
 ) -> dict:
     """Run every check over an archive (see the module docstring).
 
@@ -886,7 +895,9 @@ def grade(
     the canon `descriptions` that must appear exactly once per beat prompt.
     `secondary_cast` (names, or {name, aliases}) joins the principals as the
     people a movement sample may not name outside its scene (wave 3).
-    `excerpt_events` and the `excerpt` they index are the plot gold (wave 5)."""
+    `excerpt_events` and the `excerpt` they index are the plot gold (wave 5).
+    `movement_store` is each principal's indexed movement chunks (the prose
+    step's `voice.movement`): D6 reads it, else the lines shown in the run."""
     gold = {
         who: [*(v.get("train") or []), *(v.get("test") or [])]
         for who, v in (gold_lines or {}).items()
@@ -902,6 +913,7 @@ def grade(
     ]
     movement = {n: 0 for n in principal_names}
     moving_blocks: list[bool] = []
+    voiced_blocks: list[bool] = []  # principal blocks with a voice sample
     tallies = {k: _Tally() for k in CHECKS}
     voice_counts = dict.fromkeys(
         ("samples", "own", "misattributed", "not_dialogue", "short"), 0
@@ -925,6 +937,8 @@ def grade(
     for rec in (r for r in records if purpose(r) == "beat_prose"):
         for o, ls in movement_blocks(characters_section(prompt_text(rec)) or ""):
             shown.setdefault(o, set()).update(ls)
+    if movement_store is not None:  # D6 reads what the store holds
+        shown = {_who(o, aliases): set(ls) for o, ls in movement_store.items()}
 
     for rec in records:
         pur = purpose(rec)
@@ -972,6 +986,8 @@ def grade(
             )
             reasons, blocks = check_movement_in_scene(prompt, people, aliases)
             tallies["movement_names_in_scene"].add(rec, reasons)
+            said = {_who(o, aliases) for o, ss in voice_samples(prompt).items() if ss}
+            voiced_blocks += [o in said for o, _ in blocks if o in movement]
             for owner, n in blocks:
                 why = plot.only_plot(shown.get(owner), chapter, pg, placed)
                 if owner in movement and not n and why:  # D6
@@ -1042,6 +1058,10 @@ def grade(
     out["voice_dialogue"]["samples"] = voice_counts
     # Reported, not gated (§6.3): voice samples too short to carry a voice.
     out["voice_dialogue"]["short_samples"] = short
+    # Gated >= 0.8 per run (§6.2): beat_prose principal blocks with a voice sample.
+    out["voice_dialogue"]["voice_coverage"] = (
+        round(sum(voiced_blocks) / len(voiced_blocks), 4) if voiced_blocks else None
+    )
     out["plan_cast_from_beat"]["unmatched"] = plan_unmatched
     # Reported; gated >= 0.8 by the eval (B-2): principal blocks that move.
     out["movement_names_in_scene"]["movement_coverage"] = (
@@ -1050,7 +1070,13 @@ def grade(
     out["movement_names_in_scene"]["movement_lines"] = movement
     out["movement_names_in_scene"]["emptied_by_rule"] = emptied
     out["movement_names_in_scene"]["emptied_blocks"] = emptied_blocks
+    # The §6.2 gate's n = 0 case: no block counted, and every one listed above.
+    out["movement_names_in_scene"]["every_block_emptied"] = bool(
+        emptied_blocks and not moving_blocks
+    )
     out["samples_not_plot"].update(plotted, placed=placed)
+    # Gated with classified > 0 (§6.2): a run that showed no sample proves nothing.
+    out["samples_not_plot"]["vacuous"] = plotted["classified"] == 0
     # Gated 0 / 0 by the eval (§6.2): the worst beat, and how many beats lift.
     out["sample_lift"]["max_shared"] = max(lifts, default=0)
     out["sample_lift"]["share_of_beats"] = (
