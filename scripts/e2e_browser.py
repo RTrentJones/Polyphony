@@ -774,6 +774,11 @@ async def journey(page: Page) -> None:
         await toast(re.compile("Ensemble is not available on the free tier"))
         # It still writes the scene: wait for it, so the next step's quota storm
         # pauses only the scene it starts.
+        # The badge may not have rendered yet: wait on the server's queue.
+        for _ in range(TIMEOUT // 500):
+            if not (await api("GET", "/jobs"))["jobs"]:
+                break
+            await page.wait_for_timeout(500)
         await expect(page.get_by_test_id("job-status")).to_have_count(
             0, timeout=TIMEOUT
         )
