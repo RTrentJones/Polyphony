@@ -159,14 +159,20 @@ def _squash(text: str) -> str:
 # --- checks --------------------------------------------------------------------
 
 
-def _is_last_beat(beats: str | None) -> bool:
-    """The marked current beat (``→ N.``) is the final item: there is no beat
-    N+1 to stop at, so the prompt rightly omits that instruction."""
-    if not beats:
-        return False
+def _current_beat(beats: str | None) -> tuple[int, int] | None:
+    """(n, total): the beat marked current (``→ N.``) and the last item's
+    number, parsed from the <beats> block; None when nothing is marked."""
     mark = re.escape(CURRENT_BEAT_MARK)
-    items = re.findall(rf"(?m)^\s*({mark})?\s*\d+[.)]", beats)
-    return bool(items) and items[-1] == CURRENT_BEAT_MARK
+    items = re.findall(rf"(?m)^\s*({mark})?\s*(\d+)[.)]", beats or "")
+    current = [int(n) for marked, n in items if marked]
+    return (current[0], int(items[-1][1])) if current else None
+
+
+def _is_last_beat(beats: str | None) -> bool:
+    """The marked beat is the final item: there is no beat N+1 to stop at, so
+    the prompt rightly omits that instruction."""
+    current = _current_beat(beats)
+    return bool(current) and current[0] == current[1]
 
 
 # "Stop where beat <n + 1> begins" (STOP_AT_NEXT_BEAT), or a literal "N+1".
@@ -897,7 +903,6 @@ def grade(
             tallies["beats_see_whole_outline"].add(
                 rec, check_whole_outline(prompt, book_titles)
             )
-        if pur == "outline:beats":
             tallies["beats_stage"].add(
                 rec, check_beats_stage(prompt, premises, conflicts, acts)
             )
@@ -906,7 +911,7 @@ def grade(
             prior = block(prompt, PRIOR_FENCE)
             if prior is not None:
                 tallies["prior_paragraphs"].add(rec, check_prior(prior, openings))
-            if "→ marks beat 1," in prompt:
+            if (_current_beat(block(prompt, BEATS_FENCE)) or (0,))[0] == 1:
                 openings.add(_squash(rec.get("answer") or "")[:40])
             if sample_prose:
                 tallies["style_first"].add(rec, check_style_first(prompt, sample_prose))

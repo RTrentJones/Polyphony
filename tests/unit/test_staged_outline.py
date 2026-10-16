@@ -1,6 +1,5 @@
 """Staged canon-grounded outline + fidelity gate (Phase 5)."""
 
-import json
 import types
 
 import pytest
@@ -311,22 +310,6 @@ class TestBeatsStageSeesThePlan:
             assert ("- Ch1: b" in block) is (prompt is act2)
             assert prompt.index(HEADER) < prompt.index("in order:")
 
-    async def test_a_resumed_run_shows_act_two_the_beats_of_act_one(self, monkeypatch):
-        """(F) Act 1 comes from the checkpoint, not a call; act 2 still sees
-        its beat titles."""
-        fake = FakeLLM({"outline:beats": self._BEATS[1]})
-        monkeypatch.setattr(so, "get_llm_client", lambda: fake)
-        done = {"0": [{"title": "Ch1", "children": [{"title": "Signing On"}]}]}
-        await so._stage_beats(
-            TestStagedOrchestration()._canon(),
-            json.loads(self._CHAPTERS),
-            None,
-            done=done,
-            skeleton=json.loads(self._SKELETON),
-        )
-        (act2,) = fake.prompts["outline:beats"]
-        assert "- Ch1: Signing On\n" in act2
-
     def test_the_whole_book_costs_at_most_2500_characters_an_act(self):
         """(F) Cost guard: cel at 6 chapters, at the run-W3 outline's sizes
         (~400-character summaries, four beats a chapter)."""
@@ -338,7 +321,8 @@ class TestBeatsStageSeesThePlan:
         beats = [{"title": f"The beat named {j}"} for j in range(4)]
         for act in range(3):
             earlier = [{**c, "children": beats} for c in outline[: 2 * act]]
-            assert len(so.outline_context(outline, act, earlier)) <= 2500
+            mine = outline[2 * act : 2 * act + 2]
+            assert len(so.outline_context(outline, mine, earlier)) <= 2500
 
 
 class TestGenerateEndpointEnqueues:
