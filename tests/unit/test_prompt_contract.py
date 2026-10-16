@@ -13,6 +13,7 @@ from app.core.prompt_markers import (
     ALSO_NAMED_LABEL,
     MOVEMENT_LABEL,
     OUTLINE_CHAPTERS_HEADER,
+    SCENE_CHARACTERS_SECTION,
     VOICE_SAMPLES_LABEL,
 )
 from evals.graders import plot
@@ -115,9 +116,9 @@ FAILING = [
         "",
     ),
     ("beat_prose", LIFT_PROMPT, LIFT_ANSWER),
-    (
+    (  # C2, W4b2 0025: the revise's cast block is graded too
         "scene_revise",
-        f"CHARACTERS IN THIS BEAT\n### Milo Voss\n{MOVEMENT_LABEL}\n- {PARAS[0]}\n",
+        f"{SCENE_CHARACTERS_SECTION} — x\n### Milo Voss\n{MOVEMENT_LABEL}\n- {PARAS[0]}\n",
         "",
     ),
     ("outline:chapters", "", json.dumps([{"title": "Intake"}, {"title": "Drawer"}])),
@@ -376,21 +377,6 @@ def test_an_event_whose_lines_are_all_taken_still_places():
     events = [{"event": e, "terms": ["drawer"]} for e in ("drawer", "column")]
     chapters = [[], ["The Column: Milo opens the drawer."]]
     assert plot.locate(events, chapters) == {"drawer": 2, "column": 2}
-
-
-def test_the_revise_prompts_cast_block_is_graded_too(tmp_path):
-    """C2, W4b2 0025: the revise of "Mid-Sentence" showed the intake sample."""
-    prompt = (
-        "This scene is in chapter 1 of 6.\nCHARACTERS IN THIS SCENE — keep each "
-        f"one's dialogue in THEIR OWN voice:\n\n<character>\n### Milo Voss\n"
-        f"{MOVEMENT_LABEL}\n- {PARAS[0]}\n</character>\n\n<target>\nx\n</target>"
-    )
-    for rec in (_outline("w4b2"), _rec("r", "scene_revise", prompt)):
-        _write(tmp_path, rec)
-    out = pc.grade(pc.load_archive(tmp_path), **PLOT_GOLD)["samples_not_plot"]
-    assert out["failures"] == [
-        {"id": "r", "reasons": ["Milo Voss: paragraph 0: narrates intake (ch 1)"]}
-    ]
 
 
 def _beat(chapter: int, blocks: dict[str, tuple[list, list]]) -> str:

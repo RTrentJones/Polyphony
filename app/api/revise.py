@@ -162,7 +162,6 @@ async def revise_scene(
         "instruction": payload.instruction,
         "range": [span.start, span.end],
         "beat_index": payload.beat_index,
-        "beat_description": span.beat,
         "base_text_hash": draft_hash,
     }
     job, inserted = await jobs_repo.enqueue_reporting(

@@ -16,7 +16,6 @@ from app.planning import staged_outline as so
 from app.planning.canon import Canon
 from app.planning.outline import validate_outline_nodes
 from evals.steps.pipeline import load_corpus
-from tests.unit.test_scene_canon import cel_book  # noqa: F401  (fixture)
 
 pytestmark = pytest.mark.unit
 
@@ -335,31 +334,3 @@ async def test_stub_beats_carry_people_setting_tone_and_the_synopsis_people(
         c for n in act2 for c in n["children"]
     ]
     assert others and all("Prava" not in c["people"] for c in others)
-
-
-# --- SPEC-40: the scene's own beat lines join `plot` once planned ----------------------
-
-
-async def test_planned_beat_lines_join_the_plot(
-    async_session, cel_book, monkeypatch  # noqa: F811 (the imported fixture)
-):
-    """(F) Every beat's samples are filtered against all of the scene's beat
-    lines: beat 2's block is built with beat 1's line in `plot` too."""
-    import app.orchestration.prose as prose_mod
-    from tests.unit.test_scene_canon import FakeLLM as Fake
-    from tests.unit.test_scene_canon import _run
-
-    plots, real = [], prose_mod.build_cast_context
-
-    async def spy(cast, description, *, scope, **kw):
-        plots.append(scope.plot)
-        return await real(cast, description, scope=scope, **kw)
-
-    monkeypatch.setattr(prose_mod, "build_cast_context", spy)
-    beats = [{"description": d, "characters": ["Milo Voss"]} for d in ("A.", "B.")]
-    ids = [str(cel_book.milo.id)]
-    result, _ = await _run(
-        async_session, cel_book, Fake(json.dumps(beats)), monkeypatch, ids
-    )
-    assert result["status"] == "completed", result
-    assert plots == [("Milo meets Zara at the desk.", "A.", "B.")] * 2

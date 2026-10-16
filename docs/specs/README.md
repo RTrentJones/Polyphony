@@ -80,7 +80,7 @@ feature-set edits landed with the wave. Wave 4 also amended SPEC-22 (no fallback
 judged scenes) and SPEC-23 (`scene_batch.written_beats`) in place.
 
 SPEC-40 to SPEC-45 are wave 5 (backlog items `W5-…`), built on one day-0 contract commit (`SceneScope.plot`
-and `later_from`, `prose.book_plan` and `earlier_beats`, `source_paragraph`, retrieval `source_id`).
+and `later_from`, `prose.book_plan` and `earlier_beats`, `source_location`, retrieval `source_id`).
 Wave 5 amended SPEC-36 in place: its event rule now reads every line of `SceneScope.plot`.
 
 ## Sequencing

@@ -22,7 +22,7 @@ from app.core.database import get_async_session
 from app.core.llm_text import as_quoted_block, clean_for_llm
 from app.core.orm_models import Character
 from app.core.prompt_markers import MOVEMENT_LABEL, NAME_HEADING, VOICE_SAMPLES_LABEL
-from app.parsing.character_extractor import SPEECH_MIN_WORDS, source_paragraph
+from app.parsing.character_extractor import SPEECH_MIN_WORDS, source_location
 from app.rag.store import get_chunk_store
 
 # A grounding record keeps a bounded excerpt of each sample's text as it was at
@@ -285,19 +285,19 @@ def later_plot_from(
     return None
 
 
-def _kind(sample: dict) -> str:
-    """What a chunk's `source_location` says it is: "narration_9" → "narration"."""
-    return str(sample.get("source") or "").partition("_")[0]
+def _location(sample: dict) -> tuple[str, int] | tuple[None, None]:
+    """A chunk's (kind, paragraph), read by the module that writes the format."""
+    return source_location(str(sample.get("source") or "")) or (None, None)
 
 
 def _own_narration(sample: dict) -> bool:
     """First-person narration indexed for its narrator (SPEC-09): their words."""
-    return _kind(sample) == "narration"
+    return _location(sample)[0] == "narration"
 
 
 def _later_plot(sample: dict, scope: SceneScope) -> bool:
     """Is the sample at or past its source's later plot (SPEC-40)?"""
-    at = source_paragraph(str(sample.get("source") or ""))
+    at = _location(sample)[1]
     return at is not None and at >= scope.later_from.get(
         sample.get("source_id"), at + 1
     )
@@ -476,7 +476,7 @@ async def character_samples(
         for s in body
         if not _own_narration(s)
         and (
-            _kind(s) != "paragraph"
+            _location(s)[0] != "paragraph"
             or _centres(s.get("text") or "", name, scope.cast, aliases)
         )
         and not names_outside_scene(s.get("text") or "", character, scope)
@@ -529,8 +529,9 @@ async def build_cast_context(
 
     Each block is story material (bible text and voice samples can originate in
     an uploaded file), so it is fenced with `as_quoted_block`
-    (docs/ADR-002-book-as-root.md §4). Then, once, each owned phrase of a book
-    cast member who is not in the beat: "Only {name} says: '{phrase}'" (SPEC-42).
+    (docs/ADR-002-book-as-root.md §4). Then, once and fenced the same way, each
+    owned phrase of a book cast member who is not in the beat: "Only {name}
+    says: '{phrase}'" (SPEC-42).
     """
     blocks = []
     for character in characters:
@@ -549,7 +550,7 @@ async def build_cast_context(
         for m in scope.book_cast
         if m.name not in beat and (phrases := owned_phrases(m))
     ]
-    blocks.append("\n".join(owned))
+    blocks.append(as_quoted_block("\n".join(owned), "character"))
     return "\n\n".join(b for b in blocks if b)
 
 

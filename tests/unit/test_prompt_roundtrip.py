@@ -272,7 +272,6 @@ async def test_the_apps_prompts_pass_every_contract_check(
             "instruction": "Redo beat 2.",
             "range": [span.start, span.end],
             "beat_index": 1,
-            "beat_description": span.beat,
         }
     )
     assert fake.records[-1]["purpose"] == "scene_revise"

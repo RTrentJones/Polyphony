@@ -1417,6 +1417,8 @@ async def step_revise(ctx: StepContext) -> dict:
         except Exception as e:  # noqa: BLE001 - recorded, the others still run
             row.update(accepted=False, accept_error=str(e)[:300])
         rows.append(row)
+    else:  # recorded: the tighten row says why, instead of being missing
+        rows.append({"id": "tighten", "error": "no paragraph inside beat 1"})
     for req in revise_requests(draft, bool(beats), colder):
         row, prop = await one(req, draft)
         if prop.get("id") and prop.get("status") == "proposed":

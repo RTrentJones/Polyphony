@@ -7,10 +7,12 @@ wave-6 item if R2 on a secondary speaker is below 0.85 in both wave-5 runs) · *
 
 `owned_phrases(character)` returns the quoted spans of two or more words in the character's canon
 voice field, as the author wrote them; nothing is inferred. Edric's field gives `["Mr. Voss"]` (not
-the one-word 'one'). `build_cast_context` appends, once after the beat's character blocks, one line
-per book-cast member who is not in the beat and owns a phrase: `Only Edric Thane says: 'Mr. Voss'`.
+the one-word 'one'). `build_cast_context` appends, once after the beat's character blocks and fenced as one more
+`<character>` block (the phrase is story material), one line per book-cast member who is not in the
+beat and owns a phrase: `Only Edric Thane says: 'Mr. Voss'`.
 Beat prose and revise get it through that function; a beat that casts the owner does not carry it.
-The grader `borrowed_phrase` (SPEC-45) reads gold, not this rule.
+The grader `borrowed_phrase` (SPEC-45) reads gold, not this rule. Limit: a phrase holding an
+apostrophe ('Don't panic') is not owned; the quote match stops at it.
 
 ## The Edric probe diagnostic (W5-3 (c))
 

@@ -36,13 +36,14 @@ def source_paragraphs(text: str) -> list[str]:
     return text.split("\n\n")
 
 
-_LOCATION = re.compile(r"[a-z]+_(\d+)")
+_LOCATION = re.compile(r"([a-z]+)_(\d+)")
 
 
-def source_paragraph(location: str) -> Optional[int]:
-    """The paragraph index of a `source_location` this module wrote, or None."""
+def source_location(location: str) -> Optional[tuple[str, int]]:
+    """(kind, paragraph index) of a `source_location` this module wrote
+    ("narration_9" → ("narration", 9)), or None."""
     m = _LOCATION.fullmatch(location or "")
-    return int(m.group(1)) if m else None
+    return (m.group(1), int(m.group(2))) if m else None
 
 
 # A section heading that names its first-person narrator: "Jonathan Harker's

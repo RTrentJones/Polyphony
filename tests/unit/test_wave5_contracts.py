@@ -8,7 +8,7 @@ import pytest
 
 from app.jobs.scene_batch import scene_title
 from app.orchestration.prose import book_plan, earlier_beats
-from app.parsing.character_extractor import source_paragraph, source_paragraphs
+from app.parsing.character_extractor import source_location, source_paragraphs
 from tests.unit.factories import (
     add_chapter,
     add_planned_chapter,
@@ -60,8 +60,8 @@ async def test_earlier_beats_reads_the_chapter_s_live_written_scenes(
 
 
 def test_source_paragraph_reads_the_extractor_s_locations():
-    assert source_paragraph("dialogue_9") == 9
-    assert source_paragraph("paragraph_13") == 13
-    assert source_paragraph("") is None
-    assert source_paragraph("manual") is None
+    assert source_location("dialogue_9") == ("dialogue", 9)
+    assert source_location("paragraph_13") == ("paragraph", 13)
+    assert source_location("") is None
+    assert source_location("manual") is None
     assert source_paragraphs("a\n\n b\n\n") == ["a", " b", ""]

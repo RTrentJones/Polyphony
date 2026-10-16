@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Optional, Sequence
 from uuid import UUID
 
@@ -25,7 +25,11 @@ from sqlalchemy import select
 
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.orm_models import Scene, SceneBeat
-from app.core.prompt_markers import CURRENT_BEAT_MARK, PRIOR_FENCE
+from app.core.prompt_markers import (
+    CURRENT_BEAT_MARK,
+    PRIOR_FENCE,
+    SCENE_CHARACTERS_SECTION,
+)
 from app.llm.client import get_llm_client
 from app.orchestration.pov import Pov, pov_instruction
 from app.orchestration.prose import beats_block
@@ -89,9 +93,6 @@ class SpanSpec(BaseModel):
 class Span:
     start: int
     end: int
-    # A beat span carries its beat's plan line (SceneBeat.description); the
-    # API puts it in the job payload for the author's request record.
-    beat: Optional[str] = None
 
     def split(self, draft: str) -> tuple[str, str, str]:
         return draft[: self.start], draft[self.start : self.end], draft[self.end :]
@@ -151,8 +152,7 @@ async def resolve_scene_span(db, scene: Scene, spec: SpanSpec) -> Span:
     ).scalar_one_or_none()
     if beat is None or not (beat.content or "").strip():
         raise SpanError("Beat not found", status=404)
-    span = resolve_span(scene.draft, beat_text=beat.content)
-    return replace(span, beat=beat.description)
+    return resolve_span(scene.draft, beat_text=beat.content)
 
 
 def cast_request(scene: Scene) -> dict:
@@ -309,7 +309,7 @@ def build_revise_prompt(
     )
     voices = "\n\n".join(p for p in (cast_context, secondary_block) if p)
     cast_block = (
-        "CHARACTERS IN THIS SCENE — keep each one's dialogue in THEIR OWN voice, "
+        f"{SCENE_CHARACTERS_SECTION} — keep each one's dialogue in THEIR OWN voice, "
         "matching their voice samples:\n\n" + voices
         if voices
         else ""
