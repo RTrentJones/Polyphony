@@ -32,6 +32,9 @@ HONORIFICS = {
     "saint",
     "hon",
 }
+# The honorifics written abbreviated, with a period ("Mr. Quince"): only these
+# join the capitalised word after them; "the Count." ends a sentence (SPEC-44).
+ABBREVIATED_HONORIFICS = frozenset({"dr", "hon", "mr", "mrs", "ms", "prof", "st"})
 
 # Name tokens that are words, not names ("Old Fen", "The Lich", "Van Helsing"):
 # never counted on their own.

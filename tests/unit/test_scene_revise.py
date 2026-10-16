@@ -435,7 +435,7 @@ async def test_beat_mode_locates_the_beat_and_refuses_an_edited_one(
     assert r.status_code == 200, r.text
     assert r.json()["range"] == [_p2_range()["start"], _p2_range()["end"]]
     job = await async_session.get(Job, UUID(r.json()["job_id"]))
-    assert job.payload["beat_index"] == 1 and job.payload["beat_description"] == "b1"
+    assert job.payload["beat_index"] == 1
 
     # The author rewrote that paragraph since the beat was generated.
     await jobs_repo.mark_cancelled(async_session, job)

@@ -92,6 +92,7 @@ from app.core.prompt_markers import (
     POV_LIMIT_OPEN,
     POV_LINE_RE,
     PRIOR_FENCE,
+    SCENE_CHARACTERS_SECTION,
     SCENE_DESCRIPTION_LABEL,
     SECONDARY_FENCE,
     SETTING_LABEL,
@@ -365,7 +366,6 @@ _DOUBLED_VOICE = re.compile(r"(?i)\bvoice:\s*voice:")
 _EVIDENCE_LINE = re.compile(r"^\s*-\s*(\(part\s+\d+\)|[\"“])")
 _SCENE_DESCRIPTION = labelled_line(SCENE_DESCRIPTION_LABEL)
 _ALSO_NAMED = labelled_line(ALSO_NAMED_LABEL)
-_SCENE_SECTION = "CHARACTERS IN THIS SCENE"  # the revise prompt's cast
 # "Premise (confirmed by the author...): ..." (CONFIRMED_PREMISE_NOTE).
 _CONFIRMED_PREMISE = re.compile(
     rf"(?m)^Premise{re.escape(CONFIRMED_PREMISE_NOTE.split(':')[0])}[^)]*\): (.+)$"
@@ -460,7 +460,7 @@ def characters_section(prompt: str) -> str | None:
     """The "CHARACTERS IN THIS BEAT" section of a beat prompt (to BEAT TO WRITE),
     else the revise prompt's "IN THIS SCENE" one (`orchestration/revise.py`)."""
     at = prompt.find(CHARACTERS_SECTION)
-    at = at if at != -1 else prompt.find(_SCENE_SECTION)
+    at = at if at != -1 else prompt.find(SCENE_CHARACTERS_SECTION)
     if at == -1:
         return None
     end = prompt.find(BEAT_TO_WRITE_LABEL, at)

@@ -16,7 +16,13 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
-from app.parsing.names import HONORIFICS, NON_NAME_TOKENS, mentions, norm
+from app.parsing.names import (
+    ABBREVIATED_HONORIFICS,
+    HONORIFICS,
+    NON_NAME_TOKENS,
+    mentions,
+    norm,
+)
 from app.planning.outline import classify_people, people_refs
 
 _STOP_CAPS = {
@@ -152,8 +158,9 @@ FUNCTION_WORDS = _STOP_CAPS | _CONNECTIVES | _CALENDAR
 # (fields are joined with two spaces), a comma or a line break, so "Debt" ending
 # one title and "In" opening the next summary are two words, not "Debt  In".
 # An all-caps token (a sign or a stamp: INITIAL HERE) is never a candidate
-# (SPEC-33, N10). An honorific with its period joins the run ("Mr. Quince").
-_HONORIFIC = "|".join(sorted(h.capitalize() for h in HONORIFICS))
+# (SPEC-33, N10). An abbreviated honorific with its period joins the run
+# ("Mr. Quince"); a whole-word title ("the Count.") never joins across a period.
+_HONORIFIC = "|".join(sorted(h.capitalize() for h in ABBREVIATED_HONORIFICS))
 _TOKEN = rf"(?:(?:{_HONORIFIC})\.[ ])?[A-Z][a-z]+"
 _PROPER = re.compile(rf"\b{_TOKEN}(?:[ ]{_TOKEN})*\b")
 _WORD = re.compile(r"[A-Za-z]+")

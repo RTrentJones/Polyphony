@@ -200,6 +200,26 @@ async def test_per_beat_cast_is_preserved(async_session, cel_book, monkeypatch):
     assert scene.evaluation_scores["grounding"]["0"][0]["chunk_id"] == "chunk-1"
 
 
+async def test_planned_beat_lines_join_the_plot(async_session, cel_book, monkeypatch):
+    """(F) SPEC-40: every beat's samples are filtered against all of the scene's
+    beat lines: beat 2's block is built with beat 1's line in `plot` too."""
+    import app.orchestration.prose as prose_mod
+
+    plots, real = [], prose_mod.build_cast_context
+
+    async def spy(cast, description, *, scope, **kw):
+        plots.append(scope.plot)
+        return await real(cast, description, scope=scope, **kw)
+
+    monkeypatch.setattr(prose_mod, "build_cast_context", spy)
+    beats = [{"description": d, "characters": ["Milo Voss"]} for d in ("A.", "B.")]
+    ids = [str(cel_book.milo.id)]
+    fake = FakeLLM(json.dumps(beats))
+    result, _ = await _run(async_session, cel_book, fake, monkeypatch, ids)
+    assert result["status"] == "completed", result
+    assert plots == [("Milo meets Zara at the desk.", "A.", "B.")] * 2
+
+
 async def test_secondaries_follow_the_cast_in_every_beat_and_never_a_cast_member(
     async_session, cel_book, monkeypatch
 ):

@@ -37,6 +37,7 @@ POV_WIDE_OPEN = "The narrator"
 
 # --- the beat prompt (orchestration/prose.write_beat_prose) --------------------
 CHARACTERS_SECTION = "CHARACTERS IN THIS BEAT"
+SCENE_CHARACTERS_SECTION = "CHARACTERS IN THIS SCENE"  # the revise prompt's cast
 BEAT_TO_WRITE_LABEL = "BEAT TO WRITE"
 CURRENT_BEAT_MARK = "→"
 STOP_AT_NEXT_BEAT = "Stop where beat {next} begins"  # .format(next=<n + 1>)

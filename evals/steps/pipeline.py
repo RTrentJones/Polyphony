@@ -1245,7 +1245,7 @@ def tighten_request(draft: str, beats: list[dict]) -> dict | None:
 def revise_requests(draft: str, has_beats: bool, colder: str = "Zara") -> list[dict]:
     """The requests asked of the accepted draft: an exchange, and the beat one
     when the scene has beats. The redo carries a direction and no keep clause:
-    keeping what later text depends on is the product's job (B-4)."""
+    the keep line is the product's job (B-4)."""
     paras = _paragraph_spans(draft)
     out = []
     talk = [
@@ -1417,6 +1417,8 @@ async def step_revise(ctx: StepContext) -> dict:
         except Exception as e:  # noqa: BLE001 - recorded, the others still run
             row.update(accepted=False, accept_error=str(e)[:300])
         rows.append(row)
+    else:  # recorded: the tighten row says why, instead of being missing
+        rows.append({"id": "tighten", "error": "no paragraph inside beat 1"})
     for req in revise_requests(draft, bool(beats), colder):
         row, prop = await one(req, draft)
         if prop.get("id") and prop.get("status") == "proposed":
