@@ -505,42 +505,6 @@ class TestUnknownRate:
 class TestPlotGold:
     """Wave-5 gold graders (SPEC-45) on the archived outlines' plan lines."""
 
-    @staticmethod
-    def _chapters(name):
-        import json
-        from pathlib import Path
-
-        plan = json.loads(
-            (Path(__file__).parents[1] / "fixtures" / "w4_outlines.json").read_text()
-        )[name]
-        return [
-            [f"{s['title']}: {s['summary']}" for s in plan if s["chapter"] == n]
-            for n in range(1, 7)
-        ]
-
-    def test_locate_places_each_event_by_the_first_line_naming_it(self):
-        from evals.graders import plot
-        from evals.steps import pipeline
-
-        events = pipeline.load_corpus("cel")[1]["excerpt_events"]
-        w4 = {"intake": 1, "bell": 1, "drawer": 1, "summons": 2}
-        w4 |= {"corner office": 2, "discrepancy": 3}
-        assert plot.locate(events, self._chapters("w4")) == w4
-        # W4b2's "Reply All" (ch 5) summons Milo to the corner office: that line
-        # places the summons, so the meeting is "The Corner Office" (ch 6).
-        w4b2 = {"intake": 1, "bell": 2, "summons": 5}
-        w4b2 |= {"corner office": 6, "discrepancy": 4}
-        assert plot.locate(events, self._chapters("w4b2")) == w4b2
-
-    def test_a_quote_split_around_its_tag_is_one_paragraph(self):
-        from evals.graders import plot
-        from evals.steps import pipeline
-
-        paras = pipeline.load_excerpts("cel").split("\n\n")
-        asked = "That's it? Where does he actually go? Not in a weird way."
-        assert plot.paragraph_of(asked, paras) == 10
-        assert plot.paragraph_of("It was never in the excerpt.", paras) is None
-
     @pytest.mark.parametrize("cast, n", [(["Milo Voss"], 1), (["Edric Thane"], 0)])
     def test_borrowed_phrase(self, cast, n):
         from evals.graders import plot

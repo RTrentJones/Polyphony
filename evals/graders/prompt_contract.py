@@ -363,6 +363,7 @@ _DOUBLED_VOICE = re.compile(r"(?i)\bvoice:\s*voice:")
 _EVIDENCE_LINE = re.compile(r"^\s*-\s*(\(part\s+\d+\)|[\"“])")
 _SCENE_DESCRIPTION = labelled_line(SCENE_DESCRIPTION_LABEL)
 _ALSO_NAMED = labelled_line(ALSO_NAMED_LABEL)
+_SCENE_SECTION = "CHARACTERS IN THIS SCENE"  # the revise prompt's cast
 # "Premise (confirmed by the author...): ..." (CONFIRMED_PREMISE_NOTE).
 _CONFIRMED_PREMISE = re.compile(
     rf"(?m)^Premise{re.escape(CONFIRMED_PREMISE_NOTE.split(':')[0])}[^)]*\): (.+)$"
@@ -454,8 +455,10 @@ def check_story_position(prompt: str) -> list[str]:
 
 
 def characters_section(prompt: str) -> str | None:
-    """The "CHARACTERS IN THIS BEAT" section of a beat prompt (to BEAT TO WRITE)."""
+    """The "CHARACTERS IN THIS BEAT" section of a beat prompt (to BEAT TO WRITE),
+    else the revise prompt's "IN THIS SCENE" one (`orchestration/revise.py`)."""
     at = prompt.find(CHARACTERS_SECTION)
+    at = at if at != -1 else prompt.find(_SCENE_SECTION)
     if at == -1:
         return None
     end = prompt.find(BEAT_TO_WRITE_LABEL, at)
@@ -859,6 +862,7 @@ def grade(
     placed = plot.locate(pg["events"], plot.outline_chapters(records))
     plotted = dict.fromkeys(("classified", "later_plot_slots"), 0)
     emptied = dict.fromkeys(principal_names, 0)
+    emptied_blocks: list[dict] = []  # {id, owner: the plot paragraphs}
     shown: dict[str, set[str]] = {}  # every movement line each owner is shown
     for rec in (r for r in records if purpose(r) == "beat_prose"):
         for o, ls in movement_blocks(characters_section(prompt_text(rec)) or ""):
@@ -907,9 +911,10 @@ def grade(
             reasons, blocks = check_movement_in_scene(prompt, people, aliases)
             tallies["movement_names_in_scene"].add(rec, reasons)
             for owner, n in blocks:
-                only_plot = plot.only_plot(shown.get(owner), chapter, pg, placed)
-                if owner in movement and not n and only_plot:  # D6
+                why = plot.only_plot(shown.get(owner), chapter, pg, placed)
+                if owner in movement and not n and why:  # D6
                     emptied[owner] += 1
+                    emptied_blocks.append({"id": rec.get("id"), owner: why})
                 elif owner in movement:
                     movement[owner] += n
                     moving_blocks.append(n > 0)
@@ -980,6 +985,7 @@ def grade(
     )
     out["movement_names_in_scene"]["movement_lines"] = movement
     out["movement_names_in_scene"]["emptied_by_rule"] = emptied
+    out["movement_names_in_scene"]["emptied_blocks"] = emptied_blocks
     out["samples_not_plot"].update(plotted, placed=placed)
     # Gated 0 / 0 by the eval (§6.2): the worst beat, and how many beats lift.
     out["sample_lift"]["max_shared"] = max(lifts, default=0)
@@ -1028,6 +1034,7 @@ def main() -> None:
     ap.add_argument("archive", help="the relay's answered/ directory")
     ap.add_argument("--book", default="cel", help="corpus for gold lines + style")
     ap.add_argument("--since", type=float, default=None)
+    ap.add_argument("--against", nargs="*", default=[], help="archives: replayed")
     args = ap.parse_args()
     corpus = Path(__file__).resolve().parent.parent / "corpora" / args.book
     gt = json.loads((corpus / "ground_truth.json").read_text(encoding="utf-8"))
@@ -1037,7 +1044,11 @@ def main() -> None:
         if style_path.exists()
         else {}
     )
-    result = grade(load_archive(args.archive, args.since), **corpus_inputs(gt, style))
+    records = load_archive(args.archive, args.since)
+    result = grade(records, **corpus_inputs(gt, style))
+    if args.against:  # §6.1: answers another archive already gave
+        old = [r for a in args.against for r in load_archive(a)]
+        result["replayed"] = plot.replayed(records, old)
     print(json.dumps(result, indent=2))
 
 

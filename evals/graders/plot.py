@@ -34,16 +34,21 @@ def outline_chapters(records: list[dict]) -> list[list[str]]:
 
 def locate(events: list[dict], chapters: list[list[str]]) -> dict[str, int]:
     """{event: chapter} by the first scene line naming one of its terms, in
-    source order; a line places one event (W4b2's summons scene mentions the
-    corner office it summons Milo to)."""
+    source order. A line places one event (W4b2's summons scene mentions the
+    corner office it summons Milo to), unless every line naming it is taken."""
     lines = [(n, ln.lower()) for n, ch in enumerate(chapters, 1) for ln in ch]
+    taken: set[int] = set()
     out: dict[str, int] = {}
     for ev in events:
-        for i, (n, ln) in enumerate(lines):
-            if any(t.lower() in ln for t in ev["terms"]):
-                out[ev["event"]] = n
-                lines[i] = (n, "")
-                break
+        hits = [
+            i
+            for i, (_, ln) in enumerate(lines)
+            if any(t.lower() in ln for t in ev["terms"])
+        ]
+        if hits:
+            i = next((i for i in hits if i not in taken), hits[0])
+            taken.add(i)
+            out[ev["event"]] = lines[i][0]
     return out
 
 
@@ -75,10 +80,12 @@ def plot_reasons(kind, sample, chapter, gold: dict, placed: dict) -> tuple:
     return [f"paragraph {i}: {r}" for r in reasons], i, later
 
 
-def only_plot(lines, chapter, gold: dict, placed: dict) -> bool:
-    """D6: every movement line an owner is ever shown is plot here."""
-    return bool(lines) and all(
-        plot_reasons("movement", m, chapter, gold, placed)[0] for m in lines
+def only_plot(lines, chapter, gold: dict, placed: dict) -> list[int]:
+    """D6: the paragraphs of an owner's movement lines when every one is plot
+    here, else []."""
+    hits = [plot_reasons("movement", m, chapter, gold, placed) for m in lines or ()]
+    return (
+        sorted({i for _, i, _ in hits}) if hits and all(r for r, _, _ in hits) else []
     )
 
 

@@ -15,6 +15,7 @@ from app.core.prompt_markers import (
     OUTLINE_CHAPTERS_HEADER,
     VOICE_SAMPLES_LABEL,
 )
+from evals.graders import plot
 from evals.graders import prompt_contract as pc
 from evals.steps import pipeline
 
@@ -341,6 +342,43 @@ def _outline(name: str) -> dict:
     return _rec("o", "outline:beats", prompt, json.dumps(chapters), created=0.0)
 
 
+@pytest.mark.parametrize(
+    "outline, placed",
+    [
+        ("w4", [1, 1, 1, 2, 2, 3]),
+        # "Reply All" (ch 5) summons Milo to the corner office: that line places
+        # the summons, so the meeting is "The Corner Office" (ch 6).
+        ("w4b2", [1, 2, None, 5, 6, 4]),
+    ],
+)
+def test_locate_places_each_event_by_the_first_line_naming_it(outline, placed):
+    events = ["intake", "bell", "drawer", "summons", "corner office", "discrepancy"]
+    got = plot.locate(CEL["excerpt_events"], plot.outline_chapters([_outline(outline)]))
+    assert [got.get(e) for e in events] == placed
+
+
+def test_an_event_whose_lines_are_all_taken_still_places():
+    """C1: an unplaced event could never be later plot, so it would pass."""
+    events = [{"event": e, "terms": ["drawer"]} for e in ("drawer", "column")]
+    chapters = [[], ["The Column: Milo opens the drawer."]]
+    assert plot.locate(events, chapters) == {"drawer": 2, "column": 2}
+
+
+def test_the_revise_prompts_cast_block_is_graded_too(tmp_path):
+    """C2, W4b2 0025: the revise of "Mid-Sentence" showed the intake sample."""
+    prompt = (
+        "This scene is in chapter 1 of 6.\nCHARACTERS IN THIS SCENE — keep each "
+        f"one's dialogue in THEIR OWN voice:\n\n<character>\n### Milo Voss\n"
+        f"{MOVEMENT_LABEL}\n- {PARAS[0]}\n</character>\n\n<target>\nx\n</target>"
+    )
+    for rec in (_outline("w4b2"), _rec("r", "scene_revise", prompt)):
+        _write(tmp_path, rec)
+    out = pc.grade(pc.load_archive(tmp_path), **PLOT_GOLD)["samples_not_plot"]
+    assert out["failures"] == [
+        {"id": "r", "reasons": ["Milo Voss: paragraph 0: narrates intake (ch 1)"]}
+    ]
+
+
 def _beat(chapter: int, blocks: dict[str, tuple[list, list]]) -> str:
     """A beat prompt: per owner, (voice samples, movement samples)."""
     body = "".join(
@@ -418,3 +456,6 @@ def test_blocks_only_plot_could_fill_are_emptied_by_rule(tmp_path):
         "Edric Thane": 0,
     }
     assert move["movement_coverage"] == round(16 / 17, 4)
+    # Each emptied block names the plot that left it empty: the Bell Account's
+    # (b10) as much as the four Locked Drawer blocks.
+    assert move["emptied_blocks"][0] == {"id": "b10", "Milo Voss": [0, 13]}
