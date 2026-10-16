@@ -116,6 +116,14 @@ describe('PlannedBeatsEditor (SPEC-35)', () => {
     expect(beats[2]).toMatchObject({ title: 'Coda', character_ids: [] })
   })
 
+  it('a blank chapter title is refused before saving', async () => {
+    open()
+    fireEvent.change(screen.getByLabelText('Title of chapter 1'), { target: { value: '  ' } })
+    save()
+    expect(await screen.findByRole('alert')).toHaveTextContent('The chapter needs a title')
+    expect(updateChapter).not.toHaveBeenCalled()
+  })
+
   it('a blank beat title is refused before saving, so no beat is silently dropped', async () => {
     open()
     fireEvent.change(screen.getByLabelText('Beat 2 of chapter 1, title'), { target: { value: '   ' } })

@@ -324,6 +324,11 @@ class TestBeatsStageSeesThePlan:
             mine = outline[2 * act : 2 * act + 2]
             assert len(so.outline_context(outline, mine, earlier)) <= 2500
 
+    def test_earlier_beats_with_null_or_numeric_titles_still_join(self):
+        """A checkpointed act is raw model output, validated only at the end."""
+        earlier = [{"title": "Ch1", "children": [{"title": None}, {"title": 7}, {"title": "b"}]}]
+        assert "- Ch1: ; 7; b" in so.outline_context([], [], earlier)
+
 
 class TestGenerateEndpointEnqueues:
     async def test_outline_enqueues_staged_job(

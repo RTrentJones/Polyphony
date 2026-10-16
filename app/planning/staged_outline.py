@@ -223,7 +223,7 @@ def outline_context(
     # Model output: a node or a beat that is not an object is skipped.
     for ch in (c for c in earlier if isinstance(c, dict)):
         kids = [b for b in ch.get("children") or [] if isinstance(b, dict)]
-        titles = "; ".join(b.get("title", "") for b in kids)
+        titles = "; ".join(str(b.get("title") or "") for b in kids)
         lines.append(f"- {ch.get('title', '')}: {titles}")
     return "\n".join([*lines, INTRODUCE_NO_EARLIER])
 

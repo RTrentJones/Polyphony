@@ -96,6 +96,7 @@ export default function PlannedBeatsEditor({
     ])
 
   const handleSave = async () => {
+    if (!title.trim()) return setError({ message: 'The chapter needs a title.', unknown: [] })
     if (beats.some((b) => !b.title.trim())) {
       return setError({ message: 'Every beat needs a title. Remove a beat to drop it.', unknown: [] })
     }

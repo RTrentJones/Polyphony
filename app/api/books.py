@@ -68,16 +68,21 @@ router = APIRouter()
 
 # --- Payloads -----------------------------------------------------------------
 
+# Stripped before the length check, so a title of spaces is a 422.
+Title = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
+]
+
 
 class BookCreate(BaseModel):
-    title: str = Field(..., min_length=1, max_length=500)
+    title: Title
     author: Optional[str] = None
     synopsis: Optional[str] = None
     genre: Optional[str] = None
 
 
 class BookUpdate(BaseModel):
-    title: Optional[str] = Field(None, min_length=1, max_length=500)
+    title: Optional[Title] = None
     author: Optional[str] = None
     synopsis: Optional[str] = None
     genre: Optional[str] = None
@@ -85,7 +90,7 @@ class BookUpdate(BaseModel):
 
 
 class ChapterCreate(BaseModel):
-    title: str = Field(..., min_length=1, max_length=500)
+    title: Title
     summary: Optional[str] = None
     # Append when omitted. Non-negative: negative positions are reserved as
     # temp parking slots by the two-phase renumber (see _renumber_two_phase).
@@ -93,7 +98,7 @@ class ChapterCreate(BaseModel):
 
 
 class ChapterUpdate(BaseModel):
-    title: Optional[str] = Field(None, min_length=1, max_length=500)
+    title: Optional[Title] = None
     summary: Optional[str] = None
     status: Optional[str] = None
     # The chapter's planned scenes (SPEC-23), replacing the stored list. Strict:
@@ -159,9 +164,7 @@ class SceneContentUpdate(BaseModel):
 
 
 class SceneUpdate(BaseModel):
-    title: Annotated[
-        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
-    ]
+    title: Title
 
 
 class ManualSceneCreate(BaseModel):
