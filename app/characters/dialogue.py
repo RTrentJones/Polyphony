@@ -15,7 +15,6 @@ from app.characters.context import (
     grounding_entries,
     render_character,
 )
-from app.core.config import settings
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.logging_config import setup_logging
 from app.core.orm_models import Character
@@ -36,8 +35,9 @@ async def generate_dialogue(
     """One in-voice line (plus an action) for `character`: `prompt` is the
     moment to answer, `context` the author's optional scene note."""
     name = character.name
+    # Score >= 0: a voice probe's own best lines score low against it (SPEC-55).
     words, movement = await character_samples(
-        character, prompt, 3, scope=scope, threshold=settings.RAG_SCORE_THRESHOLD
+        character, prompt, 3, scope=scope, threshold=0
     )
     block = as_quoted_block(render_character(name, words, movement), "character")
     note = clean_for_llm(context)

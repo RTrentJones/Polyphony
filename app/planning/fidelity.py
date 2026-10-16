@@ -240,16 +240,19 @@ def _is_sentence_initial(text: str, start: int) -> bool:
 # A run followed by a single capital, a number or a code is a label
 # ("Appendix F", "Form 9", "Desk R-14"), not a name (M5).
 _LABEL_TOKEN = re.compile(r"\s+(?:[A-Z](?![a-z])|\d|[A-Z]+-?\d)")
+# A run cut by a contraction's apostrophe ("'Don't explain.'") is not a name;
+# a possessive is ("Gary's desk"), so 's never ends one (SPEC-57).
+_CONTRACTION = re.compile(r"['’](?:t|ll|re|ve|d)\b")
 
 
 def _candidates(text: str):
     """Yield (words, sentence_initial) for each capitalised run in `text`, with
     a sentence's leading and trailing function words ("The", "Under", "At")
-    trimmed. A label is not a run. Mid-sentence, a function word before a
-    single word is kept ("Our Values" reads as a title fragment), so a one-word
-    name after a mid-sentence "The" is not reported."""
+    trimmed. A label is not a run, nor is a contraction's stem. Mid-sentence,
+    a function word before a single word is kept ("Our Values" reads as a title
+    fragment), so a one-word name after a mid-sentence "The" is not reported."""
     for m in _PROPER.finditer(text or ""):
-        if _LABEL_TOKEN.match(text, m.end()):
+        if _LABEL_TOKEN.match(text, m.end()) or _CONTRACTION.match(text, m.end()):
             continue
         words = m.group(0).split(" ")
         initial = opens = _is_sentence_initial(text, m.start())

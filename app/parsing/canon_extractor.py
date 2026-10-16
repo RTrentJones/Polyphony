@@ -56,6 +56,7 @@ from app.core.prompt_markers import (
 )
 from app.llm.client import get_llm_client
 from app.llm.json_utils import JSON_OBJECT, extract_json_object
+from app.parsing.character_extractor import _normalize_quotes, tag_spans
 from app.parsing.names import (
     HONORIFICS,
     NON_NAME_TOKENS,
@@ -241,6 +242,39 @@ def _evidence_list(value, limit: int = _MAX_MAP_EVIDENCE) -> list[str]:
         if text and text not in out:
             out.append(text)
     return out[:limit]
+
+
+_WORD = re.compile(r"[^\W_]+")
+_CLOSE = re.compile(r'[.!?…]*"?')
+
+
+def verbatim_evidence(quotes: list[str], window: str) -> list[str]:
+    """Each map quote as the author wrote it, or not at all (SPEC-56): kept if a
+    run of `window` (normalised, outer marks aside); else, if its words are a
+    run of the window's once `tag_spans` are left out, the window's span from
+    its first word to its last, tags included; else dropped."""
+    text = _normalize_quotes(window)
+    flat, tagged, at = " ".join(text.split()), set(), 0
+    for para in text.split("\n\n"):
+        tagged.update(i for a, b in tag_spans(para) for i in range(at + a, at + b))
+        at += len(para) + 2
+    words = [m for m in _WORD.finditer(text) if m.start() not in tagged]
+    keys = [m.group().casefold() for m in words]
+    out: list[str] = []
+    for quote in quotes:
+        q = " ".join(_normalize_quotes(quote).split())
+        if (core := q.strip("\"' ")) and core in flat:
+            out.append(quote)
+            continue
+        want = [w.casefold() for w in _WORD.findall(q)]
+        n = len(want)
+        i = next((i for i in range(len(keys) - n + 1) if keys[i : i + n] == want), -1)
+        if n and i >= 0:
+            a, b = words[i].start(), words[i + n - 1].end()
+            a -= text[a - 1 : a] == '"'
+            b += len(_CLOSE.match(text, b).group())
+            out.append(" ".join(text[a:b].split())[:_MAX_EVIDENCE_CHARS])
+    return list(dict.fromkeys(out))
 
 
 def _clean_aliases(name: str, aliases) -> list[str]:
@@ -435,7 +469,10 @@ async def _map_one(
             purpose="extraction_map",
             stats=stats,
         )
-        return _normalize_window(raw)
+        window = _normalize_window(raw)
+        for c in window["characters"]:
+            c["evidence"] = verbatim_evidence(c["evidence"], text)
+        return window
 
     try:
         return [await call(window, label)], []
@@ -524,7 +561,8 @@ def merge_characters(window_answers: list[tuple[int, dict]], text: str = "") -> 
     cands: list[dict] = []
     for w, ans in window_answers:
         for c in ans.get("characters", []):
-            cands.append({**c, "window": w})
+            ev = c["evidence"] or [f"narrates part {w + 1}"]  # all dropped (SPEC-56)
+            cands.append({**c, "evidence": ev, "window": w})
         for n in (ans.get("style_signals") or {}).get("narrators", []):
             cands.append(
                 {
