@@ -735,6 +735,7 @@ def test_evidence_verbatim_normalises_marks_and_skips_the_stand_in():
     assert pc.check_evidence_verbatim(prompt, source) == (
         ["not in the source: 'Milo sat.'"],
         3,
+        1,
     )
 
 

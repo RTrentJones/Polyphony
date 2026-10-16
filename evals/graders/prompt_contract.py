@@ -68,7 +68,8 @@ Wave 7 (SPEC-54): the plot gates (``samples_not_plot``, ``movement``,
 the run's (``plot.placements``); without one they are ``None`` and
 ``placement_signed`` is false. ``evidence_verbatim``  extraction_reduce: every
 evidence quote is a run of the uploaded source (whitespace and quote marks
-normalised); reports ``lines``.
+normalised); reports ``lines`` {n, verbatim, stand_ins}: a run whose
+quotes were mostly dropped to stand-ins shows it.
 
 Each check reports ``{n, passed, rate, failures}``; a check with nothing to
 check (no such call in the archive) reports ``n == 0`` and ``rate = None``, so
@@ -98,6 +99,7 @@ from app.core.prompt_markers import (
     EARLIER_BEATS,
     EMOTIONAL_TONE_LABEL,
     EVIDENCE_ITEM,
+    EVIDENCE_STAND_IN,
     INTRODUCED_LABEL,
     MOVEMENT_LABEL,
     NAME_HEADING,
@@ -561,7 +563,9 @@ _EVIDENCE_ITEM = re.compile(
 
 # The extractor's mark for a member with no quote left (W7-4 (a)): evidence
 # "marked as not" verbatim, so it is neither a quote nor a failure.
-_STAND_IN = re.compile(r"narrates part \d+")
+_STAND_IN = re.compile(
+    re.escape(EVIDENCE_STAND_IN).replace(re.escape("{part}"), r"\d+")
+)
 
 
 def verbatim_text(text: str) -> str:
@@ -569,17 +573,18 @@ def verbatim_text(text: str) -> str:
     return " ".join(text.translate(_QUOTE_MARKS).split())
 
 
-def check_evidence_verbatim(prompt: str, source: str) -> tuple[list[str], int]:
-    """W7-4 (b): (reasons, quotes) over the reduce prompt's evidence lines; a
-    quote passes when, outer quote marks aside, it is a run of `source` (the
-    uploaded manuscript, already `verbatim_text`)."""
-    quotes = [q for q in _EVIDENCE_ITEM.findall(prompt) if not _STAND_IN.fullmatch(q)]
+def check_evidence_verbatim(prompt: str, source: str) -> tuple[list[str], int, int]:
+    """W7-4 (b): (reasons, quotes, stand-ins) over the reduce prompt's evidence
+    lines; a quote passes when, outer quote marks aside, it is a run of
+    `source` (the uploaded manuscript, already `verbatim_text`)."""
+    items = _EVIDENCE_ITEM.findall(prompt)
+    quotes = [q for q in items if not _STAND_IN.fullmatch(q)]
     reasons = [
         f"not in the source: {q!r}"
         for q in quotes
         if verbatim_text(q).strip("' ") not in source
     ]
-    return reasons, len(quotes)
+    return reasons, len(quotes), len(items) - len(quotes)
 
 
 def _json_array(text: str) -> list:
@@ -1011,7 +1016,7 @@ def grade(
     )
     placed = plot.placed_chapters(signed) if signed else {}
     src = verbatim_text(source)
-    evidence = dict.fromkeys(("n", "verbatim"), 0)
+    evidence = dict.fromkeys(("n", "verbatim", "stand_ins"), 0)
     plotted = dict.fromkeys(("classified", "later_plot_slots"), 0)
     # D3a: a principal is eligible in a beat when the store holds a line of
     # theirs that is not gold plot there; every eligible block must move.
@@ -1104,7 +1109,8 @@ def grade(
                 for s in ss
             ]
         if pur == "extraction_reduce" and src:
-            reasons, quotes = check_evidence_verbatim(prompt, src)
+            reasons, quotes, stand_ins = check_evidence_verbatim(prompt, src)
+            evidence["stand_ins"] += stand_ins
             if quotes:
                 tallies["evidence_verbatim"].add(rec, reasons)
                 evidence["n"] += quotes

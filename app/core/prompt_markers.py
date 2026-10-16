@@ -55,6 +55,8 @@ VOICE_SAMPLES_LABEL = (
 )
 EVIDENCE_LABEL = "Evidence:"
 EVIDENCE_ITEM = "- (part {part}) {quote}"  # .format(part=<1-based>, quote=...)
+# A member left with no verbatim quote (SPEC-56): a mark, not a quote.
+EVIDENCE_STAND_IN = "narrates part {part}"  # .format(part=<1-based>)
 QUOTED_LINES_LABEL = "Quoted lines (their own words):"
 MOVEMENT_LABEL = (
     "How they move (gesture and habit, for manner only: never copy a sample's "
