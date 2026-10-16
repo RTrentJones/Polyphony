@@ -160,3 +160,9 @@ def test_a_repeated_node_id_gets_its_own_stable_id():
         ]
     )
     assert len({b["node_id"] for b in trio}) == 3
+
+
+def test_a_blank_title_is_a_validation_error_not_a_dropped_beat():
+    with pytest.raises(ValueError):
+        PlannedBeat(node_id="n-1", title="   ")
+    assert PlannedBeat(node_id="n-1", title="  Desk ").title == "Desk"

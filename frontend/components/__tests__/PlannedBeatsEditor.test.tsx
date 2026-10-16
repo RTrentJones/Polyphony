@@ -102,17 +102,26 @@ describe('PlannedBeatsEditor (SPEC-35)', () => {
 
   it("Delete and Add edit the list; shows a Pydantic 422's first msg", async () => {
     updateChapter.mockRejectedValue({
-      message: 'String should have at least 1 character', status: 422,
-      detail: [{ loc: ['body'], msg: 'String should have at least 1 character' }],
+      message: 'String should have at most 500 characters', status: 422,
+      detail: [{ loc: ['body'], msg: 'String should have at most 500 characters' }],
     })
     open(chapter({ planned_beats: [beat(1), beat(2), beat(3)] }))
     fireEvent.click(screen.getByRole('button', { name: 'Delete beat 1 of chapter 1' }))
     fireEvent.click(screen.getByRole('button', { name: 'Add beat to chapter 1' }))
+    fireEvent.change(screen.getByLabelText('Beat 3 of chapter 1, title'), { target: { value: 'Coda' } })
     save()
-    expect(await screen.findByRole('alert')).toHaveTextContent('String should have at least 1 character')
+    expect(await screen.findByRole('alert')).toHaveTextContent('String should have at most 500 characters')
     const beats = (await sent()).planned_beats
     expect(beats.map((b: PlannedBeat) => b.node_id)).toEqual(['n-2', 'n-3', ''])
-    expect(beats[2]).toMatchObject({ title: '', character_ids: [] })
+    expect(beats[2]).toMatchObject({ title: 'Coda', character_ids: [] })
+  })
+
+  it('a blank beat title is refused before saving, so no beat is silently dropped', async () => {
+    open()
+    fireEvent.change(screen.getByLabelText('Beat 2 of chapter 1, title'), { target: { value: '   ' } })
+    save()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Every beat needs a title')
+    expect(updateChapter).not.toHaveBeenCalled()
   })
 
   it('a written beat links to its scene and says editing it does not change the scene', () => {

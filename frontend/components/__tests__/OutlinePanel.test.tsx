@@ -1,6 +1,6 @@
 /** The Outline panel's History and promoted label (SPEC-38 §History). */
 import { fireEvent, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { BookChapter, BookPlan } from '@/lib/types'
 import { bookValue, renderWithBook } from './bookContext'
@@ -13,9 +13,10 @@ vi.mock('@/components/VersionHistory', () => ({
   },
 }))
 vi.mock('@/lib/canon-store', () => ({ canonApi: {} }))
+const plans = vi.hoisted(() => ({ current: [] as BookPlan[] }))
 vi.mock('@/lib/books-store', () => ({
   usePlanningStore: () => ({
-    plans: [plan],
+    plans: plans.current,
     fetchPlans: vi.fn().mockResolvedValue([]),
     generatePlan: vi.fn(),
     promoteNode: vi.fn(),
@@ -43,12 +44,22 @@ const promoted: BookChapter = {
 }
 
 describe('Outline history and promoted chapters (SPEC-38)', () => {
+  beforeEach(() => {
+    plans.current = [plan]
+  })
+
   it('History opens the book_plan versions of this plan', () => {
     renderWithBook(<OutlinePanel addToast={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'History' }))
     expect(history).toHaveBeenCalledWith(
       expect.objectContaining({ entityType: 'book_plan', entityId: 'plan-1' })
     )
+  })
+
+  it('History is disabled while a job is generating the plan', () => {
+    plans.current = [{ ...plan, status: 'generating' }]
+    renderWithBook(<OutlinePanel addToast={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'History' })).toBeDisabled()
   })
 
   it('a promoted node shows its chapter number', () => {

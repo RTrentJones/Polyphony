@@ -298,6 +298,17 @@ describe('Scene editor safety net and header (SPEC-16 B1, SPEC-37)', () => {
     await act(async () => finish({ id: 's1', title: 'The Next Desk' }))
     await waitFor(() => expect(router.push).toHaveBeenCalledWith('/books/editor?scene=s2&book=b1'))
   })
+
+  it('a failed title save keeps the author on the scene', async () => {
+    booksApi.updateSceneTitle.mockRejectedValue(new Error('Server error'))
+    await renderEditor()
+    const title = screen.getByLabelText('Scene title')
+    fireEvent.change(title, { target: { value: 'The Next Desk' } })
+    fireEvent.blur(title)
+    fireEvent.click(screen.getByRole('button', { name: 'Next scene' }))
+    await act(async () => {})
+    expect(router.push).not.toHaveBeenCalled()
+  })
 })
 
 describe('Revision preview dialog (SPEC-16, B13)', () => {

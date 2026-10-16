@@ -125,7 +125,7 @@ function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: stri
   const [scene, setScene] = useState<SceneDetail | null>(null)
   const [title, setTitle] = useState('')
   /** The pending title save: Previous/Next wait for it. */
-  const titleSave = useRef<Promise<unknown>>(Promise.resolve())
+  const titleSave = useRef<Promise<boolean>>(Promise.resolve(true))
   const [content, setContent] = useState('')
   const [savedContent, setSavedContent] = useState('')
   const [revisions, setRevisions] = useState<SceneRevision[]>([])
@@ -270,16 +270,25 @@ function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: stri
 
   const saveTitle = () => {
     const next = title.trim()
-    if (!scene || next === (scene.title ?? '')) return
+    if (!scene) return
+    titleSave.current = Promise.resolve(true)
+    if (next === (scene.title ?? '')) return
     if (!next) return setTitle(scene.title ?? '')
+    // Resolves false on failure, so Previous/Next keep the author on this scene.
     titleSave.current = booksApi.updateSceneTitle(sceneId, next).then(
-      (r) => setScene({ ...scene, title: r.title }),
-      (err: any) => addToast(err.message || 'Failed to rename the scene', 'error')
+      (r) => {
+        setScene({ ...scene, title: r.title })
+        return true
+      },
+      (err: any) => {
+        addToast(err.message || 'Failed to rename the scene', 'error')
+        return false
+      }
     )
   }
 
   const goTo = async (id: string | null) => {
-    await titleSave.current
+    if (!(await titleSave.current)) return
     if (id) guardedPush(`/books/editor?scene=${id}&book=${bookId}`)
   }
 

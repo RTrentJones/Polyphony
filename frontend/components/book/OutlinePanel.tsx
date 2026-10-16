@@ -270,6 +270,8 @@ export default function OutlinePanel({
   const [jobId, setJobId] = useState<string | null>(null)
   const activeJobId =
     jobId || (isActiveJob(plan?.job?.status) ? plan?.job?.job_id ?? null : null)
+  const busy =
+    generating || plan?.status === 'generating' || plan?.status === 'paused' || !!activeJobId
   const label = kind === 'outline' ? 'Outline' : 'Beat sheet'
 
   const handleGenerate = async () => {
@@ -415,7 +417,14 @@ export default function OutlinePanel({
             Generate {kind === 'outline' ? 'outline' : 'beat sheet'}
           </Button>
           {plan && (
-            <Button size="sm" variant="outline" onClick={() => setHistoryOpen(true)}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setHistoryOpen(true)}
+              // A running job writes its nodes over a restore when it finishes.
+              disabled={busy}
+              title={busy ? 'Available when generation finishes' : undefined}
+            >
               <History className="h-4 w-4 mr-1" />
               History
             </Button>
@@ -445,10 +454,7 @@ export default function OutlinePanel({
         </div>
       )}
 
-      {generating ||
-      plan?.status === 'generating' ||
-      plan?.status === 'paused' ||
-      activeJobId ? (
+      {busy ? (
         <div className="text-center py-8">
           <Wand2 className="h-10 w-10 text-primary-500 mx-auto mb-3 animate-pulse" />
           <p className="text-gray-800 font-medium">
