@@ -22,6 +22,10 @@ type FormBeat = PlannedBeat & { key: string; touchedCast: boolean }
 const input =
   'w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-primary-500'
 
+/** Ids still in the cast; all of them while the cast has not loaded (empty). */
+const keepLive = (ids: string[], live: Set<string>) =>
+  live.size ? ids.filter((id) => live.has(id)) : ids
+
 /** What Save sends for a beat: the shown chips only if the author toggled them,
  * else its stored ids less any character since moved to the Trash (no chip
  * shows one, and the server refuses it). */
@@ -30,10 +34,14 @@ const toInput = (
   live: Set<string>
 ): PlannedBeatInput => ({
   ...b,
-  character_ids: touchedCast ? cast_ids : b.character_ids.filter((id) => live.has(id)),
+  character_ids: touchedCast ? cast_ids : keepLive(b.character_ids, live),
 })
-const stored = (ch: ChapterDetail): PlannedBeatInput[] =>
-  (ch.planned_beats ?? []).map(({ cast_ids, ...b }) => b)
+/** The stored beats as Save would send them unedited, so a rename alone sends no beats. */
+const stored = (ch: ChapterDetail, live: Set<string>): PlannedBeatInput[] =>
+  (ch.planned_beats ?? []).map(({ cast_ids, ...b }) => ({
+    ...b,
+    character_ids: keepLive(b.character_ids, live),
+  }))
 
 /** "k of n planned scenes written", from the server's `written` (D4). */
 export function writtenLabel(ch: ChapterDetail): string {
@@ -112,7 +120,7 @@ export default function PlannedBeatsEditor({
     const body = {
       ...(title !== chapter.title ? { title } : {}),
       ...(summary !== (chapter.summary ?? '') ? { summary } : {}),
-      ...(JSON.stringify(out) !== JSON.stringify(stored(chapter)) ? { planned_beats: out } : {}),
+      ...(JSON.stringify(out) !== JSON.stringify(stored(chapter, live)) ? { planned_beats: out } : {}),
     }
     if (Object.keys(body).length === 0) return onCancel()
     setSaving(true)

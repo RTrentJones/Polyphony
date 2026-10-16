@@ -704,16 +704,16 @@ async def update_chapter(
         and getattr(payload, f) != getattr(chapter, f)
     }
     if payload.planned_beats is not None:
-        batch = scene_batch.batch_key(current_user.id, chapter.id)
-        if await scene_batch.find_active_batch_job(db, batch) is not None:
-            # The running batch already holds each queued scene's request.
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="The planned scenes for this chapter are being written; "
-                "edit the beats when that finishes.",
-            )
         beats = await _strict_planned_beats(db, chapter.book_id, payload.planned_beats)
         if beats != normalize_planned_beats(chapter.planned_beats):
+            batch = scene_batch.batch_key(current_user.id, chapter.id)
+            if await scene_batch.find_active_batch_job(db, batch) is not None:
+                # The running batch already holds each queued scene's request.
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="The planned scenes for this chapter are being written; "
+                    "edit the beats when that finishes.",
+                )
             changes["planned_beats"] = beats
     if changes:
         # Chapter titles, summaries and planned beats are versioned (SPEC-13,
