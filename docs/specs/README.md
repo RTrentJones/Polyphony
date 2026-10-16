@@ -65,6 +65,13 @@ route, change the spec in the same PR so it stays true. The acceptance criteria 
 | [SPEC-43](SPEC-43-planner-sees-its-chapter.md) | A scene's planner sees the rest of its chapter | W5-4 | S | wave-5 day-0 (`book_plan`, `earlier_beats`) | ✅ |
 | [SPEC-44](SPEC-44-names-not-honorifics.md) | Name warnings flag inventions, not honorifics, weekdays or split phrases | W5-5 | S | SPEC-21, SPEC-33 | ✅ |
 | [SPEC-45](SPEC-45-eval-harness-v6.md) | Eval harness v6: an author's revision sequence, and plot graded from gold | W5-6 | S/M | SPEC-39 to SPEC-42 | ✅ |
+| [SPEC-46](SPEC-46-scripted-samples.md) | A voice sample never scripts the beat's own line | W6-1 | S | SPEC-40 | ✅ |
+| [SPEC-47](SPEC-47-redo-changes-what-was-asked.md) | A redo changes what was asked, and says what it protects | W6-2 | S/M | SPEC-41 | ✅ |
+| [SPEC-48](SPEC-48-names-the-book-knows.md) | Drafted prose names only people the book knows, and narrates no hindsight | W6-3 | S/M | SPEC-44 | ✅ |
+| [SPEC-49](SPEC-49-perceivable-outline-briefs.md) | The outline writes briefs its POV character can perceive | W6-4 | S | SPEC-38, SPEC-43 | ✅ |
+| [SPEC-50](SPEC-50-cast-from-outline-introduction.md) | "Add to cast" stores an introduction | W6-5 | S | SPEC-40 | ✅ |
+| [SPEC-51](SPEC-51-json-mode.md) | JSON-only prompts ask the provider for JSON | W6-6 | S | wave-6 day-0 (`JSON_OBJECT`) | ✅ |
+| [SPEC-52](SPEC-52-eval-harness-v7.md) | Eval harness v7: measure what wave 6 changes, and stop measuring noise | W6-7 | S/M | SPEC-45 | ✅ |
 
 SPEC-01 to SPEC-15 close review findings (`F…`). SPEC-16 to SPEC-22 are wave 1 of the 2026-10
 cycle: they close product-backlog items (`B…`) and findings from the relay eval run, and SPEC-22
@@ -82,6 +89,10 @@ judged scenes) and SPEC-23 (`scene_batch.written_beats`) in place.
 SPEC-40 to SPEC-45 are wave 5 (backlog items `W5-…`), built on one day-0 contract commit (`SceneScope.plot`
 and `later_from`, `prose.book_plan` and `earlier_beats`, `source_location`, retrieval `source_id`).
 Wave 5 amended SPEC-36 in place: its event rule now reads every line of `SceneScope.plot`.
+
+SPEC-46 to SPEC-52 are wave 6 (backlog items `W6-…`), on one day-0 commit (`JSON_OBJECT`,
+`SceneSetup.position` and `chapter_summary`, scene `name_warnings`, the archived-row fixture). Wave 6
+amended SPEC-43 (`planned_beat.marked_plan`) and SPEC-45 (D6 superseded by SPEC-52) in place.
 
 ## Sequencing
 
