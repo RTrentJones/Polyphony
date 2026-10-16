@@ -974,3 +974,8 @@ def test_portable_outline_swaps_ids_in_beat_children_too():
     child = out[0]["children"][0]
     assert "character_ids" not in child and child["characters"] == ["Zara Okafor"]
     assert nodes[0]["children"][0]["character_ids"] == ["z1", "foreign"]  # input kept
+    # A POV the other book does not cast (the outline book's minor Bell) goes.
+    two = portable_outline(
+        [{"title": "A", "pov": "Halvard Bell"}, {"title": "B", "pov": "Milo Voss"}], ids
+    )
+    assert "pov" not in two[0] and two[1]["pov"] == "Milo Voss"

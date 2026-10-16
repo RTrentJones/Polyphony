@@ -809,41 +809,30 @@ async def journey(page: Page) -> None:
             await other.close()
 
     async def a_batch_over_budget_writes_what_fits():
-        """SPEC-34: a fresh author's four-beat chapter on a long synopsis."""
-        code = (
-            await (
-                await page.request.post(
-                    f"{BASE}/api/v1/auth/invites",
-                    data={"max_uses": 1},
-                    headers=await api_headers(),
-                )
-            ).json()
-        )["code"]
+        """SPEC-34: the second author (no spend yet; registering a third would
+        pass the per-IP limit) plans a four-beat chapter on a long synopsis."""
+        who = ("second-author@example.com", "second-pass-12345")
         ctx = await page.context.browser.new_context()
-        p4, who = await ctx.new_page(), ("budget@example.com", "budget-pass-12345")
+        p4 = await ctx.new_page()
         try:
+            login = await p4.request.post(
+                f"{BASE}/api/v1/auth/login",
+                form={"username": who[0], "password": who[1]},
+            )
+            auth = {"Authorization": f"Bearer {(await login.json())['access_token']}"}
 
             async def call(method, path, body):
                 r = await p4.request.fetch(
-                    f"{BASE}/api/v1{path}",
-                    method=method,
-                    data=body,
-                    headers=STATE.get("p4", {}),
+                    f"{BASE}/api/v1{path}", method=method, data=body, headers=auth
                 )
                 assert r.ok, f"{path}: {r.status} {await r.text()}"
                 return await r.json()
 
-            reg = await call(
-                "POST",
-                "/auth/register",
-                {"email": who[0], "password": who[1], "invite_code": code},
-            )
-            STATE["p4"] = {"Authorization": f"Bearer {reg['access_token']}"}
             book = await call(
-                "POST", "/books/", {"title": "Ledger", "synopsis": SYNOPSIS * 180}
+                "POST", "/books/", {"title": "L", "synopsis": SYNOPSIS * 180}
             )
             milo = await call(
-                "POST", "/characters/", {"name": "Milo Voss", "book_id": book["id"]}
+                "POST", "/characters/", {"name": "Milo", "book_id": book["id"]}
             )
             ch = await call("POST", f"/books/{book['id']}/chapters", {"title": "Q4"})
             beats = [
@@ -863,9 +852,8 @@ async def journey(page: Page) -> None:
                     "button", name="Generate all planned scenes"
                 ).click()
             started = await (await resp.value).json()
-            await expect(
-                p4.get_by_text(re.compile(r"\d of 4 scenes fit your budget now")).first
-            ).to_be_visible()
+            fit = re.compile(r"\d of 4 scenes fit your budget now")
+            await expect(p4.get_by_text(fit).first).to_be_visible()
             assert started["deferred"] >= 1, started
         finally:
             await ctx.close()

@@ -609,7 +609,8 @@ def outline_secondaries(nodes: list, secondaries: list[str]) -> dict:
 
 def portable_outline(nodes: list, character_ids: dict[str, str]) -> list:
     """Outline nodes with `character_ids` swapped for `characters` names (ids
-    the map does not know are dropped)."""
+    the map does not know are dropped, and so is a POV it does not name: the
+    outline book's minor secondaries are not the other book's cast)."""
     names = {cid: name for name, cid in character_ids.items()}
     out = []
     for node in nodes or []:
@@ -619,6 +620,8 @@ def portable_outline(nodes: list, character_ids: dict[str, str]) -> list:
         ids = node.pop("character_ids", None)
         if isinstance(ids, list):
             node["characters"] = [names[c] for c in ids if c in names]
+        if node.get("pov") not in character_ids:
+            node.pop("pov", None)
         # Beat children carry their own cast since wave 2 (SPEC-24).
         if isinstance(node.get("children"), list):
             node["children"] = portable_outline(node["children"], character_ids)
