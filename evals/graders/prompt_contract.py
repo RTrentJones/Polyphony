@@ -53,10 +53,6 @@ sample lines in its own prompt (voice and movement); reports ``max_shared`` and
 whole-outline block names every chapter title of the run's latest
 outline:chapters answer (SPEC-38).
 
-Wave 5: ``plan_sees_chapter``  plan_beats of an outline scene: the chapter-scenes
-block names its chapter's scene titles with one →, and an earlier-beats list
-follows when → is not on the first (SPEC-43).
-
 Each check reports ``{n, passed, rate, failures}``; a check with nothing to
 check (no such call in the archive) reports ``n == 0`` and ``rate = None``, so
 an archive from before a contract existed still grades.
@@ -745,11 +741,6 @@ def marked_block(prompt: str, header: str, marks: int | None):
     return [m.group(2) for m in found], marked, earlier, reasons
 
 
-def _missing(items: list[str], titles, where: str) -> list[str]:
-    listing = "\n".join(items)
-    return [f"{t!r} is not in the {where} block" for t in titles if t not in listing]
-
-
 def check_whole_outline(prompt: str, titles: set[str]) -> list[str]:
     """W4-5: the act's prompt shows the whole book — its OUTLINE_CHAPTERS_HEADER
     block names every chapter title, this act's marked (SPEC-38)."""
@@ -757,7 +748,12 @@ def check_whole_outline(prompt: str, titles: set[str]) -> list[str]:
     if parsed is None:
         return ["no whole-outline block"]
     items, _, _, reasons = parsed
-    return reasons + _missing(items, sorted(titles), "whole-outline")
+    listing = "\n".join(items)
+    return reasons + [
+        f"{t!r} is not in the whole-outline block"
+        for t in sorted(titles)
+        if t not in listing
+    ]
 
 
 def check_plan_sees_chapter(prompt: str, titles: list[str]) -> list[str]:
@@ -769,7 +765,10 @@ def check_plan_sees_chapter(prompt: str, titles: list[str]) -> list[str]:
     items, marked, earlier, reasons = parsed
     if marked and marked[0] > 0 and not earlier:
         reasons.append("no earlier-beats list after a scene that is not the first")
-    return reasons + _missing(items, titles, "chapter-scenes")
+    listing = "\n".join(items)
+    return reasons + [
+        f"{t!r} is not in the chapter-scenes block" for t in titles if t not in listing
+    ]
 
 
 def _json_object(text: str) -> dict:
