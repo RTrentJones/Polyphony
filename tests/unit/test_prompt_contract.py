@@ -546,6 +546,8 @@ def test_an_eligible_principal_with_an_empty_block_fails(tmp_path):
     ]
     assert move["ineligible"] == {"Milo Voss": [0, 13]}
     assert (grade(movement_store={})["n"], grade(movement_store={})["ok"]) == (0, False)
+    move = grade(movement_store={"Milo Voss": store["Milo Voss"]})  # (R) S-5
+    assert move["ok"] and move["ineligible"]["Zara Okafor"] == ["none indexed"]
 
 
 def test_json_mode_where_json_reads_the_recorded_response_format(tmp_path):

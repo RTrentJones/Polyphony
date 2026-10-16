@@ -1040,8 +1040,8 @@ def grade(
                 if lines and not why:  # D3a: eligible here
                     eligible += 1
                     empty += [f"{owner}: eligible, no movement line"] * (not n)
-                else:
-                    ineligible.setdefault(owner, set()).update(why)
+                else:  # no indexed movement is a reason too (S-5)
+                    ineligible.setdefault(owner, set()).update(why or {NONE_INDEXED})
             if eligible:
                 move.add(rec, empty)
             found = (r.search(prompt) for r in (_BEAT_TO_WRITE, _SCENE_DESCRIPTION))
@@ -1123,12 +1123,12 @@ def grade(
         round(sum(moving_blocks) / len(moving_blocks), 4) if moving_blocks else None
     )
     out["movement_names_in_scene"]["movement_lines"] = movement
-    # Gated (§6.2, D3a): n = 0 passes only with every principal listed with gold.
+    # Gated (§6.2, D3a): n = 0 passes only with every principal listed with gold
+    # or "none indexed"; vacuous (fails) when no principal has a store at all.
     listed = {o: sorted(ps) for o, ps in sorted(ineligible.items())}
     out["movement"] = move.as_dict() | {"ineligible": listed}
-    out["movement"]["ok"] = (
-        move.passed == move.n if move.n else bool(listed) and all(listed.values())
-    )
+    stored = any(ps != [NONE_INDEXED] for ps in listed.values())
+    out["movement"]["ok"] = move.passed == move.n if move.n else stored
     out["hindsight"] = hindsight  # reported (W6-3)
     out["scripted_slots"] = scripted  # reported (D4)
     unplaced = plot.unplaced(pg["events"], plot.outline_chapters(records))
