@@ -24,7 +24,8 @@ pytestmark = pytest.mark.unit
 
 
 async def test_every_sample_caller_passes_the_threshold(monkeypatch):
-    """(R) The two builders and the probe pass the setting to the store."""
+    """(R) The two builders pass the setting to the store; the probe passes 0
+    (D5, SPEC-55)."""
     seen = []
 
     class Store:
@@ -45,10 +46,12 @@ async def test_every_sample_caller_passes_the_threshold(monkeypatch):
     scope = make_scope(cast=(milo,))
     await ctx.build_character_context(milo, "Milo", "beat", scope=scope)
     await ctx.build_agent_context(milo, "Milo", "beat", scope=scope)
+    assert len(seen) >= 2 and set(seen) == {0.123}
+    seen.clear()
     await dialogue.generate_dialogue(
         character=milo, prompt="Hi", context="", scope=scope
     )
-    assert len(seen) >= 3 and set(seen) == {0.123}
+    assert seen and set(seen) == {0}
     with pytest.raises(TypeError):  # required: no caller inherits a default
         await ctx.character_samples(milo, "beat", 3, scope=scope)
 

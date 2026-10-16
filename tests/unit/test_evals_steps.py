@@ -758,9 +758,9 @@ async def test_the_outline_book_commits_the_secondaries_as_minor(tmp_path):
     assert minor["Halvard Bell"]["description"].startswith("Halvard Bell had been")
     # (F) W6-5 (b): synopsis first, through `introduction`: no later plot.
     assert minor["Prava"]["description"] == (
-        "There is Prava, the intake caseworker who onboarded Milo with such "
-        "practiced warmth"
-    )
+        "Prava, the intake caseworker who onboarded Milo with such practiced warmth"
+    )  # (F) SPEC-57: from the name, no "There is"
+    assert not any(c["description"].startswith("There ") for c in minor.values())
     assert minor["Old Fen"]["description"].endswith("begun to file himself")
 
 

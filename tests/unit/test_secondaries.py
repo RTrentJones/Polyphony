@@ -1,6 +1,7 @@
 """SPEC-24 (W2-2): the author's "Add <name> to cast" suggestions come only
 from people the model declared, classified against today's cast and canon."""
 
+import re
 import types
 import uuid
 
@@ -170,12 +171,12 @@ def test_secondaries_get_their_introduction_and_own_lines(cel, monkeypatch):
     monkeypatch.setattr(ce, "attribute_speech", lambda t: calls.append(1) or real(t))
     fen, prava = _secondaries(cel, ["Old Fen", "Prava"], load_excerpts("cel"))
     assert calls == [1]  # once per source, not once per name
-    assert fen.intro_sentence.startswith("There is Old Fen, who has been in Records")
+    assert fen.intro_sentence.startswith("Old Fen, who has been in Records")
     assert fen.samples == ["Nobody reads the appendices. That's what they're for."]
-    assert prava.intro_sentence.startswith("There is Prava, the intake caseworker")
+    assert prava.intro_sentence.startswith("Prava, the intake caseworker")
     assert prava.samples == []
     block = render_secondaries([fen, prava])
-    assert block.startswith("<secondary>\n### Old Fen\nIntroduced: There is Old Fen")
+    assert block.startswith("<secondary>\n### Old Fen\nIntroduced: Old Fen, who")
     assert '- "Nobody reads the appendices.' in block
     assert block.split("### Prava")[1].count(NO_SAMPLES_NOTE) == 1
     assert len(block) <= 1500  # the cost guard, on the cel fixtures
@@ -194,10 +195,10 @@ def test_a_tag_two_cast_members_share_credits_nobody():
 # --- SPEC-40: introductions and later plot (W5-1 (b), (c)) ---------------------------
 
 
-INTROS = {  # (F) through the first appositive
-    "Prava": "There is Prava, the intake caseworker who onboarded Milo with such "
+INTROS = {  # (F) through the first appositive, from the name (SPEC-57)
+    "Prava": "Prava, the intake caseworker who onboarded Milo with such "
     "practiced warmth",
-    "Old Fen": "There is Old Fen, who has been in Records so long that he has begun "
+    "Old Fen": "Old Fen, who has been in Records so long that he has begun "
     "to file himself",
     "Halvard Bell": "Halvard Bell had been a dentist, then a soul in Retention for "
     "ninety years",
@@ -214,6 +215,61 @@ def test_the_prompt_introduction_ends_at_the_first_appositive(cel):
     lead = "On his first day, Prava, the intake caseworker, processes his file."
     assert introduction(lead, "Prava") == "Prava, the intake caseworker"  # (F)
     assert introduction(lead, "prava") == "Prava, the intake caseworker"  # (R)
+
+
+@pytest.mark.parametrize(
+    "sentence, intro",
+    [  # (F) SPEC-57: "There is / was / are" goes when the name follows it
+        ("There was Prava, who files, and sorts.", "Prava, who files"),
+        ("there are Prava and Fen, who sort, and file.", "Prava and Fen, who sort"),
+        # (R) the comma rule, as before; (R) other words before the name stay
+        ("There is a clerk, Prava, who files, and sorts.", "Prava, who files"),
+        (
+            "There was a clerk called Prava, who files.",
+            "There was a clerk called Prava, who files.",
+        ),
+    ],
+)
+def test_an_introduction_starts_at_the_name(sentence, intro):
+    assert introduction(sentence, "prava") == intro
+
+
+async def test_the_owned_note_never_stands_without_its_block(monkeypatch):
+    """(R) Q12's guard: `OWNED_PHRASES_NOTE` appears only when an absent member
+    owns a phrase, and then directly over a filled <owned> block."""
+    import app.characters.context as ctx
+    from tests.unit.factories import make_scope
+
+    def member(name, voice):
+        return types.SimpleNamespace(
+            id=uuid.uuid4(),
+            name=name,
+            aliases=[],
+            user_id=None,
+            book_id=None,
+            voice_characteristics=voice,
+        )
+
+    monkeypatch.setattr(
+        ctx,
+        "get_chunk_store",
+        lambda: types.SimpleNamespace(retrieve_similar=lambda **kw: _none()),
+    )
+    milo, edric = member("Milo Voss", None), member("Edric Thane", "says 'Mr. Voss'")
+    mute = member("Old Fen", "the impersonal 'one'")  # a one-word span owns nothing
+    for beat, book, n in (
+        ([milo], [milo, mute], 0),
+        ([milo, edric], [milo, edric], 0),
+        ([milo], [milo, edric, mute], 1),
+    ):
+        out = await ctx.build_cast_context(beat, "x", scope=make_scope(book_cast=book))
+        notes = [m.end() for m in re.finditer(re.escape(ctx.OWNED_PHRASES_NOTE), out)]
+        assert len(notes) == out.count("<owned>") == n
+        assert all(re.match(r"\n<owned>\n\S[^\n]*\n</owned>", out[i:]) for i in notes)
+
+
+async def _none():
+    return []
 
 
 async def test_scene_setup_builds_plot_and_later_plot(

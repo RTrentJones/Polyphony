@@ -85,3 +85,45 @@ async def test_the_probe_uses_the_scene_samples(probe):
     assert "### Milo Voss" in prompts["action"] and LONG in prompts["action"]
     assert out["dialogue"] == REPLY and out["character"] == "Milo Voss"
     assert out["confidence_score"] == 1.0
+
+
+# --- SPEC-55 (W7-3): the probe sees each speaker's own best lines -----------------
+
+# The attribution step's store (cel's gold `train` lines), each line's cosine to
+# its speaker's probe by the app's embedder, in `train` order (e1-edric-probe.md).
+COSINES = {
+    "Edric Thane": [0.1707, 0.2382, 0.1896],
+    "Zara Okafor": [0.1641, 0.1372, 0.3025, 0.1118],
+}
+
+
+@pytest.mark.parametrize("who", COSINES)
+async def test_the_probe_block_holds_each_speakers_own_lines(probe, monkeypatch, who):
+    """(F) At score >= 0 the probe shows Edric his three lines and Zara three of
+    her four (k = 3); (R) beat prose keeps the 0.2 floor and shows each one."""
+    from app.rag.store import above_threshold
+    from evals.steps.pipeline import load_corpus
+
+    train = load_corpus("cel")[1]["gold_lines"][who]["train"]
+    best = sorted(zip(COSINES[who], train), reverse=True)
+    rows = [{"id": t, "text": t, "chunk_type": "dialogue", "score": c} for c, t in best]
+
+    class Store:  # the real store's order: nearest, k, keep, then the threshold
+        async def retrieve_similar(self, *, k, keep, score_threshold, **kw):
+            return above_threshold(
+                [r for r in rows[:k] if (keep or bool)(r)], score_threshold
+            )
+
+    monkeypatch.setattr(ctx, "get_chunk_store", lambda: Store())
+    member = types.SimpleNamespace(
+        id=uuid.uuid4(), name=who, aliases=[], user_id=None, book_id=None
+    )
+    scope = ctx.SceneScope.of(
+        Canon(title="Cel", characters=[member]), [member], (), (), {}
+    )
+    await dialogue.generate_dialogue(
+        character=member, prompt="Hi.", context="", scope=scope
+    )
+    beat = await ctx.build_character_context(member, who, "A beat.", scope=scope)
+    for text, n in ((probe[2]["dialogue"], 3), (beat, 1)):
+        assert [t for _c, t in best if f'- "{t}"' in text] == [t for _c, t in best[:n]]
