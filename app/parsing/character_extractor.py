@@ -609,7 +609,8 @@ class CharacterExtractor:
         - otherwise the paragraph, typed as action / thought / description.
         A speech paragraph not indexed whole also gives them its tag-less
         narration as `paragraph_{i}` (SPEC-53) unless a span is credited to
-        someone else; retrieval's `_centres` decides whom it is shown to."""
+        someone else; beside an uncredited span, only narration whose (first
+        sentence's) subject is them. `_centres` decides whom it is shown to."""
         attributed = attribute_speech(text)
         own: Dict[int, List[str]] = {}
         for i, line in spoken_lines(
@@ -634,13 +635,26 @@ class CharacterExtractor:
                     if len(line.split()) >= SPEECH_MIN_WORDS
                 ]
                 bare = _tagless_narration(para)
-                # One word longer than a voice sample's floor: a bare "Zara
-                # said." is no manner. A pronoun tag credits no one (SPEC-17).
-                if len(bare.split()) >= SPEECH_MIN_WORDS + 1 and not any(
-                    s["speaker"] not in _PRONOUNS
-                    and not speaker_matches(s["speaker"], character_name, aliases, cast)
+                mine = [
+                    speaker_matches(s["speaker"], character_name, aliases, cast)
                     for s in spans
-                    if s["speaker"]
+                ]
+                lead = _beat_subject(_SENTENCE_END.split(bare)[0])
+                # One word longer than a voice sample's floor: a bare "Zara
+                # said." is no manner. A pronoun tag credits no one (SPEC-17):
+                # beside one, the narration is theirs only when they are its
+                # subject ("she said, pushing it toward Milo" is not Milo's).
+                if (
+                    len(bare.split()) >= SPEECH_MIN_WORDS + 1
+                    and not any(
+                        s["speaker"] not in _PRONOUNS and not m
+                        for s, m in zip(spans, mine)
+                        if s["speaker"]
+                    )
+                    and (
+                        all(mine)
+                        or speaker_matches(lead, character_name, aliases, cast)
+                    )
                 ):
                     found.append((bare, self._classify_chunk(bare), f"paragraph_{i}"))
             out = []

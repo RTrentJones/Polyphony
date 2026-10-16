@@ -350,16 +350,22 @@ class TestChunking:
             ("dialogue", "Read it all first.")
         ]
 
-    def test_paragraph_with_someone_elses_speech_gives_them_its_narration_only(self):
-        # SPEC-53: an uncredited (pronoun-tagged) span keeps its words out, not
-        # the narration; a span credited to someone else keeps everything out.
+    def test_someone_elses_speech_gives_them_no_narration_they_are_not_subject_of(
+        self,
+    ):
+        # SPEC-53: beside an uncredited (pronoun-tagged) span, the narration is
+        # theirs only when they are its subject; a credited span keeps it out.
         text = 'The clerk stood. "Sign here, please," she said. Milo took the pen.'
-        got = CharacterExtractor().extract_character_content(text, "Milo")
-        assert [(c["source_location"], c["text"]) for c in got] == [
-            ("paragraph_0", "The clerk stood. Milo took the pen.")
-        ]
+        cx = CharacterExtractor()
+        assert cx.extract_character_content(text, "Milo") == []
         credited = text.replace("she said", "said Zara")
-        assert CharacterExtractor().extract_character_content(credited, "Milo") == []
+        assert cx.extract_character_content(credited, "Milo") == []
+        # (F) B-1: the removed pronoun tag was the participle's subject.
+        folder = (
+            '"Sit down and read the appendices before you thank anyone," she said,'
+            " pushing the heavy folder across the desk toward Milo Voss."
+        )
+        assert cx.extract_character_content(folder, "Milo Voss", aliases=["Milo"]) == []
 
     def test_scare_quotes_do_not_drop_a_paragraph(self):
         text = "Milo hated the word 'synergy' and walked out."
