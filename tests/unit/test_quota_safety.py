@@ -240,8 +240,17 @@ def test_thinking_guard_for_non_flash_gemini():
 
     extra, mt = _thinking_guard(PROVIDERS["gemini"], "gemini-2.5-pro", 1000)
     assert not (extra or {}).get("reasoning_effort") and mt > 1000
-    extra, mt = _thinking_guard(PROVIDERS["gemini"], "gemini-2.5-flash", 1000)
-    assert extra["reasoning_effort"] == "none" and mt == 1000
+    extra, mt = _thinking_guard(PROVIDERS["gemini"], "gemini-3.6-flash", 1000)
+    assert extra["reasoning_effort"] == "minimal" and mt == 2024
+
+
+def test_gemini_defaults_are_served_to_new_projects():
+    """The 2.5 models 404 for a project that never used them (prod, 2026-10)."""
+    from app.llm.providers import PROVIDERS
+
+    gemini = PROVIDERS["gemini"]
+    assert "2.5" not in gemini.default_model + gemini.fast_model
+    assert gemini.extra_body == {"reasoning_effort": "minimal"}
 
 
 def test_thinking_guard_keeps_groq_reasoning_effort_to_gpt_oss():
