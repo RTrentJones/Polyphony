@@ -236,13 +236,18 @@ def test_resolve_span_modes():
         rv.resolve_span("")
 
 
+def _canon(terms: set[str], synopsis: str = ""):
+    return types.SimpleNamespace(synopsis=synopsis, canon_terms=lambda: terms)
+
+
 def test_new_names_warns_on_an_invented_name_only():
     """W1-S7: one unknown_proper_nouns call, the draft as known text."""
     known = {"Milo Voss", "Milo", "Voss", "Zara Okafor", "Zara", "Okafor"}
     # "Outside" is capitalised in the draft; "Numbers" the draft uses in
     # lowercase ("The numbers would not add up").
-    assert rv.new_names("Outside, Zara said nothing. Numbers held.", DRAFT, known) == []
-    assert rv.new_names("Bartholomew Quince walked in.", DRAFT, known) == [
+    canon = _canon(known)
+    assert rv.new_names("Outside, Zara said nothing. Numbers held.", DRAFT, canon) == []
+    assert rv.new_names("Bartholomew Quince walked in.", DRAFT, canon) == [
         "Bartholomew Quince"
     ]
 
@@ -252,9 +257,9 @@ def test_new_names_ignores_ordinary_sentence_openers():
     from tests.unit.test_fidelity_gate import PROBE_DRAFT, PROBE_FLAGGED, PROBE_QUIET
 
     for text in PROBE_QUIET:
-        assert rv.new_names(text, PROBE_DRAFT, {"Milo"}) == [], text
+        assert rv.new_names(text, PROBE_DRAFT, _canon({"Milo"})) == [], text
     for text, flagged in PROBE_FLAGGED.items():
-        assert rv.new_names(text, PROBE_DRAFT, {"Milo"}) == flagged
+        assert rv.new_names(text, PROBE_DRAFT, _canon({"Milo"})) == flagged
 
 
 def test_scene_draft_is_raw_and_the_export_trims_it():
@@ -845,3 +850,13 @@ async def test_the_job_kind_has_every_lifecycle_hook(monkeypatch, async_session)
     for hook in ("on_dead", "on_pause", "on_resume", "on_cancel"):
         assert getattr(handler, hook) is not None
     assert dataclasses.is_dataclass(handler)
+
+
+def test_new_names_knows_what_the_synopsis_says():
+    """M5: revise checks the outline audit's known text (the canon's synopsis
+    and bible) plus the draft, not the draft alone."""
+    canon = _canon({"Milo"}, "He felt seen. He felt, God help him, useful.")
+    assert rv.new_names("He felt, God help him, seen.", DRAFT, canon) == []
+    assert rv.new_names("He felt, God help him, seen.", DRAFT, _canon({"Milo"})) == [
+        "God"
+    ]

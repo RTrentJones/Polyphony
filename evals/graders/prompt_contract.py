@@ -196,13 +196,16 @@ def _starts_a_sentence(text: str) -> bool:
 _ONE_PARAGRAPH_WORDS = 200
 
 
-def check_prior(prior: str) -> list[str]:
+def check_prior(prior: str, openings: set[str]) -> list[str]:
     """B5 (W1-S11): `<prior>` keeps its paragraph breaks and starts a sentence
-    (`prose_tail` cuts whole paragraphs, the first at a sentence start)."""
+    (`prose_tail` cuts whole paragraphs, the first at a sentence start). A
+    `<prior>` that starts with a scene's own opening (`openings`: the first 40
+    squashed characters of each beat-1 answer) starts where the author's scene
+    does, whatever that is (M15, S3)."""
     reasons = []
     if len(prior.split()) > _ONE_PARAGRAPH_WORDS and "\n\n" not in prior:
         reasons.append("<prior> lost its paragraph breaks")
-    if not _starts_a_sentence(prior):
+    if not _starts_a_sentence(prior) and _squash(prior)[:40] not in openings:
         reasons.append("<prior> starts mid-sentence")
     return reasons
 
@@ -769,6 +772,7 @@ def grade(
     conflicts = [(premise_edit or {}).get("central_conflict") or ""]
     acts: list[dict] = []
     purposes: dict[str, int] = {}
+    openings: set[str] = set()  # records come oldest first (load_archive)
 
     for rec in records:
         pur = purpose(rec)
@@ -843,7 +847,9 @@ def grade(
             tallies["beats_block"].add(rec, check_beats_block(prompt))
             prior = block(prompt, PRIOR_FENCE)
             if prior is not None:
-                tallies["prior_paragraphs"].add(rec, check_prior(prior))
+                tallies["prior_paragraphs"].add(rec, check_prior(prior, openings))
+            if "→ marks beat 1," in prompt:
+                openings.add(_squash(rec.get("answer") or "")[:40])
             if sample_prose:
                 tallies["style_first"].add(rec, check_style_first(prompt, sample_prose))
         if gold and re.search(r"(?im)^\s*voice samples\b", prompt):

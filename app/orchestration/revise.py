@@ -29,7 +29,7 @@ from app.core.prompt_markers import PRIOR_FENCE
 from app.llm.client import get_llm_client
 from app.orchestration.pov import Pov, pov_instruction
 from app.orchestration.workflow import StoryPosition, chapter_context
-from app.planning.fidelity import unknown_proper_nouns
+from app.planning.fidelity import canon_known_text, unknown_proper_nouns
 
 # The stub LLM (evals/stub_llm.py) recognises the revise family by this line.
 OPENING = "Revise the TARGET passage of a scene in THIS book, as the author asks."
@@ -296,9 +296,13 @@ async def generate_revision(
     return revised
 
 
-def new_names(revised: str, draft: str, known: set[str]) -> list[str]:
+def new_names(revised: str, draft: str, canon) -> list[str]:
     """Proper nouns in the revised span that are neither canon terms nor named
-    in the draft: a possible invented character. Warn-only (canon invariant 4),
-    using the outline audit's check with the draft as known text, so the
-    draft's names are known and its lowercase words are common words."""
-    return unknown_proper_nouns(revised, set(known), canon_text=draft)
+    in the canon or the draft: a possible invented character. Warn-only (canon
+    invariant 4), using the outline audit's check and its known text plus the
+    draft, so a name the synopsis uses is known ("God help him", M5)."""
+    return unknown_proper_nouns(
+        revised,
+        canon.canon_terms(),
+        canon_text=canon_known_text(canon) + "\n" + draft,
+    )

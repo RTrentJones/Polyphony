@@ -155,11 +155,11 @@ async def journey(page: Page) -> None:
         )
         return r
 
-    async def sign_in(p=None):
+    async def sign_in(p=None, email=EMAIL, password=PASSWORD):
         p = p or page
         await p.goto(f"{BASE}/auth/login/")
-        await p.fill("input[name=email]", EMAIL)
-        await p.fill("input[name=password]", PASSWORD)
+        await p.fill("input[name=email]", email)
+        await p.fill("input[name=password]", password)
         await p.get_by_role("button", name="Sign In").click()
         await p.wait_for_url(re.compile(r"/(dashboard|books)"))
         await shot(p, "signed-in")
@@ -808,6 +808,56 @@ async def journey(page: Page) -> None:
         finally:
             await other.close()
 
+    async def a_batch_over_budget_writes_what_fits():
+        """SPEC-34: the second author (no spend yet; registering a third would
+        pass the per-IP limit) plans a four-beat chapter on a long synopsis."""
+        who = ("second-author@example.com", "second-pass-12345")
+        ctx = await page.context.browser.new_context()
+        p4 = await ctx.new_page()
+        try:
+            login = await p4.request.post(
+                f"{BASE}/api/v1/auth/login",
+                form={"username": who[0], "password": who[1]},
+            )
+            auth = {"Authorization": f"Bearer {(await login.json())['access_token']}"}
+
+            async def call(method, path, body):
+                r = await p4.request.fetch(
+                    f"{BASE}/api/v1{path}", method=method, data=body, headers=auth
+                )
+                assert r.ok, f"{path}: {r.status} {await r.text()}"
+                return await r.json()
+
+            book = await call(
+                "POST", "/books/", {"title": "L", "synopsis": SYNOPSIS * 180}
+            )
+            milo = await call(
+                "POST", "/characters/", {"name": "Milo", "book_id": book["id"]}
+            )
+            ch = await call("POST", f"/books/{book['id']}/chapters", {"title": "Q4"})
+            beats = [
+                {
+                    "node_id": f"00000000-0000-4000-8000-00000000000{i}",
+                    "title": f"Beat {i}",
+                    "character_ids": [milo["id"]],
+                }
+                for i in range(4)
+            ]
+            await call("PATCH", f"/books/chapters/{ch['id']}", {"planned_beats": beats})
+            await sign_in(p4, *who)
+            await p4.goto(f"{BASE}/books/detail?id={book['id']}")
+            await p4.get_by_role("button", name="Chapters", exact=True).first.click()
+            async with p4.expect_response(re.compile("generate-planned$")) as resp:
+                await chapter_row(p4, ch["id"]).get_by_role(
+                    "button", name="Generate all planned scenes"
+                ).click()
+            started = await (await resp.value).json()
+            fit = re.compile(r"\d of 4 scenes fit your budget now")
+            await expect(p4.get_by_text(fit).first).to_be_visible()
+            assert started["deferred"] >= 1, started
+        finally:
+            await ctx.close()
+
     async def book_page_at_phone_width():
         # Its own sign-in, not a copy of this page's cookies: refreshing a
         # copied refresh token rotates it and signs the main page out.
@@ -1343,6 +1393,10 @@ async def journey(page: Page) -> None:
         "legacy pages redirect; dashboard", legacy_pages_redirect_and_dashboard()
     )
     await step("a second author cannot see the book", second_author_is_isolated())
+    await step(
+        "a batch over budget writes what fits, defers the rest",
+        a_batch_over_budget_writes_what_fits(),
+    )
     await step("the book at phone width", book_page_at_phone_width())
     await step("a new book's getting-started checklist", new_book_checklist())
     await step(
