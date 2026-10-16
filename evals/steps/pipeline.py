@@ -1245,7 +1245,7 @@ def tighten_request(draft: str, beats: list[dict]) -> dict | None:
 def revise_requests(draft: str, has_beats: bool, colder: str = "Zara") -> list[dict]:
     """The requests asked of the accepted draft: an exchange, and the beat one
     when the scene has beats. The redo carries a direction and no keep clause:
-    keeping what later text depends on is the product's job (B-4)."""
+    the keep line is the product's job (B-4)."""
     paras = _paragraph_spans(draft)
     out = []
     talk = [

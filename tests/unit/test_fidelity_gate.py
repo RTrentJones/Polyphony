@@ -355,6 +355,9 @@ NAME_RULE = [
         "In the morning, The Consolidated Continuance Pool opened.",
         ["Consolidated Continuance Pool"],
     ),
+    # (F) a whole-word title never joins across a period; was []
+    ("She bowed to the Count. The Marrow Exchange was shut.", ["Marrow Exchange"]),
+    ("He thanked the Lord. Then Quince left.", ["Quince"]),  # (F) was []
 ]
 
 
