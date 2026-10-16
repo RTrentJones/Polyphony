@@ -194,15 +194,16 @@ async def _owned_book(book_id: UUID, user: UserORM, db: AsyncSession) -> BookORM
 
 
 async def _owned_chapter(
-    chapter_id: UUID, user: UserORM, db: AsyncSession
+    chapter_id: UUID, user: UserORM, db: AsyncSession, lock: bool = False
 ) -> ChapterORM:
-    chapter = (
-        await db.execute(
-            live(select(ChapterORM), ChapterORM)
-            .join(BookORM, ChapterORM.book_id == BookORM.id)
-            .where(ChapterORM.id == chapter_id, BookORM.user_id == user.id)
-        )
-    ).scalar_one_or_none()
+    query = (
+        live(select(ChapterORM), ChapterORM)
+        .join(BookORM, ChapterORM.book_id == BookORM.id)
+        .where(ChapterORM.id == chapter_id, BookORM.user_id == user.id)
+    )
+    if lock:
+        query = query.with_for_update(of=ChapterORM)
+    chapter = (await db.execute(query)).scalar_one_or_none()
     if not chapter:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Chapter not found"
@@ -693,7 +694,9 @@ async def update_chapter(
     current_user: UserORM = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    chapter = await _owned_chapter(chapter_id, current_user, db)
+    # Locked, like a planned batch's start: a beat edit and a batch that
+    # snapshots the beats run one after the other.
+    chapter = await _owned_chapter(chapter_id, current_user, db, lock=True)
     changes = {
         f: getattr(payload, f)
         for f in ("title", "summary", "status")
@@ -1106,7 +1109,7 @@ async def generate_planned_scenes(
     now, and each completed scene enqueues the next, so every scene starts from
     the one before it.
     """
-    chapter = await _owned_chapter(chapter_id, current_user, db)
+    chapter = await _owned_chapter(chapter_id, current_user, db, lock=True)
     key = scene_batch.batch_key(current_user.id, chapter_id)
 
     async def _existing() -> Optional[dict]:
