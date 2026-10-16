@@ -9,8 +9,7 @@ from app.planning.canon import build_canon
 from app.planning.fidelity import audit_outline
 
 pytestmark = pytest.mark.unit
-# (F) W6-4 (a): the outline:beats line
-D9 = "Write each scene summary as what the chapter's POV character witnesses; never what they fail to notice or will later learn."
+D9 = "Write each scene summary as what the chapter's POV character witnesses; never what they fail to notice or will later learn."  # (F) W6-4 (a)
 
 
 _PRINCIPALS = [
