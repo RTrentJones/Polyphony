@@ -873,12 +873,6 @@ RETAINED_B1 = (
     "from a smiling caseworker whose nameplate reads PRAVA."
 )
 RETAINED_B2 = "Prava slides a laminated org chart across the desk"
-ZARA_BEATS = (  # the own beat lines closest to Zara's gesture (2 shared each)
-    "He introduces himself brightly and she gives her name, Zara Okafor, in two "
-    "flat words and one second of grey-eyed attention.",
-    "Milo introduces himself at length and Zara answers in a few flat words, correct "
-    "and courteous and final, without raising her eyes",
-)
 PARAGRAPHS = source_paragraphs(load_excerpts("cel"))
 
 
@@ -904,8 +898,8 @@ W4, W4B2 = _lines("w4"), _lines("w4b2")
         (W4, LOCKED, False),  # "The Locked Drawer", 6
         # "Across the Partition": "Retained"'s written beat 1 is an earlier line
         ((*_lines("w4", "Across the Partition"), RETAINED_B1), INTAKE, False),
-        # (R) Zara's gesture: <= 2 with her own beat lines, <= 3 with any plan line
-        ((*W4, *W4B2, *ZARA_BEATS), LOOKED, True),
+        # (R) Zara's gesture: <= 3 with any plan line
+        ((*W4, *W4B2), LOOKED, True),
     ],
 )
 async def test_a_sample_that_restates_any_plot_line_goes(

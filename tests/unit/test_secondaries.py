@@ -205,17 +205,12 @@ def test_the_prompt_introduction_ends_at_the_first_appositive(cel):
     assert "private ledger" in offer["synopsis_sentence"]
 
 
-def test_a_secondarys_own_lines_stop_at_later_plot(cel):
-    """(F) Old Fen's line is paragraph 12, past W4b2's chapter-1 cut (9)."""
-    (fen,) = _secondaries(cel, ["Old Fen"], load_excerpts("cel"), {"s1": 9})
-    assert fen.samples == []
-
-
 async def test_scene_setup_builds_plot_and_later_plot(
-    async_session, test_book, test_source
+    async_session, test_book, test_source, cel
 ):
     """(F) `plot` is the brief, the book's plan lines and the chapter's earlier
-    written beat lines; the excerpt's later plot begins at W4's cut (14)."""
+    written beat lines; the excerpt's later plot begins at W4's cut (14), and a
+    secondary's own lines stop at it (Old Fen's, paragraph 12, past W4b2's 9)."""
     import json
     from pathlib import Path
 
@@ -243,3 +238,5 @@ async def test_scene_setup_builds_plot_and_later_plot(
     assert setup.scope.plot == ("Brief", *lines, "Milo signs.", "Prava smiles.")
     assert setup.scope.later_from == {str(test_source.id): 14}
     assert "practiced warmth\n" in setup.secondary_block
+    (fen,) = _secondaries(cel, ["Old Fen"], load_excerpts("cel"), {"s1": 9})
+    assert fen.samples == []
