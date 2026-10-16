@@ -146,12 +146,8 @@ async def scene_setup(
     return SceneSetup(canon, cast, scope, pov, block, plan, earlier, summary, position)
 
 
-def scene_name_warnings(
-    prose: str, canon, scene_request: dict, earlier: str
-) -> list[str]:
-    """People or places a generated scene names that neither the canon, the
-    scene's Also-named people nor the text before it does: possible inventions,
-    stored at completion (SPEC-48; warn-only, like revise's `new_names`)."""
+def scene_name_warnings(prose, canon, scene_request, earlier) -> list[str]:
+    """Possible inventions a generated scene names (SPEC-48; warn-only)."""
     return unknown_proper_nouns(
         prose,
         {*canon.canon_terms(), *secondary_names(scene_request)},

@@ -260,9 +260,7 @@ class TestBeatPrompt:
 
 
 def test_scene_name_warnings_on_the_archived_scenes():
-    """(F) SPEC-48 (D8): the fixture's rows. W5d's invented Gary and W5c's
-    Derek are warned with the institution; (R) Prava, a canon secondary the
-    scene names, is not, nor (R) Halvard Bell or an Also-named person."""
+    """(F) SPEC-48 (D8): the fixture's rows; (R) known people unlisted."""
     w5 = json.loads(
         (Path(__file__).parents[1] / "fixtures" / "w5_archives.json").read_text("utf-8")
     )

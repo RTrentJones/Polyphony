@@ -311,21 +311,15 @@ def build_revise_prompt(
     if beat:
         index, lines = beat
         description = " ".join(clean_for_llm(lines[index]).split())
+        terms = ", ".join(f'{t} ("{c}")' for t, c in keep)
+        asked = _REDO_LEAD.sub("", instruction).strip()
         plan_line = "\n".join(
             [
                 f"\nBeat {index + 1} of this scene's plan: {description}",
                 f"The scene's whole plan ({CURRENT_BEAT_MARK} marks beat {index + 1}):",
                 beats_block(lines, index),
-                *(
-                    [KEEP_LINE.format(terms=", ".join(f'{t} ("{c}")' for t, c in keep))]
-                    if keep
-                    else []
-                ),
-                (
-                    REDO_CHANGE
-                    if _REDO_LEAD.sub("", instruction).strip()
-                    else REDO_DIRECTION
-                ),
+                *([KEEP_LINE.format(terms=terms)] if keep else []),
+                REDO_CHANGE if asked else REDO_DIRECTION,
             ]
         )
     prior_block = (

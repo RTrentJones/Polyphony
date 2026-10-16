@@ -143,8 +143,7 @@ def test_one_head_shows_only_what_the_pov_sees_of_a_brief():
 
 
 def test_no_foreshadowing_names_its_example_in_both_branches():
-    """(F) SPEC-48 (D10): the hindsight W4b2 and W5d narrated is named once,
-    inside the one POV rule, for one head and a wide mode alike."""
+    """(F) SPEC-48 (D10): the hindsight example, in both branches."""
     example = "no foreshadowing — never 'he would later learn'"
     for pov in (
         Pov("third person limited", "Milo Voss"),

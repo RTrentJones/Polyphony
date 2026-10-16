@@ -595,8 +595,7 @@ async def test_a_beat_revise_prompt_names_the_beat_from_the_plan(
 async def test_a_redo_sees_the_plan_and_warns_on_a_dropped_callback(
     client, auth_headers, async_session, story, monkeypatch
 ):
-    """(F) SPEC-41: the plan with beat 2 marked, the keep line, the direction.
-    (F) SPEC-47: each term with its context; the warning quotes, not repr."""
+    """(F) SPEC-41/47: the plan, the keep line with context, quoted warning."""
     p2 = "Zara leaned over the desk and tapped Appendix F's tab."
     story.scene.content, story.beats[1].content = DRAFT.replace(P2, p2), p2
     later = "Nobody mentioned Appendix F's tab again."
@@ -629,8 +628,7 @@ async def test_a_redo_sees_the_plan_and_warns_on_a_dropped_callback(
 async def test_a_redo_finds_its_beat_by_number(
     client, auth_headers, async_session, story, monkeypatch
 ):
-    """(F) SPEC-47 (wave-5 Could 5): a gap in the beat numbers marks the beat
-    the API located, not the one at that list position."""
+    """(F) SPEC-47 (Could 5): the beat is found by its number, gaps and all."""
     await async_session.delete(story.beats[0])
     await async_session.commit()
     fake = FakeLLM(["Zara leaned in."])
@@ -659,8 +657,7 @@ def _redo_prompt(instruction, keep=()):
 
 
 def test_a_redo_with_a_direction_keeps_every_other_sentence():
-    """(F) SPEC-47 (D7): a direction changes what it asks for; (R) a terse
-    redo keeps REDO_DIRECTION. (F) SPEC-48: one naming rule, every revise."""
+    """(F) SPEC-47 (D7) direction line, (R) terse redo; (F) SPEC-48 rule."""
     asked = _redo_prompt("Redo beat 2: let Milo notice one thing.")
     assert rv.REDO_CHANGE in asked and rv.REDO_DIRECTION not in asked
     for terse in ("Redo beat 2.", "redo beat 2"):
@@ -683,9 +680,7 @@ W5_CANON = _canon(
 
 
 def test_callbacks_with_context_on_the_archived_redos():
-    """(F) SPEC-47 (D5): the fixture's table. A number word counts only with
-    the next word of its sentence: W4 keeps "Forty-one, nine days", W5's line
-    disappears; each term carries the phrase where the rest first uses it."""
+    """(F) SPEC-47 (D5): the fixture's callbacks table, with contexts."""
     for r in W5["callbacks"]["rows"]:
         rest = "\n".join((r["prior"], r["after"], r["later"]))
         keep = [
