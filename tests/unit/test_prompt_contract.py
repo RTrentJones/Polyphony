@@ -8,7 +8,12 @@ import json
 
 import pytest
 
-from app.core.prompt_markers import ALSO_NAMED_LABEL, MOVEMENT_LABEL
+from app.core.prompt_markers import (
+    ALSO_NAMED_LABEL,
+    MOVEMENT_LABEL,
+    OUTLINE_CHAPTERS_HEADER,
+    VOICE_SAMPLES_LABEL,
+)
 from evals.graders import prompt_contract as pc
 
 pytestmark = pytest.mark.unit
@@ -32,6 +37,22 @@ CHAPTER = {
     "people": ["Milo Voss", "Zara Okafor", "Prava"],
     "children": [{"title": "Intake", "summary": "x", "people": ["Milo", "Prava"]}],
 }
+
+# Run-W3 record 1792100839-0017: Milo's sample, and the answer that lifts it.
+LIFT_PROMPT = (
+    f"CHARACTERS IN THIS BEAT\n### Milo Voss\n{VOICE_SAMPLES_LABEL}\n"
+    '- "Totally, totally. And is there a dashboard, or a tracker, or some kind of '
+    "shared doc where we log throughput? I only ask because in my last role I built "
+    "a tracker that cut our cycle time by eleven percent, which, honestly, was the "
+    'best week of my life."\nBEAT TO WRITE: x'
+)
+LIFT_ANSWER = (
+    '"And is there a dashboard?" he asked. "Or a tracker, or some kind of shared '
+    "doc where we log throughput? I only ask because in my last role I built a "
+    "tracker, just a spreadsheet really, color-coded, with a little macro, and it "
+    "cut our cycle time by eleven percent. Eleven. Which, honestly, was the best "
+    'week of my life."'
+)
 
 # One record per purpose, each breaking every check that reads it.
 FAILING = [
@@ -84,6 +105,14 @@ FAILING = [
         "- Milo carried the memo up to Edric.\nBEAT TO WRITE: x",
         "",
     ),
+    ("beat_prose", LIFT_PROMPT, LIFT_ANSWER),
+    ("outline:chapters", "", json.dumps([{"title": "Intake"}, {"title": "Drawer"}])),
+    (
+        "outline:beats",
+        f"{OUTLINE_CHAPTERS_HEADER}\n→ 1. Intake\n\n"
+        "Here are the chapters of act 1, in order:\n[]",
+        "",
+    ),
 ]
 
 REASONS = {
@@ -106,6 +135,8 @@ REASONS = {
     "reduce_evidence_depth": "Milo Voss: 1 evidence/quote line(s) (< 3)",
     "movement_names_in_scene": "Milo Voss: names Edric Thane: "
     "'Milo carried the memo up to Edric.'",
+    "sample_lift": "20 word 8-grams of its samples: 'a tracker or some kind of shared doc'",
+    "beats_see_whole_outline": "'Drawer' is not in the whole-outline block",
 }
 
 
@@ -140,6 +171,8 @@ def test_every_check_fails_its_failing_fixture(tmp_path):
         reasons = [r for f in out[check]["failures"] for r in f["reasons"]]
         assert reason in reasons, (check, out[check])
     assert out["n_calls"] == len(FAILING)
+    lift = out["sample_lift"]  # the worst beat, and the share of beats that lift
+    assert (lift["max_shared"], lift["share_of_beats"]) == (20, 0.25)
     # W3-3: the planner's POV line is graded too (record 2 has none).
     pov = out["pov_line_has_mode_and_character"]
     assert "2" in [f["id"] for f in pov["failures"]]

@@ -40,7 +40,12 @@ from uuid import UUID
 
 from app.core.llm_text import STORY_MATERIAL_NOTICE
 from app.core.logging_config import setup_logging
-from app.core.prompt_markers import ACT_CHAPTERS_HEADER, CONFIRMED_PREMISE_NOTE
+from app.core.prompt_markers import (
+    ACT_CHAPTERS_HEADER,
+    CONFIRMED_PREMISE_NOTE,
+    CURRENT_BEAT_MARK,
+    OUTLINE_CHAPTERS_HEADER,
+)
 from app.llm.client import get_llm_client
 from app.llm.json_utils import extract_json_array, extract_json_object
 from app.planning.canon import Canon
@@ -194,20 +199,51 @@ JSON:"""
     return extract_json_array(result.text)
 
 
+EARLIER_BEATS = "Beats already planned in earlier acts:"
+INTRODUCE_NO_EARLIER = (
+    "Introduce each person no earlier than the chapter that introduces them."
+)
+
+
+def outline_context(outline: list[dict], act_index: int, earlier: list[dict]) -> str:
+    """The whole book for one act's beats (SPEC-38): every chapter in order,
+    this act's marked (their summaries are in the act's JSON below), and the
+    beat titles earlier acts already have, so an act cannot bring a person in
+    before the chapter that introduces them (W4-5)."""
+    mine = {id(c) for c in _by_act(outline).get(act_index, [])}
+    lines = [OUTLINE_CHAPTERS_HEADER]
+    for n, ch in enumerate(outline, 1):
+        if id(ch) in mine:
+            lines.append(f"{CURRENT_BEAT_MARK} {n}. {ch.get('title', '')}")
+        else:
+            lines.append(f"  {n}. {ch.get('title', '')}: {ch.get('summary', '')}")
+    if earlier:
+        lines.append(EARLIER_BEATS)
+    # Model output: a node or a beat that is not an object is skipped.
+    for ch in (c for c in earlier if isinstance(c, dict)):
+        kids = [b for b in ch.get("children") or [] if isinstance(b, dict)]
+        titles = "; ".join(b.get("title", "") for b in kids)
+        lines.append(f"- {ch.get('title', '')}: {titles}")
+    return "\n".join([*lines, INTRODUCE_NO_EARLIER])
+
+
 async def _stage_beats_for_act(
     canon: Canon,
     act_index: int,
-    act_chapters: list[dict],
     user_id,
     *,
     skeleton: Optional[dict] = None,
+    outline: list[dict],
+    earlier: list[dict],
 ) -> list[dict]:
     """S3 for one act. The beats see the plan they are detailing: the premise
-    (authoritative when the author confirmed it), the central conflict and this
-    act's goal and turn — without them beats drift from the agreed story
-    (SPEC-18, B11). Acts are numbered from 1 in the prompt; the stored
-    `act_index` stays 0-based."""
+    (authoritative when the author confirmed it), the central conflict, this
+    act's goal and turn, and the whole book around it (`outline_context`) —
+    without them beats drift from the agreed story (SPEC-18, B11, SPEC-38).
+    Acts are numbered from 1 in the prompt; the stored `act_index` stays
+    0-based."""
     number = act_index + 1
+    act_chapters = _by_act(outline).get(act_index, [])
     plan = f"{_premise_lines(skeleton)}\n\n" if skeleton else ""
     # Title placeholders below are deliberately unquoted: the template is not
     # an example the model (or the offline stub) should mistake for a chapter.
@@ -216,6 +252,8 @@ async def _stage_beats_for_act(
 {canon.full_block()}
 
 {plan}{_act_brief(skeleton, act_index)}
+
+{outline_context(outline, act_index, earlier)}
 
 {ACT_CHAPTERS_HEADER.format(number=number)}
 {_json(act_chapters)}
@@ -302,19 +340,26 @@ async def _stage_beats(
     """
     done = dict(done or {})
     by_act = _by_act(chapters)
+    # Nodes come back in act order, so the book is read the same way.
+    ordered = [ch for act_index in sorted(by_act) for ch in by_act[act_index]]
     for act_index in sorted(by_act):
         if str(act_index) in done:
             continue
         done[str(act_index)] = await _stage_beats_for_act(
-            canon, act_index, by_act[act_index], user_id, skeleton=skeleton
+            canon,
+            act_index,
+            user_id,
+            skeleton=skeleton,
+            outline=ordered,
+            earlier=[
+                n for a in sorted(done, key=int) if int(a) < act_index for n in done[a]
+            ],
         )
         if on_act is not None:
             await on_act(done)
     nodes: list[dict] = []
     for act_index in sorted(by_act):
         nodes.extend(done[str(act_index)])
-    # Nodes come back in act order, so align S2 the same way for the merge.
-    ordered = [ch for act_index in sorted(by_act) for ch in by_act[act_index]]
     return merge_structural(ordered, nodes)
 
 

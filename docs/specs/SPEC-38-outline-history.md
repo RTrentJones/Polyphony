@@ -5,3 +5,14 @@
 ## History
 
 ## Whole-outline context
+
+Each outline:beats prompt prints `staged_outline.outline_context(outline, act_index, earlier)`
+between the act brief and the act's chapter JSON: `OUTLINE_CHAPTERS_HEADER`, every chapter in book
+order (other acts' with their whole summary; this act's marked `→`, title only, since the JSON
+below has them), the beat titles earlier acts already have (from the checkpoint's `done` on a
+resumed job), and "Introduce each person no earlier than the chapter that introduces them." The
+act's chapters are derived from `outline`. Cost: 1.8-2.2k characters per act on the run-W3 cel
+outline; the unit guard is ≤ 2,500 at 6 chapters.
+
+`beats_see_whole_outline` checks each block against the titles of the latest outline:chapters
+answer, not the union of every act's JSON: a repair pass or a regenerated outline has new chapters.

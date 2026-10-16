@@ -561,7 +561,7 @@ async def test_a_beat_revise_prompt_names_the_beat_from_the_plan(
     prompt = fake.prompts[0]
     # W3-3: the whole POV paragraph, the limit included, not the bare label.
     assert POV_LINE_RE.search(prompt) and POV_LIMIT_OPEN in prompt
-    assert "in this scene counts.\nBeat 2 of this scene's plan: b1\n" in prompt
+    assert "can see or hear.\nBeat 2 of this scene's plan: b1\n" in prompt
 
 
 async def test_whole_scene_revise_has_no_surroundings(

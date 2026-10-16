@@ -28,6 +28,7 @@ from app.planning.fidelity import canon_known_text
 
 SENTENCE_CAP = 400
 SAMPLES = 3
+PREFERRED_SAMPLE_WORDS = 4  # shorter lines carry less voice: listed last
 NO_SAMPLES_NOTE = "No samples: keep them brief and distinct from the cast."
 
 _SENTENCE_BREAK = re.compile(r"(?<=[.!?…])[\"”’'\)\]]*\s+(?=[\"“‘'(\[]?[A-Z0-9])")
@@ -106,7 +107,10 @@ async def scene_secondaries(
             for _, line in ce.spoken_lines(text, name, cast=cast, attributed=spans)
             if len(line.split()) >= ce.SPEECH_MIN_WORDS
         ]
-        said = sorted(dict.fromkeys(said), key=lambda line: len(line.split()) < 4)
+        said = sorted(
+            dict.fromkeys(said),
+            key=lambda line: len(line.split()) < PREFERRED_SAMPLE_WORDS,
+        )
         intro = intro_sentence(name, [canon.synopsis or "", *entries, *texts])
         out.append(Secondary(name, intro, said[:SAMPLES]))
     return out

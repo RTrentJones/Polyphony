@@ -759,3 +759,116 @@ def test_narration_between_quotes_stops_the_paragraph_speaker():
     assert [s["speaker"] for s in spans] == ["Zara", None]
     (spans,) = attribute_speech('"Hi," said Zara. "Come in."')
     assert [s["speaker"] for s in spans] == ["Zara", "Zara"]
+
+
+# --- SPEC-36 (W4-3, B-1): a movement sample that narrates the brief drops ------
+# The 11 distinct (brief, movement sample) pairs in the run-W3 relay archive's
+# beat_prose prompts (/tmp/claude-0/q-w3/model/answered), deduplicated on the
+# exact strings, with the content words each shares with the brief.
+
+TRAINS = "Zara Okafor trains Milo and begins recruiting him"
+RETAINED = (
+    "Retained: Prava slides a laminated org chart across a laminate desk and tells "
+    "Milo his skills are a strong culture fit; he says yes before anyone offers him "
+    "a choice, and his death becomes, to his delight, a job."
+)
+NEXT_DESK = (
+    "The Next Desk: In the long Reconciliations room Milo pitches trackers and "
+    "low-hanging fruit across the partition, and Zara answers in flat imperatives: "
+    "close your queue, read the appendices. He mistakes her courtesy for "
+    "friendship, and she quietly marks him as the analyst she has been waiting for."
+)
+FOUR_MINUTES = (
+    "Under Four Minutes: Milo zeroes a restructured soul's tenure and initials the "
+    "form, proud of his speed; the soul's desk is cleared before the coffee station "
+    "finishes dispensing. When he asks where the soul goes, Zara says only that it "
+    "goes under, Old Fen remarks that nobody reads the appendices, and for the "
+    "first time Milo's satisfaction has a crack in it."
+)
+DRAWER = (
+    "The Drawer: That night Milo locks the ledger in his desk drawer, which no one "
+    "asked him to do, and he cannot say why; it is his first unoptimized act."
+)
+LOCKED = (
+    "Milo locked the ledger in his desk drawer that night, which no one had asked "
+    "him to do, and he could not have said why he did it."
+)
+LOOKED = (
+    "Zara looked at the column for a long time. Her grey eyes did not change at all."
+)
+INTAKE = (
+    "Milo Voss opened his eyes in the intake atrium and a caseworker slid a "
+    "laminated org chart across a laminate desk."
+)
+
+
+@pytest.mark.parametrize(
+    "brief, sample, shared, drops",
+    [
+        (DRAWER, LOCKED, 6, True),  # asked desk drawer ledger milo night
+        (RETAINED, INTAKE, 5, True),  # chart desk laminate laminated milo
+        (RETAINED, LOCKED, 2, False),
+        (NEXT_DESK, INTAKE, 2, False),
+        (NEXT_DESK, LOOKED, 2, False),
+        (NEXT_DESK, LOCKED, 2, False),
+        (FOUR_MINUTES, LOCKED, 2, False),
+        (FOUR_MINUTES, LOOKED, 2, False),
+        (TRAINS, LOCKED, 1, False),
+        (TRAINS, LOOKED, 1, False),
+        (TRAINS, INTAKE, 1, False),
+    ],
+)
+def test_the_eleven_archive_pairs_drop_exactly_the_two_events(
+    brief, sample, shared, drops
+):
+    """(F) RESTATES_MIN = 4 sits midway between unrelated (<= 2) and event (5-6)."""
+    from app.characters.context import RESTATES_MIN, restates_brief
+
+    assert (shared >= RESTATES_MIN) is drops
+    assert restates_brief(sample, brief) is drops
+    assert restates_brief(sample, "") is False  # no brief: a probe, a manual scene
+
+
+async def _moves(monkeypatch, who, texts, brief, query="x"):
+    """(voice, movement) blocks for `who` in a cel scene with `brief`."""
+    import app.characters.context as ctx
+
+    canon, by = _cel()
+    store = TypedStore(
+        [_s("d0", "Is there a dashboard or a tracker?", "dialogue", "dialogue_1")]
+        + [_s(f"a{i}", t, "action") for i, t in enumerate(texts)]
+    )
+    monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
+    scope = ctx.SceneScope.of(canon, [by["Milo"], by["Zara"]], (), brief)
+    out = await ctx.build_character_context(by[who], who, query, scope=scope)
+    return _blocks(out)
+
+
+async def test_the_drawer_sample_leaves_the_drawer_scene(monkeypatch):
+    """(F) The brief carries the event; the sample that narrates it goes, with
+    no refill, and the voice samples are untouched."""
+    voice, move = await _moves(monkeypatch, "Milo", [LOCKED, INTAKE], DRAWER)
+    assert LOCKED not in move and INTAKE in move
+    assert "Is there a dashboard or a tracker?" in voice
+
+
+async def test_a_revise_span_never_drops_a_gesture(monkeypatch):
+    """(R) B-1: revise retrieves with the author's prose span (here the run-W3
+    scene-1 beat, sharing 7 content words with Zara's gesture). The rule reads
+    the brief only, so the gesture stays."""
+    span = (
+        "Tighten this.\nThe account came over the partition face down, pushed by "
+        "two fingers. Zara did not say anything. She did not need to; it had "
+        "RESTRUCTURED stamped across the back in red, and Milo had learned that "
+        "much by Wednesday.\n\nHe flipped it, zeroed the tenure, initialled the box "
+        "marked INITIAL HERE, and slid it back. Three minutes, maybe less. He had "
+        "not timed it, but he had the sense of having been fast, the way you know "
+        'you have parked well.\n\n"Done," he said. "And honestly, that one was '
+        "super clean. Whoever set up the intake fields did a great job, so, kudos "
+        'upstream."\n\nZara picked up the form. She looked at his initials for a '
+        "long time. Her grey eyes did not change at all.\n\nMilo waited. Nothing "
+        "came. He decided that, from her, nothing was probably a very good "
+        "review.\n\nShe put the form in her out-tray and did not look up again."
+    )
+    _, move = await _moves(monkeypatch, "Zara", [LOOKED], FOUR_MINUTES, query=span)
+    assert LOOKED in move
