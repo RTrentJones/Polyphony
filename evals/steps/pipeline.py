@@ -488,6 +488,10 @@ async def step_retrieval(ctx: StepContext) -> dict:
 
 
 # --- Step 3: voice attribution (real generation + embedding) ---------------
+# D13: probe draws per character; one draw is a coin flip (W5: 1/3, 2/3, 2/3).
+ATTRIBUTION_DRAWS = 3
+
+
 @step("attribution", needs_api=True)
 async def step_attribution(ctx: StepContext) -> dict:
     gold = ctx.ground_truth.get("gold_lines") or {}
@@ -511,7 +515,7 @@ async def step_attribution(ctx: StepContext) -> dict:
 
     results, probes = [], []
     empty = 0
-    for char in gold:
+    for char, draw in ((c, d) for c in gold for d in range(ATTRIBUTION_DRAWS)):
         # In-world (SPEC-33), each in their own role (M3, SPEC-39).
         probe = ctx.ground_truth["voice_probe"][char]
 
@@ -519,7 +523,7 @@ async def step_attribution(ctx: StepContext) -> dict:
             r = await ctx.client.test_dialogue(char_ids[_char], _probe)
             return r.get("dialogue") or r.get("action") or ""
 
-        line = await ctx.cache.memo("attribution", f"{char}|{probe}", gen)
+        line = await ctx.cache.memo("attribution", f"{char}|{probe}|{draw}", gen)
         if not line:
             empty += 1
             continue
@@ -527,6 +531,11 @@ async def step_attribution(ctx: StepContext) -> dict:
             attribution.attribute(char, await embed.embed_one(line), ref_vecs)
         )
         probes.append(probe)
+    per = {  # D13: gated per character by majority
+        c: {"correct": k, "majority": k * 2 > ATTRIBUTION_DRAWS}
+        for c in gold
+        for k in [sum(r.correct for r in results if r.intended == c)]
+    }
 
     agg = attribution.accuracy(results)
     # Surface how many voices actually produced a line: accuracy=0 with
@@ -537,6 +546,7 @@ async def step_attribution(ctx: StepContext) -> dict:
         "score": agg["accuracy"],
         "generated": len(results),
         "empty": empty,
+        "per_character": per,
         "detail": [{**r.as_dict(), "probe": p} for r, p in zip(results, probes)],
     }
 
@@ -620,6 +630,19 @@ def outline_secondaries(nodes: list, secondaries: list[str]) -> dict:
     }
 
 
+def outline_consistency(nodes: list) -> dict:
+    """W6-4, reported: scene people missing from their chapter's `people`, and
+    scene titles that reuse a chapter's title."""
+    titles = {c.get("title") for c in nodes}
+    out: dict[str, list] = {"people_mismatches": [], "title_reuse": []}
+    for c in nodes:
+        for s in c.get("children") or []:
+            missing = sorted(set(s.get("people") or []) - set(c.get("people") or []))
+            out["people_mismatches"] += [f"{s.get('title')}: {p}" for p in missing]
+            out["title_reuse"] += [s["title"]] * (s.get("title") in titles)
+    return out
+
+
 def portable_outline(
     nodes: list, character_ids: dict[str, str], minor: dict[str, str] | None = None
 ) -> list:
@@ -651,25 +674,27 @@ def portable_outline(
 
 
 # Bumped when the outline book's canon changes (v1: the minor secondaries;
-# v2: they port as secondary names).
-OUTLINE_CACHE_KEY = "minor-v2"
+# v2: they port as secondary names; v3: described by their introduction).
+OUTLINE_CACHE_KEY = "minor-v3"
 
 
 @step("outline", needs_api=True)
 async def step_outline(ctx: StepContext) -> dict:
     from app.planning.fidelity import flatten_outline
-    from app.planning.secondaries import intro_sentence
+    from app.planning.secondaries import intro_sentence, introduction
     from evals.graders.fidelity import grade_fidelity
 
     gt = ctx.ground_truth
     book = await _book_with_cast(ctx, f"eval-{gt['book']}", genre="")
     # The secondaries an author accepting extraction's defaults has (S6),
-    # described from the excerpt or the synopsis (Bell is only in the excerpt).
-    known = [load_excerpts(ctx.book), gt["synopsis"]]
+    # introduced as "Add to cast" does (W6-5): the synopsis first, then the
+    # excerpt (Bell is only in the excerpt), cut to the first appositive.
+    texts = [gt["synopsis"], load_excerpts(ctx.book)]
     minor = {}
     for name in gt.get("secondary_cast") or []:
+        intro = introduction(intro_sentence(name, texts))
         made = await ctx.client.create_character(
-            name, book["id"], role="minor", description=intro_sentence(name, known)
+            name, book["id"], role="minor", description=intro
         )
         minor[made["id"]] = name
     edit = gt.get("premise_edit")
@@ -712,6 +737,7 @@ async def step_outline(ctx: StepContext) -> dict:
         s for s in gt.get("secondary_cast") or [] if named_in(gt["synopsis"], [s])
     ]
     result.update(outline_secondaries(nodes, synopsis_people))
+    result.update(outline_consistency(nodes))
 
     canon = await _canon_block(ctx, book["id"])
     body = (
@@ -838,6 +864,7 @@ async def _collect_scene(ctx: StepContext, scene_id: str) -> dict:
         "content": scene.get("content") or "",
         "characters": scene.get("characters") or [],
         "description": req.get("scene_description"),
+        "name_warnings": scene.get("name_warnings"),
         # The planned beat the scene was written from (SPEC-23/24 request keys).
         "planned_beat_id": req.get("planned_beat_id"),
         "setting": req.get("setting"),
@@ -945,8 +972,9 @@ async def _planned_scenes(ctx: StepContext, book: dict) -> dict:
 
 # Bumped when what a generation records changes (v4: no fallback path, the
 # batch's queued/deferred; v5: its reason, and minor cast ported as secondary
-# names; v7: voice.movement), so a stale cache entry is regenerated, not regraded.
-PROSE_CACHE_KEY = "planned-v7"
+# names; v7: voice.movement; v8: name_warnings), so a stale cache entry is
+# regenerated, not regraded.
+PROSE_CACHE_KEY = "planned-v8"
 
 
 def _planned_beat_text(scene: dict, beat: dict | None) -> str:
@@ -1116,6 +1144,12 @@ async def step_prose(ctx: StepContext) -> dict:
     planned = chapter.get("planned_beats") or []
     alias_forms = [f for fs in forms.values() for f in fs]
     owned = gt.get("owned_phrases") or {}
+    outline = ctx.cache.get("outline", f"{gt['synopsis']}|{OUTLINE_CACHE_KEY}") or {}
+    lines = [  # the run's plan lines by chapter, as the gold reads them
+        [f"{b.get('title')}: {b.get('summary')}" for b in n.get("children") or []]
+        for n in outline.get("content") or []
+    ]
+    result["unplaced_events"] = plot.unplaced(gt.get("excerpt_events") or [], lines)
     detail, prev_text = [], ""
     for i, sc in enumerate(scenes):
         checks = _grade_scene_checks(sc, prev_text, forms)
@@ -1134,6 +1168,7 @@ async def step_prose(ctx: StepContext) -> dict:
             "scene_seam_overlap": checks["scene_seam_overlap"],
             "unknown_rate_canon": rate,
             "unknown_canon": unknown,
+            "name_warnings": sc.get("name_warnings"),  # the app's, beside ours
             "deterministic_failures": checks["caps"],
             "deterministic_warnings": checks["warnings"],
             "borrowed_phrase": plot.borrowed_phrase(
@@ -1234,13 +1269,14 @@ def _paragraph_spans(text: str) -> list[tuple[int, int]]:
 
 
 def tighten_request(draft: str, beats: list[dict]) -> dict | None:
-    """The last paragraph inside beat 1's prose (the scene's last paragraph
-    when it has fewer than two beats), so the redo of beat 2 meets its own text."""
-    first = (beats[0].get("content") or "").strip() if len(beats) > 1 else ""
+    """The longest paragraph of beat 1's prose with >= 30 words, so the redo of
+    beat 2 meets its own text; else the scene's longest such; else None."""
+    first = (beats[0].get("content") or "").strip() if beats else ""
     at = draft.find(first) if first else -1
-    paras = _paragraph_spans(draft)
-    inside = [p for p in paras if at <= p[0] and p[1] <= at + len(first)]
-    span = (inside if at >= 0 else paras)[-1:]
+    # W5b's five-word target came back unchanged (RA 0.55): >= 30 words.
+    paras = [p for p in _paragraph_spans(draft) if len(draft[slice(*p)].split()) >= 30]
+    inside = [p for p in paras if at >= 0 and at <= p[0] <= p[1] <= at + len(first)]
+    span = sorted(inside or paras, key=lambda p: p[0] - p[1])[:1]
     instruction = "Tighten this paragraph: cut every redundant word."
     return (
         {"id": "tighten", "instruction": instruction}
@@ -1387,8 +1423,11 @@ async def step_revise(ctx: StepContext) -> dict:
         start, end = prop.get("range") or [0, len(draft)]
         base = out.get("draft") or draft
         checks, caps = revision_checks(base, prop["content"], start, end, gt)
+        said = re.split(r"(?<=[.!?])\s+", base[start:end].strip())  # D6, reported:
+        kept = sum(x in checks["revised"] for x in said) / len(said)  # sentences
         row.update(
             range=[start, end],
+            untouched_share=round(kept, 4),  # of the target kept verbatim
             outside_identical=checks["outside_identical"],
             new_names=checks["new_names"],
             warnings=prop.get("warnings") or [],
@@ -1426,7 +1465,7 @@ async def step_revise(ctx: StepContext) -> dict:
             row.update(accepted=False, accept_error=str(e)[:300])
         rows.append(row)
     else:  # recorded: the tighten row says why, instead of being missing
-        rows.append({"id": "tighten", "error": "no paragraph inside beat 1"})
+        rows.append({"id": "tighten", "error": "no paragraph of >= 30 words"})
     for req in revise_requests(draft, bool(beats), colder):
         row, prop = await one(req, draft)
         if prop.get("id") and prop.get("status") == "proposed":

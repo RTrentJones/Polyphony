@@ -10,12 +10,14 @@ from pathlib import Path
 import pytest
 
 from app.core.prompt_markers import (
+    BEAT_TO_WRITE_LABEL,
     ALSO_NAMED_LABEL,
     MOVEMENT_LABEL,
     OUTLINE_CHAPTERS_HEADER,
     SCENE_CHARACTERS_SECTION,
     VOICE_SAMPLES_LABEL,
 )
+from app.llm.json_utils import JSON_OBJECT
 from evals.graders import plot
 from evals.graders import prompt_contract as pc
 from evals.steps import pipeline
@@ -161,6 +163,7 @@ REASONS = {
     "samples_not_plot": "Milo Voss: paragraph 0: narrates intake (ch 1)",
     "plan_sees_chapter": "no chapter-scenes block",
     "redo_sees_plan": "no <beats> block marking beat 2",
+    "json_mode_where_json": "response_format null, not JSON_OBJECT",
 }
 
 
@@ -438,54 +441,6 @@ def test_samples_not_plot_grades_against_the_gold(
     assert out["classified"] == sum(len(v) + len(m) for v, m in blocks.values())
 
 
-def test_blocks_only_plot_could_fill_are_emptied_by_rule(tmp_path):
-    """D6 on W4b's block shape: Milo is only ever shown the intake and the
-    drawer, both planned, so his five empty blocks (four in "The Locked
-    Drawer", one in "The Bell Account") leave coverage; Zara's look is not
-    plot, so her empty block counts against it. Chapter 3: W4 places no event
-    later, so no gold tail (in chapter 1 the look, paragraph 29, is past it)."""
-    milo, zara = ([], [PARAS[13]]), ([], [PARAS[29]])
-    shapes = [{"Milo Voss": ([], [PARAS[0]])}] * 4 + [
-        {"Milo Voss": milo, "Zara Okafor": zara}
-    ] * 4
-    shapes += [{"Milo Voss": milo, "Zara Okafor": ([], [])}, {"Milo Voss": milo}]
-    shapes += [{"Milo Voss": ([], []), "Zara Okafor": zara}, {"Milo Voss": milo}]
-    shapes += [{"Milo Voss": ([], [])}] * 4
-    _write(tmp_path, _outline("w4"))
-    for i, blocks in enumerate(shapes):
-        _write(tmp_path, _rec(f"b{i}", "beat_prose", _beat(3, blocks), created=1.0 + i))
-    out = pc.grade(pc.load_archive(tmp_path), principals=PRINCIPALS, **PLOT_GOLD)
-    move = out["movement_names_in_scene"]
-    assert move["emptied_by_rule"] == {
-        "Milo Voss": 5,
-        "Zara Okafor": 0,
-        "Edric Thane": 0,
-    }
-    assert move["movement_coverage"] == round(16 / 17, 4)
-    # Each emptied block names the plot that left it empty: the Bell Account's
-    # (b10) as much as the four Locked Drawer blocks.
-    assert move["emptied_blocks"][0] == {"id": "b10", "Milo Voss": [0, 13]}
-
-
-def test_d6_reads_the_store_and_the_gold_tail(tmp_path):
-    """(F) W5's shape: Milo's eight chapter-1 blocks are empty, and every chunk
-    the store holds for him is plot there: the intake and the partition (placed
-    in ch 1), and from bell (ch 2) on, the gold tail. Shown lines alone (none)
-    attribute nothing."""
-    _write(tmp_path, _outline("w5"))
-    for i in range(8):
-        _write(tmp_path, _rec(f"b{i}", "beat_prose", _beat(1, {"Milo Voss": ([], [])})))
-    store = {"Milo Voss": [PARAS[i] for i in (0, 3, 9, 13, 27)]}
-    grade = lambda **kw: pc.grade(  # noqa: E731
-        pc.load_archive(tmp_path), principals=PRINCIPALS, **PLOT_GOLD, **kw
-    )["movement_names_in_scene"]
-    assert grade()["emptied_by_rule"]["Milo Voss"] == 0
-    move = grade(movement_store=store)
-    assert move["emptied_by_rule"]["Milo Voss"] == 8
-    assert (move["movement_coverage"], move["every_block_emptied"]) == (None, True)
-    assert move["emptied_blocks"][0] == {"id": "b0", "Milo Voss": [0, 3, 9, 13, 27]}
-
-
 def test_a_run_that_shows_no_sample_is_vacuous(tmp_path):
     """(F) W5b's shape: every block holds only its heading. Nothing measured
     voice presence, so the empty cards passed; now voice_coverage is 0 and
@@ -512,3 +467,136 @@ def test_a_run_that_shows_no_sample_is_vacuous(tmp_path):
         0,
         True,
     )
+
+
+# --- wave 6 (SPEC-51, SPEC-52) ---------------------------------------------------
+
+W5 = json.loads(
+    (Path(__file__).parents[1] / "fixtures" / "w5_archives.json").read_text()
+)
+
+
+def test_unplaced_events_are_listed_per_run(tmp_path):
+    """(F) W6-7 (b): on the gold before "next desk", W5d places no partition,
+    and the report lists it; (R) on the signed gold every event places."""
+    _write(tmp_path, _outline("w5d"))
+    old = [
+        {**e, "terms": [t for t in e["terms"] if t != "next desk"]}
+        for e in CEL["excerpt_events"]
+    ]
+    for events, unplaced in ((old, ["partition"]), (CEL["excerpt_events"], [])):
+        out = pc.grade(
+            pc.load_archive(tmp_path), **{**PLOT_GOLD, "excerpt_events": events}
+        )
+        assert out["samples_not_plot"]["unplaced_events"] == unplaced
+
+
+def _plan_record(plan: list[list[str]]) -> dict:
+    """An outline:beats record holding `plan`, each chapter's "title: summary"."""
+    chapters = [
+        {"children": [dict(zip(("title", "summary"), ln.split(": ", 1))) for ln in ch]}
+        for ch in plan
+    ]
+    prompt = "Here are the chapters of act 1, in order:\n[]"
+    return _rec("o", "outline:beats", prompt, json.dumps(chapters), created=0.0)
+
+
+def test_movement_lists_every_ineligible_principal_on_the_w5_stores(tmp_path):
+    """(F) D3a on W5d's and W5bd's stores and plans: in chapter 1 every store
+    line is gold plot or past the gold tail, so no principal is eligible, and
+    the result passes only because each is listed with its gold paragraphs."""
+    for row in W5["movement"]["rows"]:
+        (run := tmp_path / row["run"]).mkdir()
+        _write(run, _plan_record(row["plan"]))
+        blocks = {who: ([], []) for who in row["store"]}
+        _write(run, _rec("b", "beat_prose", _beat(row["chapter"], blocks)))
+        out = pc.grade(
+            pc.load_archive(run),
+            principals=PRINCIPALS,
+            movement_store=row["store"],
+            **PLOT_GOLD,
+        )
+        assert out["samples_not_plot"]["placed"] == row["placed"]
+        assert out["movement"] == {
+            **{"n": 0, "passed": 0, "rate": None, "failures": []},
+            **{"ineligible": row["ineligible"], "ok": True},
+        }
+
+
+def test_an_eligible_principal_with_an_empty_block_fails(tmp_path):
+    """(F) D3a: in W4's chapter 3 Zara's look (29) is manner (no gold tail),
+    so she is eligible and her empty block fails; Milo's store is all plot,
+    so he is listed, not counted. Without the store nothing is eligible and
+    nobody has a gold reason: that empty result fails too."""
+    _write(tmp_path, _outline("w4"))
+    shapes = [
+        {"Zara Okafor": ([], [PARAS[29]]), "Milo Voss": ([], [])},
+        {"Zara Okafor": ([], [])},
+    ]
+    for i, blocks in enumerate(shapes):
+        _write(tmp_path, _rec(f"b{i}", "beat_prose", _beat(3, blocks), created=1.0 + i))
+    store = {"Zara Okafor": [PARAS[29]], "Milo Voss": [PARAS[0], PARAS[13]]}
+    grade = lambda **kw: pc.grade(  # noqa: E731
+        pc.load_archive(tmp_path), principals=PRINCIPALS, **PLOT_GOLD, **kw
+    )["movement"]
+    move = grade(movement_store=store)
+    assert (move["n"], move["passed"], move["ok"]) == (2, 1, False)
+    assert move["failures"] == [
+        {"id": "b1", "reasons": ["Zara Okafor: eligible, no movement line"]}
+    ]
+    assert move["ineligible"] == {"Milo Voss": [0, 13]}
+    assert (grade(movement_store={})["n"], grade(movement_store={})["ok"]) == (0, False)
+
+
+def test_json_mode_where_json_reads_the_recorded_response_format(tmp_path):
+    """(F) W6-6: W5d sent its outline, plan_beats and continuity calls with
+    response_format null; (R) its extraction calls carry JSON_OBJECT. A prose
+    call is not a JSON call and is not counted."""
+    formats = {
+        "outline:skeleton": None,
+        "outline:beats": None,
+        "plan_beats": None,
+        "continuity": None,
+        "extraction_map": JSON_OBJECT,
+        "extraction_reduce": JSON_OBJECT,
+        "beat_prose": None,
+    }
+    for i, (purpose, fmt) in enumerate(formats.items()):
+        _write(tmp_path, {**_rec(str(i), purpose, "x", "{}"), "response_format": fmt})
+    out = pc.grade(pc.load_archive(tmp_path))["json_mode_where_json"]
+    assert (out["n"], out["passed"]) == (6, 2)
+    assert [f["id"] for f in out["failures"]] == ["0", "1", "2", "3"]
+
+
+# The three archived hindsight sentences: W4b2 0010, W5bc 0025, W5d 0022.
+HINDSIGHT = [
+    "It was a Tuesday, which Milo would later feel was the least he deserved.",
+    "Milo had not noticed her at first, which he would later think said something "
+    "about her, or about him.",
+    "Milo looked at it, warmed by her kindness, and only much later would it occur "
+    "to him to ask how she had known his name.",
+]
+
+
+def test_hindsight_is_reported_per_answer(tmp_path):
+    """(F) W6-3, reported: each archived prolepsis is listed with its answer;
+    (R) a plain "later" is not hindsight."""
+    for i, line in enumerate([*HINDSIGHT, "He would sign it later."]):
+        _write(tmp_path, _rec(f"h{i}", "beat_prose", "x", f"He sat. {line} He rose."))
+    out = pc.grade(pc.load_archive(tmp_path))["hindsight"]
+    assert out == [{"id": f"h{i}", "sentence": s} for i, s in enumerate(HINDSIGHT)]
+
+
+def test_scripted_slots_are_reported_from_the_fixture(tmp_path):
+    """(F) D4, reported not gated: the folded 6-run hit of each archived slot
+    is the table's `drop`; each slot also reports its content-word share."""
+    for i, row in enumerate(W5["scripted"]["rows"]):
+        prompt = (
+            f"Scene description: {row['brief']}\n"
+            + _beat(1, {row["who"]: ([row["sample"]], [])})
+            + f"{BEAT_TO_WRITE_LABEL}: {row['beat']}"
+        )
+        _write(tmp_path, _rec(f"s{i}", "beat_prose", prompt, created=float(i)))
+    slots = pc.grade(pc.load_archive(tmp_path))["scripted_slots"]
+    assert [s["folded6"] for s in slots] == [r["drop"] for r in W5["scripted"]["rows"]]
+    assert all(0 <= s["content_share"] <= 1 for s in slots)

@@ -223,7 +223,8 @@ async def test_unparseable_chunk_is_incomplete_never_clean(monkeypatch):
     assert result.chunks_total == 3 and result.chunks_checked == 2
     assert result.status == "incomplete"
     assert result.coverage["unchecked"] == ["part 2/3"]
-    assert fake.formats[2] == {"type": "json_object"}  # the strict retry
+    # (F) D11: JSON mode on both attempts; the retry stays a retry.
+    assert fake.formats == [{"type": "json_object"}] * 4
 
 
 async def test_all_unparseable_is_failed(monkeypatch):

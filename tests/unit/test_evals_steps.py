@@ -146,11 +146,17 @@ async def test_attribution_creates_book_scoped_characters(tmp_path, monkeypatch)
     client = _FakeClient({})
     out = await pipeline.step_attribution(_ctx(tmp_path, client, gt))
     assert client.created == [("Milo Voss", "book-2"), ("Edric Thane", "book-2")]
-    assert out["generated"] == 2 and "error" not in out
+    assert "error" not in out
     # M3: each in their own role; Edric reviews, Milo is reviewed.
     milo, edric = cel["voice_probe"]["Milo Voss"], cel["voice_probe"]["Edric Thane"]
-    assert client.prompts == [milo, edric] and "your desk for review" in edric
-    assert [d["probe"] for d in out["detail"]] == [milo, edric]
+    # (F) D13: three draws each, memoised per draw; the majority per character.
+    assert client.prompts == [milo] * 3 + [edric] * 3
+    assert "your desk for review" in edric and out["generated"] == 6
+    assert [d["probe"] for d in out["detail"]] == [milo] * 3 + [edric] * 3
+    assert out["per_character"] == {  # identical vectors: Milo ranks first
+        "Milo Voss": {"correct": 3, "majority": True},
+        "Edric Thane": {"correct": 0, "majority": False},
+    }
 
 
 async def test_client_refuses_a_character_without_a_book():
@@ -343,6 +349,7 @@ class _ProductClient:
             "content": SCENE_1 if sid == "s1" else SCENE_2,
             "characters": ["Milo Voss", "Zara Okafor"],
             "scene_request": {"scene_description": f"brief {sid}"},
+            "name_warnings": ["Gary"] if sid == "s1" else [],
             # GET /scenes/{id} carries each inner beat (W1-S9).
             "beats": [
                 {"beat_number": 0, "description": "Milo signs", "content": BEAT_A},
@@ -497,6 +504,10 @@ async def test_prose_writes_the_planned_scenes_of_a_two_principal_chapter(tmp_pa
     assert s2["score"] == pytest.approx(1.0 * (0.8 + 0.6 + 0.9 + 0.7) / 4)
     assert out["score"] == pytest.approx((s1["score"] + s2["score"]) / 2, abs=1e-4)
     assert out["cast_named"] == 1.0 and out["words"] > 0
+    # (F) Reported beside unknown_canon: the app's stored warning (W6-3), and
+    # the gold events this run's outline never places (W6-7 (b)); it has none.
+    assert [s["name_warnings"] for s in out["scenes"]] == [["Gary"], []]
+    assert len(out["unplaced_events"]) == 7 and "training" not in out["unplaced_events"]
 
     shown = dict(judge.seen[-5:])
     # The judge sees the canon, the style guide's sample prose and the beats...
@@ -745,6 +756,25 @@ async def test_the_outline_book_commits_the_secondaries_as_minor(tmp_path):
     assert sorted(minor) == ["Halvard Bell", "Old Fen", "Prava"]
     assert all(c["description"] for c in minor.values())
     assert minor["Halvard Bell"]["description"].startswith("Halvard Bell had been")
+    # (F) W6-5 (b): synopsis first, through `introduction`: no later plot.
+    assert minor["Prava"]["description"] == (
+        "There is Prava, the intake caseworker who onboarded Milo with such "
+        "practiced warmth"
+    )
+    assert minor["Old Fen"]["description"].endswith("begun to file himself")
+
+
+def test_outline_consistency_reports_people_and_title_reuse():
+    """(F) W6-4, reported: Zara is in a scene but not its chapter's people,
+    and a scene reuses a chapter title."""
+    nodes = [
+        {"title": "One", "people": ["Milo Voss"], "children": [{"title": "Two"}]},
+        {"title": "Two", "children": [{"title": "B", "people": ["Zara Okafor"]}]},
+    ]
+    assert pipeline.outline_consistency(nodes) == {
+        "people_mismatches": ["B: Zara Okafor"],
+        "title_reuse": ["Two"],
+    }
 
 
 async def test_outline_step_reports_synopsis_secondaries(tmp_path):
@@ -840,7 +870,8 @@ async def test_collect_scene_reads_beats_from_the_scene_api(tmp_path):
 REVISE_DRAFT = (
     "Milo initialled the form.\n\n"
     "Across the partition, very quietly and without any hurry at all, Zara did not "
-    "look up.\n\n"
+    "look up. She turned a page of the ledger, then another, as though the new "
+    "analyst were a draft she had not been asked to review.\n\n"
     '"Is it always this quiet?" Milo asked.\n\n'
     '"No," Zara said. "Sometimes it\'s quieter."'
 )
@@ -853,13 +884,17 @@ REVISE_BEATS = [
 ]
 
 
-def test_tighten_a_paragraph_inside_beat_1_then_ask_the_rest():
-    """S-7: the tighten stays inside beat 1, so the redo meets beat 2 as
-    written; with one beat it is the last paragraph. B-4: no keep clause."""
-    tighten = pipeline.tighten_request(REVISE_DRAFT, REVISE_BEATS)["range"]
-    assert REVISE_DRAFT[tighten["start"] : tighten["end"]].startswith("Across")
-    one = pipeline.tighten_request(REVISE_DRAFT, REVISE_BEATS[:1])["range"]
-    assert REVISE_DRAFT[one["start"] :].startswith('"No," Zara')
+def test_tighten_the_longest_paragraph_of_beat_1_then_ask_the_rest():
+    """(F) W6-7 (c): the longest beat-1 paragraph of >= 30 words, so the redo
+    meets beat 2 as written; else the scene's longest; else none (W5b's
+    five-word target). B-4: no keep clause."""
+    long, longer = " ".join(["He read the ledger."] * 8), " ".join(["Zara."] * 40)
+    draft = f"{long}\n\nShort.\n\n{longer}"
+    beats = [{"content": f"{long}\n\nShort."}, {"content": longer}]
+    for bs, text in ((beats, long), ([{"content": "Short."}], longer), ([], longer)):
+        got = pipeline.tighten_request(draft, bs)["range"]
+        assert draft[got["start"] : got["end"]] == text
+    assert pipeline.tighten_request("Short.\n\nAlso short.", []) is None
     reqs = pipeline.revise_requests(REVISE_DRAFT, has_beats=True)
     assert [r["id"] for r in reqs] == ["colder", "redo_beat"]
     colder = reqs[0]["range"]
@@ -958,6 +993,7 @@ async def test_revise_step_accepts_the_tighten_and_asks_the_rest_of_it(tmp_path)
     accepted = client.proposals["p1"]["content"]
     assert [r["draft"] for r in client.revised] == [REVISE_DRAFT, accepted, accepted]
     assert colder["outside_identical"] and redo["dropped_callbacks"] == ["B-flat"]
+    assert tighten["untouched_share"] == 0.5  # (F) D6: its second sentence kept
     assert redo["borrowed_phrase"] == []
     seen = [c for rid, c in judge.seen if rid == "RA"][0]
     assert "INSTRUCTION: Tighten this paragraph" in seen

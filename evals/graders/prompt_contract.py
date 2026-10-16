@@ -55,10 +55,13 @@ outline:chapters answer (SPEC-38).
 
 Wave 5: ``samples_not_plot``  beat_prose, scene_revise: no sample is plot by
 the corpus gold (``evals.graders.plot``, SPEC-45); reports ``classified``
-(``vacuous`` when 0) and ``later_plot_slots``, and ``emptied_by_rule`` blocks (by
-the indexed ``movement_store`` when given) leave ``movement_coverage``.
+(``vacuous`` when 0), ``later_plot_slots`` and (wave 6) ``unplaced_events``.
 ``voice_dialogue.voice_coverage``: the share of beat_prose principal blocks with
 a voice sample.
+
+Wave 6 (SPEC-52): ``json_mode_where_json``  each ``JSON_PURPOSES`` call recorded
+``response_format`` JSON_OBJECT. ``movement`` (D3a) and the reported
+``hindsight`` and ``scripted_slots``: see ``grade``.
 
 Each check reports ``{n, passed, rate, failures}``; a check with nothing to
 check (no such call in the archive) reports ``n == 0`` and ``rate = None``, so
@@ -103,6 +106,7 @@ from app.core.prompt_markers import (
     STORY_POSITION_RE,
     labelled_line,
 )
+from app.llm.json_utils import JSON_OBJECT
 from app.orchestration.pov import Pov
 from app.parsing.names import NON_NAME_TOKENS, mentions, norm
 from evals.graders import plot, seams
@@ -368,6 +372,7 @@ _BIBLE_LABELS = re.compile(r"^(Role|Description|Goals|Arc|Voice):")
 _DOUBLED_VOICE = re.compile(r"(?i)\bvoice:\s*voice:")
 _EVIDENCE_LINE = re.compile(r"^\s*-\s*(\(part\s+\d+\)|[\"“])")
 _SCENE_DESCRIPTION = labelled_line(SCENE_DESCRIPTION_LABEL)
+_BEAT_TO_WRITE = labelled_line(BEAT_TO_WRITE_LABEL)
 _ALSO_NAMED = labelled_line(ALSO_NAMED_LABEL)
 # "Premise (confirmed by the author...): ..." (CONFIRMED_PREMISE_NOTE).
 _CONFIRMED_PREMISE = re.compile(
@@ -857,7 +862,30 @@ CHECKS = (
     "plan_sees_chapter",
     "redo_sees_plan",
     "samples_not_plot",
+    # wave 6
+    "json_mode_where_json",
 )
+
+# The calls whose prompt asks for JSON only (W6-6): a literal list.
+JSON_PURPOSES = (
+    *("outline:skeleton", "outline:chapters", "outline:beats", "plan_beats"),
+    *("continuity", "extraction_map", "extraction_reduce", "extraction_synopsis"),
+)
+_HINDSIGHT = re.compile(
+    r"would later|much later|years later|would come to|did not yet know", re.I
+)
+_PRONOUNS = ("his her your my their", "he she you i they", "him me them")
+_FOLD = {w: f"<{n}>" for n, ws in enumerate(_PRONOUNS) for w in ws.split()}
+
+
+def scripted_slot(sample: str, ref: str) -> dict:
+    """D4, reported (B-4: not a gate): a pronoun-folded 6-word run shared with
+    `ref` (beat line + brief), and the share of its content words `ref` holds."""
+    fold = [[_FOLD.get(w, w) for w in seams.words(t)] for t in (sample, ref)]
+    own, theirs = ({w for w in seams.words(t) if len(w) > 3} for t in (sample, ref))
+    six = bool(seams.grams(fold[0], 6) & seams.grams(fold[1], 6))
+    share = round(len(own & theirs) / max(1, len(own)), 2)
+    return {"folded6": six, "content_share": share}
 
 
 def _median(values: list[int]) -> float | None:
@@ -931,13 +959,16 @@ def grade(
     pg = {"events": excerpt_events or [], "paragraphs": excerpt.split("\n\n")}
     placed = plot.locate(pg["events"], plot.outline_chapters(records))
     plotted = dict.fromkeys(("classified", "later_plot_slots"), 0)
-    emptied = dict.fromkeys(principal_names, 0)
-    emptied_blocks: list[dict] = []  # {id, owner: the plot paragraphs}
+    # D3a: a principal is eligible in a beat when the store holds a line of
+    # theirs that is not gold plot there; every eligible block must move.
+    move = _Tally()
+    ineligible: dict[str, set[int]] = {}  # owner: the gold paragraphs
+    hindsight, scripted = [], []
     shown: dict[str, set[str]] = {}  # every movement line each owner is shown
     for rec in (r for r in records if purpose(r) == "beat_prose"):
         for o, ls in movement_blocks(characters_section(prompt_text(rec)) or ""):
             shown.setdefault(o, set()).update(ls)
-    if movement_store is not None:  # D6 reads what the store holds
+    if movement_store is not None:  # D3a reads what the store holds
         shown = {_who(o, aliases): set(ls) for o, ls in movement_store.items()}
 
     for rec in records:
@@ -945,6 +976,16 @@ def grade(
         purposes[pur or "(none)"] = purposes.get(pur or "(none)", 0) + 1
         prompt = prompt_text(rec)
         tallies["no_doubled_voice_label"].add(rec, check_no_doubled_voice(prompt))
+        if pur in JSON_PURPOSES:
+            fmt = rec.get("response_format")
+            why = f"response_format {json.dumps(fmt)}, not JSON_OBJECT"
+            tallies["json_mode_where_json"].add(rec, [why] * (fmt != JSON_OBJECT))
+        if pur in ("beat_prose", "scene_revise"):
+            hindsight += [
+                {"id": rec.get("id"), "sentence": s}
+                for s in re.split(r"(?<=[.!?])\s+", rec.get("answer") or "")
+                if _HINDSIGHT.search(s)
+            ]
         chapter = None
         if pur in ("beat_prose", "scene_revise") and pg["events"]:
             reasons, chapter = check_samples_not_plot(prompt, pg, placed, plotted)
@@ -988,14 +1029,26 @@ def grade(
             tallies["movement_names_in_scene"].add(rec, reasons)
             said = {_who(o, aliases) for o, ss in voice_samples(prompt).items() if ss}
             voiced_blocks += [o in said for o, _ in blocks if o in movement]
-            for owner, n in blocks:
-                why = plot.only_plot(shown.get(owner), chapter, pg, placed)
-                if owner in movement and not n and why:  # D6
-                    emptied[owner] += 1
-                    emptied_blocks.append({"id": rec.get("id"), owner: why})
-                elif owner in movement:
-                    movement[owner] += n
-                    moving_blocks.append(n > 0)
+            empty, eligible = [], 0
+            for owner, n in ((o, n) for o, n in blocks if o in movement):
+                movement[owner] += n
+                moving_blocks.append(n > 0)
+                lines = shown.get(owner) or ()
+                why = plot.only_plot(lines, chapter, pg, placed)
+                if lines and not why:  # D3a: eligible here
+                    eligible += 1
+                    empty += [f"{owner}: eligible, no movement line"] * (not n)
+                else:
+                    ineligible.setdefault(owner, set()).update(why)
+            if eligible:
+                move.add(rec, empty)
+            found = (r.search(prompt) for r in (_BEAT_TO_WRITE, _SCENE_DESCRIPTION))
+            ref = " ".join(m.group(1) for m in found if m)
+            scripted += [
+                {"id": rec.get("id"), "who": o, **scripted_slot(s, ref)}
+                for o, ss in voice_samples(prompt).items()
+                for s in ss
+            ]
         if pur == "extraction_reduce" and principal_names:
             reasons, checked = check_reduce_evidence(prompt, principal_names, aliases)
             if checked:
@@ -1068,13 +1121,16 @@ def grade(
         round(sum(moving_blocks) / len(moving_blocks), 4) if moving_blocks else None
     )
     out["movement_names_in_scene"]["movement_lines"] = movement
-    out["movement_names_in_scene"]["emptied_by_rule"] = emptied
-    out["movement_names_in_scene"]["emptied_blocks"] = emptied_blocks
-    # The §6.2 gate's n = 0 case: no block counted, and every one listed above.
-    out["movement_names_in_scene"]["every_block_emptied"] = bool(
-        emptied_blocks and not moving_blocks
+    # Gated (§6.2, D3a): n = 0 passes only with every principal listed with gold.
+    listed = {o: sorted(ps) for o, ps in sorted(ineligible.items())}
+    out["movement"] = move.as_dict() | {"ineligible": listed}
+    out["movement"]["ok"] = (
+        move.passed == move.n if move.n else bool(listed) and all(listed.values())
     )
-    out["samples_not_plot"].update(plotted, placed=placed)
+    out["hindsight"] = hindsight  # reported (W6-3)
+    out["scripted_slots"] = scripted  # reported (D4)
+    unplaced = plot.unplaced(pg["events"], plot.outline_chapters(records))
+    out["samples_not_plot"].update(plotted, placed=placed, unplaced_events=unplaced)
     # Gated with classified > 0 (§6.2): a run that showed no sample proves nothing.
     out["samples_not_plot"]["vacuous"] = plotted["classified"] == 0
     # Gated 0 / 0 by the eval (§6.2): the worst beat, and how many beats lift.

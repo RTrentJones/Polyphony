@@ -525,3 +525,9 @@ class TestPlotGold:
         # The repeat of prompt "a" is this run's own determinism, not a replay.
         assert out["beat_prose"] == {"n": 3, "replayed": 1, "rate": 0.3333}
         assert out["plan_beats"]["rate"] == 1.0
+        # (F) D12: an empty JSON value or a missing answer is not a replay.
+        blank = [
+            rec("e", "[]", "continuity"),
+            {"purpose": "continuity", "messages": []},
+        ]
+        assert "continuity" not in plot.replayed(blank, [rec("z", "[]")])
