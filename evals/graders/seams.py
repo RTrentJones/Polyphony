@@ -28,14 +28,14 @@ def words(text: str) -> list[str]:
     return _WORD.findall(t)
 
 
-def _grams(w: list[str], n: int) -> set[tuple[str, ...]]:
+def grams(w: list[str], n: int) -> set[tuple[str, ...]]:
     return {tuple(w[i : i + n]) for i in range(len(w) - n + 1)}
 
 
 def shared(a: str, b: str, n: int = N) -> set[tuple[str, ...]]:
     """The n-grams the end of `a` and the start of `b` have in common: the
     seam where `b` follows `a`."""
-    return _grams(words(a)[-SEAM_WORDS:], n) & _grams(words(b)[:SEAM_WORDS], n)
+    return grams(words(a)[-SEAM_WORDS:], n) & grams(words(b)[:SEAM_WORDS], n)
 
 
 def max_overlap(texts: list[str], n: int = N) -> int:

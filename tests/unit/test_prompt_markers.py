@@ -97,12 +97,19 @@ async def test_outline_prompt_markers(monkeypatch):
     }
     await so._stage_chapters(canon, skeleton, None)
     chapters = [{"title": "Intake", "act_index": 0, "characters": ["Milo Voss"]}]
-    await so._stage_beats_for_act(canon, 0, chapters, None, skeleton=skeleton)
+    await so._stage_beats_for_act(
+        canon, 0, None, skeleton=skeleton, outline=chapters, earlier=[]
+    )
     for prompt in (
         fake.prompts["outline:chapters"][0],
         fake.prompts["outline:beats"][0],
     ):
         assert pc._CONFIRMED_PREMISE.search(prompt).group(1) == "Milo wakes up."
+    # Wave-4 §1(a): the whole-outline header is imported by its emitter.
+    assert so.OUTLINE_CHAPTERS_HEADER is pm.OUTLINE_CHAPTERS_HEADER
+    assert (
+        f"{pm.OUTLINE_CHAPTERS_HEADER}\n→ 1. Intake" in fake.prompts["outline:beats"][0]
+    )
     number, act_chapters = stub_llm._act_chapters(fake.prompts["outline:beats"][0])
     assert number == 1 and act_chapters == chapters
 

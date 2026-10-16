@@ -319,8 +319,13 @@ async def test_stub_beats_carry_people_setting_tone_and_the_synopsis_people(
             "people": ["Zara Okafor", "Milo Voss"],
         },
     ]
-    act1 = await so._stage_beats_for_act(cel, 0, chapters, None, skeleton={"acts": []})
-    act2 = await so._stage_beats_for_act(cel, 1, chapters, None, skeleton={"acts": []})
+    outline = chapters + [{**c, "act_index": 1} for c in chapters]
+    act1, act2 = [
+        await so._stage_beats_for_act(
+            cel, act, None, skeleton={"acts": []}, outline=outline, earlier=[]
+        )
+        for act in (0, 1)
+    ]
     first = act1[0]["children"][0]
     assert first["people"][0] == "Milo Voss" and "Prava" in first["people"]
     assert first["setting"] == "the intake atrium" and first["tone"] == "wry"
