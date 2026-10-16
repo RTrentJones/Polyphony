@@ -1,0 +1,40 @@
+{
+  "run": "W7",
+  "outline_hash": "0525c2103382cf5ba3393cb377e4e169d441b1bdda2439b094553ac1f9a599d5",
+  "signed_by": "PM",
+  "signed_at": "2026-10-16T23:49:06Z",
+  "placements": {
+    "intake": {
+      "chapter": 1,
+      "line": "A Strong Culture Fit: Prava slides a laminated org chart across the desk and tells Milo he has been retained for Reconciliations; Milo, told for the first time that his forty-one years of optimizing are an asset, says yes before anyone offers him a choice and goes from disoriented to eager."
+    },
+    "training": {
+      "chapter": null,
+      "line": null
+    },
+    "partition": {
+      "chapter": 1,
+      "line": "Across the Partition: At his new desk Milo pitches dashboards and low-hanging fruit to Zara, who answers in flat instructions to close only what is in his queue and read every appendix; Milo hears mentorship where there is only courtesy, and decides they are going to be friends."
+    },
+    "bell": {
+      "chapter": 2,
+      "line": "Four Minutes: Milo zeroes Halvard Bell's tenure, initials the form and watches Facilities clear Bell's desk before the coffee finishes dispensing; his pride in the speed curdles slightly when Zara will tell him only that Bell 'goes under', and that night he locks the ledger in his drawer without knowing why."
+    },
+    "drawer": {
+      "chapter": 2,
+      "line": "Four Minutes: Milo zeroes Halvard Bell's tenure, initials the form and watches Facilities clear Bell's desk before the coffee finishes dispensing; his pride in the speed curdles slightly when Zara will tell him only that Bell 'goes under', and that night he locks the ledger in his drawer without knowing why."
+    },
+    "summons": {
+      "chapter": 2,
+      "line": "The Heavy Memo: A memo signed by Edric Thane summons Milo personally; Milo reads it as a career win, and Zara's terse warning to bring nothing, sign nothing and stand if offered a chair is the first time her flatness sounds like fear on his behalf."
+    },
+    "corner office": {
+      "chapter": 2,
+      "line": "Stand: In the cold corner office Edric Thane, hands folded on a closed ledger, calls Milo's speed appetite rather than diligence and says he was retained because he does not ask questions; Milo surprises himself by refusing the chair, his first small act of not complying."
+    },
+    "discrepancy": {
+      "chapter": 2,
+      "line": "A Column No One Explained: Milo unlocks his drawer and finds, in a column no one ever explained, that Bell's tenure was not zeroed but moved; for the first time he turns to Zara with a question instead of a workflow, and she tells him he has now read an appendix and that they have paperwork to do."
+    }
+  }
+}
