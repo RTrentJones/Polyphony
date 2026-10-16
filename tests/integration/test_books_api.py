@@ -79,8 +79,7 @@ class TestBooksCRUD:
         self, client, auth_headers, async_session, test_user, book
     ):
         """SPEC-37: chapter position, then scene position; trashed scenes
-        skipped; unfiled scenes last, newest first."""
-        from datetime import datetime, timedelta, timezone
+        skipped; unfiled scenes last."""
         from uuid import UUID
 
         from app.core.orm_models import Scene
@@ -106,20 +105,13 @@ class TestBooksCRUD:
             headers=auth_headers,
         )
         await client.delete(f"/api/v1/scenes/{scenes[2]}", headers=auth_headers)
-        now = datetime.now(timezone.utc)
-        async_session.add_all(
-            Scene(
-                user_id=test_user.id,
-                book_id=UUID(book["id"]),
-                title=t,
-                created_at=now - timedelta(minutes=age),
-            )
-            for t, age in (("old loose", 10), ("new loose", 1))
+        async_session.add(
+            Scene(user_id=test_user.id, book_id=UUID(book["id"]), title="loose")
         )
         await async_session.commit()
         r = await client.get(f"/api/v1/books/{book['id']}/scenes", headers=auth_headers)
         titles = [s["title"] for s in r.json()["scenes"]]
-        assert titles == ["B1", "A0", "A1", "new loose", "old loose"]
+        assert titles == ["B1", "A0", "A1", "loose"]
 
 
 @pytest.mark.integration

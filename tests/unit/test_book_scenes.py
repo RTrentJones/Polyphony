@@ -101,16 +101,18 @@ class TestSceneTitles:
     """SPEC-37: a generated scene is named by `scene_batch.scene_title`, and the
     author renames it with an unversioned PATCH."""
 
-    async def test_a_planned_scene_takes_its_beats_title(
+    async def test_planned_and_single_scenes_are_named_by_one_rule(
         self, client, auth_headers, async_session, test_book
     ):
+        from uuid import UUID
+
         from sqlalchemy import select
 
         from app.core.orm_models import Scene
         from app.jobs.scene_batch import scene_title
         from tests.unit.test_planned_beats import _PLANNED, _beat_book, _requests
 
-        _, promoted, _ = await _beat_book(
+        ids, promoted, (_, b2, _) = await _beat_book(
             client, auth_headers, async_session, test_book
         )
         r = await client.post(
@@ -123,17 +125,7 @@ class TestSceneTitles:
         requests = await _requests(async_session)
         assert [scene_title(q) for q in requests] == ["Intake", "Lunch", "Caseworker"]
 
-    async def test_a_single_scene_takes_the_beat_title_else_six_words(
-        self, client, auth_headers, async_session, test_book
-    ):
-        from uuid import UUID
-
-        from app.core.orm_models import Scene
-        from tests.unit.test_planned_beats import _beat_book
-
-        ids, promoted, (_, b2, _) = await _beat_book(
-            client, auth_headers, async_session, test_book
-        )
+        # A single scene: the picked beat's title, else the first six words.
         url = f"/api/v1/books/chapters/{promoted['chapter_id']}/scenes/generate"
         body = {
             "character_ids": [ids["Milo Voss"]],
