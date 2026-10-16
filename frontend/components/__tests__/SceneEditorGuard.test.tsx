@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 
 import SceneEditorPage from '@/app/books/editor/page'
 import { draftKey, hashText, readDraft, writeDraft } from '@/lib/draft-store'
-import type { Scene, SceneRevision } from '@/lib/types'
+import type { SceneDetail, SceneRevision } from '@/lib/types'
 
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }))
 const nav = vi.hoisted(() => ({ query: 'scene=s1&book=b1' }))
@@ -16,18 +16,22 @@ const booksApi = vi.hoisted(() => ({
   getScene: vi.fn(),
   getSceneRevisions: vi.fn(),
   saveSceneContent: vi.fn(),
+  updateSceneTitle: vi.fn(),
 }))
 vi.mock('@/lib/books-store', () => ({ booksApi }))
 vi.mock('@/components/SceneGrounding', () => ({ default: () => null }))
 
 const ORIGINAL = 'Milo read the appendices.'
-const scene: Scene = {
+const scene: SceneDetail = {
   id: 's1',
   source_id: null,
   characters: ['Milo Voss'],
   status: 'completed',
   created_at: null,
   content: ORIGINAL,
+  title: 'Retained',
+  chapter: { id: 'c1', number: 1, title: 'Strong Culture Fit' },
+  neighbours: { prev: null, next: 's2' },
 }
 const revision: SceneRevision = {
   id: 'r1',
@@ -46,7 +50,7 @@ function type(editor: HTMLTextAreaElement, text: string) {
   fireEvent.change(editor, { target: { value: text } })
 }
 
-describe('Scene editor safety net (SPEC-16, B1)', () => {
+describe('Scene editor safety net and header (SPEC-16 B1, SPEC-37)', () => {
   let confirmSpy: MockInstance<(message?: string) => boolean>
 
   beforeEach(() => {
@@ -57,6 +61,7 @@ describe('Scene editor safety net (SPEC-16, B1)', () => {
     booksApi.getScene.mockReset().mockResolvedValue(scene)
     booksApi.getSceneRevisions.mockReset().mockResolvedValue({ scene_id: 's1', revisions: [] })
     booksApi.saveSceneContent.mockReset()
+    booksApi.updateSceneTitle.mockReset()
     confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
   })
   afterEach(() => vi.restoreAllMocks())
@@ -64,6 +69,7 @@ describe('Scene editor safety net (SPEC-16, B1)', () => {
   it('does not ask when there is nothing unsaved', async () => {
     await renderEditor()
     fireEvent.click(screen.getByRole('button', { name: 'Back to book' }))
+    await act(async () => {})
     expect(confirmSpy).not.toHaveBeenCalled()
     expect(router.push).toHaveBeenCalledWith('/books/detail?id=b1')
   })
@@ -72,6 +78,7 @@ describe('Scene editor safety net (SPEC-16, B1)', () => {
     const editor = await renderEditor()
     type(editor, 'Twenty minutes of revision.')
     fireEvent.click(screen.getByRole('button', { name: 'Back to book' }))
+    await act(async () => {})
     expect(confirmSpy).toHaveBeenCalledTimes(1)
     expect(router.push).not.toHaveBeenCalled()
     expect(router.replace).not.toHaveBeenCalled()
@@ -83,6 +90,7 @@ describe('Scene editor safety net (SPEC-16, B1)', () => {
     type(editor, 'Twenty minutes of revision.')
     confirmSpy.mockReturnValue(true)
     fireEvent.click(screen.getByRole('button', { name: 'Back to book' }))
+    await act(async () => {})
     expect(router.replace).toHaveBeenCalledWith('/books/detail?id=b1')
     expect(router.push).not.toHaveBeenCalled()
   })
@@ -161,6 +169,7 @@ describe('Scene editor safety net (SPEC-16, B1)', () => {
     window.dispatchEvent(unload)
     expect(unload.defaultPrevented).toBe(false)
     fireEvent.click(screen.getByRole('button', { name: 'Back to book' }))
+    await act(async () => {})
     expect(confirmSpy).not.toHaveBeenCalled()
   })
 
@@ -176,6 +185,7 @@ describe('Scene editor safety net (SPEC-16, B1)', () => {
     expect(booksApi.saveSceneContent).not.toHaveBeenCalled()
     // Restored text is unsaved, so the guard is live.
     fireEvent.click(screen.getByRole('button', { name: 'Back to book' }))
+    await act(async () => {})
     expect(confirmSpy).toHaveBeenCalled()
   })
 
@@ -258,6 +268,94 @@ describe('Scene editor safety net (SPEC-16, B1)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Restore' }))
     expect(confirmSpy).toHaveBeenCalledTimes(1)
     expect(editor.value).toBe('Unsaved.')
+  })
+
+  it('names the chapter by its number; Previous is disabled on the first scene', async () => {
+    await renderEditor()
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'Ch 1 · Strong Culture Fit ›'
+    )
+    expect(screen.getByLabelText('Scene title')).toHaveValue('Retained')
+    expect(screen.getByRole('button', { name: 'Previous scene' })).toBeDisabled()
+  })
+
+  it('Next goes through the unsaved-changes guard', async () => {
+    const editor = await renderEditor()
+    type(editor, 'Unsaved.')
+    fireEvent.click(screen.getByRole('button', { name: 'Next scene' }))
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalledTimes(1))
+    expect(router.push).not.toHaveBeenCalled()
+    expect(router.replace).not.toHaveBeenCalled()
+  })
+
+  it('saves the title on blur, and Next waits for that save', async () => {
+    let finish: (v: { id: string; title: string }) => void = () => {}
+    booksApi.updateSceneTitle.mockReturnValue(new Promise((r) => (finish = r)))
+    await renderEditor()
+    const title = screen.getByLabelText('Scene title')
+    fireEvent.change(title, { target: { value: 'The Next Desk' } })
+    fireEvent.blur(title)
+    await waitFor(() => expect(booksApi.updateSceneTitle).toHaveBeenCalledWith('s1', 'The Next Desk'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next scene' }))
+    await act(async () => {})
+    expect(router.push).not.toHaveBeenCalled()
+    await act(async () => finish({ id: 's1', title: 'The Next Desk' }))
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/books/editor?scene=s2&book=b1'))
+  })
+
+  it('a second title save waits for the first, so the latest edit lands last', async () => {
+    let finish: (v: { id: string; title: string }) => void = () => {}
+    booksApi.updateSceneTitle
+      .mockReturnValueOnce(new Promise((r) => (finish = r)))
+      .mockResolvedValueOnce({ id: 's1', title: 'Second' })
+    await renderEditor()
+    const title = screen.getByLabelText('Scene title')
+    fireEvent.change(title, { target: { value: 'First' } })
+    fireEvent.blur(title)
+    fireEvent.change(title, { target: { value: 'Second' } })
+    fireEvent.blur(title)
+    await act(async () => {})
+    expect(booksApi.updateSceneTitle).toHaveBeenCalledTimes(1)
+    await act(async () => finish({ id: 's1', title: 'First' }))
+    await waitFor(() => expect(booksApi.updateSceneTitle).toHaveBeenLastCalledWith('s1', 'Second'))
+  })
+
+  it('a revert typed while a save is in flight is saved after it', async () => {
+    let finish: (v: { id: string; title: string }) => void = () => {}
+    booksApi.updateSceneTitle
+      .mockReturnValueOnce(new Promise((r) => (finish = r)))
+      .mockResolvedValueOnce({ id: 's1', title: 'Retained' })
+    await renderEditor()
+    const title = screen.getByLabelText('Scene title')
+    fireEvent.change(title, { target: { value: 'New' } })
+    fireEvent.blur(title)
+    fireEvent.change(title, { target: { value: 'Retained' } })
+    fireEvent.blur(title)
+    await act(async () => finish({ id: 's1', title: 'New' }))
+    await waitFor(() => expect(booksApi.updateSceneTitle).toHaveBeenLastCalledWith('s1', 'Retained'))
+  })
+
+  it('Back to book also waits for the title save, and stays when it fails', async () => {
+    booksApi.updateSceneTitle.mockRejectedValue(new Error('Server error'))
+    await renderEditor()
+    const title = screen.getByLabelText('Scene title')
+    fireEvent.change(title, { target: { value: 'The Next Desk' } })
+    fireEvent.blur(title)
+    fireEvent.click(screen.getByRole('button', { name: 'Back to book' }))
+    await act(async () => {})
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it('a failed title save keeps the author on the scene', async () => {
+    booksApi.updateSceneTitle.mockRejectedValue(new Error('Server error'))
+    await renderEditor()
+    const title = screen.getByLabelText('Scene title')
+    fireEvent.change(title, { target: { value: 'The Next Desk' } })
+    fireEvent.blur(title)
+    fireEvent.click(screen.getByRole('button', { name: 'Next scene' }))
+    await act(async () => {})
+    expect(router.push).not.toHaveBeenCalled()
   })
 })
 

@@ -10,6 +10,7 @@ the weekly live run:
 """
 
 import json
+import re
 from unittest.mock import AsyncMock
 
 import pytest
@@ -138,19 +139,18 @@ async def test_attribution_creates_book_scoped_characters(tmp_path, monkeypatch)
 
     monkeypatch.setattr(embed, "embed_many", fake_many)
     monkeypatch.setattr(embed, "embed_one", fake_one)
-    gt = {
-        "synopsis": "s",
-        "voice_probe": "Say a few sentences to the reviewer.",
-        "gold_lines": {
-            "Nora": {"train": ["a"], "test": ["b"]},
-            "Elias": {"train": ["c"], "test": ["d"]},
-        },
-    }
+    _, cel = pipeline.load_corpus("cel")
+    gt = {"synopsis": "s", "voice_probe": cel["voice_probe"], "gold_lines": {}}
+    for who in ("Milo Voss", "Edric Thane"):
+        gt["gold_lines"][who] = {"train": ["a"], "test": ["b"]}
     client = _FakeClient({})
     out = await pipeline.step_attribution(_ctx(tmp_path, client, gt))
-    assert client.created == [("Nora", "book-2"), ("Elias", "book-2")]
+    assert client.created == [("Milo Voss", "book-2"), ("Edric Thane", "book-2")]
     assert out["generated"] == 2 and "error" not in out
-    assert client.prompts == [gt["voice_probe"]] * 2  # the in-world probe
+    # M3: each in their own role; Edric reviews, Milo is reviewed.
+    milo, edric = cel["voice_probe"]["Milo Voss"], cel["voice_probe"]["Edric Thane"]
+    assert client.prompts == [milo, edric] and "your desk for review" in edric
+    assert [d["probe"] for d in out["detail"]] == [milo, edric]
 
 
 async def test_client_refuses_a_character_without_a_book():
@@ -309,16 +309,28 @@ class _ProductClient:
             cast.append(ids["Zara Okafor"])
         return {"title": f"title {chapter_id}", "summary": "s", "character_ids": cast}
 
+    n_scenes = 2
+
     async def generate_planned(self, chapter_id, body=None):
         self.calls.append(("generate_planned", chapter_id))
-        return {"total": 2, "scenes": [{"id": "s1"}, {"id": "s2"}]}
+        self.spent = 1000
+        ids = [{"id": f"s{i + 1}"} for i in range(self.n_scenes)]
+        return {
+            "total": self.n_scenes,
+            "queued": self.n_scenes,
+            "deferred": 0,
+            "reason": "batch reason",
+            "estimate": {"tokens": 1200},
+            "scenes": ids,
+        }
+
+    spent = 0
 
     async def create_chapter(self, book_id, title, summary=""):
-        return {"id": "ch-fallback"}
+        return {"id": "ch-new"}
 
-    async def generate_scene(self, chapter_id, body):
-        self.calls.append(("generate_scene", chapter_id, body))
-        return {"id": "s2", "status": "completed"}
+    async def usage(self):
+        return {"tokens_used_24h": 500 + self.spent}
 
     async def get_scene(self, sid):
         second = BEAT_B_COPY if sid == "s1" else BEAT_B_CLEAN
@@ -382,10 +394,11 @@ def test_cel_excerpt_carries_speaker_labelled_voice():
     assert set(gold) == {"Milo Voss", "Zara Okafor", "Edric Thane"}
     for name, v in gold.items():
         lines = v["train"] + v["test"]
-        assert len(lines) >= 6, name
+        assert len(lines) >= 5, name  # whole utterances: Edric has five
         assert v["test"], name
-        for line in lines:
-            assert line in excerpt, (name, line)
+        for line in lines:  # joined across its tag (SPEC-39): each sentence is there
+            for part in re.split(r"(?<=[.?!]) ", line):
+                assert part[:-1] in excerpt, (name, line, part)
     for lines in gt["other_lines"].values():
         assert all(line in excerpt for line in lines)
     style = pipeline.load_style("cel")
@@ -510,16 +523,32 @@ def test_r1_requires_someone_of_the_cast_on_the_page():
     assert checks["warnings"] == ["Edric Thane is in the plan but never named"]
 
 
-async def test_prose_falls_back_to_canonical_beat_two(tmp_path):
-    client = _ProductClient(two_principal_chapter=False)
-    out = await pipeline.step_prose(_cel_ctx(tmp_path, client))
-    assert out["path"] == "fallback" and "two principals" in out["fallback_reason"]
-    (call,) = [c for c in client.calls if c[0] == "generate_scene"]
-    _, gt = pipeline.load_corpus("cel")
-    body = call[2]
-    assert body["scene_description"] == gt["canonical_beats"][1]["title"]
-    assert body["setting"] == "Reconciliations floor, Aeon Holdings, Marrow District"
-    assert "fog" not in json.dumps(body)
+async def test_a_failed_planned_path_fails_loudly_and_is_tried_again(tmp_path):
+    """M16 (SPEC-39): no fallback scene; the failure is reported, scored None
+    and not memoised (S5), so the next run takes the planned path."""
+    out = await pipeline.step_prose(
+        _cel_ctx(tmp_path, _ProductClient(two_principal_chapter=False))
+    )
+    assert out["path"] == "failed" and "two principals" in out["reason"]
+    assert out["score"] is None and "fallback" not in json.dumps(out)
+    again = await pipeline.step_prose(_cel_ctx(tmp_path, _ProductClient()))
+    assert again["path"] == "planned" and again["score"] is not None
+    assert (again["queued"], again["deferred"], again["reason"]) == (
+        2,
+        0,
+        "batch reason",
+    )
+    assert again["estimate_over_actual"] == 1.2
+
+
+@pytest.mark.parametrize("n, judged", [(4, 4), (7, 5)])
+async def test_the_judge_grades_every_planned_scene_up_to_five(tmp_path, n, judged):
+    client = _ProductClient()
+    client.n_scenes = n
+    judge = _RubricJudge()
+    out = await pipeline.step_prose(_cel_ctx(tmp_path, client, judge))
+    assert len(out["scenes"]) == n
+    assert sum(1 for rid, _ in judge.seen if rid == "R1") == judged
 
 
 async def test_prose_reuses_the_memoised_outline_in_its_own_book(tmp_path):
@@ -699,6 +728,17 @@ def test_outline_secondaries_counts_text_and_secondary_names():
     assert pipeline.outline_secondaries([], ["Prava"])[
         "outline_names_synopsis_secondaries"
     ] == ("0/1")
+
+
+async def test_the_outline_book_commits_the_secondaries_as_minor(tmp_path):
+    """S6: as an author who accepted extraction's defaults; each described
+    from the excerpt or the synopsis (the synopsis never names Bell)."""
+    client = _ProductClient()
+    await pipeline.step_outline(_cel_ctx(tmp_path, client))
+    minor = {c["name"]: c for c in client.chars.values() if c.get("role") == "minor"}
+    assert sorted(minor) == ["Halvard Bell", "Old Fen", "Prava"]
+    assert all(c["description"] for c in minor.values())
+    assert minor["Halvard Bell"]["description"].startswith("Halvard Bell had been")
 
 
 async def test_outline_step_reports_synopsis_secondaries(tmp_path):
@@ -935,3 +975,12 @@ def test_portable_outline_swaps_ids_in_beat_children_too():
     child = out[0]["children"][0]
     assert "character_ids" not in child and child["characters"] == ["Zara Okafor"]
     assert nodes[0]["children"][0]["character_ids"] == ["z1", "foreign"]  # input kept
+    # A POV the other book does not cast (the outline book's minor Bell) goes.
+    two = portable_outline(
+        [{"title": "A", "pov": "Halvard Bell"}, {"title": "B", "pov": "Milo Voss"}], ids
+    )
+    assert "pov" not in two[0] and two[1]["pov"] == "Milo Voss"
+    # The outline book's minor cast ports as secondary names, not dropped.
+    three = portable_outline(nodes, ids, {"foreign": "Halvard Bell"})
+    assert three[0]["secondary_names"] == ["Halvard Bell"]
+    assert three[0]["children"][0]["secondary_names"] == ["Halvard Bell"]

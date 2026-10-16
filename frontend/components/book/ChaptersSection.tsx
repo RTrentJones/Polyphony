@@ -25,6 +25,7 @@ import GenerateSceneModal, {
   GENERATE_BLOCKER_ID,
   generateBlocker,
 } from '@/components/book/GenerateSceneModal'
+import PlannedBeatsEditor, { WrittenLink, writtenLabel } from '@/components/book/PlannedBeatsEditor'
 import GeneratePlannedScenesButton, {
   plannedScenesMessage,
 } from '@/components/book/GeneratePlannedScenesButton'
@@ -79,6 +80,7 @@ export default function ChaptersSection({
   const [generateFor, setGenerateFor] = useState<BookChapter | null>(null)
   const [deleteFor, setDeleteFor] = useState<BookChapter | null>(null)
   const [historyFor, setHistoryFor] = useState<BookChapter | null>(null)
+  const [editing, setEditing] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   // "Generate all planned scenes" started from the phone menu, per chapter.
   const [plannedBusy, setPlannedBusy] = useState<Record<string, boolean>>({})
@@ -354,6 +356,33 @@ export default function ChaptersSection({
 
                 {isOpen && (
                   <div className="p-3 border-t border-gray-200">
+                    {detail && (editing === chapter.id ? (
+                      <PlannedBeatsEditor
+                        chapter={detail}
+                        onCancel={() => setEditing(null)}
+                        onSaved={() => {
+                          setEditing(null)
+                          addToast('Chapter saved', 'success')
+                        }}
+                      />
+                    ) : (
+                      <div className="mb-3 text-sm text-gray-700" data-testid="planned-beats-list">
+                        <Button variant="outline" size="sm" onClick={() => setEditing(chapter.id)}>
+                          <Pencil className="h-3.5 w-3.5 mr-1" />
+                          Edit chapter {chapter.number}
+                        </Button>
+                        {!!detail.planned_beats?.length && (
+                          <p className="mt-2 text-gray-600">{writtenLabel(detail)}</p>
+                        )}
+                        <ol className="list-decimal pl-5">
+                          {detail.planned_beats?.map((b) => (
+                            <li key={b.node_id}>
+                              {b.title} <WrittenLink chapter={detail} nodeId={b.node_id} />
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    ))}
                     {!detail ? (
                       <Loading size="sm" text="Loading scenes..." />
                     ) : detail.scenes.length === 0 ? (
@@ -546,7 +575,10 @@ export default function ChaptersSection({
           entityId={historyFor.id}
           label={historyFor.title}
           onClose={() => setHistoryFor(null)}
-          onRestored={() => refreshBook().catch(() => undefined)}
+          onRestored={() => {
+            refreshBook().catch(() => undefined)
+            fetchChapter(historyFor.id).catch(() => undefined)
+          }}
         />
       )}
       {deleteFor && (

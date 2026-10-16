@@ -108,7 +108,9 @@ async def scene_setup(session, book_id: UUID, scene_request: dict) -> SceneSetup
     names = secondary_names(scene_request)
     secondaries = await scene_secondaries(session, book_id, names, canon)
     cast = scene_cast(canon, scene_request)
-    scope, pov = SceneScope.of(canon, cast, names), resolve_pov(scene_request, canon)
+    brief = scene_request.get("scene_description") or ""
+    scope = SceneScope.of(canon, cast, names, brief)
+    pov = resolve_pov(scene_request, canon)
     return SceneSetup(canon, cast, scope, pov, render_secondaries(secondaries))
 
 

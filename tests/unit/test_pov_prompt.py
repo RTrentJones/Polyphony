@@ -130,3 +130,13 @@ def test_pov_mode():
     assert pov_mode("third-omniscient") == "third person omniscient"
     assert pov_mode("close third") == "third person limited"
     assert pov_mode("prose") is None
+
+
+def test_one_head_shows_only_what_the_pov_sees_of_a_brief():
+    """W4-3 (M6): a brief may state another person's intent; a one-head POV
+    shows only what its character can see or hear of it (F). An omniscient
+    narrator may tell it (R)."""
+    limit = "The brief may say what other people intend or feel; show only what"
+    text = pov_instruction(Pov("third person limited", "Milo Voss"))
+    assert text.endswith(f"{limit} Milo Voss can see or hear.")
+    assert limit not in pov_instruction(Pov("third person omniscient", "Milo"))

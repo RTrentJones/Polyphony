@@ -49,6 +49,7 @@ const promoted: BookChapter = {
   id: 'ch-3',
   book_id: 'book-1',
   position: 2,
+  number: 3,
   title: 'Chapter 2: Milo Voss, who audits the afterlife and finds it insolvent',
   // After the SPEC-23 migration: the beats are data, the summary is just prose.
   summary: 'Milo arrives',
@@ -58,7 +59,7 @@ const promoted: BookChapter = {
   ],
 }
 const label = `chapter 3, ${displayChapterTitle(promoted.title)}`
-const plain: BookChapter = { id: 'ch-1', book_id: 'book-1', position: 0, title: 'Onboarding' }
+const plain: BookChapter = { id: 'ch-1', book_id: 'book-1', position: 0, number: 1, title: 'Onboarding' }
 
 function renderSection(chapters = [plain, promoted]) {
   const addToast = vi.fn()

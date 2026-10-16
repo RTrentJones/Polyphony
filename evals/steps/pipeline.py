@@ -19,7 +19,6 @@ imports it so the registry is populated.
 from __future__ import annotations
 
 import json
-import os
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -31,10 +30,6 @@ from evals.harness.vecmath import cosine
 from evals.steps.base import StepContext, step
 
 CORPORA = Path(__file__).resolve().parent.parent / "corpora"
-
-# The fallback scene when the promoted outline gives no chapter to generate
-# from: the corpus' second canonical beat, set where the corpus says it happens.
-_FALLBACK_SETTINGS = {"cel": "Reconciliations floor, Aeon Holdings, Marrow District"}
 
 
 def _cast_with_roles(gt: dict) -> list[dict]:
@@ -503,13 +498,14 @@ async def step_attribution(ctx: StepContext) -> dict:
         )
         char_ids[char] = created["id"]
 
-    probe = ctx.ground_truth["voice_probe"]  # in-world (SPEC-33)
-    results = []
+    results, probes = [], []
     empty = 0
     for char in gold:
+        # In-world (SPEC-33), each in their own role (M3, SPEC-39).
+        probe = ctx.ground_truth["voice_probe"][char]
 
-        async def gen(_char=char):
-            r = await ctx.client.test_dialogue(char_ids[_char], probe)
+        async def gen(_char=char, _probe=probe):
+            r = await ctx.client.test_dialogue(char_ids[_char], _probe)
             return r.get("dialogue") or r.get("action") or ""
 
         line = await ctx.cache.memo("attribution", f"{char}|{probe}", gen)
@@ -519,6 +515,7 @@ async def step_attribution(ctx: StepContext) -> dict:
         results.append(
             attribution.attribute(char, await embed.embed_one(line), ref_vecs)
         )
+        probes.append(probe)
 
     agg = attribution.accuracy(results)
     # Surface how many voices actually produced a line: accuracy=0 with
@@ -529,7 +526,7 @@ async def step_attribution(ctx: StepContext) -> dict:
         "score": agg["accuracy"],
         "generated": len(results),
         "empty": empty,
-        "detail": [r.as_dict() for r in results],
+        "detail": [{**r.as_dict(), "probe": p} for r, p in zip(results, probes)],
     }
 
 
@@ -572,7 +569,9 @@ def premise_text(premise: dict | None, edit: dict | None = None) -> str:
     return "\n".join(lines) or "(none)"
 
 
-async def _generate_outline(ctx: StepContext, book: dict) -> dict:
+async def _generate_outline(
+    ctx: StepContext, book: dict, minor: dict | None = None
+) -> dict:
     """Generate the book's outline through the product (with the author's
     premise edit when the corpus has one). `portable` is the content with the
     structural cast as NAMES, so it can be stored into another book of the
@@ -586,7 +585,7 @@ async def _generate_outline(ctx: StepContext, book: dict) -> dict:
     content = plan.get("content", [])
     return {
         "content": content,
-        "portable": portable_outline(content, book.get("character_ids") or {}),
+        "portable": portable_outline(content, book.get("character_ids") or {}, minor),
         "status": plan.get("status"),
         "warnings": plan.get("warnings", []),
         "premise": plan.get("premise"),
@@ -610,10 +609,15 @@ def outline_secondaries(nodes: list, secondaries: list[str]) -> dict:
     }
 
 
-def portable_outline(nodes: list, character_ids: dict[str, str]) -> list:
-    """Outline nodes with `character_ids` swapped for `characters` names (ids
-    the map does not know are dropped)."""
+def portable_outline(
+    nodes: list, character_ids: dict[str, str], minor: dict[str, str] | None = None
+) -> list:
+    """Outline nodes with `character_ids` swapped for `characters` names. The
+    outline book's minor cast (`minor`, id -> name) is not the other book's
+    cast, so those ids become `secondary_names` and a POV naming one is
+    dropped; any other id is dropped."""
     names = {cid: name for name, cid in character_ids.items()}
+    minor = minor or {}
     out = []
     for node in nodes or []:
         if not isinstance(node, dict):
@@ -622,25 +626,48 @@ def portable_outline(nodes: list, character_ids: dict[str, str]) -> list:
         ids = node.pop("character_ids", None)
         if isinstance(ids, list):
             node["characters"] = [names[c] for c in ids if c in names]
+            moved = [minor[c] for c in ids if c in minor]
+            have = node.get("secondary_names") or []
+            if moved:
+                node["secondary_names"] = have + [n for n in moved if n not in have]
+        if node.get("pov") not in character_ids:
+            node.pop("pov", None)
         # Beat children carry their own cast since wave 2 (SPEC-24).
         if isinstance(node.get("children"), list):
-            node["children"] = portable_outline(node["children"], character_ids)
+            node["children"] = portable_outline(node["children"], character_ids, minor)
         out.append(node)
     return out
+
+
+# Bumped when the outline book's canon changes (v1: the minor secondaries;
+# v2: they port as secondary names).
+OUTLINE_CACHE_KEY = "minor-v2"
 
 
 @step("outline", needs_api=True)
 async def step_outline(ctx: StepContext) -> dict:
     from app.planning.fidelity import flatten_outline
+    from app.planning.secondaries import intro_sentence
     from evals.graders.fidelity import grade_fidelity
 
     gt = ctx.ground_truth
     book = await _book_with_cast(ctx, f"eval-{gt['book']}", genre="")
+    # The secondaries an author accepting extraction's defaults has (S6),
+    # described from the excerpt or the synopsis (Bell is only in the excerpt).
+    known = [load_excerpts(ctx.book), gt["synopsis"]]
+    minor = {}
+    for name in gt.get("secondary_cast") or []:
+        made = await ctx.client.create_character(
+            name, book["id"], role="minor", description=intro_sentence(name, known)
+        )
+        minor[made["id"]] = name
     edit = gt.get("premise_edit")
     chapters_target = len(gt["canonical_beats"])
 
     out = await ctx.cache.memo(
-        "outline", gt["synopsis"], lambda: _generate_outline(ctx, book)
+        "outline",
+        f"{gt['synopsis']}|{OUTLINE_CACHE_KEY}",
+        lambda: _generate_outline(ctx, book, minor),
     )
     if not isinstance(out, dict):  # back-compat: a bare content list
         out = {"content": out or []}
@@ -783,18 +810,12 @@ async def step_continuity(ctx: StepContext) -> dict:
 # casts at least two principals. Each scene is checked deterministically (cast
 # recall caps R1; a repeated 6-gram across a beat or scene seam caps R4) and
 # judged on R1-R5 with the canon, style guide, beats and prior text in view:
-# scene score = R1 x mean(R2..R5). When the outline gives no such chapter, one
-# scene is written from the corpus' second canonical beat instead.
+# scene score = R1 x mean(R2..R5). When the outline gives no such chapter, the
+# step fails loudly (`path: "failed"`, score None; SPEC-39).
 _PRIOR_WORDS = 250
-
-
-def _judged_scene_cap() -> int:
-    """How many scenes the judge grades (5 calls each); the rest get the
-    deterministic checks only. EVAL_PROSE_JUDGE_SCENES, default 3."""
-    try:
-        return max(0, int(os.getenv("EVAL_PROSE_JUDGE_SCENES", "3")))
-    except ValueError:
-        return 3
+# The judge grades the first five planned scenes (5 calls each); the rest get
+# the deterministic checks only.
+_JUDGED_SCENES = 5
 
 
 async def _collect_scene(ctx: StepContext, scene_id: str) -> dict:
@@ -827,7 +848,9 @@ async def _outline_into(ctx: StepContext, book: dict) -> list:
         generated_here = True
         return out
 
-    out = await ctx.cache.memo("outline", ctx.ground_truth["synopsis"], gen)
+    out = await ctx.cache.memo(
+        "outline", f"{ctx.ground_truth['synopsis']}|{OUTLINE_CACHE_KEY}", gen
+    )
     if not isinstance(out, dict):  # back-compat: a bare content list
         out = {"content": out or []}
     content = out.get("content") or []
@@ -859,14 +882,28 @@ async def _planned_scenes(ctx: StepContext, book: dict) -> dict:
         cast = [names[c] for c in detail.get("character_ids") or [] if c in names]
         if sum(1 for n in cast if n in forms) < 2:
             continue
+        before = await ctx.client.usage()
         try:
             started = await ctx.client.generate_planned(ch["chapter_id"], {})
         except EvalClientError as e:  # e.g. 422: the chapter has no planned beats
             tried.append(f"{detail.get('title')}: {e}"[:200])
             continue
+        spent = (await ctx.client.usage())["tokens_used_24h"] - before[
+            "tokens_used_24h"
+        ]
         scenes = [await _collect_scene(ctx, s["id"]) for s in started["scenes"]]
         return {
             "path": "planned",
+            # SPEC-34: the batch at the default budget, and how far its
+            # estimate ran over what the ledger recorded (target <= 1.3).
+            "queued": started["queued"],
+            "deferred": started["deferred"],
+            "reason": started.get("reason"),
+            "estimate_over_actual": (
+                round(started["estimate"]["tokens"] / spent, 4)
+                if spent and started.get("estimate")
+                else None
+            ),
             "chapter": {
                 "id": ch["chapter_id"],
                 "title": detail.get("title"),
@@ -895,35 +932,10 @@ async def _planned_scenes(ctx: StepContext, book: dict) -> dict:
     )
 
 
-async def _fallback_scene(ctx: StepContext, book: dict, why: str) -> dict:
-    """One scene from canonical beat 2, set where the corpus says it happens."""
-    gt = ctx.ground_truth
-    beat = gt["canonical_beats"][min(1, len(gt["canonical_beats"]) - 1)]["title"]
-    cast = [n for n in _forms(gt) if n in book["character_ids"]][:2] or list(
-        book["character_ids"]
-    )[:2]
-    chapter = await ctx.client.create_chapter(book["id"], beat, summary=beat)
-    scene = await ctx.client.generate_scene(
-        chapter["id"],
-        {
-            "character_ids": [book["character_ids"][c] for c in cast],
-            "scene_description": beat,
-            "setting": _FALLBACK_SETTINGS.get(ctx.book, ""),
-            "emotional_tone": "tense",
-            "target_word_count": 600,
-        },
-    )
-    return {
-        "path": "fallback",
-        "fallback_reason": why[:300],
-        "chapter": {"id": chapter["id"], "title": beat, "summary": beat, "cast": cast},
-        "scenes": [await _collect_scene(ctx, scene["id"])],
-    }
-
-
-# Bumped when what a generation records changes (v3: planned beats, each
-# inner beat's cast), so a stale cache entry is regenerated, not regraded.
-PROSE_CACHE_KEY = "planned-v3"
+# Bumped when what a generation records changes (v4: no fallback path, the
+# batch's queued/deferred; v5: its reason, and minor cast ported as secondary
+# names), so a stale cache entry is regenerated, not regraded.
+PROSE_CACHE_KEY = "planned-v5"
 
 
 def _planned_beat_text(scene: dict, beat: dict | None) -> str:
@@ -1057,17 +1069,20 @@ async def step_prose(ctx: StepContext) -> dict:
             if gt.get("gold_lines")
             else None
         )
-        try:
-            out = await _planned_scenes(ctx, book)
-        except EvalClientError as e:
-            out = await _fallback_scene(ctx, book, str(e))
-        return {**out, "voice": voice}
+        return {**await _planned_scenes(ctx, book), "voice": voice}
 
-    produced = await ctx.cache.memo("prose", f"{gt['book']}|{PROSE_CACHE_KEY}", gen)
+    # A failure is not memoised (S5): the next run tries the planned path again.
+    try:
+        produced = await ctx.cache.memo("prose", f"{gt['book']}|{PROSE_CACHE_KEY}", gen)
+    except EvalClientError as e:
+        return {"path": "failed", "reason": str(e)[:300], "score": None, "words": 0}
     scenes = [s for s in produced.get("scenes") or [] if s.get("content", "").strip()]
     result: dict = {
         "path": produced.get("path"),
-        "fallback_reason": produced.get("fallback_reason"),
+        "queued": produced.get("queued"),
+        "deferred": produced.get("deferred"),
+        "reason": produced.get("reason"),
+        "estimate_over_actual": produced.get("estimate_over_actual"),
         "chapter": (produced.get("chapter") or {}).get("title"),
         "voice": produced.get("voice"),
         "n_scenes": len(produced.get("scenes") or []),
@@ -1110,7 +1125,7 @@ async def step_prose(ctx: StepContext) -> dict:
             "deterministic_failures": checks["caps"],
             "deterministic_warnings": checks["warnings"],
         }
-        if i < _judged_scene_cap():
+        if i < _JUDGED_SCENES:
             prior = " ".join(prev_text.split()[-_PRIOR_WORDS:]) or "(the scene opens)"
             base = (
                 f"CANON:\n{canon}\n\nSTYLE GUIDE:\n{style}\n\n"

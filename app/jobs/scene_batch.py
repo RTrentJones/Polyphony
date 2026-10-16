@@ -61,23 +61,32 @@ async def find_active_batch_job(session: AsyncSession, key: str) -> Job | None:
     ).scalar_one_or_none()
 
 
-async def written_beat_ids(session: AsyncSession, chapter_id: UUID) -> set[str]:
-    """The planned_beat_id of every live (not failed/cancelled) scene in the
-    chapter: the beats already written (planned_beat.unwritten_beats)."""
-    requests = (
-        await session.execute(
-            select(Scene.scene_request).where(
-                Scene.chapter_id == chapter_id,
-                Scene.deleted_at.is_(None),
-                Scene.status.notin_(_RETRYABLE_STATUSES),
-            )
+async def written_beats(session: AsyncSession, chapter_id: UUID) -> dict[str, str]:
+    """{planned_beat_id: scene id} over the chapter's live (not failed/cancelled)
+    scenes: the beats already written (planned_beat.unwritten_beats). When two
+    scenes share a beat, the first in chapter order wins (S7)."""
+    rows = await session.execute(
+        select(Scene.id, Scene.scene_request)
+        .where(
+            Scene.chapter_id == chapter_id,
+            Scene.deleted_at.is_(None),
+            Scene.status.notin_(_RETRYABLE_STATUSES),
         )
-    ).scalars()
-    return {
-        str(r["planned_beat_id"])
-        for r in requests
-        if isinstance(r, dict) and r.get("planned_beat_id")
-    }
+        .order_by(Scene.position)
+    )
+    out: dict[str, str] = {}
+    for scene_id, r in rows:
+        if isinstance(r, dict) and r.get("planned_beat_id"):
+            out.setdefault(str(r["planned_beat_id"]), str(scene_id))
+    return out
+
+
+def scene_title(request: dict) -> str:
+    """A generated scene's title (SPEC-37): its planned beat's title, else the
+    first six words of its description. The ONE title rule; the author renames
+    it in the editor."""
+    words = (request.get("scene_description") or "").split()[:6]
+    return (request.get("beat_title") or " ".join(words))[:500]  # scenes.title
 
 
 async def add_scene_job(
@@ -112,6 +121,7 @@ async def add_scene_job(
         source_id=source_id,
         chapter_id=chapter_id,
         position=next_pos,
+        title=scene_title(request),
         setting=request.get("setting"),
         emotional_tone=request.get("emotional_tone"),
         characters=request.get("characters"),

@@ -57,9 +57,13 @@ from playwright.async_api import Page, async_playwright, expect
 BASE = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
 EMAIL = os.getenv("ADMIN_EMAIL", "admin@e2e.test")
 PASSWORD = os.getenv("ADMIN_PASSWORD", "admin-pass-12345")
+ADMIN = (EMAIL, PASSWORD)
+# Registered by second_author_is_isolated; a step using it must run after that.
+SECOND_AUTHOR = ("second-author@example.com", "second-pass-12345")
 SHOTS = Path(os.getenv("E2E_SHOTS", "e2e-shots"))
 STUB = os.getenv("STUB_URL", "http://127.0.0.1:8099").rstrip("/")
 TIMEOUT = 90_000
+AXE = Path(__file__).resolve().parents[1] / "frontend/node_modules/axe-core/axe.min.js"
 STATE: dict = {}
 # Native dialogs (confirm, beforeunload) are accepted, like an author clicking
 # OK, unless a step switches to dismissing them; every one is recorded.
@@ -80,6 +84,7 @@ SYNOPSIS = (
 # A person the synopsis names who is not in the cast (the source never names
 # her): the outline may use her, and offers her as a suggested character.
 SECONDARY = "Prava"
+BRIEF = "The ledger drawer stays shut tonight"  # an edited beat summary (SPEC-35)
 SOURCE = """Milo Voss opened his eyes in the intake atrium.
 
 "You've been retained," the caseworker said. Milo Voss nodded slowly.
@@ -99,6 +104,17 @@ async def shot(page: Page, name: str) -> None:
     _step += 1
     SHOTS.mkdir(parents=True, exist_ok=True)
     await page.screenshot(path=str(SHOTS / f"{_step:02d}-{name}.png"), full_page=True)
+
+
+async def axe_clean(page: Page, selector: str) -> None:
+    """No serious or critical axe-core issue inside `selector`."""
+    await page.add_script_tag(path=str(AXE))
+    found = await page.evaluate(
+        "async (s) => (await axe.run(s)).violations.filter((v) =>"
+        " ['serious', 'critical'].includes(v.impact)).map((v) => v.id)",
+        selector,
+    )
+    assert not found, f"axe on {selector}: {found}"
 
 
 async def step(name: str, coro) -> None:
@@ -138,16 +154,30 @@ class dismissing_dialogs:
 async def journey(page: Page) -> None:
     page.set_default_timeout(TIMEOUT)
 
-    async def api_headers() -> dict:
-        """A bearer token for the admin author, for the API-level checks."""
-        if "token" not in STATE:
-            login = await page.request.post(
+    async def api_headers(who=ADMIN) -> dict:
+        """A bearer token per author, for the API-level checks. It logs in on a
+        cookie jar of its own, so the page's refresh cookie is never replaced."""
+        tokens = STATE.setdefault("tokens", {})
+        if who not in tokens:
+            jar = await page.context.browser.new_context()
+            login = await jar.request.post(
                 f"{BASE}/api/v1/auth/login",
-                form={"username": EMAIL, "password": PASSWORD},
+                form={"username": who[0], "password": who[1]},
             )
-            assert login.ok, f"API login failed: {login.status}"
-            STATE["token"] = (await login.json())["access_token"]
-        return {"Authorization": f"Bearer {STATE['token']}"}
+            assert login.ok, f"API login as {who[0]} failed: {login.status}"
+            tokens[who] = (await login.json())["access_token"]
+            await jar.close()
+        return {"Authorization": f"Bearer {tokens[who]}"}
+
+    async def api(method: str, path: str, data=None, who=ADMIN):
+        r = await page.request.fetch(
+            f"{BASE}/api/v1{path}",
+            method=method,
+            data=data,
+            headers=await api_headers(who),
+        )
+        assert r.ok, f"{method} {path}: {r.status} {await r.text()}"
+        return await r.json()
 
     async def api_get(path: str, **params):
         r = await page.request.get(
@@ -155,11 +185,11 @@ async def journey(page: Page) -> None:
         )
         return r
 
-    async def sign_in(p=None):
+    async def sign_in(p=None, email=EMAIL, password=PASSWORD):
         p = p or page
         await p.goto(f"{BASE}/auth/login/")
-        await p.fill("input[name=email]", EMAIL)
-        await p.fill("input[name=password]", PASSWORD)
+        await p.fill("input[name=email]", email)
+        await p.fill("input[name=password]", password)
         await p.get_by_role("button", name="Sign In").click()
         await p.wait_for_url(re.compile(r"/(dashboard|books)"))
         await shot(p, "signed-in")
@@ -430,6 +460,27 @@ async def journey(page: Page) -> None:
         prompts = " ".join(str(x) for x in (await r.json()).get("requests", []))
         assert edited in prompts, "the edited premise never reached the model"
 
+    async def restore_the_first_outline():
+        """SPEC-38: after two generations, History restores the first outline."""
+        plans = await (await api_get(f"/books/{STATE['book_id']}/plans")).json()
+        plan = next(p for p in plans["plans"] if p["kind"] == "outline")
+        base = f"/books/{STATE['book_id']}/versions/book_plan/{plan['id']}"
+        for v in reversed((await (await api_get(base)).json())["versions"]):
+            nodes = await (await api_get(f"{base}/{v['version_no']}")).json()
+            if nodes := nodes["content"]["content"]:
+                break
+        await tab("Outline")
+        await page.get_by_role("button", name="History", exact=True).click()
+        row = page.get_by_role("dialog").locator("div")
+        row = row.filter(has_text=re.compile(rf"^v{v['version_no']}\b")).first
+        await row.get_by_role("button", name="Restore").click()
+        await toast(f"restored_from:{v['version_no']}")
+        await page.keyboard.press("Escape")
+        for node in nodes:
+            await expect(
+                page.get_by_text(node["title"], exact=True).first
+            ).to_be_visible()
+
     async def plot_threads():
         await tab("Threads")
         await page.get_by_placeholder("Thread name, e.g. The stolen locket").fill(
@@ -492,7 +543,7 @@ async def journey(page: Page) -> None:
         kind, message = DIALOGS["seen"][seen]
         assert "unsaved changes" in message, f"unexpected {kind} dialog: {message!r}"
         assert "/books/editor" in page.url, f"left the editor: {page.url}"
-        await expect(page.get_by_role("heading", name="Scene Editor")).to_be_visible()
+        await expect(page.get_by_label("Scene title")).to_be_visible()
         await expect(editor).to_have_value(text)
 
     async def editor_safety_net():
@@ -723,6 +774,11 @@ async def journey(page: Page) -> None:
         await toast(re.compile("Ensemble is not available on the free tier"))
         # It still writes the scene: wait for it, so the next step's quota storm
         # pauses only the scene it starts.
+        # The badge may not have rendered yet: wait on the server's queue.
+        for _ in range(TIMEOUT // 500):
+            if not (await api("GET", "/jobs"))["jobs"]:
+                break
+            await page.wait_for_timeout(500)
         await expect(page.get_by_test_id("job-status")).to_have_count(
             0, timeout=TIMEOUT
         )
@@ -772,31 +828,25 @@ async def journey(page: Page) -> None:
         await expect(page.get_by_text("Bored to Undeath").first).to_be_visible()
 
     async def second_author_is_isolated():
-        login = await page.request.post(
-            f"{BASE}/api/v1/auth/login",
-            form={"username": EMAIL, "password": PASSWORD},
-        )
-        token = (await login.json())["access_token"]
-        invite = await page.request.post(
-            f"{BASE}/api/v1/auth/invites",
-            data={"max_uses": 1},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        code = (await invite.json())["code"]
+        code = (await api("POST", "/auth/invites", {"max_uses": 1}))["code"]
         other = await page.context.browser.new_context()
         p2 = await other.new_page()
         try:
             await p2.goto(f"{BASE}/auth/register/")
             await p2.fill("input[name=fullName]", "Second Author")
-            await p2.fill("input[name=email]", "second-author@example.com")
-            await p2.fill("input[name=password]", "second-pass-12345")
-            await p2.fill("input[name=confirmPassword]", "second-pass-12345")
+            await p2.fill("input[name=email]", SECOND_AUTHOR[0])
+            await p2.fill("input[name=password]", SECOND_AUTHOR[1])
+            await p2.fill("input[name=confirmPassword]", SECOND_AUTHOR[1])
             await p2.fill("input[name=inviteCode]", code)
             await p2.get_by_role(
                 "button", name=re.compile("Create|Register|Sign up")
             ).click()
             await p2.wait_for_url(re.compile(r"/dashboard"))
             await p2.goto(f"{BASE}/books/")
+            # Let the page's token refresh land before leaving: a navigation
+            # that aborts it leaves the rotated-out cookie, whose reuse on the
+            # next page revokes the session (app/core/security.py).
+            await p2.wait_for_load_state("networkidle")
             await expect(p2.get_by_text("Bored to Undeath")).to_have_count(0)
             await p2.goto(STATE["book_url"])
             await expect(p2.get_by_text("Book not found").first).to_be_visible()
@@ -807,6 +857,49 @@ async def journey(page: Page) -> None:
             raise
         finally:
             await other.close()
+
+    async def a_batch_over_budget_writes_what_fits():
+        """SPEC-34: the second author (no spend yet; registering a third would
+        pass the per-IP limit) plans a four-beat chapter on a long synopsis."""
+        who = SECOND_AUTHOR  # registered by second_author_is_isolated
+        ctx = await page.context.browser.new_context()
+        p4 = await ctx.new_page()
+        try:
+            book = await api(
+                "POST", "/books/", {"title": "L", "synopsis": SYNOPSIS * 180}, who
+            )
+            milo = await api(
+                "POST", "/characters/", {"name": "Milo", "book_id": book["id"]}, who
+            )
+            ch = await api(
+                "POST", f"/books/{book['id']}/chapters", {"title": "Q4"}, who
+            )
+            beats = [
+                {
+                    "node_id": f"00000000-0000-4000-8000-00000000000{i}",
+                    "title": f"Beat {i}",
+                    "character_ids": [milo["id"]],
+                }
+                for i in range(4)
+            ]
+            await api(
+                "PATCH", f"/books/chapters/{ch['id']}", {"planned_beats": beats}, who
+            )
+            await sign_in(p4, *who)
+            await p4.goto(f"{BASE}/books/detail?id={book['id']}")
+            await p4.get_by_role("button", name="Chapters", exact=True).first.click()
+            async with p4.expect_response(re.compile("generate-planned$")) as resp:
+                await chapter_row(p4, ch["id"]).get_by_role(
+                    "button", name="Generate all planned scenes"
+                ).click()
+            started = await (await resp.value).json()
+            fit = re.compile(r"\d of 4 scenes fit your budget now")
+            await expect(p4.get_by_text(fit).first).to_be_visible()
+            assert started["deferred"] >= 1, started
+            written = re.compile(r"[1-3] of 4 planned scenes written")  # S2, SPEC-35
+            await expect(chapter_row(p4, ch["id"])).to_contain_text(written)
+        finally:
+            await ctx.close()
 
     async def book_page_at_phone_width():
         # Its own sign-in, not a copy of this page's cookies: refreshing a
@@ -919,6 +1012,7 @@ async def journey(page: Page) -> None:
             if beat is None:
                 continue  # a scene written by hand in this chapter
             titles.append(beat["title"])
+            assert scene["title"] == beat["title"], (scene["title"], beat["title"])
             want = set(beat.get("character_ids") or [])
             want |= {
                 by_name[n.casefold()]
@@ -943,6 +1037,71 @@ async def journey(page: Page) -> None:
             p for p in mine if re.search(r"(?im)^\s*Emotional tone:\s*neutral", p)
         ]
         assert not neutral, f"{len(neutral)} planned-scene prompts defaulted to neutral"
+        await tab("Scenes")
+        await expect(page.get_by_text(titles[0]).first).to_be_visible()
+        await expect(page.get_by_text("Untitled scene")).to_have_count(0)
+
+    async def editor_walks_the_book():
+        """SPEC-37: "Ch N ·" heads the first scene, whose Previous is disabled;
+        Next is guarded, and after Save it opens the next scene."""
+        scenes = await (await api_get(f"/books/{STATE['book_id']}/scenes")).json()
+        first, second = [s["id"] for s in scenes["scenes"] if s["chapter_id"]][:2]
+        number = (await (await api_get(f"/scenes/{first}")).json())["chapter"]["number"]
+        await page.goto(f"{BASE}/books/editor/?scene={first}&book={STATE['book_id']}")
+        await page.wait_for_load_state("networkidle")
+        await expect(page.get_by_role("heading", level=1)).to_contain_text(
+            f"Ch {number} · "
+        )
+        await expect(page.get_by_role("button", name="Previous scene")).to_be_disabled()
+        await axe_clean(page, "[data-testid=scene-header]")
+        editor = page.get_by_label("Scene text")
+        typed = (await editor.input_value()) + " Nobody checked."
+        await editor.fill(typed)
+        nxt = page.get_by_role("button", name="Next scene")
+        await asks_and_stays(nxt.click, editor, typed)
+        await page.get_by_role("button", name="Save", exact=True).click()
+        await toast("Scene saved")
+        await nxt.click()
+        await page.wait_for_url(re.compile(rf"scene={second}"))
+
+    async def edit_beat_cast_brief_and_title():
+        """SPEC-35, one Save: beat 1's chips, beat 2's summary, the title."""
+        book = await (await api_get(f"/books/{STATE['book_id']}")).json()
+        cid = next(c["id"] for c in book["chapters"] if c["planned_beats"])
+        row = chapter_row(page, cid)
+        await row.get_by_role("button", name=re.compile("^Expand chapter")).click()
+        await row.get_by_role("button", name=re.compile(r"^Edit chapter \d+$")).click()
+        chips = row.get_by_role("group", name=re.compile("^Cast of beat 1 of"))
+        await axe_clean(page, f'[data-chapter-id="{cid}"]')
+        free = "button:not([aria-disabled=true])"  # the POV chip is locked
+        await chips.locator(f"{free}[aria-pressed=true]").first.click()
+        await chips.locator(f"{free}[aria-pressed=false]").first.click()
+        on = await chips.locator("[aria-pressed=true]").all_inner_texts()
+        STATE["beat1_cast"] = {t.split("·")[0].strip() for t in on}
+        await row.get_by_label(re.compile("^Beat 2 of .*, summary")).fill(BRIEF)
+        await row.get_by_label(re.compile("^Title of chapter")).fill("Renamed")
+        await row.get_by_role("button", name=re.compile("^Save chapter")).click()
+        await toast("Chapter saved")
+
+    async def edited_beats_are_written():
+        cid = STATE["planned_chapter"]
+        detail = await (await api_get(f"/books/chapters/{cid}")).json()
+        sid = detail["written"][detail["planned_beats"][0]["node_id"]]
+        scene = await (await api_get(f"/scenes/{sid}")).json()
+        assert set(scene["characters"]) == STATE["beat1_cast"], scene["characters"]
+        r = await page.request.get(f"{STUB}/__stub/requests", params={"limit": 200})
+        assert re.search(rf"Scene description: [^\\]*{BRIEF}", await r.text())
+        await page.reload()
+        await page.wait_for_load_state("networkidle")
+        await tab("Chapters")
+        row = chapter_row(page, cid)
+        await expect(row.get_by_test_id("chapter-title")).to_contain_text("Renamed")
+        await row.get_by_role("button", name=re.compile("^Expand chapter")).click()
+        await expect(row).to_contain_text("2 of 2 planned scenes written")
+        path = f"/books/{STATE['book_id']}/versions/chapter/{cid}"
+        last = (await (await api_get(path)).json())["versions"][0]["version_no"]
+        await row.get_by_role("button", name=re.compile("^History of")).click()
+        await expect(page.get_by_role("dialog").get_by_text(f"v{last}")).to_be_visible()
 
     async def scene_from_a_planned_beat():
         """SPEC-23 (review S7): the single-scene modal picks beat 1 with its
@@ -1156,12 +1315,8 @@ async def journey(page: Page) -> None:
         # The accepted revision rewrote REVISE_PHRASE; "Milo" is still there.
         await ask_to_revise(editor, panel, "Make it warmer.", False, "Milo")
         # Another tab saves a different draft meanwhile.
-        r = await page.request.put(
-            f"{BASE}/api/v1/books/scenes/{STATE['scene_id']}/content",
-            data={"content": "Saved elsewhere. The appendices were never read."},
-            headers=await api_headers(),
-        )
-        assert r.ok, f"saving elsewhere: {r.status}"
+        content = {"content": "Saved elsewhere. The appendices were never read."}
+        await api("PUT", f"/books/scenes/{STATE['scene_id']}/content", content)
         await panel.get_by_role("button", name="Ask for a revision").click()
         await expect(alert).to_contain_text(
             "The scene changed; reselect and try again."
@@ -1174,19 +1329,9 @@ async def journey(page: Page) -> None:
         """SPEC-26: the import review shows each character's name mentions,
         and ranks the protagonist above the others (a scratch book, so the
         journey's own book is untouched)."""
-        headers = await api_headers()
-        book = await page.request.post(
-            f"{BASE}/api/v1/books/", data={"title": "Review check"}, headers=headers
-        )
-        assert book.ok, f"scratch book: {book.status}"
-        book_id = (await book.json())["id"]
-        pasted = await page.request.post(
-            f"{BASE}/api/v1/sources/paste",
-            data={"title": "Opening", "content_text": SOURCE, "book_id": book_id},
-            headers=headers,
-        )
-        assert pasted.ok, f"paste: {pasted.status} {await pasted.text()}"
-        run = (await pasted.json())["extraction_run_id"]
+        book_id = (await api("POST", "/books/", {"title": "Review check"}))["id"]
+        source = {"title": "Opening", "content_text": SOURCE, "book_id": book_id}
+        run = (await api("POST", "/sources/paste", source))["extraction_run_id"]
         await page.goto(f"{BASE}/sources/review?book={book_id}&run={run}")
         await expect(page.get_by_text("Review extracted canon")).to_be_visible()
         names = page.get_by_placeholder("Name", exact=True)
@@ -1273,7 +1418,7 @@ async def journey(page: Page) -> None:
         await shot(page, "dashboard-progress")
         await card.get_by_role("button", name=re.compile("^Resume:")).click()
         await page.wait_for_url(re.compile(r"/books/editor/?\?scene="))
-        await expect(page.get_by_role("heading", name="Scene Editor")).to_be_visible()
+        await expect(page.get_by_label("Scene title")).to_be_visible()
 
     await step("sign in", sign_in())
     await step("create a book", create_book())
@@ -1295,6 +1440,9 @@ async def journey(page: Page) -> None:
         "regenerate the outline on an edited premise",
         regenerate_outline_with_edited_premise(),
     )
+    await step(
+        "outline History restores the first outline", restore_the_first_outline()
+    )
     await step("plot threads", plot_threads())
     await step("edit a scene, load a revision", edit_scene_and_load_revision())
     await step(
@@ -1309,6 +1457,7 @@ async def journey(page: Page) -> None:
     await step(
         "reorder, delete and restore a chapter", reorder_delete_and_restore_chapter()
     )
+    await step("edit beat cast, brief and title", edit_beat_cast_brief_and_title())
     await step(
         "a scene from a planned beat: its tone, cast and id",
         scene_from_a_planned_beat(),
@@ -1318,9 +1467,11 @@ async def journey(page: Page) -> None:
         generate_all_planned_scenes(),
     )
     await step(
-        "planned scenes: beat cast plus POV, no default tone",
+        "planned scenes: beat cast plus POV and title, no default tone",
         planned_scenes_follow_their_beats(),
     )
+    await step("edited beats and title are as edited", edited_beats_are_written())
+    await step("editor: Ch N, guarded Next, Previous disabled", editor_walks_the_book())
     await step(
         '"Redo beat 2" on a planned scene opens a proposal', redo_a_planned_beat()
     )
@@ -1343,6 +1494,10 @@ async def journey(page: Page) -> None:
         "legacy pages redirect; dashboard", legacy_pages_redirect_and_dashboard()
     )
     await step("a second author cannot see the book", second_author_is_isolated())
+    await step(
+        "a batch over budget writes what fits, defers the rest",
+        a_batch_over_budget_writes_what_fits(),
+    )
     await step("the book at phone width", book_page_at_phone_width())
     await step("a new book's getting-started checklist", new_book_checklist())
     await step(

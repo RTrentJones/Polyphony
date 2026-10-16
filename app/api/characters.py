@@ -371,7 +371,7 @@ async def test_dialogue(
                 character=character,
                 prompt=payload.prompt,
                 context=payload.context or "",
-                scope=SceneScope.of(canon, [character], []),
+                scope=SceneScope.of(canon, [character], [], ""),
                 user_id=current_user.id,
             ),
             timeout=TEST_DIALOGUE_BUDGET_SECONDS,

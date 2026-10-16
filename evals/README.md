@@ -45,10 +45,12 @@ voice-bearing excerpt. Corpora without `characters` keep the placeholder cast.
   plus every synopsis proper noun).
 - **prose** uploads the excerpt, commits the canon cast, stores the memoised outline into the
   book (`PUT /plans`), promotes it, and generates the planned scenes of the first chapter whose
-  cast holds two or more principals. When that path is unavailable it falls back to one scene from
-  canonical beat 2. Each scene gets deterministic checks first (cast recall caps R1; a beat-seam or
+  cast holds two or more principals, at the default budget. When that path is unavailable the
+  step reports `path: "failed"` with the reason and a `None` score, and does not cache the
+  failure (SPEC-39). It reports the batch's `queued` / `deferred` and `estimate_over_actual`
+  (SPEC-34). Each scene gets deterministic checks first (cast recall caps R1; a beat-seam or
   scene-seam 6-gram overlap caps R4; invented names; the R1 rule is harness v3's, below), then R1–R5 from the judge for the first
-  `EVAL_PROSE_JUDGE_SCENES` scenes (default 3). R2 sees each speaker's gold lines and the scene's
+  five scenes. R2 sees each speaker's gold lines and the scene's
   spoken lines with tags and names removed. Each inner beat's description and prose come from
   `GET /api/v1/scenes/{id}` (`beats`): the harness reads the app through its API only.
 - **continuity** on `cel` injects its five planted contradictions into the excerpt (a synopsis is
@@ -113,7 +115,8 @@ so an archive from before the F8 fixture edit still grades.
   counts the corpus' `secondary_cast` as hits and lists them as `secondary_found`; recall stays
   over the principals (SPEC-33).
 - `attribution`: per line `gap` (top-1 minus top-2 score) and `mean_gap`; `margin` is kept for
-  misses. The probe is the corpus' in-world `voice_probe`.
+  misses. The probe is the corpus' in-world `voice_probe` for that character, in their own role
+  (SPEC-39); the step reports each row's probe.
 - `outline`: `outline_names_synopsis_secondaries` ("k/2", from the outline text and any
   `secondary_names`) and `outline_secondaries_named`. `extraction` also reports
   `canonical_names_ok` ("k/n" over the principals with a title alias, such as Edric's "Chief

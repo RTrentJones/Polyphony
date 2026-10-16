@@ -35,18 +35,19 @@ CONTEXT_ONLY_REASON = "context only"
 
 
 class SceneScope(NamedTuple):
-    """Who a scene may mention (SPEC-30). Replaces the context builders'
-    `cast`. Built once per scene (or per probe), never per beat."""
+    """What a scene is about and who it may mention (SPEC-30, SPEC-36).
+    Built once per scene (or per probe), never per beat."""
 
     cast: tuple  # the SCENE's Character rows: _centres' "others"
     book_cast: tuple  # every live Character of the book
     secondary_names: tuple[str, ...]  # the scene request's secondary_names
     known: frozenset[str]  # canon.canon_terms()
     known_text: str  # canon_known_text(canon), raw
+    brief: str  # the scene request's scene_description: the event being written
 
     @classmethod
     def of(
-        cls, canon, scene_cast: Iterable, secondary_names: Iterable[str]
+        cls, canon, scene_cast: Iterable, secondary_names: Iterable[str], brief: str
     ) -> "SceneScope":
         from app.planning.fidelity import canon_known_text
 
@@ -56,6 +57,7 @@ class SceneScope(NamedTuple):
             tuple(secondary_names),
             frozenset(canon.canon_terms()),
             canon_known_text(canon),
+            brief,
         )
 
 
@@ -233,6 +235,23 @@ _MOVEMENT_SAMPLES = 3
 _MIN_TYPED_HITS = 2
 _ACTION_TYPES = ("action", "description", "thought")
 _DIALOGUE = "dialogue"
+# Content words a movement sample shares with the brief: it narrates the event
+# being written, which the brief already carries (SPEC-36). Unrelated pairs
+# share at most 2, event pairs 5-6 (the run-W3 archive).
+RESTATES_MIN = 4
+
+
+def restates_brief(text: str, brief: str) -> bool:
+    """Does `text` narrate the scene's event? The ONE event rule (SPEC-36): it
+    shares RESTATES_MIN content words (`[a-z]+` longer than 3 letters, not
+    function words) with the brief. It reads the brief only, so it means the
+    same in prose, ensemble, revise and the probe; "" makes it inert."""
+    from app.planning.fidelity import FUNCTION_WORDS
+
+    def content(t: str) -> set[str]:
+        return {w for w in re.findall(r"[a-z]+", t.lower()) if len(w) > 3}
+
+    return len(content(text) & (content(brief) - FUNCTION_WORDS)) >= RESTATES_MIN
 
 
 def _own_narration(sample: dict) -> bool:
@@ -348,8 +367,9 @@ async def character_samples(
     lines of 3+ words only; it never falls back to untyped retrieval. Movement
     is action / description / thought, falling back to untyped retrieval (minus
     dialogue) when the classifier under-labelled. It keeps only narration that
-    centres them and names no one outside the scene (`names_outside_scene`),
-    with no refill: a filtered block shows what is left (SPEC-30).
+    centres them, names no one outside the scene (`names_outside_scene`) and
+    does not narrate the brief's event (`restates_brief`), with no refill: a
+    filtered block shows what is left (SPEC-30, SPEC-36).
     """
     k_voice, k_move = k, min(_MOVEMENT_SAMPLES, k)
     allowed = set(chunk_types) if chunk_types else None
@@ -400,6 +420,7 @@ async def character_samples(
             or _centres(s.get("text") or "", name, scope.cast, aliases)
         )
         and not names_outside_scene(s.get("text") or "", character, scope)
+        and not restates_brief(s.get("text") or "", scope.brief)
     ][:k_move]
     return words, body
 

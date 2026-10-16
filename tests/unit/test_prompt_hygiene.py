@@ -55,7 +55,7 @@ class Store:
 
 
 def _scope(cast):
-    return ctx.SceneScope(tuple(cast), tuple(cast), (), frozenset(), "")
+    return ctx.SceneScope(tuple(cast), tuple(cast), (), frozenset(), "", "")
 
 
 @pytest.fixture
@@ -116,10 +116,7 @@ class TestCastContext:
         assert "### Milo Voss" in out and "### Zara Okafor" in out
         assert ctx.VOICE_SAMPLES_LABEL in out and "Let's circle back." in out
         assert "did not look up" in out
-        assert (
-            "How they move (gesture and habit only; do not reuse these events, "
-            "objects or names):"
-        ) in out.splitlines()
+        assert ctx.MOVEMENT_LABEL in out.splitlines()
         assert out.count("<character>") == 2
 
     async def test_cast_context_bible_on_request(self, cast):
@@ -152,7 +149,7 @@ def test_scene_scope_of(cast):
 
     edric = _char("Edric Thane", "A courier.")
     canon = Canon(title="Cel", synopsis="Milo dies.", characters=[*cast, edric])
-    scope = ctx.SceneScope.of(canon, cast, ["Old Fen"])
+    scope = ctx.SceneScope.of(canon, cast, ["Old Fen"], "")
     assert scope.cast == tuple(cast)
     assert scope.book_cast == (*cast, edric)
     assert scope.secondary_names == ("Old Fen",)

@@ -37,6 +37,7 @@ _STOP_CAPS = {
     "his",
     "her",
     "their",
+    "our",
     "when",
     "then",
     "after",
@@ -146,7 +147,7 @@ _CALENDAR = {
     "november",
     "december",
 }
-_SKIP_WORDS = _STOP_CAPS | _CONNECTIVES | _CALENDAR
+FUNCTION_WORDS = _STOP_CAPS | _CONNECTIVES | _CALENDAR
 # Capitalised runs joined by a SINGLE space: a run never spans a field boundary
 # (fields are joined with two spaces), a comma or a line break, so "Debt" ending
 # one title and "In" opening the next summary are two words, not "Debt  In".
@@ -221,16 +222,30 @@ def _is_sentence_initial(text: str, start: int) -> bool:
     return stripped[-1] in _OPENERS
 
 
+# A run followed by a single capital, a number or a code is a label
+# ("Appendix F", "Form 9", "Desk R-14"), not a name (M5).
+_LABEL_TOKEN = re.compile(r"\s+(?:[A-Z](?![a-z])|\d|[A-Z]+-?\d)")
+
+
 def _candidates(text: str):
     """Yield (words, sentence_initial) for each capitalised run in `text`, with
-    leading and trailing function words ("The", "Under", "At") trimmed."""
+    a sentence's leading and trailing function words ("The", "Under", "At")
+    trimmed. A label is not a run. Mid-sentence, a function word before a
+    single word is kept ("Our Values" reads as a title fragment), so a one-word
+    name after a mid-sentence "The" is not reported."""
     for m in _PROPER.finditer(text or ""):
+        if _LABEL_TOKEN.match(text, m.end()):
+            continue
         words = m.group(0).split(" ")
-        initial = _is_sentence_initial(text, m.start())
-        while words and words[0].lower() in _SKIP_WORDS:
+        initial = opens = _is_sentence_initial(text, m.start())
+        # Mid-sentence, a function word before ONE word opens a title ("a
+        # slide called Our Values"): it stays, so the run reads as a fragment.
+        while (
+            words and words[0].lower() in FUNCTION_WORDS and (opens or len(words) > 2)
+        ):
             words.pop(0)
             initial = False  # what is left no longer opens the sentence
-        while words and words[-1].lower() in _SKIP_WORDS:
+        while words and words[-1].lower() in FUNCTION_WORDS:
             words.pop()
         if words:
             yield words, initial
@@ -277,7 +292,7 @@ def unknown_proper_nouns(
     found: dict[str, str] = {}
     for words, initial in _candidates(outline_text):
         lowered = [w.lower() for w in words]
-        if any(w in _SKIP_WORDS for w in lowered):
+        if any(w in FUNCTION_WORDS for w in lowered):
             continue  # title-case fragment
         if all(w in lower_words for w in lowered):
             continue  # common words, capitalised

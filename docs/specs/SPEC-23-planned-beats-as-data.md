@@ -66,7 +66,7 @@ The chapter `summary` is the node summary only. The chapter `title` is
 ### Generate-planned (`POST /books/chapters/{id}/scenes/generate-planned`)
 
 - **Beats**: `normalize_planned_beats(chapter.planned_beats)`. Empty → 422 "no planned beats".
-- **Already written**: by **id only** (wave 2.5, review B3). `scene_batch.written_beat_ids` reads
+- **Already written**: by **id only** (wave 2.5, review B3). `scene_batch.written_beats` reads
   the `scene_request.planned_beat_id` of the chapter's live, not failed/cancelled scenes, and
   `planned_beat.unwritten_beats(beats, written_ids)` keeps the beats whose `node_id` is not among
   them. Renaming or re-summarising a beat never makes its scene unwritten. Scenes written before

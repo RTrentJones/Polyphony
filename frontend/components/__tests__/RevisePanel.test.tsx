@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import SceneEditorPage from '@/app/books/editor/page'
 import type { RevisionProposal } from '@/lib/revise-api'
 import { sha256Hex } from '@/lib/text-offsets'
-import type { Scene } from '@/lib/types'
+import type { SceneDetail } from '@/lib/types'
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
@@ -45,13 +45,16 @@ const DRAFT = 'Ada 😀 — Zara smiled warmly at him. Then she left.'
 const EDITOR_TEXT = `${DRAFT}\n`
 const REVISED = 'Ada 😀 — Zara stared coldly at him. Then she left.\n'
 
-const scene: Scene = {
+const scene: SceneDetail = {
   id: 's1',
   source_id: null,
   characters: ['Zara'],
   status: 'completed',
   created_at: null,
   content: EDITOR_TEXT,
+  title: null,
+  chapter: null,
+  neighbours: { prev: null, next: null },
 }
 
 const proposal: RevisionProposal = {

@@ -47,6 +47,12 @@ Wave 3: ``movement_names_in_scene``  beat_prose: no "How they move" line names
 a principal or ``secondary_cast`` member outside the scene (SPEC-30); reports
 ``movement_coverage``, the share of principal blocks that move (B-2).
 
+Wave 4: ``sample_lift``  beat_prose: the answer shares no word 8-gram with the
+sample lines in its own prompt (voice and movement); reports ``max_shared`` and
+``share_of_beats`` (SPEC-36). ``beats_see_whole_outline``  outline:beats: the
+whole-outline block names every chapter title of the run's latest
+outline:chapters answer (SPEC-38).
+
 Each check reports ``{n, passed, rate, failures}``; a check with nothing to
 check (no such call in the archive) reports ``n == 0`` and ``rate = None``, so
 an archive from before a contract existed still grades.
@@ -75,6 +81,7 @@ from app.core.prompt_markers import (
     INTRODUCED_LABEL,
     MOVEMENT_LABEL,
     NAME_HEADING,
+    OUTLINE_CHAPTERS_HEADER,
     POV_LIMIT_CLOSE,
     POV_LIMIT_OPEN,
     POV_LINE_RE,
@@ -88,6 +95,7 @@ from app.core.prompt_markers import (
 )
 from app.orchestration.pov import Pov
 from app.parsing.names import NON_NAME_TOKENS, mentions, norm
+from evals.graders import seams
 
 # The house-style paragraph the beat prompt hard-codes today; it must not
 # appear when the author's style guide supplies sample prose.
@@ -151,14 +159,20 @@ def _squash(text: str) -> str:
 # --- checks --------------------------------------------------------------------
 
 
-def _is_last_beat(beats: str | None) -> bool:
-    """The marked current beat (``→ N.``) is the final item: there is no beat
-    N+1 to stop at, so the prompt rightly omits that instruction."""
-    if not beats:
-        return False
+def _current_beat(beats: str | None) -> tuple[int, int] | None:
+    """(n, total): the beat marked current (``→ N.``) and the last item's
+    number, parsed from the <beats> block; None when nothing is marked."""
     mark = re.escape(CURRENT_BEAT_MARK)
-    items = re.findall(rf"(?m)^\s*({mark})?\s*\d+[.)]", beats)
-    return bool(items) and items[-1] == CURRENT_BEAT_MARK
+    items = re.findall(rf"(?m)^\s*({mark})?\s*(\d+)[.)]", beats or "")
+    current = [int(n) for marked, n in items if marked]
+    return (current[0], int(items[-1][1])) if current else None
+
+
+def _is_last_beat(beats: str | None) -> bool:
+    """The marked beat is the final item: there is no beat N+1 to stop at, so
+    the prompt rightly omits that instruction."""
+    current = _current_beat(beats)
+    return bool(current) and current[0] == current[1]
 
 
 # "Stop where beat <n + 1> begins" (STOP_AT_NEXT_BEAT), or a literal "N+1".
@@ -196,13 +210,16 @@ def _starts_a_sentence(text: str) -> bool:
 _ONE_PARAGRAPH_WORDS = 200
 
 
-def check_prior(prior: str) -> list[str]:
+def check_prior(prior: str, openings: set[str]) -> list[str]:
     """B5 (W1-S11): `<prior>` keeps its paragraph breaks and starts a sentence
-    (`prose_tail` cuts whole paragraphs, the first at a sentence start)."""
+    (`prose_tail` cuts whole paragraphs, the first at a sentence start). A
+    `<prior>` that starts with a scene's own opening (`openings`: the first 40
+    squashed characters of each beat-1 answer) starts where the author's scene
+    does, whatever that is (M15, S3)."""
     reasons = []
     if len(prior.split()) > _ONE_PARAGRAPH_WORDS and "\n\n" not in prior:
         reasons.append("<prior> lost its paragraph breaks")
-    if not _starts_a_sentence(prior):
+    if not _starts_a_sentence(prior) and _squash(prior)[:40] not in openings:
         reasons.append("<prior> starts mid-sentence")
     return reasons
 
@@ -677,6 +694,40 @@ def check_movement_in_scene(
     return reasons, [(o, len(ls)) for o, ls in blocks]
 
 
+LIFT_N = 8  # a shared run this long is a copied phrase, not a shared idiom
+
+
+def check_sample_lift(prompt: str, answer: str) -> tuple[list[str], int]:
+    """W4-3: (reasons, shared) — the word 8-grams the answer shares with the
+    sample lines in its own prompt: voice samples and movement (SPEC-36)."""
+    lines = [s for ss in voice_samples(prompt).values() for s in ss]
+    lines += [
+        ln for _, ls in movement_blocks(characters_section(prompt) or "") for ln in ls
+    ]
+    ngrams = set().union(*(seams.grams(seams.words(ln), LIFT_N) for ln in lines))
+    shared = sorted(seams.grams(seams.words(answer), LIFT_N) & ngrams)
+    n = len(shared)
+    return (
+        ([f"{n} word 8-grams of its samples: {' '.join(shared[0])!r}"], n)
+        if n
+        else ([], 0)
+    )
+
+
+def check_whole_outline(prompt: str, titles: set[str]) -> list[str]:
+    """W4-5: the act's prompt shows the whole book — its OUTLINE_CHAPTERS_HEADER
+    block names every chapter title (SPEC-38)."""
+    at = prompt.find(OUTLINE_CHAPTERS_HEADER)
+    if at == -1:
+        return ["no whole-outline block"]
+    listing = prompt[at:].split("\n\n", 1)[0]
+    return [
+        f"{t!r} is not in the whole-outline block"
+        for t in sorted(titles)
+        if t not in listing
+    ]
+
+
 def _json_object(text: str) -> dict:
     t = (text or "").strip().replace("```json", "").replace("```", "")
     start, end = t.find("{"), t.rfind("}")
@@ -708,6 +759,9 @@ CHECKS = (
     "movement_names_in_scene",
     "secondary_has_context",
     "story_position_line",
+    # wave 4
+    "sample_lift",
+    "beats_see_whole_outline",
 )
 
 
@@ -769,6 +823,9 @@ def grade(
     conflicts = [(premise_edit or {}).get("central_conflict") or ""]
     acts: list[dict] = []
     purposes: dict[str, int] = {}
+    openings: set[str] = set()  # records come oldest first (load_archive)
+    lifts: list[int] = []
+    book_titles: set[str] = set()
 
     for rec in records:
         pur = purpose(rec)
@@ -835,7 +892,17 @@ def grade(
             tallies["outline_no_repr"].add(
                 rec, ["Python repr ({') in the prompt"] if "{'" in prompt else []
             )
+        if pur == "outline:chapters":  # the book the next acts' beats must see
+            chapters = _json_array(rec.get("answer") or "")
+            book_titles = {
+                str(c["title"])
+                for c in chapters
+                if isinstance(c, dict) and c.get("title")
+            }
         if pur == "outline:beats":
+            tallies["beats_see_whole_outline"].add(
+                rec, check_whole_outline(prompt, book_titles)
+            )
             tallies["beats_stage"].add(
                 rec, check_beats_stage(prompt, premises, conflicts, acts)
             )
@@ -843,9 +910,14 @@ def grade(
             tallies["beats_block"].add(rec, check_beats_block(prompt))
             prior = block(prompt, PRIOR_FENCE)
             if prior is not None:
-                tallies["prior_paragraphs"].add(rec, check_prior(prior))
+                tallies["prior_paragraphs"].add(rec, check_prior(prior, openings))
+            if (_current_beat(block(prompt, BEATS_FENCE)) or (0,))[0] == 1:
+                openings.add(_squash(rec.get("answer") or "")[:40])
             if sample_prose:
                 tallies["style_first"].add(rec, check_style_first(prompt, sample_prose))
+            reasons, shared = check_sample_lift(prompt, rec.get("answer") or "")
+            tallies["sample_lift"].add(rec, reasons)
+            lifts.append(shared)
         if gold and re.search(r"(?im)^\s*voice samples\b", prompt):
             reasons, counts = check_voice(prompt, gold, other)
             for k, v in counts.items():
@@ -863,6 +935,11 @@ def grade(
         round(sum(moving_blocks) / len(moving_blocks), 4) if moving_blocks else None
     )
     out["movement_names_in_scene"]["movement_lines"] = movement
+    # Gated 0 / 0 by the eval (§6.2): the worst beat, and how many beats lift.
+    out["sample_lift"]["max_shared"] = max(lifts, default=0)
+    out["sample_lift"]["share_of_beats"] = (
+        round(sum(n > 0 for n in lifts) / len(lifts), 4) if lifts else None
+    )
     # Reported, not gated (§5.1): the beat prompt's size after the bible dedupe.
     out["beat_prose_prompt_chars_median"] = _median(beat_prompt_chars)
     out["n_calls"] = len(records)

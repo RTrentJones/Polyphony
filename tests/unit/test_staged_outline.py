@@ -293,6 +293,47 @@ class TestBeatsStageSeesThePlan:
 
         assert json.loads(body)[0]["title"] == "Ch1"
 
+    async def test_each_act_sees_the_whole_book(self, monkeypatch):
+        """(F) W4-5: every chapter, this act's marked (its summary is in the act
+        JSON below), before the act header; later acts see earlier beats."""
+        from app.core.prompt_markers import OUTLINE_CHAPTERS_HEADER as HEADER
+
+        fake = await self._run(monkeypatch)
+        act1, act2 = fake.prompts["outline:beats"]
+        for prompt, lines in (
+            (act1, ["→ 1. Ch1", "  2. Ch2: Edric Thane yields"]),
+            (act2, ["  1. Ch1: Milo Voss signs on", "→ 2. Ch2", so.EARLIER_BEATS]),
+        ):
+            block = prompt.split(f"{HEADER}\n")[1].split("\n\n")[0].splitlines()
+            assert block[: len(lines)] == lines
+            assert block[-1] == so.INTRODUCE_NO_EARLIER
+            assert ("- Ch1: b" in block) is (prompt is act2)
+            assert prompt.index(HEADER) < prompt.index("in order:")
+
+    def test_the_whole_book_costs_at_most_2500_characters_an_act(self):
+        """(F) Cost guard: cel at 6 chapters, at the run-W3 outline's sizes
+        (~400-character summaries, four beats a chapter)."""
+        summary = ("Milo signs the form and learns what the job costs him. " * 8)[:400]
+        outline = [
+            {"title": f"Chapter {i}: The Desk", "summary": summary, "act_index": i // 2}
+            for i in range(6)
+        ]
+        beats = [{"title": f"The beat named {j}"} for j in range(4)]
+        for act in range(3):
+            earlier = [{**c, "children": beats} for c in outline[: 2 * act]]
+            mine = outline[2 * act : 2 * act + 2]
+            assert len(so.outline_context(outline, mine, earlier)) <= 2500
+
+    def test_earlier_beats_with_null_or_numeric_titles_still_join(self):
+        """A checkpointed act is raw model output, validated only at the end."""
+        earlier = [
+            {
+                "title": "Ch1",
+                "children": [{"title": None}, {"title": 7}, {"title": "b"}],
+            }
+        ]
+        assert "- Ch1: ; 7; b" in so.outline_context([], [], earlier)
+
 
 class TestGenerateEndpointEnqueues:
     async def test_outline_enqueues_staged_job(

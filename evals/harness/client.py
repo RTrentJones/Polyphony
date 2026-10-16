@@ -398,7 +398,8 @@ class PolyphonyClient:
         self, chapter_id: str, body: dict | None = None, timeout: float = 1800
     ) -> dict:
         """One scene per planned beat (POST .../scenes/generate-planned), then
-        wait until the chain has written them all, or stopped on a failure.
+        wait until the chain has written the scenes it queued (a deferred beat
+        has none; SPEC-34), or stopped on a failure.
 
         Returns the start response plus `scenes`: the chapter's scenes in
         position order once settled."""
@@ -411,7 +412,7 @@ class PolyphonyClient:
                 f"generate-planned failed ({r.status_code}): {r.text[:400]}"
             )
         started = r.json()
-        total = int(started.get("total") or 0)
+        want = started["skipped"] + started["queued"]
         streak = {"n": 0}
 
         def settled(ch: dict) -> bool:
@@ -423,7 +424,7 @@ class PolyphonyClient:
             stopped = any(s.get("status") in ("failed", "cancelled") for s in scenes)
             # The chain creates scene k+1 when scene k completes, so "all
             # terminal" must hold on two polls in a row to rule out that gap.
-            ok = bool(scenes) and terminal and (done >= total or stopped)
+            ok = bool(scenes) and terminal and (done >= want or stopped)
             streak["n"] = streak["n"] + 1 if ok else 0
             return streak["n"] >= 2
 
@@ -434,6 +435,12 @@ class PolyphonyClient:
             chapter.get("scenes") or [], key=lambda s: s.get("position") or 0
         )
         return started
+
+    async def usage(self) -> dict:
+        """The author's usage (GET /usage): `tokens_used_24h` and the rest."""
+        r = await self._get("/api/v1/usage")
+        r.raise_for_status()
+        return r.json()
 
     async def get_scene(self, scene_id: str) -> dict:
         r = await self._get(f"/api/v1/scenes/{scene_id}")

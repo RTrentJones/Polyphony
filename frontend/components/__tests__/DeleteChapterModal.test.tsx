@@ -7,8 +7,8 @@ import type { BookChapter } from '@/lib/types'
 const { deleteChapter } = vi.hoisted(() => ({ deleteChapter: vi.fn() }))
 vi.mock('@/lib/books-store', () => ({ useBookStore: () => ({ deleteChapter }) }))
 
-const one: BookChapter = { id: 'ch-1', book_id: 'b', position: 0, title: 'One' }
-const two: BookChapter = { id: 'ch-2', book_id: 'b', position: 1, title: 'Two' }
+const one: BookChapter = { id: 'ch-1', book_id: 'b', position: 0, number: 1, title: 'One' }
+const two: BookChapter = { id: 'ch-2', book_id: 'b', position: 1, number: 2, title: 'Two' }
 
 function renderModal(chapters = [one, two]) {
   const props = {

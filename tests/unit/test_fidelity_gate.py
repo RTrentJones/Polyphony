@@ -300,3 +300,36 @@ def test_an_all_caps_sign_is_not_a_name():
     assert unknown_proper_nouns(text, {"Milo"}, canon_text=PROBE_DRAFT) == [
         "Bartholomew Quince"
     ]
+
+
+# Run-W3b's prose (eval-report-cel.json, prose and revise): labels and a
+# slide title were reported as invented names (M5).
+W3B = (
+    "In his last job his manager had spent forty minutes on a slide called Our "
+    "Values, and here was a person who had boiled the whole role down to two "
+    "sentences. He peeled back the first page of Appendix A, and the print was "
+    "smaller than he had expected. He read Appendix A as far as page three, then "
+    "the finger on Appendix F. He filed Form 9 at Desk R-14. 'The balance thereof "
+    "transferred to the Consolidated Continuance Pool for the benefit of' it read. "
+    "Milo nodded. Bartholomew Quince smiled."
+)
+
+
+def test_labels_and_a_title_after_our_are_not_names():
+    """M5: a capital followed by a label token (a single capital, a number or
+    a code) is a label, and "Our" opens a title; invented names still report."""
+    from app.planning.fidelity import unknown_proper_nouns
+
+    assert unknown_proper_nouns(W3B, {"Milo"}, canon_text=PROBE_DRAFT) == [
+        "Bartholomew Quince",
+        "Consolidated Continuance Pool",
+    ]
+    # (F) NB-1: a mid-sentence "The" before a longer name is trimmed, not kept.
+    mid = (
+        "In the morning, The Consolidated Continuance Pool opened. "
+        "He went to the market, then to The Marrow Exchange."
+    )
+    assert unknown_proper_nouns(mid, set(), canon_text="milo zara") == [
+        "Consolidated Continuance Pool",
+        "Marrow Exchange",
+    ]

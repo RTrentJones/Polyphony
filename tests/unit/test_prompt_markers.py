@@ -97,7 +97,9 @@ async def test_outline_prompt_markers(monkeypatch):
     }
     await so._stage_chapters(canon, skeleton, None)
     chapters = [{"title": "Intake", "act_index": 0, "characters": ["Milo Voss"]}]
-    await so._stage_beats_for_act(canon, 0, chapters, None, skeleton=skeleton)
+    await so._stage_beats_for_act(
+        canon, 0, None, skeleton=skeleton, outline=chapters, earlier=[]
+    )
     for prompt in (
         fake.prompts["outline:chapters"][0],
         fake.prompts["outline:beats"][0],
@@ -105,3 +107,5 @@ async def test_outline_prompt_markers(monkeypatch):
         assert pc._CONFIRMED_PREMISE.search(prompt).group(1) == "Milo wakes up."
     number, act_chapters = stub_llm._act_chapters(fake.prompts["outline:beats"][0])
     assert number == 1 and act_chapters == chapters
+    prompt = f'### Milo Voss\n{pm.VOICE_SAMPLES_LABEL}\n- "So."'
+    assert pc.voice_samples(prompt) == {"Milo Voss": ["So."]}

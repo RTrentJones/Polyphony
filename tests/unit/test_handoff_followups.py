@@ -21,6 +21,7 @@ from app.characters import context as ctx_mod
 from app.core.config import settings
 from app.core.orm_models import Chapter, Job, Scene
 from app.jobs import scene_batch
+from tests.unit.factories import add_scene
 from tests.unit.test_outline_handoff import _bind, _cast, _structured_plan, _worker
 from tests.unit.test_voice_workbench import _LLM, _PLAN, _Ctx, duo  # noqa: F401
 
@@ -148,7 +149,7 @@ async def test_ensemble_records_context_only_characters(
         user_id=duo.book.user_id,
         book_id=duo.book.id,
         canon_context="",
-        scope=ens.SceneScope((duo.milo, duo.zara), (), (), frozenset(), ""),
+        scope=ens.SceneScope((duo.milo, duo.zara), (), (), frozenset(), "", ""),
     )
     by_char = {e["character_id"]: e for e in result["grounding"]}
     assert by_char[str(duo.milo.id)]["chunk_id"] == "m-1"
@@ -401,8 +402,10 @@ async def test_generate_planned_enqueues_the_first_scene_of_a_chain(
     assert request["character_ids"] == [ids["Milo Voss"], ids["Zara Okafor"]]
     assert request["pov_character"] == "Milo Voss"
     assert request["setting"] == "the office"
+    assert request["beat_title"] == "Badge photo"
     (nxt,) = job.payload["batch"]["remaining"]
     assert nxt["scene_description"] == "Lunch: Zara explains the afterlife"
+    assert nxt["beat_title"] == "Lunch"
 
     # A repeat while the batch is in flight returns it, spending nothing.
     again = await client.post(url, json={}, headers=auth_headers)
@@ -488,32 +491,118 @@ async def test_generate_planned_needs_planned_beats(
     assert r.status_code == 422
 
 
-async def test_generate_planned_is_preflighted(
-    client, auth_headers, async_session, test_book, monkeypatch
-):
-    from app.core import estimates
-
-    _, chapter_id = await _two_beat_chapter(
+async def _four_beat_chapter(client, auth_headers, async_session, test_book):
+    ids, chapter_id = await _two_beat_chapter(
         client, auth_headers, async_session, test_book
     )
-    seen = {}
+    chapter = await async_session.get(Chapter, uuid.UUID(chapter_id))
+    two = chapter.planned_beats
+    chapter.planned_beats = [
+        *two,
+        *({**b, "node_id": str(uuid.uuid4()), "title": f"{b['title']} 2"} for b in two),
+    ]
+    await async_session.commit()
+    return ids, chapter_id
 
-    async def refuse(db, user_id, est):
-        seen["calls"] = est.calls
-        return {"allowed": False, "reason": "Needs more than you have."}
 
-    monkeypatch.setattr(estimates, "assess", refuse)
-    r = await client.post(
-        f"/api/v1/books/chapters/{chapter_id}/scenes/generate-planned",
-        json={},
+async def _one_scene_tokens(client, auth_headers, url, monkeypatch) -> int:
+    """A limit below one scene: refused with today's message, and the 429
+    carries the first scene's estimate."""
+    monkeypatch.setattr(settings, "USER_DAILY_TOKEN_LIMIT", 1)
+    r = await client.post(url, json={}, headers=auth_headers)
+    assert r.status_code == 429, r.text
+    detail = r.json()["detail"]
+    assert "remain in today's budget" in detail["message"]
+    return detail["estimate"]["tokens"]
+
+
+async def test_a_batch_over_budget_queues_what_fits_and_defers_the_rest(
+    client, auth_headers, async_session, test_book, monkeypatch
+):
+    """SPEC-34: three of four scenes fit; the fourth is deferred, and says why."""
+    _, chapter_id = await _four_beat_chapter(
+        client, auth_headers, async_session, test_book
+    )
+    url = f"/api/v1/books/chapters/{chapter_id}/scenes/generate-planned"
+    one = await _one_scene_tokens(client, auth_headers, url, monkeypatch)
+    assert (await async_session.execute(select(Job))).scalars().all() == []
+
+    monkeypatch.setattr(settings, "USER_DAILY_TOKEN_LIMIT", 3 * one + one // 2)
+    r = await client.post(url, json={}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert (body["total"], body["queued"], body["deferred"]) == (4, 3, 1)
+    assert body["reason"] == (
+        "3 of 4 scenes fit your budget now; generate again as your 24-hour "
+        "budget frees up to write the other 1 (written scenes are skipped)."
+    )
+    assert body["estimate"]["tokens"] == 3 * one
+    (job,) = (await async_session.execute(select(Job))).scalars().all()
+    assert len(job.payload["batch"]["remaining"]) == 2
+    running = (await client.post(url, json={}, headers=auth_headers)).json()
+    assert running["already_running"] is True
+    # A repeat while the batch runs still says what it deferred.
+    assert (running["deferred"], running["reason"]) == (1, body["reason"])
+    # Its queued requests are already written: beat edits wait for it.
+    edit = await client.patch(
+        f"/api/v1/books/chapters/{chapter_id}",
+        json={"planned_beats": []},
         headers=auth_headers,
     )
-    assert r.status_code == 429
-    one = estimates.scene(
-        canon_chars=0, cast_context_chars=0, target_words=800, cast_size=2
+    assert edit.status_code == 409, edit.text
+
+
+async def test_the_deferred_scene_is_written_once_the_budget_frees_up(
+    client, auth_headers, async_session, test_book, test_user, monkeypatch
+):
+    """S1: the rolling 24 hours, not "tomorrow": a click while the batch's
+    spend is in the window defers again; 25 hours later it queues the rest."""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import update
+
+    from app.core.orm_models import APIUsage
+
+    _, chapter_id = await _four_beat_chapter(
+        client, auth_headers, async_session, test_book
     )
-    assert seen["calls"] == 2 * one.calls  # both scenes, not just the first
-    assert (await async_session.execute(select(Job))).scalars().all() == []
+    url = f"/api/v1/books/chapters/{chapter_id}/scenes/generate-planned"
+    one = await _one_scene_tokens(client, auth_headers, url, monkeypatch)
+    monkeypatch.setattr(settings, "USER_DAILY_TOKEN_LIMIT", 3 * one + one // 2)
+    assert (await client.post(url, json={}, headers=auth_headers)).json()["queued"] == 3
+
+    # The chain wrote its three scenes and spent their tokens.
+    chapter = await async_session.get(Chapter, uuid.UUID(chapter_id))
+    (job,) = (await async_session.execute(select(Job))).scalars().all()
+    job.status = "completed"
+    for i, beat in enumerate(chapter.planned_beats[1:3], start=1):
+        await add_scene(async_session, test_book, chapter, i, beat["node_id"])
+    now = datetime.now(timezone.utc)
+    for _ in range(3):
+        async_session.add(
+            APIUsage(user_id=test_user.id, tokens_used=one, cost_usd=0, timestamp=now)
+        )
+    await async_session.commit()
+
+    again = await client.post(url, json={}, headers=auth_headers)
+    assert again.status_code == 429, again.text
+
+    await async_session.execute(
+        update(APIUsage).values(timestamp=now - timedelta(hours=25))
+    )
+    await async_session.commit()
+    later = await client.post(url, json={}, headers=auth_headers)
+    assert later.status_code == 200, later.text
+    body = later.json()
+    assert (body["queued"], body["skipped"], body["deferred"]) == (1, 3, 0)
+    assert body["reason"] is None
+
+    for job in (await async_session.execute(select(Job))).scalars():
+        job.status = "completed"  # the rest's chain ran too
+    await async_session.commit()
+    done = (await client.post(url, json={}, headers=auth_headers)).json()
+    assert done["status"] == "nothing_to_do"
+    assert (done["deferred"], done["reason"]) == (0, None)
 
 
 async def test_the_chain_runs_in_order_and_each_scene_sees_the_one_before(

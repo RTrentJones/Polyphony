@@ -5,6 +5,7 @@ their beats and revisions) with it; deleting a chapter never silently orphans
 prose — the author moves its scenes or deletes them, and a bare delete is a 409.
 """
 
+from datetime import datetime, timedelta, timezone
 import re
 from pathlib import Path
 from uuid import UUID
@@ -19,6 +20,7 @@ from app.core.orm_models import (
     SceneBeat,
     SceneRevision,
 )
+from tests.unit.factories import add_chapter, add_scene
 
 pytestmark = pytest.mark.unit
 
@@ -274,6 +276,77 @@ class TestUserLevelSceneRoutes:
         ).status_code == 404
         listed = (await client.get("/api/v1/scenes/", headers=headers)).json()
         assert listed["scenes"] == [] and listed["total"] == 0
+
+
+class TestBookOrder:
+    async def test_get_scene_knows_its_chapter_and_neighbours_in_book_order(
+        self, client, auth_headers, async_session, test_book
+    ):
+        """SPEC-37: neighbours follow chapter position, then scene position,
+        skipping trashed scenes; an unfiled scene has no chapter and no
+        neighbours."""
+        book_id = str(test_book.id)
+        a = await _chapter(client, auth_headers, book_id, "A")
+        b = await _chapter(client, auth_headers, book_id, "B")
+        a0, a1 = [await _scene(client, auth_headers, a, f"a{i}") for i in range(2)]
+        b0, b1 = [await _scene(client, auth_headers, b, f"b{i}") for i in range(2)]
+        r = await client.patch(
+            f"/api/v1/books/chapters/{b}/position",
+            json={"position": 0},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+        r = await client.delete(f"/api/v1/scenes/{b1}", headers=auth_headers)
+        assert r.status_code == 204
+        then = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        loose = await add_scene(async_session, test_book, created_at=then)
+        # A newer unfiled scene with a higher leftover position still lists first.
+        newer = await add_scene(
+            async_session,
+            test_book,
+            position=5,
+            created_at=then + timedelta(minutes=1),
+        )
+        await async_session.commit()
+
+        async def where(sid):
+            got = await client.get(f"/api/v1/scenes/{sid}", headers=auth_headers)
+            body = got.json()
+            return body["chapter"], body["neighbours"]
+
+        assert await where(b0) == (
+            {"id": b, "number": 1, "title": "B"},
+            {"prev": None, "next": a0},
+        )
+        assert (await where(a0))[1] == {"prev": b0, "next": a1}
+        assert await where(a1) == (
+            {"id": a, "number": 2, "title": "A"},
+            {"prev": a0, "next": None},
+        )
+        assert await where(loose.id) == (None, {"prev": None, "next": None})
+        url = f"/api/v1/books/{book_id}/scenes"
+        listed = (await client.get(url, headers=auth_headers)).json()["scenes"]
+        assert [s["id"] for s in listed] == [b0, a0, a1, str(newer.id), str(loose.id)]
+
+
+async def test_a_scene_in_a_trashed_chapter_reads_as_unfiled(
+    client, auth_headers, async_session, test_book
+):
+    filed = await add_scene(
+        async_session, test_book, await add_chapter(async_session, test_book)
+    )
+    chapter = await add_chapter(async_session, test_book, position=1, title="Gone")
+    scene = await add_scene(async_session, test_book, chapter)
+    chapter.deleted_at = datetime.now(timezone.utc)
+    await async_session.commit()
+
+    async def read(sid):
+        return (await client.get(f"/api/v1/scenes/{sid}", headers=auth_headers)).json()
+
+    body = await read(scene.id)
+    assert (body["chapter"], body["neighbours"]) == (None, {"prev": None, "next": None})
+    # Nor is it the last filed scene's Next.
+    assert (await read(filed.id))["neighbours"] == {"prev": None, "next": None}
 
 
 def test_no_query_lists_scenes_by_user_id_alone():

@@ -40,6 +40,14 @@ def test_paid_ensemble_costs_more_calls_than_prose(monkeypatch):
     assert ens.mode == "ensemble" and ens.calls > prose.calls
 
 
+def test_affordable_is_the_longest_prefix_that_fits():
+    """SPEC-34: the batch queues the scenes that fit and defers the rest."""
+    four = [estimates.Estimate("scene", "prose", 1, 30, 10)] * 4
+    assert estimates.affordable(four, 130) == 3
+    assert estimates.affordable(four, 39) == 0
+    assert estimates.affordable(four, 160) == 4
+
+
 def test_outline_staged_vs_single():
     staged = estimates.outline(canon_chars=20_000)
     single = estimates.outline(canon_chars=20_000, staged=False)

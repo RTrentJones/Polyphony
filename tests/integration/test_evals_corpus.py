@@ -12,15 +12,13 @@ import os
 
 import pytest
 
-pytestmark = [
-    pytest.mark.integration,
-    pytest.mark.skipif(
-        not os.getenv("RUN_EMBED_TESTS"),
-        reason="embedding corpus test only runs when RUN_EMBED_TESTS is set",
-    ),
-]
+pytestmark = pytest.mark.integration
 
 
+@pytest.mark.skipif(
+    not os.getenv("RUN_EMBED_TESTS"),
+    reason="embedding corpus test only runs when RUN_EMBED_TESTS is set",
+)
 @pytest.mark.parametrize("book", ["dracula", "frankenstein"])
 async def test_corpus_voices_separate(book):
     from evals.graders import attribution
@@ -43,3 +41,18 @@ async def test_corpus_voices_separate(book):
     # separable gold voices or the voice/attribution evals go meaningless.
     assert agg["accuracy"] >= 0.6, f"{book} voices not separable enough: {agg}"
     assert agg["chance"] < agg["accuracy"]
+
+
+def test_gold_lines_are_whole_utterances():
+    """M4 (SPEC-39): a quote broken by its speech tag is one line, joined as
+    the extractor joins it, and never split between `train` and `test`."""
+    from evals.steps import pipeline
+
+    for book in ("cel", "dracula", "frankenstein"):
+        for who, v in pipeline.load_corpus(book)[1]["gold_lines"].items():
+            for line in v["train"] + v["test"]:
+                assert not line.rstrip().endswith(","), (book, who, line)
+    zara = pipeline.load_corpus("cel")[1]["gold_lines"]["Zara Okafor"]
+    joined = "Close the accounts in your queue. Don't open the ones that aren't."
+    assert joined in zara["train"]
+    assert "Don't open the ones that aren't." not in zara["train"] + zara["test"]

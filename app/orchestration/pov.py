@@ -113,7 +113,8 @@ def pov_instruction(pov: Pov) -> str:
     return (
         f"{head} {POV_LIMIT_OPEN} {who} {POV_LIMIT_CLOSE}: no aftermath, no "
         f"foreshadowing, no naming people before {learns} their name in the story; "
-        f"an introduction in this scene counts.{stay}"
+        f"an introduction in this scene counts.{stay} The brief may say what "
+        f"other people intend or feel; show only what {who} can see or hear."
     )
 
 

@@ -115,6 +115,28 @@ class TestPlanVersioning:
         assert lv2[0]["version_no"] == 3  # max == live, always
         assert lv2[0]["reason"] == "restored_from:1"
 
+    async def test_restore_is_refused_while_the_plan_is_generating(
+        self, client, auth_headers, async_session, test_book
+    ):
+        from app.core.orm_models import BookPlan
+
+        bid = str(test_book.id)
+        r = await client.put(
+            f"/api/v1/books/{bid}/plans",
+            json={"kind": "outline", "content": [{"title": "Ch1", "summary": "a"}]},
+            headers=auth_headers,
+        )
+        plan_id = r.json()["id"]
+        plan = await async_session.get(BookPlan, UUID(plan_id))
+        plan.status = "generating"
+        await async_session.commit()
+        rr = await client.post(
+            f"/api/v1/books/{bid}/versions/book_plan/{plan_id}/restore/1",
+            headers=auth_headers,
+        )
+        assert rr.status_code == 409
+        assert "being generated" in rr.json()["detail"]
+
     async def test_restore_invalid_content_409_not_corrupt(
         self, client, auth_headers, async_session, test_book
     ):

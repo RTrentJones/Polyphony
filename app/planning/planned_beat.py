@@ -8,10 +8,10 @@ through the orchestrator.
 from __future__ import annotations
 
 import re
-from typing import Any, Iterable, NamedTuple, Optional
+from typing import Annotated, Any, Iterable, NamedTuple, Optional
 from uuid import UUID, uuid4, uuid5
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 MAX_PLANNED_BEATS = 12
 MAX_SECONDARY_NAMES = 12
@@ -26,7 +26,11 @@ class PlannedBeat(BaseModel):
 
     # Stable id: the outline child's node_id when promoted, else a new uuid4.
     node_id: str
-    title: str = Field(..., min_length=1, max_length=500)
+    # Stripped before the length check, so a blank title is a 422, not a beat
+    # that normalize_planned_beats silently drops.
+    title: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
+    ]
     summary: str = Field("", max_length=2000)
     # This book's character ids (uuid strings). [] means "use the chapter cast".
     character_ids: list[str] = Field(default_factory=list)

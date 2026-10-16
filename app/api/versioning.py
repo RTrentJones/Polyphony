@@ -176,11 +176,19 @@ async def restore_entity_version(
                 select(BookPlanORM).where(
                     BookPlanORM.id == entity_id, BookPlanORM.book_id == book_id
                 )
+                # Locked, so a generation committing "generating" first is seen.
+                .with_for_update()
             )
         ).scalar_one_or_none()
         if plan is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found"
+            )
+        if plan.status in ("generating", "paused"):
+            # The running job writes its nodes over the plan when it finishes.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This plan is being generated; restore it when that finishes.",
             )
         payload = version.content or {}
         nodes = payload.get("content") if isinstance(payload, dict) else payload

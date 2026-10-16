@@ -139,6 +139,8 @@ async def test_the_apps_prompts_pass_every_contract_check(
     # 1. The staged outline: skeleton, chapters and beats.
     canon = await build_canon(async_session, test_book.id)
     nodes, _ = await generate_staged_outline(canon, chapters_target=6)
+    # beats_see_whole_outline bites only when another act's chapters exist.
+    assert len({n["act_index"] for n in nodes}) >= 2
     names = {str(c.id): n for n, c in cast.items()}
     chapter = next(n for n in nodes if n.get("children"))
     beat = chapter["children"][0]
@@ -235,7 +237,7 @@ async def test_the_apps_prompts_pass_every_contract_check(
         character=milo,
         prompt=gt["canonical_beats"][0]["title"],
         context="",
-        scope=SceneScope.of(canon, [milo], ()),
+        scope=SceneScope.of(canon, [milo], (), ""),
     )
     assert any(r["purpose"] == "dialogue" for r in fake.records)
 
@@ -252,3 +254,4 @@ async def test_the_apps_prompts_pass_every_contract_check(
     assert set(ran) == set(pc.CHECKS)
     assert out["plan_cast_from_beat"]["unmatched"] == []
     assert out["voice_dialogue"]["short_samples"] == 0
+    assert out["sample_lift"]["max_shared"] == 0

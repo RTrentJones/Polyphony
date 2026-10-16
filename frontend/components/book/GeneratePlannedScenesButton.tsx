@@ -5,11 +5,10 @@
  *
  * One scene per planned beat, with the chapter's promoted cast and POV. The
  * server writes them one after another, so each scene starts from the one
- * before it, and preflights the whole batch: a batch the budget cannot cover
- * is refused with the estimate rather than stopping halfway. Beats that
- * already have a scene are skipped, so clicking again after a failure picks
- * up where it stopped. Shown only when the chapter has planned beats
- * (`chapter.planned_beats`, the server's only source; SPEC-23).
+ * before it. It queues the scenes the budget covers now and says why it
+ * deferred the rest (SPEC-34). Beats that already have a scene are skipped,
+ * so clicking again picks up where it stopped. Shown only when the chapter
+ * has planned beats (`chapter.planned_beats`, the server's only source; SPEC-23).
  */
 
 import { useState } from 'react'
@@ -21,8 +20,9 @@ import { useBookStore } from '@/lib/books-store'
 import type { BookChapter, PlannedScenesResponse } from '@/lib/types'
 
 export function plannedScenesMessage(r: PlannedScenesResponse): string {
+  const deferred = r.deferred > 0 ? ` ${r.reason}` : ''
   if (r.already_running) {
-    return 'The planned scenes for this chapter are already being written.'
+    return `The planned scenes for this chapter are already being written.${deferred}`
   }
   if (r.queued === 0) {
     return 'Every planned beat in this chapter already has a scene.'
@@ -30,7 +30,7 @@ export function plannedScenesMessage(r: PlannedScenesResponse): string {
   const skipped = r.skipped
     ? ` (${r.skipped} already written, skipped)`
     : ''
-  return `Writing ${r.queued} planned scene${r.queued === 1 ? '' : 's'} in order${skipped}.`
+  return `Writing ${r.queued} planned scene${r.queued === 1 ? '' : 's'} in order${skipped}.${deferred}`
 }
 
 export default function GeneratePlannedScenesButton({

@@ -15,6 +15,7 @@ from sqlalchemy import select
 
 from app.core.orm_models import BookPlan, Chapter, Character, Job, Scene
 from app.planning import secondaries
+from tests.unit.factories import add_scene
 from tests.unit.test_outline_handoff import _cast
 
 pytestmark = pytest.mark.unit
@@ -566,6 +567,7 @@ async def test_a_single_scene_from_a_beat_stores_its_id_and_secondaries(
     assert job.payload["request"]["secondary_names"] == ["Prava"]
     scene = await async_session.get(Scene, uuid.UUID(r.json()["scene_id"]))
     assert scene.scene_request["planned_beat_id"] == b3
+    assert scene.scene_request["beat_title"] == "Caseworker"
 
     # A beat the chapter no longer has (a stale modal): stored as None.
     r = await client.post(
@@ -576,6 +578,7 @@ async def test_a_single_scene_from_a_beat_stores_its_id_and_secondaries(
     assert r.status_code == 200, r.text
     scene = await async_session.get(Scene, uuid.UUID(r.json()["scene_id"]))
     assert scene.scene_request["planned_beat_id"] is None
+    assert scene.scene_request["beat_title"] is None
     assert "secondary_names" not in scene.scene_request
 
 
@@ -819,3 +822,25 @@ async def test_a_promoted_nodes_suggestions_come_from_its_chapter_beats(
     await client.get(base, headers=auth_headers)
     # Promoted: the chapter's beats. Unpromoted: the outline children.
     assert seen == [["Node", "Fen", "Node", "Other"]]
+
+
+# --- the beat editor reads the chapter (SPEC-35) ----------------------------------------
+
+
+async def test_the_chapter_lists_its_written_beats_and_scene_titles(
+    client, auth_headers, async_session, test_book
+):
+    """(F) GET /chapters/{id} carries `written` (beat id -> scene id) and
+    each scene's title, so the editor links a written beat to its scene."""
+    _, promoted, (b1, b2, _) = await _beat_book(
+        client, auth_headers, async_session, test_book
+    )
+    url = f"/api/v1/books/chapters/{promoted['chapter_id']}"
+    assert (await client.get(url, headers=auth_headers)).json()["written"] == {}
+    chapter = await async_session.get(Chapter, uuid.UUID(promoted["chapter_id"]))
+    scene = await add_scene(async_session, test_book, chapter, beat=b1, title="Intake")
+    await async_session.commit()
+
+    body = (await client.get(url, headers=auth_headers)).json()
+    assert body["written"] == {b1: str(scene.id)}
+    assert [s["title"] for s in body["scenes"]] == ["Intake"]

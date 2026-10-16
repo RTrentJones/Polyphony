@@ -3,6 +3,8 @@ surface via GET /books/{id}/scenes, so nothing generated is invisible."""
 
 import pytest
 
+from tests.unit.factories import add_chapter, add_scene
+
 pytestmark = pytest.mark.unit
 
 
@@ -95,3 +97,65 @@ class TestBookScenes:
         ]
         url = f"/api/v1/scenes/{bare.id}"
         assert (await client.get(url, headers=auth_headers)).json()["beats"] == []
+
+
+class TestSceneTitles:
+    """SPEC-37: a generated scene is named by `scene_batch.scene_title`, and the
+    author renames it with an unversioned PATCH."""
+
+    async def test_planned_and_single_scenes_are_named_by_one_rule(
+        self, client, auth_headers, async_session, test_book
+    ):
+        from sqlalchemy import select
+
+        from app.core.orm_models import Scene
+        from app.jobs.scene_batch import scene_title
+        from tests.unit.test_planned_beats import _PLANNED, _beat_book
+
+        _, promoted, _ = await _beat_book(
+            client, auth_headers, async_session, test_book
+        )
+        r = await client.post(
+            _PLANNED.format(promoted["chapter_id"]), json={}, headers=auth_headers
+        )
+        assert r.status_code == 200, r.text
+        (scene,) = (await async_session.execute(select(Scene))).scalars().all()
+        assert scene.title == "Intake"
+        # The chained and single scenes go through the same add_scene_job rule.
+        about = "Zara explains the afterlife over a long lunch"
+        assert (
+            scene_title({"beat_title": "Lunch", "scene_description": about}) == "Lunch"
+        )
+        six = scene_title({"scene_description": about})
+        assert six == "Zara explains the afterlife over a"
+
+    async def test_patch_renames_the_owners_scene_only(
+        self, client, auth_headers, async_session, test_book
+    ):
+        from app.core.orm_models import User
+        from app.core.security import create_access_token, get_password_hash
+
+        chapter = await add_chapter(async_session, test_book)
+        scene = await add_scene(async_session, test_book, chapter)
+        other = User(email="o@example.com", hashed_password=get_password_hash("x" * 12))
+        async_session.add(other)
+        await async_session.commit()
+        url = f"/api/v1/books/scenes/{scene.id}"
+
+        r = await client.patch(url, json={"title": "  Retained "}, headers=auth_headers)
+        assert r.status_code == 200, r.text
+        assert r.json() == {"id": str(scene.id), "title": "Retained"}
+        got = await client.get(f"/api/v1/scenes/{scene.id}", headers=auth_headers)
+        assert got.json()["title"] == "Retained"
+
+        for bad in ("  ", "x" * 501):
+            r = await client.patch(url, json={"title": bad}, headers=auth_headers)
+            assert r.status_code == 422, bad
+        token = create_access_token(data={"sub": str(other.id)})
+        r = await client.patch(
+            url,
+            json={"title": "Mine"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert r.status_code == 404
+        assert r.json()["detail"] == "Scene not found"

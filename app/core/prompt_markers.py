@@ -49,14 +49,15 @@ CHAPTER_FENCE = "chapter"
 # --- character blocks (characters/context, parsing/canon_extractor reduce) -----
 NAME_HEADING = "### "  # followed by the character's name
 VOICE_SAMPLES_LABEL = (
-    "Voice samples (their own words — match cadence, diction, syntax):"
+    "Voice samples (their own words, for manner only — match cadence, diction, "
+    "syntax; never copy a sample's words: write new lines in this voice):"
 )
 EVIDENCE_LABEL = "Evidence:"
 EVIDENCE_ITEM = "- (part {part}) {quote}"  # .format(part=<1-based>, quote=...)
 QUOTED_LINES_LABEL = "Quoted lines (their own words):"
 MOVEMENT_LABEL = (
-    "How they move (gesture and habit only; do not reuse these events, objects "
-    "or names):"
+    "How they move (gesture and habit, for manner only: never copy a sample's "
+    "words, and do not reuse these events, objects or names):"
 )
 
 # --- secondary characters (planning/secondaries.render_secondaries) ------------
@@ -66,6 +67,9 @@ INTRODUCED_LABEL = "Introduced:"
 # --- the staged outline (planning/staged_outline) ------------------------------
 CONFIRMED_PREMISE_NOTE = " (confirmed by the author: treat it as authoritative)"
 ACT_CHAPTERS_HEADER = "Here are the chapters of act {number}, in order:"  # .format
+OUTLINE_CHAPTERS_HEADER = (
+    "The whole book, chapter by chapter (→ marks this act's chapters):"
+)
 
 
 # --- parsers built from the markers --------------------------------------------
