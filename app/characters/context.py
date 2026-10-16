@@ -238,6 +238,9 @@ def _bible_lines(character: Character) -> list[str]:
 # credited to them, or first-person narration of their own section (SPEC-09).
 # Everything else is movement, under MOVEMENT_LABEL.
 _MOVEMENT_SAMPLES = 3
+# Voice fetches the character's dialogue pool, so the nearest rows cannot all be
+# ineligible; eligibility, then the threshold, then k (SPEC-40).
+_VOICE_POOL = 50
 # Ensemble agents are grounded on how they SPEAK and how they MOVE separately
 # (BRD R6.2): one mixed retrieval lets dialogue crowd action out. The ingest
 # classifier under-labels, so a movement block with fewer than this many hits
@@ -439,15 +442,16 @@ async def character_samples(
     voice_types = [_DIALOGUE] if allowed is None or _DIALOGUE in allowed else []
     move_types = [t for t in _ACTION_TYPES if allowed is None or t in allowed]
 
-    words = (
-        [
-            s
-            for s in await _retrieve(character, query, 2 * k_voice, voice_types)
-            if (s.get("chunk_type") or _DIALOGUE) == _DIALOGUE
+    def spoken(s: dict) -> bool:  # voice eligibility, before the threshold
+        return (
+            (s.get("chunk_type") or _DIALOGUE) == _DIALOGUE
             # "So!" and "Zara," carry no voice (W3-5): the speech minimum.
             and len((s.get("text") or "").split()) >= SPEECH_MIN_WORDS
             and not _later_plot(s, scope)
-        ][:k_voice]
+        )
+
+    words = (
+        (await _retrieve(character, query, _VOICE_POOL, voice_types, spoken))[:k_voice]
         if voice_types
         else []
     )
@@ -495,6 +499,7 @@ async def _retrieve(
     query: str,
     k: int,
     chunk_types: Optional[Iterable[str]],
+    keep=None,
 ) -> list[dict]:
     """Voice samples for one character. Retrieve across ALL chunk types unless a
     caller asks for specific ones: the ingest-time classifier under-labels, so a
@@ -503,6 +508,7 @@ async def _retrieve(
     common = dict(
         character_id=str(character.id),
         query=query,
+        keep=keep,
         user_id=str(character.user_id) if character.user_id else None,
         book_id=str(character.book_id) if character.book_id else None,
     )

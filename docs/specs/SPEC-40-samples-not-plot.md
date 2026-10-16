@@ -14,7 +14,9 @@
   later plot begins at the first paragraph placed after the scene's `Chapter.number`. The narration
   places events; quoted speech does not. `narration_of(paragraph)` (beside `source_paragraphs`) is
   the extractor's own split, so there is one speech rule. Voice and movement samples at or past the
-  cut are not shown, nor the secondaries' own lines. Sources are read once per `scene_setup`; no
+  cut are not shown, nor the secondaries' own lines. The later-plot cut and the speech minimum
+  are applied before the similarity threshold (`retrieve_similar(keep=...)` over the character's
+  dialogue pool, `_VOICE_POOL` = 50), so its closest-rows fallback picks among eligible lines. Sources are read once per `scene_setup`; no
   story position, no cut. Cel ch 1: W4b2 cuts at paragraph 9 ("Halvard Bell", 13 shared), W4 at 14
   ("The Memo", 5), W5 and W5b at 9, never at 3. W5b ch 2 cuts at 14. Before the narration rule W5b
   cut chapters 1-3 at paragraph 4: Milo's "any low-hanging fruit" matched its ch-4 title "Low-Hanging

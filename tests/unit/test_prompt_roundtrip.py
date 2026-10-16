@@ -96,7 +96,9 @@ class _GoldStore:
         self.lines, self.moves, self.source_id = lines_by_id, moves or {}, source_id
         self.paragraphs = pipeline.load_excerpts("cel").split("\n\n")
 
-    async def retrieve_similar(self, *, character_id, k=5, chunk_type=None, **kw):
+    async def retrieve_similar(
+        self, *, character_id, k=5, chunk_type=None, keep=None, **kw
+    ):
         words = [
             {"id": f"{character_id}-{i}", "text": t, "score": 1.0 - i / 10}
             | {"chunk_type": "dialogue"}
@@ -108,9 +110,8 @@ class _GoldStore:
             | {"source": f"paragraph_{n}"}
             for n in self.moves.get(character_id, [])[:k]
         ]
-        return {"dialogue": words, "action": moves, None: words + moves}.get(
-            chunk_type, []
-        )
+        rows = {"dialogue": words, "action": moves, None: words + moves}
+        return [r for r in rows.get(chunk_type, []) if keep is None or keep(r)]
 
 
 async def _cel_book(session, book):

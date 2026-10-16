@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from app.characters.context import later_plot_from
+from app.core.config import settings
 from app.core.models import ChunkType
 from app.parsing.character_extractor import (
     CharacterExtractor,
@@ -24,6 +25,7 @@ from app.parsing.character_extractor import (
     speaker_matches,
 )
 from app.planning.planned_beat import beat_scene_description
+from app.rag.store import above_threshold
 from evals.steps.pipeline import load_excerpts
 from tests.unit.factories import make_scope
 
@@ -376,10 +378,12 @@ class TypedStore:
         self.samples = samples
         self.calls = []
 
-    async def retrieve_similar(self, *, chunk_type=None, k=5, **kw):
+    async def retrieve_similar(self, *, chunk_type=None, k=5, keep=None, **kw):
+        """Nearest first (as given), then `keep`, then the store's threshold."""
         self.calls.append(chunk_type)
         pool = [s for s in self.samples if chunk_type in (None, s["chunk_type"])]
-        return pool[:k]
+        pool = [s for s in pool[:k] if keep is None or keep(s)]
+        return above_threshold(pool, settings.RAG_SCORE_THRESHOLD)
 
 
 def _char(name="Zara Okafor", aliases=None):
@@ -945,6 +949,38 @@ async def test_samples_from_later_plot_are_not_shown(monkeypatch):
     voice, move = await _milo_moves(monkeypatch, [], [], chunks=chunks, later={"s1": 9})
     assert voice.count("\n- ") == 3 and "Personally" not in voice
     assert move == [LOCKED + " Again."]
+
+
+# Run-W5c beat 0021: Milo's dialogue chunks, nearest first, scored as measured
+# against the beat's query (principal re-check §8).
+W5C_MILO = [
+    (10, 0.2035, "That's it? Where does he actually go? Not in a weird way."),
+    (4, 0.1836, "So! Just so I'm aligned on expectations going in."),
+    (15, 0.1473, "He wants to meet me. Personally. Is that normal?"),
+    (19, 0.1069, "I'm good, thanks."),
+    (6, -0.0065, "Totally, totally. And is there a dashboard, or a tracker?"),
+]
+
+
+@pytest.mark.parametrize(
+    "later, shown",
+    # (F) cut at 9: the threshold runs over eligible lines only, so its fallback
+    # shows the closest of them (HEAD: p10 passed 0.2, then the cut left none).
+    # (R) no cut: p10 is the one line at or above 0.2, and it alone is shown.
+    [({"s1": 9}, [4, 6]), ({}, [10])],
+)
+async def test_eligibility_comes_before_the_threshold(monkeypatch, later, shown):
+    import app.characters.context as ctx
+
+    chunks = [
+        {**_s(i, t, "dialogue", f"dialogue_{i}", score), "source_id": "s1"}
+        for i, score, t in W5C_MILO
+    ]
+    monkeypatch.setattr(ctx, "get_chunk_store", lambda: TypedStore(chunks))
+    _, by = _cel()
+    scope = make_scope(cast=(by["Milo"],), later_from=later)
+    words, _ = await ctx.character_samples(by["Milo"], "beat", 2, scope=scope)
+    assert [s["id"] for s in words] == shown
 
 
 # --- SPEC-42: owned phrases (W5-3 (a)) -----------------------------------------------
