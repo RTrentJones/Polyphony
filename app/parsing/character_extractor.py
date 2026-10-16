@@ -227,6 +227,8 @@ _OBJ = r"(?:\s+(?:to\s+)?(?:him|her|them|me|us|it|[a-z]+ly))?"
 _BEFORE_PLAIN = re.compile(rf"(?<![\w'-]){_WHO}\s+{_ADV}{_VERB}{_OBJ}\s*[,:]\s*$")
 _BEFORE_INVERTED = re.compile(rf"{_VERB}\s+{_WHO}\s*[,:]\s*$")
 _BEFORE_SCRIPT = re.compile(rf"(?:^|[.!?]\s+|\n)\s*(?P<who>{_PROPER})\s*:\s*$")
+_AFTER = (_AFTER_INVERTED, _AFTER_PLAIN)
+_BEFORE = (_BEFORE_PLAIN, _BEFORE_INVERTED, _BEFORE_SCRIPT)
 # Capitalised sentence-openers that are not part of a speaker's name.
 _OPENERS = {
     "then",
@@ -323,13 +325,37 @@ def _beat_subject(narration: str) -> Optional[str]:
     return who
 
 
-def _tag(narration: str, rules, find) -> Optional[str]:
-    """The speaker of the first rule that `find`s a tag in the narration."""
+def _tag(para: str, lo: int, hi: int, rules, find) -> Optional[tuple]:
+    """(start, end, who) of the first rule that `find`s a tag in para[lo:hi],
+    placed in the paragraph without its edge spaces and punctuation."""
     for rx in rules:
-        m = find(rx, narration)
+        m = find(rx, para[lo:hi])
         if m:
-            return _canon_speaker(m.group("who"))
+            t, edge = m.group(), " \t\n,:;.!?—-"
+            a = lo + m.start() + len(t) - len(t.lstrip(edge))
+            return a, lo + m.start() + len(t.rstrip(edge)), m.group("who")
     return None
+
+
+def _tagged(para: str):
+    """Per quoted span of a normalized paragraph: (start, end, closed), the
+    text before and after it, and the tag after and before it."""
+    spans = _quote_spans(para)
+    for k, (start, end, closed) in enumerate(spans):
+        lo = spans[k - 1][1] + 1 if k else 0  # only the last span is open
+        hi = spans[k + 1][0] - 1 if k + 1 < len(spans) else len(para)
+        before, after = para[lo : max(lo, start - 1)], para[end + 1 : hi]
+        a_tag = _tag(para, end + 1, hi, _AFTER, re.match)
+        b_tag = _tag(para, lo, max(lo, start - 1), _BEFORE, re.search)
+        yield (start, end, closed), before, after, a_tag, b_tag
+
+
+def tag_spans(paragraph: str) -> list[tuple[int, int]]:
+    """(start, end) of each speech-tag clause beside a quoted span ("Milo
+    said", "the Lich said"): the one statement of the tag clauses, as the
+    speech rule applies them (SPEC-17). Offsets index `paragraph`."""
+    tags = _tagged(_normalize_quotes(paragraph))
+    return sorted({t[:2] for *_, after, before in tags for t in (after, before) if t})
 
 
 _NEW_SENTENCE = re.compile(r"[.!?]\s+\S")
@@ -345,23 +371,17 @@ def _attribute_paragraph(para: str) -> tuple[list[dict], str]:
     new sentence starts between it and a neighbouring quote — and nobody's
     when the paragraph names two speakers or none, or when narration comes
     between (`"Go," Zara told the guard. The guard laughed. "Make me."`)."""
-    spans = _quote_spans(para)
+    tagged = list(_tagged(para))
     out: list[dict] = []
     outside: list[str] = []
-    prev_end = 0
-    for k, (start, end, closed) in enumerate(spans):
-        before = para[prev_end : max(prev_end, start - 1)]
+    for k, ((start, end, closed), before, after, a_tag, b_tag) in enumerate(tagged):
         outside.append(before)
-        next_open = spans[k + 1][0] - 1 if k + 1 < len(spans) else len(para)
-        after = para[end + 1 : next_open] if closed else ""
         speaker = (
-            _tag(after, (_AFTER_INVERTED, _AFTER_PLAIN), re.match)
-            or _tag(
-                before, (_BEFORE_PLAIN, _BEFORE_INVERTED, _BEFORE_SCRIPT), re.search
-            )
+            (a_tag and _canon_speaker(a_tag[2]))
+            or (b_tag and _canon_speaker(b_tag[2]))
             or _beat_subject(before)
         )
-        after_gap = after if k + 1 < len(spans) else None
+        after_gap = after if k + 1 < len(tagged) else None
         out.append(
             {
                 "text": para[start:end].strip(),
@@ -372,8 +392,7 @@ def _attribute_paragraph(para: str) -> tuple[list[dict], str]:
                 or (after_gap is not None and not _NEW_SENTENCE.search(after_gap)),
             }
         )
-        prev_end = end + 1 if closed else len(para)
-    outside.append(para[prev_end:])
+    outside.append(para[end + 1 :] if tagged else para)
     named = {s["speaker"] for s in out} - {None}
     if len(named) == 1:
         for s in out:

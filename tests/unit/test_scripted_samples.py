@@ -26,7 +26,9 @@ async def _shown(monkeypatch, texts, row, k=3):
     who = types.SimpleNamespace(id=uuid.uuid4(), name="Zara", user_id=None)
     who.book_id = None
     scope = make_scope(plot=(row["brief"], "the scene's next beat line"))
-    words, _ = await ctx.character_samples(who, row["beat"], k, scope=scope)
+    words, _ = await ctx.character_samples(
+        who, row["beat"], k, scope=scope, threshold=ctx.settings.RAG_SCORE_THRESHOLD
+    )
     return [s["text"] for s in words]
 
 

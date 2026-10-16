@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 
 from app.core.prompt_markers import ACT_CHAPTERS_HEADER
@@ -30,6 +32,13 @@ def outline_chapters(records: list[dict]) -> list[list[str]]:
         for ch in acts[a]
         if isinstance(ch, dict)
     ]
+
+
+def outline_hash(records: list[dict]) -> str:
+    """SHA-256 of the parsed outline, the key of a signed placement file
+    (evals/README.md): an answer re-archived with other whitespace matches."""
+    text = json.dumps(outline_chapters(records), sort_keys=True)
+    return hashlib.sha256(text.encode()).hexdigest()
 
 
 def locate(events: list[dict], chapters: list[list[str]]) -> dict[str, int]:

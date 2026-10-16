@@ -18,6 +18,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.core.database import get_async_session
 from app.core.llm_text import as_quoted_block, clean_for_llm
 from app.core.orm_models import Character
@@ -182,6 +183,7 @@ async def build_character_context(
             beat_description,
             max_samples,
             scope=scope,
+            threshold=settings.RAG_SCORE_THRESHOLD,
             chunk_types=chunk_types,
         )
         if grounding is not None:
@@ -438,6 +440,7 @@ async def character_samples(
     k: int,
     *,
     scope: SceneScope,
+    threshold: float,
     chunk_types: Optional[Iterable[str]] = None,
 ) -> tuple[list[dict], list[dict]]:
     """(their own words, how they move) for one character, retrieved separately:
@@ -451,7 +454,8 @@ async def character_samples(
     centres them, names no one outside the scene (`names_outside_scene`) and
     restates no line of `scope.plot` (`restates`), with no refill: a filtered
     block shows what is left (SPEC-30, SPEC-36, SPEC-40). Neither block shows a
-    sample from its source's later plot (`scope.later_from`).
+    sample from its source's later plot (`scope.later_from`). `threshold` is
+    the store's score floor (`score_threshold`), which every caller passes.
     """
     k_voice, k_move = k, min(_MOVEMENT_SAMPLES, k)
     allowed = set(chunk_types) if chunk_types else None
@@ -474,7 +478,11 @@ async def character_samples(
         )
 
     words = (
-        (await _retrieve(character, query, _VOICE_POOL, voice_types, spoken))[:k_voice]
+        (
+            await _retrieve(
+                character, query, _VOICE_POOL, voice_types, threshold, spoken
+            )
+        )[:k_voice]
         if voice_types
         else []
     )
@@ -492,12 +500,12 @@ async def character_samples(
         return out
 
     body = (
-        fresh(await _retrieve(character, query, k_move, move_types))
+        fresh(await _retrieve(character, query, k_move, move_types, threshold))
         if move_types
         else []
     )
     if move_types and len(body) < _MIN_TYPED_HITS:
-        body += fresh(await _retrieve(character, query, k_move * 2, None))
+        body += fresh(await _retrieve(character, query, k_move * 2, None, threshold))
     body = [s for s in body if not _later_plot(s, scope)]
     aliases = getattr(character, "aliases", None) or []
     name = getattr(character, "name", "") or ""
@@ -523,6 +531,7 @@ async def _retrieve(
     query: str,
     k: int,
     chunk_types: Optional[Iterable[str]],
+    threshold: float,
     keep=None,
 ) -> list[dict]:
     """Voice samples for one character. Retrieve across ALL chunk types unless a
@@ -533,6 +542,7 @@ async def _retrieve(
         character_id=str(character.id),
         query=query,
         keep=keep,
+        score_threshold=threshold,
         user_id=str(character.user_id) if character.user_id else None,
         book_id=str(character.book_id) if character.book_id else None,
     )
@@ -609,7 +619,13 @@ async def build_agent_context(
     if character is None:
         return "\n\n".join(b for b in blocks if b)
 
-    voice, body = await character_samples(character, beat_description, k, scope=scope)
+    voice, body = await character_samples(
+        character,
+        beat_description,
+        k,
+        scope=scope,
+        threshold=settings.RAG_SCORE_THRESHOLD,
+    )
     if grounding is not None:
         grounding.extend(grounding_entries(character, [*voice, *body]))
     if voice:

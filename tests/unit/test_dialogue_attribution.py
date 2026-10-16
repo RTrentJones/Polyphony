@@ -979,7 +979,9 @@ async def test_eligibility_comes_before_the_threshold(monkeypatch, later, shown)
     monkeypatch.setattr(ctx, "get_chunk_store", lambda: TypedStore(chunks))
     _, by = _cel()
     scope = make_scope(cast=(by["Milo"],), later_from=later)
-    words, _ = await ctx.character_samples(by["Milo"], "beat", 2, scope=scope)
+    words, _ = await ctx.character_samples(
+        by["Milo"], "beat", 2, scope=scope, threshold=settings.RAG_SCORE_THRESHOLD
+    )
     assert [s["id"] for s in words] == shown
 
 
