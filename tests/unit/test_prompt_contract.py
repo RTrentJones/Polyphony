@@ -359,13 +359,15 @@ def _outline(name: str) -> dict:
 
 @pytest.mark.parametrize(
     "outline, placed",
-    [  # partition: chapter 1 on all four, by "partition" (W4, W5) or "lanyard"
+    [  # partition: chapter 1 on all five, by "partition" (W4, W5), "lanyard"
+        # (W4b2, W5b) or "next desk" (W5d's "Read the Appendices")
         ("w4", [1, 1, 1, 1, 2, 2, 3]),
         # "Reply All" (ch 5) summons Milo to the corner office: that line places
         # the summons, so the meeting is "The Corner Office" (ch 6).
         ("w4b2", [1, 1, 2, None, 5, 6, 4]),
         ("w5", [1, 1, 2, 4, 1, 2, 2]),
         ("w5b", [1, 1, 2, None, 6, 6, 4]),
+        ("w5d", [1, 1, 1, 1, 2, 2, 2]),
     ],
 )
 def test_locate_places_each_event_by_the_first_line_naming_it(outline, placed):
