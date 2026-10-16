@@ -73,46 +73,48 @@ def intro_sentence(name: str, texts: Iterable[str]) -> str:
     return ""
 
 
+def introduction(sentence: str) -> str:
+    """The naming sentence through its first appositive (SPEC-40): cut before
+    the second comma, less a trailing "and" / "and who" / "and which", capped.
+    The canon block still carries the whole sentence (BRD R1.1)."""
+    head = ",".join(sentence.split(",")[:2]).strip()
+    return _cap(re.sub(r"\s+and(?:\s+(?:who|which))?$", "", head))
+
+
 class Secondary(NamedTuple):
     name: str
     intro_sentence: str  # "" when nothing names them
     samples: list[str]  # <= SAMPLES of their own lines from the sources
 
 
-async def scene_secondaries(
-    session, book_id, names: list[str], canon
+def scene_secondaries(
+    names: list[str], canon, sources: list[tuple[str, str]], later_from: dict
 ) -> list[Secondary]:
-    """Each name's introduction and own lines (SPEC-17 attribution, each live
-    source attributed once; lines of 4+ words first)."""
-    from sqlalchemy import select
-
-    from app.core.orm_models import Source
+    """Each name's introduction and own lines (SPEC-17 attribution, each of the
+    book's `sources` (id, text) attributed once; lines of 4+ words first; none
+    from a source's later plot, `later_from`, SPEC-40)."""
     from app.parsing import character_extractor as ce
 
     if not names:
         return []
-    rows = await session.execute(
-        select(Source.content_text)
-        .where(Source.book_id == book_id, Source.deleted_at.is_(None))
-        .order_by(Source.uploaded_at)
-    )
-    texts = [t for t in rows.scalars() if t]
+    texts = [text for _, text in sources]
     attributed = [ce.attribute_speech(t) for t in texts]
     cast = [{"name": c.name, "aliases": c.aliases or []} for c in canon.characters]
     entries, out = _entry_texts(canon), []
     for name in names:
         said = [
             line
-            for text, spans in zip(texts, attributed)
-            for _, line in ce.spoken_lines(text, name, cast=cast, attributed=spans)
+            for (sid, text), spans in zip(sources, attributed)
+            for i, line in ce.spoken_lines(text, name, cast=cast, attributed=spans)
             if len(line.split()) >= ce.SPEECH_MIN_WORDS
+            and i < later_from.get(sid, len(spans))
         ]
         said = sorted(
             dict.fromkeys(said),
             key=lambda line: len(line.split()) < PREFERRED_SAMPLE_WORDS,
         )
         intro = intro_sentence(name, [canon.synopsis or "", *entries, *texts])
-        out.append(Secondary(name, intro, said[:SAMPLES]))
+        out.append(Secondary(name, introduction(intro), said[:SAMPLES]))
     return out
 
 
