@@ -866,10 +866,12 @@ CHECKS = (
     "json_mode_where_json",
 )
 
+NONE_INDEXED = "none indexed"  # D3a: a principal whose store is empty
 # The calls whose prompt asks for JSON only (W6-6): a literal list.
 JSON_PURPOSES = (
     *("outline:skeleton", "outline:chapters", "outline:beats", "plan_beats"),
     *("continuity", "extraction_map", "extraction_reduce", "extraction_synopsis"),
+    *("outline", "ensemble:proposal", "ensemble:review"),
 )
 _HINDSIGHT = re.compile(
     r"would later|much later|years later|would come to|did not yet know", re.I

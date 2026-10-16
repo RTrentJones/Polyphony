@@ -37,7 +37,7 @@ from app.characters.context import (
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.logging_config import setup_logging
 from app.llm.client import get_llm_client
-from app.llm.json_utils import extract_json_object
+from app.llm.json_utils import JSON_OBJECT, extract_json_object
 from app.llm.tier import get_tier
 from app.orchestration.workflow import StoryPosition
 
@@ -121,6 +121,7 @@ JSON:"""
         max_tokens=600,
         user_id=user_id,
         purpose="ensemble:proposal",
+        response_format=JSON_OBJECT,
     )
     try:
         raw = extract_json_object(result.text)
@@ -230,6 +231,7 @@ JSON:"""
         max_tokens=1024,
         user_id=user_id,
         purpose="ensemble:review",
+        response_format=JSON_OBJECT,
     )
     try:
         review = extract_json_object(result.text)

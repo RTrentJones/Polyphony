@@ -1,14 +1,10 @@
 """Character extraction and content chunking for RAG"""
 
 from typing import List, Dict, Optional
-from uuid import UUID
 import re
-import json
 
 from app.core.models import ChunkType
 from app.core.logging_config import setup_logging
-from app.llm.client import get_llm_client
-from app.llm.json_utils import extract_json_array
 
 logger = setup_logging("parsing.character_extractor")
 
@@ -520,71 +516,6 @@ def _join_utterance(spans: list[str]) -> str:
 
 class CharacterExtractor:
     """Extract character-specific content from manuscript"""
-
-    async def extract_characters(
-        self,
-        text: str,
-        max_characters: int = 10,
-        user_id: Optional[UUID] = None,
-    ) -> List[str]:
-        """
-        Use LLM to identify main characters in text
-
-        Args:
-            text: Full manuscript text
-            max_characters: Maximum number of characters to extract
-
-        Returns:
-            List of character names
-        """
-        # Sample across the whole manuscript so late-introduced characters
-        # (and epistolary narrators) are seen, not just those in the opening.
-        sample_text = stratified_sample(text)
-
-        prompt = f"""Analyze this manuscript and identify the main characters.
-
-Return ONLY a JSON array of character names (limit to top {max_characters} by importance).
-
-Text (sampled across the whole manuscript, windows separated by [...]):
-{sample_text}
-
-Important:
-- Include first-person narrators, diarists, and letter-writers — in epistolary
-  or multi-POV works THEY are the main characters, even if rarely named in
-  third person.
-- Include anyone who speaks or drives action; exclude groups and figures
-  mentioned only once in passing.
-- Use each character's most common name (e.g., "Harry" not "Harry Potter").
-- Return valid JSON only — no prose, no explanation.
-
-JSON array:"""
-
-        content = ""
-        try:
-            result = await get_llm_client().generate(
-                [{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=1000,
-                user_id=user_id,
-                purpose="extract_characters",
-            )
-            content = result.text
-            characters = extract_json_array(content)
-
-            return [str(name) for name in characters[:max_characters]]
-
-        except json.JSONDecodeError as e:
-            logger.warning(
-                f"Error parsing LLM response as JSON: {e}",
-                extra_fields={"event": "character_extraction_parse_failed"},
-            )
-            return []
-        except Exception as e:
-            logger.warning(
-                f"Error extracting characters: {e}",
-                extra_fields={"event": "character_extraction_failed"},
-            )
-            return []
 
     def extract_character_content(
         self,

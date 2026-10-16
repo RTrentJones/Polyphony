@@ -19,7 +19,7 @@ from app.core.llm_text import (
 )
 from app.core.logging_config import setup_logging
 from app.llm.client import get_llm_client
-from app.llm.json_utils import extract_json_array
+from app.llm.json_utils import JSON_OBJECT, extract_json_array
 from app.parsing import names
 from app.planning.planned_beat import MAX_SECONDARY_NAMES
 
@@ -330,11 +330,11 @@ causally ordered:
 Each node's summary must say what CHANGES (a decision, reversal, or consequence),
 not just what happens. Order nodes so each follows causally from the last.
 
-Return ONLY valid JSON — an array of nodes:
-[
+Return ONLY a JSON object whose "items" are the nodes:
+{{"items": [
   {{"title": "Chapter/beat title", "summary": "1-3 sentences of what changes",
     "children": [{{"title": "scene beat", "summary": "...", "children": []}}]}}
-]
+]}}
 
 JSON:"""
 
@@ -344,6 +344,7 @@ JSON:"""
         max_tokens=8192,
         user_id=user_id,
         purpose="outline",
+        response_format=JSON_OBJECT,
     )
     try:
         nodes = extract_json_array(result.text)

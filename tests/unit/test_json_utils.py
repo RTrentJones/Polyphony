@@ -65,3 +65,4 @@ def test_json_mode_answers_parse():
     """(R) S-4: a fenced object; an array asked for as {"items": [...]}."""
     assert extract_json_object('```json\n{"acts": []}\n```') == {"acts": []}
     assert len(extract_json_array('{"items": ' + NODES + "}")) == 2
+    assert len(extract_json_array('{"items": ' + NODES + ', "notes": "x"}')) == 2

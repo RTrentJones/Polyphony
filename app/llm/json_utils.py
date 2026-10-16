@@ -32,6 +32,8 @@ def extract_json_array(text: str) -> list:
         if isinstance(whole, list):
             return whole
         if isinstance(whole, dict):
+            if isinstance(whole.get("items"), list):  # the prompts' wrapper key
+                return whole["items"]
             # {"outline": [...]} / {"findings": [...]} — a single wrapper key over
             # the array → unwrap it. A real node ({"title","summary","children"})
             # has several keys → treat the object itself as one node (don't reach
@@ -85,6 +87,8 @@ def extract_json_object(text: str) -> dict:
     try:
         whole = json.loads(t)
         if isinstance(whole, dict):
+            if isinstance(whole.get("items"), list):  # the prompts' wrapper key
+                return whole["items"]
             return whole
     except json.JSONDecodeError:
         pass
