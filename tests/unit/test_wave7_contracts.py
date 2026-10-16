@@ -13,7 +13,7 @@ import app.characters.dialogue as dialogue
 from app.core.prompt_markers import ACT_CHAPTERS_HEADER
 from app.parsing.character_extractor import (
     _attribute_paragraph,
-    _normalize_quotes,
+    normalize_quotes,
     tag_spans,
 )
 from evals.graders.plot import outline_hash
@@ -65,7 +65,7 @@ def test_tag_spans_are_the_tag_clauses():
     assert [curly[a:b] for a, b in tag_spans(curly)] == ["said Zara", "Milo said"]
     for book in ("cel", "dracula"):
         for p in load_excerpts(book).split("\n\n"):
-            narration = _attribute_paragraph(_normalize_quotes(p.strip()))[1]
+            narration = _attribute_paragraph(normalize_quotes(p.strip()))[1]
             assert all(p[a:b] in narration for a, b in tag_spans(p))
 
 
@@ -78,7 +78,7 @@ RULE = json.loads(
 def test_the_speech_rule_is_unchanged_over_the_excerpts(book):
     """(R) `_attribute_paragraph`'s spans and narration, as at 399a85d."""
     out = [
-        _attribute_paragraph(_normalize_quotes(p.strip()))
+        _attribute_paragraph(normalize_quotes(p.strip()))
         for p in load_excerpts(book).split("\n\n")
     ]
     spans = [

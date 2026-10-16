@@ -21,7 +21,8 @@ _SPEECH_VERBS = (
 )
 
 
-def _normalize_quotes(text: str) -> str:
+def normalize_quotes(text: str) -> str:
+    """Curly quote marks as straight ones, for the speech rule and the evidence."""
     return text.translate(_SMART_QUOTES)
 
 
@@ -70,7 +71,7 @@ _SINGLE_QUOTED = re.compile(r"(?<!\w)'(?=\S).*?(?<=\S)'(?!\w)", re.DOTALL)
 def _narration_only(paragraph: str) -> str:
     """The paragraph minus quoted speech — a narrator's "I" is outside quotes.
     Both dialogue styles are stripped: double and single quotation marks."""
-    text = re.sub(r'"[^"]*"', " ", _normalize_quotes(paragraph))
+    text = re.sub(r'"[^"]*"', " ", normalize_quotes(paragraph))
     return _SINGLE_QUOTED.sub(" ", text)
 
 
@@ -112,14 +113,14 @@ def _heading(para: str):
     heading-like paragraph. A paragraph that keeps its line breaks (a PDF's
     heading block: "CHAPTER VIII\nNORA VANCE'S JOURNAL") is also read line by
     line; the last narrator line wins."""
-    flat = " ".join(_normalize_quotes(para).split())
+    flat = " ".join(normalize_quotes(para).split())
     if len(flat) > _HEADING_MAX_CHARS:
         return None, False
     head = _NARRATOR_HEAD.match(flat)
     chapter = bool(_CHAPTER_HEAD.match(flat))
     if head is None and "\n" in para:
         for line in para.split("\n"):
-            line = " ".join(_normalize_quotes(line).split())
+            line = " ".join(normalize_quotes(line).split())
             head = _NARRATOR_HEAD.match(line) or head
             chapter = chapter or bool(_CHAPTER_HEAD.match(line))
     return head, chapter
@@ -354,7 +355,7 @@ def tag_spans(paragraph: str) -> list[tuple[int, int]]:
     """(start, end) of each speech-tag clause beside a quoted span ("Milo
     said", "the Lich said"): the one statement of the tag clauses, as the
     speech rule applies them (SPEC-17). Offsets index `paragraph`."""
-    tags = _tagged(_normalize_quotes(paragraph))
+    tags = _tagged(normalize_quotes(paragraph))
     return sorted({t[:2] for *_, after, before in tags for t in (after, before) if t})
 
 
@@ -362,7 +363,7 @@ def _tagless_narration(paragraph: str) -> str:
     """A speech paragraph's narration without its quoted spans or its tag
     clauses (`tag_spans`); punctuation left on its own is dropped (SPEC-53):
     `"So!" Milo said, rolling his chair closer.` → "rolling his chair closer."."""
-    text = _normalize_quotes(paragraph)
+    text = normalize_quotes(paragraph)
     cut = [(s - 1, e + 1) for s, e, _ in _quote_spans(text)] + tag_spans(text)
     kept = "".join(c for k, c in enumerate(text) if not any(a <= k < b for a, b in cut))
     return " ".join(w for w in kept.split() if re.search(r"\w", w))
@@ -415,7 +416,7 @@ def _attribute_paragraph(para: str) -> tuple[list[dict], str]:
 
 def narration_of(paragraph: str) -> str:
     """A source paragraph minus its quoted speech, by the extractor's split."""
-    return _attribute_paragraph(_normalize_quotes(paragraph.strip()))[1]
+    return _attribute_paragraph(normalize_quotes(paragraph.strip()))[1]
 
 
 def attribute_speech(text: str) -> list[list[dict]]:
@@ -438,7 +439,7 @@ def attribute_speech(text: str) -> list[list[dict]]:
     exchange: list[str] = []  # speakers of the current back-and-forth
     carry: Optional[str] = None  # speaker of the last paragraph's open quote
     for raw in source_paragraphs(text):
-        para = _normalize_quotes(raw.strip())
+        para = normalize_quotes(raw.strip())
         if not para:
             result.append([])
             continue

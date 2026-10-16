@@ -57,7 +57,7 @@ from app.core.prompt_markers import (
 )
 from app.llm.client import get_llm_client
 from app.llm.json_utils import JSON_OBJECT, extract_json_object
-from app.parsing.character_extractor import _normalize_quotes, tag_spans
+from app.parsing.character_extractor import normalize_quotes, tag_spans
 from app.parsing.names import (
     HONORIFICS,
     NON_NAME_TOKENS,
@@ -254,7 +254,7 @@ def verbatim_evidence(quotes: list[str], window: str) -> list[str]:
     run of `window` (normalised, outer marks aside); else, if its words are a
     run of the window's once `tag_spans` are left out, the window's span from
     its first word to its last, tags included; else dropped."""
-    text = _normalize_quotes(window)
+    text = normalize_quotes(window)
     flat, tagged, at = " ".join(text.split()), set(), 0
     for para in text.split("\n\n"):
         tagged.update(i for a, b in tag_spans(para) for i in range(at + a, at + b))
@@ -263,7 +263,7 @@ def verbatim_evidence(quotes: list[str], window: str) -> list[str]:
     keys = [m.group().casefold() for m in words]
     out: list[str] = []
     for quote in quotes:
-        q = " ".join(_normalize_quotes(quote).split())
+        q = " ".join(normalize_quotes(quote).split())
         if (core := q.strip("\"' ")) and core in flat:
             out.append(quote)
             continue

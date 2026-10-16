@@ -220,13 +220,13 @@ def test_every_archived_evidence_line_is_kept_repaired_or_dropped():
     clause (`tag_spans`), so that one splice is dropped."""
     from collections import Counter
 
-    from app.parsing.character_extractor import _normalize_quotes
+    from app.parsing.character_extractor import normalize_quotes
 
     seen = Counter()
     for row in W6["evidence"]["rows"]:
         window = W6["windows"][row["window"]]
         out = ce.verbatim_evidence([row["quote"]], window)
-        flat = " ".join(_normalize_quotes(window).split())
+        flat = " ".join(normalize_quotes(window).split())
         assert all(e.strip("\"' ") in flat for e in out), row
         kind = "kept" if out == [row["quote"]] else "repaired" if out else "dropped"
         seen[kind] += 1
