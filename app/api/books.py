@@ -2,7 +2,7 @@
 
 from dataclasses import replace
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Annotated, Optional
 from uuid import UUID
 
 from fastapi import (
@@ -14,8 +14,8 @@ from fastapi import (
     Response,
     status,
 )
-from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import func, select
+from pydantic import BaseModel, Field, StringConstraints, model_validator
+from sqlalchemy import Select, and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -158,6 +158,12 @@ class SceneContentUpdate(BaseModel):
     content: str = Field(..., min_length=1)
 
 
+class SceneUpdate(BaseModel):
+    title: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
+    ]
+
+
 class ManualSceneCreate(BaseModel):
     """Create a scene WITHOUT LLM generation — a blank/manual draft to write in."""
 
@@ -221,6 +227,19 @@ async def owned_scene(scene_id: UUID, user: UserORM, db: AsyncSession, *options)
             status_code=status.HTTP_404_NOT_FOUND, detail="Scene not found"
         )
     return scene
+
+
+def book_order(query: Select) -> Select:
+    """The ONE book order (SPEC-37): live chapters by position, then scene
+    position; unfiled scenes last, newest first."""
+    return query.outerjoin(
+        ChapterORM,
+        and_(SceneORM.chapter_id == ChapterORM.id, ChapterORM.deleted_at.is_(None)),
+    ).order_by(
+        ChapterORM.position.nulls_last(),
+        SceneORM.position,
+        SceneORM.created_at.desc(),
+    )
 
 
 async def lock_scene(db: AsyncSession, scene: SceneORM) -> SceneORM:
@@ -798,28 +817,15 @@ async def list_book_scenes(
     """Every scene of this book — filed in a chapter or not — so nothing
     generated is invisible. Scenes carry their book (SPEC-04)."""
     await _owned_book(book_id, current_user, db)
-    scenes = (
-        (
-            await db.execute(
-                live(select(SceneORM), SceneORM)
-                .where(SceneORM.book_id == book_id)
-                .order_by(SceneORM.created_at.desc())
+    rows = (
+        await db.execute(
+            book_order(live(select(SceneORM, ChapterORM.title), SceneORM)).where(
+                SceneORM.book_id == book_id
             )
         )
-        .scalars()
-        .all()
-    )
-
-    # Chapter titles for the filed scenes (one lookup), so the UI can group them.
-    ch_ids = {s.chapter_id for s in scenes if s.chapter_id}
-    titles: dict = {}
-    if ch_ids:
-        rows = (
-            await db.execute(
-                select(ChapterORM.id, ChapterORM.title).where(ChapterORM.id.in_(ch_ids))
-            )
-        ).all()
-        titles = {cid: title for cid, title in rows}
+    ).all()
+    scenes = [s for s, _ in rows]
+    titles = {s.id: title for s, title in rows}
 
     jobs = await latest_jobs(db, "scene", [s.id for s in scenes])
     return {
@@ -830,7 +836,7 @@ async def list_book_scenes(
                 "title": s.title,
                 "status": s.status,
                 "chapter_id": str(s.chapter_id) if s.chapter_id else None,
-                "chapter_title": titles.get(s.chapter_id),
+                "chapter_title": titles[s.id],
                 "characters": s.characters,
                 "preview": (scene_text(s)[:200] or None),
                 "created_at": s.created_at.isoformat() if s.created_at else None,
@@ -1363,6 +1369,20 @@ async def update_scene_content(
         "word_count": scene.word_count,
         "updated_at": scene.updated_at.isoformat(),
     }
+
+
+@router.patch("/scenes/{scene_id}", response_model=dict)
+async def update_scene(
+    scene_id: UUID,
+    payload: SceneUpdate,
+    current_user: UserORM = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Rename a scene (SPEC-37). Titles are not versioned."""
+    scene = await owned_scene(scene_id, current_user, db)
+    scene.title = payload.title
+    await db.commit()
+    return {"id": str(scene.id), "title": scene.title}
 
 
 @router.get("/scenes/{scene_id}/revisions", response_model=dict)

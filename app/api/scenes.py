@@ -13,14 +13,16 @@ from sqlalchemy.orm import selectinload
 from uuid import UUID
 
 from app.core.database import get_db
-from app.api.books import owned_scene
+from app.api.books import book_order, owned_scene
 from app.core.orm_models import (
     Book as BookORM,
+    Chapter as ChapterORM,
     Scene as SceneORM,
     User as UserORM,
 )
 from app.core.security import get_current_active_user
 from app.versioning import trash
+from app.versioning.trash import live
 
 router = APIRouter()
 
@@ -97,10 +99,24 @@ async def get_scene(
 ):
     """Get full scene details, with the beats the scene was written in
     (`beats`: [{beat_number, description, content}] by beat_number; [] for a
-    scene without beats)."""
+    scene without beats), its chapter and its neighbours in book order (SPEC-37;
+    an unfiled scene has neither)."""
     scene = await owned_scene(scene_id, current_user, db, selectinload(SceneORM.beats))
+    chapter = await db.get(ChapterORM, scene.chapter_id) if scene.chapter_id else None
+    prev = nxt = None
+    if chapter is not None:
+        filed = book_order(live(select(SceneORM.id), SceneORM)).where(
+            SceneORM.book_id == scene.book_id, SceneORM.chapter_id.is_not(None)
+        )
+        ids = [None, *(await db.execute(filed)).scalars(), None]
+        at = ids.index(scene.id)
+        prev, nxt = ids[at - 1], ids[at + 1]
     return {
         "id": str(scene.id),
+        "title": scene.title,
+        "chapter": chapter
+        and {"id": str(chapter.id), "number": chapter.number, "title": chapter.title},
+        "neighbours": {"prev": prev and str(prev), "next": nxt and str(nxt)},
         "book_id": str(scene.book_id),
         "chapter_id": str(scene.chapter_id) if scene.chapter_id else None,
         "source_id": str(scene.source_id) if scene.source_id else None,

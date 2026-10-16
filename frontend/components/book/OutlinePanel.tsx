@@ -1,16 +1,18 @@
 /**
- * Outline panel — the book's plans and their node trees.
+ * Outline panel — the book's plans and their node trees. History restores an
+ * earlier plan; a promoted node names its chapter (SPEC-38).
  */
 
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { CheckCircle2, ListTree, Plus, UserPlus, Wand2 } from 'lucide-react'
+import { CheckCircle2, History, ListTree, Plus, UserPlus, Wand2 } from 'lucide-react'
 import Button from '@/components/Button'
 import EstimateHint from '@/components/EstimateHint'
 import type { Estimate } from '@/lib/usage-api'
 import Card from '@/components/Card'
 import JobStatusBadge from '@/components/JobStatusBadge'
+import VersionHistory from '@/components/VersionHistory'
 import type { ToastType } from '@/components/Toast'
 import { usePlanningStore } from '@/lib/books-store'
 import { canonApi } from '@/lib/canon-store'
@@ -230,7 +232,7 @@ export default function OutlinePanel({
 }: {
   addToast: (message: string, type: ToastType) => void
 }) {
-  const { bookId, book, refreshBook, refreshCharacters } = useBook()
+  const { bookId, book, chapters, refreshBook, refreshCharacters } = useBook()
   const hasSynopsis = !!book?.synopsis
   const { plans, fetchPlans, generatePlan, promoteNode, promoteAll, confirmPremise } =
     usePlanningStore()
@@ -241,6 +243,7 @@ export default function OutlinePanel({
   const [generating, setGenerating] = useState(false)
   const [promotingIndex, setPromotingIndex] = useState<number | null>(null)
   const [promotingAll, setPromotingAll] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const cancelledRef = useRef(false)
 
   useEffect(() => {
@@ -258,6 +261,8 @@ export default function OutlinePanel({
   }, [])
 
   const plan = plans.find((p) => p.kind === kind)
+  // The live chapter each outline node was promoted to, by its number (S9).
+  const promotedAs = new Map(chapters.map((c) => [c.plan_node_id ?? '', c.number]))
 
   // The job driving the plan (SPEC-07): from the generate response, or from
   // the plan list after a reload. JobStatusBadge polls it; when it settles we
@@ -409,6 +414,12 @@ export default function OutlinePanel({
             <Wand2 className="h-4 w-4 mr-1" />
             Generate {kind === 'outline' ? 'outline' : 'beat sheet'}
           </Button>
+          {plan && (
+            <Button size="sm" variant="outline" onClick={() => setHistoryOpen(true)}>
+              <History className="h-4 w-4 mr-1" />
+              History
+            </Button>
+          )}
         </div>
       </div>
 
@@ -519,7 +530,11 @@ export default function OutlinePanel({
               <div className="flex-1 min-w-0">
                 <OutlineNodeView node={node} />
               </div>
-              {kind === 'outline' && (
+              {kind === 'outline' && node.node_id && promotedAs.has(node.node_id) ? (
+                <span className="text-sm text-gray-600 mt-1">
+                  Promoted · chapter {promotedAs.get(node.node_id)}
+                </span>
+              ) : kind === 'outline' && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -534,6 +549,16 @@ export default function OutlinePanel({
             </div>
           ))}
         </div>
+      )}
+      {historyOpen && plan && (
+        <VersionHistory
+          bookId={bookId}
+          entityType="book_plan"
+          entityId={plan.id}
+          label={label}
+          onClose={() => setHistoryOpen(false)}
+          onRestored={() => fetchPlans(bookId).catch(() => [])}
+        />
       )}
     </Card>
   )

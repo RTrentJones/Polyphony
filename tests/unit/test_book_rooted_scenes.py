@@ -276,6 +276,47 @@ class TestUserLevelSceneRoutes:
         assert listed["scenes"] == [] and listed["total"] == 0
 
 
+class TestBookOrder:
+    async def test_get_scene_knows_its_chapter_and_neighbours_in_book_order(
+        self, client, auth_headers, async_session, test_book, test_user
+    ):
+        """SPEC-37: neighbours follow chapter position, then scene position,
+        skipping trashed scenes; an unfiled scene has no chapter and no
+        neighbours."""
+        book_id = str(test_book.id)
+        a = await _chapter(client, auth_headers, book_id, "A")
+        b = await _chapter(client, auth_headers, book_id, "B")
+        a0, a1 = [await _scene(client, auth_headers, a, f"a{i}") for i in range(2)]
+        b0, b1 = [await _scene(client, auth_headers, b, f"b{i}") for i in range(2)]
+        r = await client.patch(
+            f"/api/v1/books/chapters/{b}/position",
+            json={"position": 0},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+        r = await client.delete(f"/api/v1/scenes/{b1}", headers=auth_headers)
+        assert r.status_code == 204
+        loose = Scene(user_id=test_user.id, book_id=test_book.id, position=0)
+        async_session.add(loose)
+        await async_session.commit()
+
+        async def where(sid):
+            got = await client.get(f"/api/v1/scenes/{sid}", headers=auth_headers)
+            body = got.json()
+            return body["chapter"], body["neighbours"]
+
+        assert await where(b0) == (
+            {"id": b, "number": 1, "title": "B"},
+            {"prev": None, "next": a0},
+        )
+        assert (await where(a0))[1] == {"prev": b0, "next": a1}
+        assert await where(a1) == (
+            {"id": a, "number": 2, "title": "A"},
+            {"prev": a0, "next": None},
+        )
+        assert await where(loose.id) == (None, {"prev": None, "next": None})
+
+
 def test_no_query_lists_scenes_by_user_id_alone():
     """Acceptance 4: every `Scene.user_id ==` filter in app/ sits beside the
     book ownership check — the user id is the tenant guard, never the scope."""
