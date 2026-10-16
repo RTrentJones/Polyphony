@@ -308,7 +308,8 @@ async def journey(page: Page) -> None:
         await picker.get_by_role("button", name=re.compile("Milo Voss")).click()
         await picker.get_by_role("button", name=re.compile("Zara Okafor")).click()
         await page.get_by_placeholder("What happens in this scene...").fill(
-            "Zara tells Milo to read the appendices before thanking anyone."
+            "Zara tells Milo to read the appendices before thanking someone "
+            "from Procurement."
         )
         await page.get_by_placeholder(re.compile("dimly lit tavern")).fill(
             "the intake atrium"
@@ -510,10 +511,15 @@ async def journey(page: Page) -> None:
         STATE["scene_id"] = re.search(r"scene=([0-9a-f-]+)", page.url).group(1)
         editor = page.get_by_placeholder("Write your scene...")
         await expect(editor).not_to_be_empty()
+        # SPEC-48: the stub invents "Gary"; the warning names him alone (the
+        # brief's "Procurement" is the author's).
+        warning = r"this scene named people or places not in the canon[^:]*: Gary$"
+        await expect(page.get_by_text(re.compile(warning))).to_be_visible()
         original = await editor.input_value()
         await editor.fill("Milo closed the appendices. Nobody thanked anyone.")
         await page.get_by_role("button", name="Save").click()
-        await expect(page.get_by_text(re.compile("saved"))).to_be_visible()
+        # The toast exactly: "• saved just now" also matches a bare "saved".
+        await expect(page.get_by_text("Scene saved", exact=True).first).to_be_visible()
         await page.get_by_role("button", name=re.compile("^Revision 1")).click()
         await page.get_by_role("button", name="Restore").click()
         await expect(editor).to_have_value(original)

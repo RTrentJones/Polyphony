@@ -42,7 +42,7 @@ from app.core.llm_text import (
 from app.core.logging_config import setup_logging
 from app.exports.builder import scene_text
 from app.llm.client import get_llm_client
-from app.llm.json_utils import extract_json_array, extract_json_object
+from app.llm.json_utils import JSON_OBJECT, extract_json_array, extract_json_object
 from app.versioning.trash import live as _live  # the one soft-delete filter
 
 logger = setup_logging("planning.continuity")
@@ -344,14 +344,14 @@ async def check_chunk(
     clean_for_llm(prompt, max_chars=MAX_CANON_CHARS * 2, label="continuity input")
     client = get_llm_client()
     tokens = 0
-    for attempt, fmt in enumerate((None, {"type": "json_object"})):
+    for attempt in range(2):
         result = await client.generate(
             [{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=3000,
             user_id=user_id,
             purpose="continuity",
-            response_format=fmt,
+            response_format=JSON_OBJECT,
         )
         tokens += result.tokens_in + result.tokens_out
         parsed = _parse(result.text)

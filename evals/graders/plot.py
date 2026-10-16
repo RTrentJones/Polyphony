@@ -56,6 +56,12 @@ def _words(text: str) -> str:
     return " ".join(re.findall(r"[a-z0-9']+", text.lower().replace("’", "'")))
 
 
+def unplaced(events: list[dict], chapters: list[list[str]]) -> list[str]:
+    """W6-7 (b): the gold events with terms (a span has none) left unplaced."""
+    placed = locate(events, chapters)
+    return [e["event"] for e in events if e["terms"] and e["event"] not in placed]
+
+
 def paragraph_of(sample: str, paragraphs: list[str]) -> int | None:
     """The first paragraph holding every clause of `sample` as a word run (a
     quote split around its speech tag is one sample)."""
@@ -112,11 +118,14 @@ def borrowed_phrase(text: str, cast: list[str], owned: dict[str, list[str]]) -> 
 
 def replayed(records: list[dict], against: list[dict]) -> dict[str, dict]:
     """By purpose, the share of this run's answers byte-identical to one in
-    `against`; a prompt this run already sent is not counted again."""
+    `against`; a prompt this run already sent is not counted again, and neither
+    is a missing answer or an empty JSON value (D12: continuity's `[]`)."""
     from evals.graders.prompt_contract import prompt_text, purpose
 
     old, seen, out = {r.get("answer") for r in against}, set(), {}
     for rec in records:
+        if (rec.get("answer") or "").strip() in ("", "[]", "{}", '""', "null"):
+            continue
         if (prompt := prompt_text(rec)) not in seen:
             seen.add(prompt)
             row = out.setdefault(purpose(rec), {"n": 0, "replayed": 0})

@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.llm.json_utils import extract_json_array
+from app.llm.json_utils import extract_json_array, extract_json_object
 
 NODES = '[{"title": "One", "summary": "a", "children": []}, {"title": "Two", "summary": "b", "children": []}]'
 
@@ -58,3 +58,16 @@ class TestExtractJsonArray:
     def test_empty_raises(self):
         with pytest.raises(ValueError):
             extract_json_array("")
+
+
+@pytest.mark.unit
+def test_json_mode_answers_parse():
+    """(R) S-4: a fenced object; an array asked for as {"items": [...]}."""
+    assert extract_json_object('```json\n{"acts": []}\n```') == {"acts": []}
+    # An object that happens to carry "items" stays an object (the ensemble's .get()).
+    assert extract_json_object('{"items": [], "satisfied": true}') == {
+        "items": [],
+        "satisfied": True,
+    }
+    assert len(extract_json_array('{"items": ' + NODES + "}")) == 2
+    assert len(extract_json_array('{"items": ' + NODES + ', "notes": "x"}')) == 2

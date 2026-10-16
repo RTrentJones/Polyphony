@@ -14,6 +14,7 @@ the cast reaching the gate (or weakens the gate) fails CI before merge.
 
 import json
 import types
+from pathlib import Path
 
 import pytest
 
@@ -367,3 +368,20 @@ def test_names_not_honorifics_weekdays_or_split_phrases(text, flagged):
 
     known = {"Milo Voss", "Zara", "Prava"}
     assert unknown_proper_nouns(text, known, canon_text=PROBE_DRAFT) == flagged
+
+
+def test_the_audit_names_each_scene_its_pov_cannot_witness():
+    """(F) W6-4 (b), D9: each wave-5 outline warns on its leaky scene; (R) W4, W4b2."""
+    from app.planning.fidelity import POV_LEAK_WARNING, audit_outline
+
+    fixtures = Path(__file__).parents[1] / "fixtures"
+    w5 = json.loads((fixtures / "w5_archives.json").read_text())
+    outlines = json.loads((fixtures / "w4_outlines.json").read_text())
+    for row, leak in ((r["run"], r["leak"]) for r in w5["outline_audit"]["rows"]):
+        chapters: dict = {}
+        for scene in outlines.get(row) or w5["outlines"][row]:
+            chapters.setdefault(scene["chapter"], []).append(scene)
+        nodes = [{"children": scenes} for scenes in chapters.values()]
+        found = [w for w in audit_outline(nodes, [], set()).warnings if '" ("' in w]
+        expected = leak and 'chapter {chapter} "{scene}" ("{phrase}")'.format(**leak)
+        assert found == ([POV_LEAK_WARNING + expected] if leak else []), row

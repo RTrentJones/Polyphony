@@ -37,7 +37,7 @@ from app.characters.context import (
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.logging_config import setup_logging
 from app.llm.client import get_llm_client
-from app.llm.json_utils import extract_json_object
+from app.llm.json_utils import JSON_OBJECT, extract_json_object
 from app.llm.tier import get_tier
 from app.orchestration.workflow import StoryPosition
 
@@ -121,6 +121,7 @@ JSON:"""
         max_tokens=600,
         user_id=user_id,
         purpose="ensemble:proposal",
+        response_format=JSON_OBJECT,
     )
     try:
         raw = extract_json_object(result.text)
@@ -230,6 +231,7 @@ JSON:"""
         max_tokens=1024,
         user_id=user_id,
         purpose="ensemble:review",
+        response_format=JSON_OBJECT,
     )
     try:
         review = extract_json_object(result.text)
@@ -440,6 +442,7 @@ async def run_ensemble_scene_workflow(
         _canon_hash,
         plan_scene_beats,
         prose_tail,
+        scene_name_warnings,
         scene_setup,
         trim_seam_repeat,
     )
@@ -557,10 +560,14 @@ async def run_ensemble_scene_workflow(
             # Scene.evaluation_scores is already a JSON metadata bucket — reuse it
             # (no migration) for the ensemble's per-beat reviews.
             scene.evaluation_scores = {
+                **(scene.evaluation_scores or {}),
                 "mode": "ensemble",
                 "converged": converged,
                 "beats": evaluations,
                 "grounding": grounding,
+                "name_warnings": scene_name_warnings(
+                    scene_text, setup.canon, scene_request, prior_scene_tail
+                ),
             }
             await session.commit()
 

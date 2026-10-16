@@ -11,6 +11,9 @@ from app.core.logging_config import setup_logging
 
 logger = setup_logging("llm.json_utils")
 
+# The response_format of every call whose prompt asks for JSON only.
+JSON_OBJECT = {"type": "json_object"}
+
 
 def extract_json_array(text: str) -> list:
     """Best-effort extraction of a JSON array from an LLM reply.
@@ -29,6 +32,8 @@ def extract_json_array(text: str) -> list:
         if isinstance(whole, list):
             return whole
         if isinstance(whole, dict):
+            if isinstance(whole.get("items"), list):  # the prompts' wrapper key
+                return whole["items"]
             # {"outline": [...]} / {"findings": [...]} — a single wrapper key over
             # the array → unwrap it. A real node ({"title","summary","children"})
             # has several keys → treat the object itself as one node (don't reach

@@ -41,7 +41,7 @@ class RevisionConflict(RuntimeError):
 async def run(payload: dict) -> None:
     from app.characters.context import build_cast_context
     from app.orchestration import revise as rv
-    from app.orchestration.prose import scene_chapter, scene_setup
+    from app.orchestration.prose import scene_setup
 
     scene_id = UUID(payload["scene_id"])
     book_id = UUID(payload["book_id"])
@@ -55,15 +55,15 @@ async def run(payload: dict) -> None:
             raise RevisionConflict("The scene was deleted.")
         draft = scene.draft
         request = rv.cast_request(scene)
-        summary, position = await scene_chapter(session, scene)
         setup = await scene_setup(session, book_id, request, scene.id)
-        lines = list(
-            await session.scalars(
-                select(SceneBeat.description)
+        beats = (
+            await session.execute(
+                select(SceneBeat.beat_number, SceneBeat.description)
                 .where(SceneBeat.scene_id == scene_id)
                 .order_by(SceneBeat.beat_number)
             )
-        )
+        ).all()
+        lines = [line for _, line in beats]
         redo, later = payload.get("beat_index"), []
         if redo is not None and scene.chapter_id is not None:
             later = await session.scalars(  # the chapter's live later scenes
@@ -96,17 +96,20 @@ async def run(payload: dict) -> None:
         )
         prompt = rv.build_revise_prompt(
             canon_block=canon.full_block(),
-            chapter_summary=summary,
+            chapter_summary=setup.chapter_summary,
             cast_context=cast_context,
             prior=prior,
             target=target,
             after=after,
             instruction=instruction,
             pov=setup.pov,
-            story_position=position,
+            story_position=setup.position,
             secondary_block=setup.secondary_block,
-            beat=(redo, lines) if redo is not None else None,
-            keep=keep,
+            # SPEC-47: the beat the API located by its number, not a position.
+            beat=(
+                ([n for n, _ in beats].index(redo), lines) if redo is not None else None
+            ),
+            keep=[(t, rv.callback_context(t, rest)) for t in keep],
         )
         revised = await rv.generate_revision(
             prompt, target_chars=len(target), user_id=user_id
@@ -129,7 +132,8 @@ async def run(payload: dict) -> None:
     )
     dropped = rv.dropped_callbacks(revised, keep)
     if dropped:
-        warnings.append(rv.DROPPED_CALLBACK.format(terms=", ".join(map(repr, dropped))))
+        quoted = ", ".join(f"'{t}'" for t in dropped)
+        warnings.append(rv.DROPPED_CALLBACK.format(terms=quoted))
 
     async with get_async_session() as session:
         scene = await session.get(Scene, scene_id)

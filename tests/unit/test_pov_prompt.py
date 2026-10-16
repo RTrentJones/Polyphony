@@ -140,3 +140,13 @@ def test_one_head_shows_only_what_the_pov_sees_of_a_brief():
     text = pov_instruction(Pov("third person limited", "Milo Voss"))
     assert text.endswith(f"{limit} Milo Voss can see or hear.")
     assert limit not in pov_instruction(Pov("third person omniscient", "Milo"))
+
+
+def test_no_foreshadowing_names_its_example_in_both_branches():
+    """(F) SPEC-48 (D10): the hindsight example, in both branches."""
+    example = "no foreshadowing — never 'would later learn'"
+    for pov in (
+        Pov("third person limited", "Milo Voss"),
+        Pov("third person omniscient"),
+    ):
+        assert example in pov_instruction(pov)

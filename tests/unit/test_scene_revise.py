@@ -34,8 +34,13 @@ from app.jobs.handlers import Handler
 from app.jobs.worker import JobWorker
 from app.llm.errors import QuotaExhaustedError
 from app.orchestration import revise as rv
-from app.core.prompt_markers import CURRENT_BEAT_MARK, POV_LIMIT_OPEN, POV_LINE_RE
-from app.orchestration.pov import Pov
+from app.core.prompt_markers import (
+    CURRENT_BEAT_MARK,
+    POV_LIMIT_OPEN,
+    POV_LINE_RE,
+    STORY_POSITION,
+)
+from app.orchestration.pov import NAMING_RULE, Pov
 from tests.unit.factories import add_scene
 
 pytestmark = pytest.mark.unit
@@ -554,6 +559,8 @@ async def test_prompt_carries_canon_cast_and_read_only_surroundings(
     canon = await build_canon(async_session, story.book.id)
     assert canon.full_block() in prompt  # the WHOLE canon, untruncated
     assert "<chapter>\nAudit week begins.\n</chapter>" in prompt
+    # (R) wave-6 day-0: the chapter and its position come from the scene setup.
+    assert STORY_POSITION.format(n=1, m=1) in prompt
     assert "<character>" in prompt and VOICE in prompt  # the cast's voice samples
     assert f"<prior>\n{P1}\n</prior>" in prompt
     assert f"<target>\n{P2}\n</target>" in prompt
@@ -579,25 +586,37 @@ async def test_a_beat_revise_prompt_names_the_beat_from_the_plan(
     prompt = fake.prompts[0]
     # W3-3: the whole POV paragraph, the limit included, not the bare label.
     assert POV_LINE_RE.search(prompt) and POV_LIMIT_OPEN in prompt
-    assert "can see or hear.\nBeat 2 of this scene's plan: b1\n" in prompt
+    assert (
+        f"can see or hear.\n{NAMING_RULE}\nBeat 2 of this scene's plan: b1\n" in prompt
+    )
 
 
 async def test_a_redo_sees_the_plan_and_warns_on_a_dropped_callback(
     client, auth_headers, async_session, story, monkeypatch
 ):
-    """(F) SPEC-41: the plan with beat 2 marked, the keep line, the direction."""
-    p2 = "Zara leaned over the desk and tapped Appendix F."
+    """(F) SPEC-41/47: the plan, the keep line with context, quoted warning."""
+    p2 = "Zara leaned over the desk and tapped Appendix F's tab."
     story.scene.content, story.beats[1].content = DRAFT.replace(P2, p2), p2
-    later = "Nobody mentioned Appendix F again."
+    later = "Nobody mentioned Appendix F's tab again."
     await add_scene(async_session, story.book, story.chapter, 1, content=later)
     await async_session.commit()
     fake = FakeLLM(["Zara leaned in."])
     _bind(monkeypatch, async_session, fake)
-    await _run_job(client, auth_headers, async_session, story.scene, beat_index=1)
+    await _run_job(
+        client,
+        auth_headers,
+        async_session,
+        story.scene,
+        beat_index=1,
+        instruction="Redo beat 2.",
+    )
     prompt = fake.prompts[0]
     assert f"<beats>\n1. b0\n{CURRENT_BEAT_MARK} 2. b1\n3. b2\n</beats>" in prompt
-    assert "Keep these (the rest of this chapter refers to them): Appendix F" in prompt
-    assert rv.REDO_DIRECTION in prompt
+    assert (
+        "Keep these (the rest of this chapter refers to them): "
+        'Appendix F ("Nobody mentioned Appendix F\'s tab again")'
+    ) in prompt
+    assert rv.REDO_DIRECTION in prompt and rv.REDO_CHANGE not in prompt  # (R)
     [row] = await _revisions(async_session, story.scene, "ai_revise")
     assert row.meta["dropped_callbacks"] == ["Appendix F"]
     assert rv.DROPPED_CALLBACK.format(terms="'Appendix F'") in row.meta["warnings"]
@@ -605,32 +624,83 @@ async def test_a_redo_sees_the_plan_and_warns_on_a_dropped_callback(
     assert proposal["dropped_callbacks"] == ["Appendix F"]
 
 
-REDOS = json.loads(
-    (Path(__file__).parents[1] / "fixtures" / "w4_redos.json").read_text("utf-8")
+async def test_a_redo_finds_its_beat_by_number(
+    client, auth_headers, async_session, story, monkeypatch
+):
+    """(F) SPEC-47 (Could 5): the beat is found by its number, gaps and all."""
+    await async_session.delete(story.beats[0])
+    await async_session.commit()
+    fake = FakeLLM(["Zara leaned in."])
+    _bind(monkeypatch, async_session, fake)
+    job = await _run_job(client, auth_headers, async_session, story.scene, beat_index=1)
+    assert job.status == "succeeded", job.error
+    assert "Beat 1 of this scene's plan: b1\n" in fake.prompts[0]
+    assert f"<beats>\n{CURRENT_BEAT_MARK} 1. b1\n2. b2\n</beats>" in fake.prompts[0]
+
+
+def _redo_prompt(instruction, keep=()):
+    return rv.build_revise_prompt(
+        canon_block="CANON",
+        chapter_summary="",
+        cast_context="",
+        prior="",
+        target=P2,
+        after="",
+        instruction=instruction,
+        pov=Pov("third person limited", "Milo Voss"),
+        story_position=None,
+        secondary_block="",
+        beat=(1, ["b0", "b1"]),
+        keep=keep,
+    )
+
+
+def test_a_redo_with_a_direction_keeps_every_other_sentence():
+    """(F) SPEC-47 (D7) direction line, (R) terse redo; (F) SPEC-48 rule."""
+    asked = _redo_prompt("Redo beat 2: let Milo notice one thing.")
+    assert rv.REDO_CHANGE in asked and rv.REDO_DIRECTION not in asked
+    for terse in ("Redo beat 2.", "redo beat 2"):
+        prompt = _redo_prompt(terse)
+        assert rv.REDO_DIRECTION in prompt and rv.REDO_CHANGE not in prompt
+    assert NAMING_RULE in asked and "Do not introduce named" not in asked
+    keep = [("nine days", "reporting cycle from nine days down to six")]
+    assert (
+        'refers to them): nine days ("reporting cycle from nine days down to six")\n'
+    ) in _redo_prompt("Redo beat 2.", keep)
+
+
+W5 = json.loads(
+    (Path(__file__).parents[1] / "fixtures" / "w5_archives.json").read_text("utf-8")
 )
+W5_CANON = _canon(
+    set(W5["canon"]["terms"]),
+    (Path(__file__).parents[2] / W5["canon"]["synopsis"]).read_text("utf-8"),
+)
+
+
+def test_callbacks_with_context_on_the_archived_redos():
+    """(F) SPEC-47 (D5): the fixture's callbacks table, with contexts."""
+    for r in W5["callbacks"]["rows"]:
+        rest = "\n".join((r["prior"], r["after"], r["later"]))
+        keep = [
+            {"term": t, "context": rv.callback_context(t, rest)}
+            for t in rv.callbacks(r["target"], rest, W5_CANON)
+        ]
+        assert keep == r["keep"], r["run"]
+    # (F) a bare "two" is no callback; "two days" recurring is.
+    assert rv.callbacks("She had two. Two days.", "two, then two days", CEL) == [
+        "Two days"
+    ]
+
+
 CEL = _canon({"Milo Voss", "Milo", "Voss"}, synopsis="Prava, the intake caseworker")
-
-
-@pytest.mark.parametrize(
-    "run, must, must_not",
-    [
-        ("w4", {"nine", "six"}, {"Milo", "Prava", "one"}),
-        ("w4b2", {"—list", "B-flat"}, {"Milo"}),
-    ],
-)
-def test_callbacks_on_the_archived_redos(run, must, must_not):
-    """(F) SPEC-41's table; W4's "three intake forms" drops nine and six."""
-    r = REDOS[run]
-    rest = "\n".join((r["prior"], r["after"], r.get("later", "")))
-    keep = rv.callbacks(r["target"], rest, CEL)
-    assert must <= set(keep) and not must_not & set(keep), keep
-    dropped = rv.dropped_callbacks(r["answer"], keep)
-    assert must <= set(dropped) if run == "w4" else dropped == [], dropped
 
 
 def test_callbacks_skip_a_sentence_opener_and_keep_a_capitalised_name():
     """(F) W3's "Appendix F" pins the capitalised class; an opener is not one."""
     target = "Nobody spoke. Zara's finger on Appendix F."
+    assert rv.callbacks(target, "Nobody cited Appendix F.", CEL) == ["Appendix F"]
+    target = "Zara tapped Appendix F's tab."  # (R) the possessive is the term's
     assert rv.callbacks(target, "Nobody cited Appendix F.", CEL) == ["Appendix F"]
 
 

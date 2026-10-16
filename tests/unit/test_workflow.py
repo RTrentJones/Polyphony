@@ -99,3 +99,11 @@ async def test_the_also_named_sentence_needs_a_list(monkeypatch):
     ask = {**_REQUEST, "secondary_names": ["Prava"]}
     prompt = (await _plan(monkeypatch, _FIRST, "[]", ask))[0]
     assert 'A person listed as "Also named"' in prompt
+
+
+async def test_an_unplanned_scene_sees_its_chapter_without_a_mark(monkeypatch):
+    """(F) wave-5 Could 1: the list, with no "→ marks" claim in its header."""
+    ask = {**_REQUEST, "planned_beat_id": "not-in-the-plan"}
+    prompt = (await _plan(monkeypatch, _FIRST, "[]", ask, _PLAN))[0]
+    assert CHAPTER_SCENES_HEADER not in prompt and "→" not in prompt
+    assert "This chapter's planned scenes, in order:\n  1. Mid-Sentence: " in prompt

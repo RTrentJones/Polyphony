@@ -46,7 +46,8 @@ class SceneScope(NamedTuple):
     known_text: str  # canon_known_text(canon), raw
     # Every line of the plan a movement sample may not restate: the book's
     # planned scenes (the brief is one), the chapter's earlier written beat
-    # lines, and this scene's beat lines once planned.
+    # lines, and this scene's beat lines once planned. Positional: a scene's
+    # plot[0] is its brief, kept even when empty (the scripted rule reads it).
     plot: tuple[str, ...]
     later_from: Mapping[str, int]  # source_id -> first paragraph of later plot
 
@@ -255,6 +256,21 @@ _DIALOGUE = "dialogue"
 RESTATES_MIN = 4
 
 
+# A voice sample sharing a run of this many words, pronouns folded, with the beat
+# line or the brief scripts the line the beat asks for (SPEC-46).
+SCRIPTED_RUN = 6
+_FOLD = dict.fromkeys(("his", "her", "your", "my", "their"), "P")
+_FOLD |= dict.fromkeys(("he", "she", "you", "i", "they"), "S")
+_FOLD |= dict.fromkeys(("him", "me", "them"), "O")
+
+
+def word_runs(text: str) -> set[tuple[str, ...]]:
+    """Every SCRIPTED_RUN-word run of `text`, pronouns folded."""
+    w = re.findall(r"[a-z0-9]+(?:'[a-z0-9]+)*", text.lower().replace("’", "'"))
+    w = [_FOLD.get(t, t) for t in w]
+    return {tuple(w[i : i + SCRIPTED_RUN]) for i in range(len(w) - SCRIPTED_RUN + 1)}
+
+
 def _words(text: str, drop: Iterable[str] = ()) -> set[str]:
     return {w for w in re.findall(r"[a-z]+", text.lower()) if len(w) > 3} - set(drop)
 
@@ -429,7 +445,7 @@ async def character_samples(
     (SPEC-17): scenes, revise, the ensemble and the voice probe all use it.
 
     Voice is dialogue chunks plus first-person narration of their own section,
-    lines of 3+ words only; it never falls back to untyped retrieval. Movement
+    lines of 3+ words, none scripted (SPEC-46); no untyped fallback. Movement
     is action / description / thought, falling back to untyped retrieval (minus
     dialogue) when the classifier under-labelled. It keeps only narration that
     centres them, names no one outside the scene (`names_outside_scene`) and
@@ -442,12 +458,19 @@ async def character_samples(
     voice_types = [_DIALOGUE] if allowed is None or _DIALOGUE in allowed else []
     move_types = [t for t in _ACTION_TYPES if allowed is None or t in allowed]
 
+    # The beat line (`query`) and the brief (scene_setup's first `plot` line).
+    script = word_runs(query) | word_runs(scope.plot[0] if scope.plot else "")
+
+    def scripted(s: dict) -> bool:
+        return bool(word_runs(s.get("text") or "") & script)
+
     def spoken(s: dict) -> bool:  # voice eligibility, before the threshold
         return (
             (s.get("chunk_type") or _DIALOGUE) == _DIALOGUE
             # "So!" and "Zara," carry no voice (W3-5): the speech minimum.
             and len((s.get("text") or "").split()) >= SPEECH_MIN_WORDS
             and not _later_plot(s, scope)
+            and not scripted(s)
         )
 
     words = (
@@ -479,7 +502,8 @@ async def character_samples(
     aliases = getattr(character, "aliases", None) or []
     name = getattr(character, "name", "") or ""
     # First-person narration of their own section is their voice, not movement.
-    words += [s for s in body if _own_narration(s)][: max(0, k_voice - len(words))]
+    own = [s for s in body if _own_narration(s) and not scripted(s)]
+    words += own[: max(0, k_voice - len(words))]
     body = [
         s
         for s in body

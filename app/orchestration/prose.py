@@ -34,8 +34,9 @@ from app.core.prompt_markers import (
 from app.llm.client import get_llm_client
 from app.llm.errors import QuotaExhaustedError
 from app.planning.canon import Canon, build_canon
+from app.planning.fidelity import canon_known_text, unknown_proper_nouns
 
-from .pov import Pov, pov_instruction, resolve_pov
+from .pov import NAMING_RULE, Pov, pov_instruction, resolve_pov
 from .workflow import (
     StoryPosition,
     chapter_context,
@@ -98,6 +99,8 @@ class SceneSetup(NamedTuple):
     secondary_block: str  # render_secondaries; "" without Also-named people
     plan: list  # book_plan: (Chapter.number, planned beat) for the whole book
     earlier: list  # earlier_beats: (title, beat lines) of the scenes before it
+    chapter_summary: str  # scene_chapter: "" without a chapter
+    position: Optional[StoryPosition]  # scene_chapter: None without a live chapter
 
 
 async def scene_setup(
@@ -130,18 +133,26 @@ async def scene_setup(
         .order_by(Source.uploaded_at)
     )
     sources = [(str(sid), text) for sid, text in rows if text]
-    position = (await scene_chapter(session, scene))[1] if scene else None
+    summary, position = await scene_chapter(session, scene) if scene else ("", None)
     later_from = {}
     for sid, text in sources if position else []:
         cut = later_plot_from(source_paragraphs(text), position.chapter, plan)
         if cut is not None:
             later_from[sid] = cut
-    scope = SceneScope.of(
-        canon, cast, names, dict.fromkeys(filter(None, plot)), later_from
-    )
-    secondaries = scene_secondaries(names, canon, sources, later_from)
-    return SceneSetup(
-        canon, cast, scope, pov, render_secondaries(secondaries), plan, earlier
+    # The brief stays at plot[0], even empty (the scripted rule reads it there).
+    plot = dict.fromkeys([plot[0], *filter(None, plot[1:])])
+    scope = SceneScope.of(canon, cast, names, plot, later_from)
+    block = render_secondaries(scene_secondaries(names, canon, sources, later_from))
+    return SceneSetup(canon, cast, scope, pov, block, plan, earlier, summary, position)
+
+
+def scene_name_warnings(prose, canon, scene_request, earlier) -> list[str]:
+    """Possible inventions a generated scene names (SPEC-48; warn-only)."""
+    brief = scene_request.get("scene_description") or ""  # the author's names
+    return unknown_proper_nouns(
+        prose,
+        {*canon.canon_terms(), *secondary_names(scene_request)},
+        canon_text="\n".join((canon_known_text(canon), brief, earlier)),
     )
 
 
@@ -427,7 +438,8 @@ faithful to the canon above: its people, places, terms, and its style guide
 (point of view, tense, tone) unless the author's notes below override it.
 
 {scene_block(scene_request)}
-{pov_instruction(pov)}{overrides}
+{pov_instruction(pov)}
+{NAMING_RULE}{overrides}
 
 {plan}{CHARACTERS_SECTION} — write each one's dialogue in THEIR OWN voice,
 matching their voice samples:
@@ -596,6 +608,9 @@ async def run_prose_scene_workflow(
                 **(scene.evaluation_scores or {}),
                 "mode": "prose",
                 "grounding": grounding,
+                "name_warnings": scene_name_warnings(
+                    scene_text, canon, scene_request, prior_scene_tail
+                ),
             }
             for beat_idx, beat in enumerate(beats):
                 session.add(

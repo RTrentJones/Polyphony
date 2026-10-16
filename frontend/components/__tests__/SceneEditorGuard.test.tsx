@@ -32,6 +32,7 @@ const scene: SceneDetail = {
   title: 'Retained',
   chapter: { id: 'c1', number: 1, title: 'Strong Culture Fit' },
   neighbours: { prev: null, next: 's2' },
+  name_warnings: [],
 }
 const revision: SceneRevision = {
   id: 'r1',
@@ -390,5 +391,29 @@ describe('Revision preview dialog (SPEC-16, B13)', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(trigger).toHaveFocus()
+  })
+})
+
+describe('Scene name warnings (SPEC-48)', () => {
+  const WARNING = /When it was generated, this scene named people or places not in the canon/
+
+  beforeEach(() => {
+    booksApi.getSceneRevisions.mockReset().mockResolvedValue({ scene_id: 's1', revisions: [] })
+  })
+
+  it('(F) lists the names stored at generation', async () => {
+    booksApi.getScene.mockReset().mockResolvedValue({ ...scene, name_warnings: ['Gary', 'Procurement'] })
+    await renderEditor()
+    expect(
+      screen.getByText(
+        'When it was generated, this scene named people or places not in the canon (may be inventions): Gary, Procurement',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('(R) shows nothing when there are none', async () => {
+    booksApi.getScene.mockReset().mockResolvedValue(scene)
+    await renderEditor()
+    expect(screen.queryByText(WARNING)).not.toBeInTheDocument()
   })
 })

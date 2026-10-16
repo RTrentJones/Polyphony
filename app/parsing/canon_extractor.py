@@ -55,7 +55,7 @@ from app.core.prompt_markers import (
     QUOTED_LINES_LABEL,
 )
 from app.llm.client import get_llm_client
-from app.llm.json_utils import extract_json_object
+from app.llm.json_utils import JSON_OBJECT, extract_json_object
 from app.parsing.names import (
     HONORIFICS,
     NON_NAME_TOKENS,
@@ -406,7 +406,7 @@ async def _json_call(
         max_tokens=max_tokens,
         user_id=user_id,
         purpose=purpose,
-        response_format={"type": "json_object"},
+        response_format=JSON_OBJECT,
     )
     stats["calls"] = stats.get("calls", 0) + 1
     stats["tokens"] = (

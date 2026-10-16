@@ -73,10 +73,14 @@ def intro_sentence(name: str, texts: Iterable[str]) -> str:
     return ""
 
 
-def introduction(sentence: str) -> str:
+def introduction(sentence: str, name: str) -> str:
     """The naming sentence through its first appositive (SPEC-40): cut before
     the second comma, less a trailing "and" / "and who" / "and which", capped.
-    The canon block still carries the whole sentence (BRD R1.1)."""
+    The canon block still carries the whole sentence (BRD R1.1). A comma-led
+    clause before `name` is dropped first ("On his first day, Prava, ...")."""
+    at = sentence.lower().find(name.lower())  # outlines may differ in case
+    if sentence[: max(at, 0)].rstrip().endswith(","):
+        sentence = sentence[at:]
     head = ",".join(sentence.split(",")[:2]).strip()
     return _cap(re.sub(r"\s+and(?:\s+(?:who|which))?$", "", head))
 
@@ -114,7 +118,7 @@ def scene_secondaries(
             key=lambda line: len(line.split()) < PREFERRED_SAMPLE_WORDS,
         )
         intro = intro_sentence(name, [canon.synopsis or "", *entries, *texts])
-        out.append(Secondary(name, introduction(intro), said[:SAMPLES]))
+        out.append(Secondary(name, introduction(intro, name), said[:SAMPLES]))
     return out
 
 
@@ -138,8 +142,8 @@ def render_secondaries(people: list[Secondary]) -> str:
 
 
 def suggested_characters(names: Iterable[str], canon) -> list[dict]:
-    """[{"name", "synopsis_sentence"}]: each of `names` that classify_people
-    (against canon's current cast, with known_text from canon) puts in
+    """[{"name", "synopsis_sentence", "introduction"}]: each of `names` that
+    classify_people (against canon's current cast, with known_text from canon) puts in
     `secondary`, deduped case-insensitively, in the given order.
     synopsis_sentence is the first synopsis sentence naming them, else the
     first canon-entry sentence naming them, capped at 400 chars.
@@ -154,8 +158,11 @@ def suggested_characters(names: Iterable[str], canon) -> list[dict]:
     return [
         {
             "name": name,
-            "synopsis_sentence": intro_sentence(name, [synopsis])
-            or intro_sentence(name, _entry_texts(canon)),
+            "synopsis_sentence": (
+                s := intro_sentence(name, [synopsis])
+                or intro_sentence(name, _entry_texts(canon))
+            ),
+            "introduction": introduction(s, name),  # what "Add to cast" stores
         }
         for name in people.secondary
     ]

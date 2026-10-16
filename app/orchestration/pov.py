@@ -98,6 +98,16 @@ def _style_pov_character(style_pov, canon) -> Optional[str]:
     return None
 
 
+# The one naming rule of the words the author keeps (SPEC-48), printed by the
+# beat prose and revise prompts after the POV rule.
+NAMING_RULE = (
+    "Name only people in the canon, the cast or 'Also named'. Anyone else stays "
+    "unnamed: 'a man from Procurement'."
+)
+# Wide and one-head modes alike: the hindsight two drafts narrated (SPEC-48).
+_NO_FORESHADOWING = "no foreshadowing — never 'would later learn'"
+
+
 def pov_instruction(pov: Pov) -> str:
     """The POV paragraph of the beat prompt and the revise prompt (SPEC-24):
     mode and character on one line, then what the mode allows. A one-head mode
@@ -106,14 +116,14 @@ def pov_instruction(pov: Pov) -> str:
     head = f"{POV_LABEL}: {pov.label}."
     if not pov.one_head:
         allowed = _WIDE[pov.mode.rsplit(" ", 1)[-1]]
-        return f"{head} {POV_WIDE_OPEN} {allowed} no aftermath, no foreshadowing."
+        return f"{head} {POV_WIDE_OPEN} {allowed} no aftermath, {_NO_FORESHADOWING}."
     who = pov.who or "the point-of-view character"
     learns = f"{pov.who} learns" if pov.who else "they learn"
     stay = " Stay in their head from the first line to the last." if pov.who else ""
     return (
-        f"{head} {POV_LIMIT_OPEN} {who} {POV_LIMIT_CLOSE}: no aftermath, no "
-        f"foreshadowing, no naming people before {learns} their name in the story; "
-        f"an introduction in this scene counts.{stay} The brief may say what "
+        f"{head} {POV_LIMIT_OPEN} {who} {POV_LIMIT_CLOSE}: no aftermath, "
+        f"{_NO_FORESHADOWING}, no naming people before {learns} their name in the "
+        f"story; an introduction in this scene counts.{stay} The brief may say what "
         f"other people intend or feel; show only what {who} can see or hear."
     )
 

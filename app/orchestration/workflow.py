@@ -24,7 +24,6 @@ from app.core.prompt_markers import (
     AVAILABLE_CAST_LABEL,
     CHAPTER_FENCE,
     CHAPTER_SCENES_HEADER,
-    CURRENT_BEAT_MARK,
     EARLIER_BEATS,
     EMOTIONAL_TONE_LABEL,
     SCENE_DESCRIPTION_LABEL,
@@ -32,9 +31,9 @@ from app.core.prompt_markers import (
     STORY_POSITION,
 )
 from app.llm.client import get_llm_client
-from app.llm.json_utils import extract_json_array
+from app.llm.json_utils import JSON_OBJECT, extract_json_array
 from app.orchestration.pov import Pov, plan_pov_instruction
-from app.planning.planned_beat import beat_scene_description
+from app.planning.planned_beat import beat_scene_description, marked_plan
 
 logger = setup_logging("orchestration.workflow")
 
@@ -64,18 +63,6 @@ def chapter_context(chapter_summary: str, position: Optional[StoryPosition]) -> 
     return "\n".join(p for p in parts if p)
 
 
-def marked_plan(
-    header: str, items: list[str], current: set[int], earlier_header: str, earlier
-) -> list[str]:
-    """The ONE marked-list renderer (S-5): numbered `items` under `header`,
-    those in `current` marked, then `earlier` under `earlier_header` if any.
-    The outline's acts (SPEC-38) and a chapter's scenes (SPEC-43) use it."""
-    lines = [header]
-    for i, item in enumerate(items):
-        lines.append(f"{CURRENT_BEAT_MARK if i in current else ' '} {i + 1}. {item}")
-    return [*lines, earlier_header, *earlier] if earlier else lines
-
-
 def chapter_plan_block(plan, story_position, scene_request, earlier) -> str:
     """This chapter's planned scenes, the one being planned marked, and the
     beat lines its earlier scenes already planned (SPEC-43); "" without a plan."""
@@ -84,10 +71,12 @@ def chapter_plan_block(plan, story_position, scene_request, earlier) -> str:
     if not beats:
         return ""
     here = scene_request.get("planned_beat_id")
+    current = {i for i, b in enumerate(beats) if b["node_id"] == here}
+    header = CHAPTER_SCENES_HEADER  # an unplanned scene: no "→ marks" claim
     lines = marked_plan(
-        CHAPTER_SCENES_HEADER,
+        header if current else header.split(" (")[0] + ":",
         [_one_line(beat_scene_description(b)) for b in beats],
-        {i for i, b in enumerate(beats) if b["node_id"] == here},
+        current,
         EARLIER_BEATS.format(what="the earlier scenes of this chapter"),
         [f"- {_one_line(t)}: {_one_line(' '.join(ls))}" for t, ls in earlier],
     )
@@ -194,9 +183,9 @@ beat lists which of them are present in it — use only names from that list.{al
 Unnamed functional figures (a caseworker, a clerk, a guard) may appear without a
 name; do not invent names for them.
 
-Return ONLY a JSON array:
-[{{"description": "what happens, plus its emotional subtext, in one sentence",
-   "characters": ["names present in this beat"]}}]
+Return ONLY a JSON object:
+{{"items": [{{"description": "what happens, plus its emotional subtext, in one sentence",
+   "characters": ["names present in this beat"]}}]}}
 
 JSON:"""
 
@@ -206,6 +195,7 @@ JSON:"""
         max_tokens=1200,
         user_id=user_id,
         purpose="plan_beats",
+        response_format=JSON_OBJECT,
     )
 
     beats = parse_structured_beats(result.text, cast)
