@@ -54,5 +54,6 @@ describe('Outline history and promoted chapters (SPEC-38)', () => {
   it('a promoted node shows its chapter number', () => {
     renderWithBook(<OutlinePanel addToast={vi.fn()} />, bookValue({ chapters: [promoted] }))
     expect(screen.getByText('Promoted · chapter 3')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Promote to chapter' })).toHaveLength(1)
   })
 })

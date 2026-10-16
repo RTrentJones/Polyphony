@@ -60,6 +60,7 @@ PASSWORD = os.getenv("ADMIN_PASSWORD", "admin-pass-12345")
 SHOTS = Path(os.getenv("E2E_SHOTS", "e2e-shots"))
 STUB = os.getenv("STUB_URL", "http://127.0.0.1:8099").rstrip("/")
 TIMEOUT = 90_000
+AXE = Path(__file__).resolve().parents[1] / "frontend/node_modules/axe-core/axe.min.js"
 STATE: dict = {}
 # Native dialogs (confirm, beforeunload) are accepted, like an author clicking
 # OK, unless a step switches to dismissing them; every one is recorded.
@@ -99,6 +100,17 @@ async def shot(page: Page, name: str) -> None:
     _step += 1
     SHOTS.mkdir(parents=True, exist_ok=True)
     await page.screenshot(path=str(SHOTS / f"{_step:02d}-{name}.png"), full_page=True)
+
+
+async def axe_clean(page: Page, selector: str) -> None:
+    """No serious or critical axe-core issue inside `selector`."""
+    await page.add_script_tag(path=str(AXE))
+    found = await page.evaluate(
+        "async (s) => (await axe.run(s)).violations.filter((v) =>"
+        " ['serious', 'critical'].includes(v.impact)).map((v) => v.id)",
+        selector,
+    )
+    assert not found, f"axe on {selector}: {found}"
 
 
 async def step(name: str, coro) -> None:
@@ -430,6 +442,27 @@ async def journey(page: Page) -> None:
         prompts = " ".join(str(x) for x in (await r.json()).get("requests", []))
         assert edited in prompts, "the edited premise never reached the model"
 
+    async def restore_the_first_outline():
+        """SPEC-38: after two generations, History restores the first outline."""
+        plans = await (await api_get(f"/books/{STATE['book_id']}/plans")).json()
+        plan = next(p for p in plans["plans"] if p["kind"] == "outline")
+        base = f"/books/{STATE['book_id']}/versions/book_plan/{plan['id']}"
+        for v in reversed((await (await api_get(base)).json())["versions"]):
+            nodes = await (await api_get(f"{base}/{v['version_no']}")).json()
+            if nodes := nodes["content"]["content"]:
+                break
+        await tab("Outline")
+        await page.get_by_role("button", name="History", exact=True).click()
+        row = page.get_by_role("dialog").locator("div")
+        row = row.filter(has_text=re.compile(rf"^v{v['version_no']}\b")).first
+        await row.get_by_role("button", name="Restore").click()
+        await toast(f"restored_from:{v['version_no']}")
+        await page.keyboard.press("Escape")
+        for node in nodes:
+            await expect(
+                page.get_by_text(node["title"], exact=True).first
+            ).to_be_visible()
+
     async def plot_threads():
         await tab("Threads")
         await page.get_by_placeholder("Thread name, e.g. The stolen locket").fill(
@@ -492,7 +525,7 @@ async def journey(page: Page) -> None:
         kind, message = DIALOGS["seen"][seen]
         assert "unsaved changes" in message, f"unexpected {kind} dialog: {message!r}"
         assert "/books/editor" in page.url, f"left the editor: {page.url}"
-        await expect(page.get_by_role("heading", name="Scene Editor")).to_be_visible()
+        await expect(page.get_by_label("Scene title")).to_be_visible()
         await expect(editor).to_have_value(text)
 
     async def editor_safety_net():
@@ -969,6 +1002,7 @@ async def journey(page: Page) -> None:
             if beat is None:
                 continue  # a scene written by hand in this chapter
             titles.append(beat["title"])
+            assert scene["title"] == beat["title"], (scene["title"], beat["title"])
             want = set(beat.get("character_ids") or [])
             want |= {
                 by_name[n.casefold()]
@@ -993,6 +1027,32 @@ async def journey(page: Page) -> None:
             p for p in mine if re.search(r"(?im)^\s*Emotional tone:\s*neutral", p)
         ]
         assert not neutral, f"{len(neutral)} planned-scene prompts defaulted to neutral"
+        await tab("Scenes")
+        await expect(page.get_by_text(titles[0]).first).to_be_visible()
+        await expect(page.get_by_text("Untitled scene")).to_have_count(0)
+
+    async def editor_walks_the_book():
+        """SPEC-37: "Ch N ·" heads the first scene, whose Previous is disabled;
+        Next is guarded, and after Save it opens the next scene."""
+        scenes = await (await api_get(f"/books/{STATE['book_id']}/scenes")).json()
+        first, second = [s["id"] for s in scenes["scenes"] if s["chapter_id"]][:2]
+        number = (await (await api_get(f"/scenes/{first}")).json())["chapter"]["number"]
+        await page.goto(f"{BASE}/books/editor/?scene={first}&book={STATE['book_id']}")
+        await page.wait_for_load_state("networkidle")
+        await expect(page.get_by_role("heading", level=1)).to_contain_text(
+            f"Ch {number} · "
+        )
+        await expect(page.get_by_role("button", name="Previous scene")).to_be_disabled()
+        await axe_clean(page, "[data-testid=scene-header]")
+        editor = page.get_by_label("Scene text")
+        typed = (await editor.input_value()) + " Nobody checked."
+        await editor.fill(typed)
+        nxt = page.get_by_role("button", name="Next scene")
+        await asks_and_stays(nxt.click, editor, typed)
+        await page.get_by_role("button", name="Save", exact=True).click()
+        await toast("Scene saved")
+        await nxt.click()
+        await page.wait_for_url(re.compile(rf"scene={second}"))
 
     async def scene_from_a_planned_beat():
         """SPEC-23 (review S7): the single-scene modal picks beat 1 with its
@@ -1323,7 +1383,7 @@ async def journey(page: Page) -> None:
         await shot(page, "dashboard-progress")
         await card.get_by_role("button", name=re.compile("^Resume:")).click()
         await page.wait_for_url(re.compile(r"/books/editor/?\?scene="))
-        await expect(page.get_by_role("heading", name="Scene Editor")).to_be_visible()
+        await expect(page.get_by_label("Scene title")).to_be_visible()
 
     await step("sign in", sign_in())
     await step("create a book", create_book())
@@ -1344,6 +1404,9 @@ async def journey(page: Page) -> None:
     await step(
         "regenerate the outline on an edited premise",
         regenerate_outline_with_edited_premise(),
+    )
+    await step(
+        "outline History restores the first outline", restore_the_first_outline()
     )
     await step("plot threads", plot_threads())
     await step("edit a scene, load a revision", edit_scene_and_load_revision())
@@ -1368,9 +1431,10 @@ async def journey(page: Page) -> None:
         generate_all_planned_scenes(),
     )
     await step(
-        "planned scenes: beat cast plus POV, no default tone",
+        "planned scenes: beat cast plus POV and title, no default tone",
         planned_scenes_follow_their_beats(),
     )
+    await step("editor: Ch N, guarded Next, Previous disabled", editor_walks_the_book())
     await step(
         '"Redo beat 2" on a planned scene opens a proposal', redo_a_planned_beat()
     )
