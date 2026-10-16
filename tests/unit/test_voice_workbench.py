@@ -31,15 +31,14 @@ class PerCharacterStore:
     """Retrieval stub: one scored chunk per character, id derived from the id
     (3+ words: the speech minimum, SPEC-17)."""
 
-    async def retrieve_similar(self, *, character_id, **kw):
-        return [
-            {
-                "id": f"chunk-{character_id}",
-                "text": "a sample line",
-                "score": 0.5,
-                "chunk_type": "dialogue",
-            }
-        ]
+    async def retrieve_similar(self, *, character_id, keep=None, **kw):
+        row = {
+            "id": f"chunk-{character_id}",
+            "text": "a sample line",
+            "score": 0.5,
+            "chunk_type": "dialogue",
+        }
+        return [row] if keep is None or keep(row) else []  # the store's `keep`
 
 
 # --- chunk list API ---------------------------------------------------------

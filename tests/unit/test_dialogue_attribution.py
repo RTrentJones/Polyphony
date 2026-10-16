@@ -1088,6 +1088,33 @@ async def test_a_chapter_one_scene_shows_the_line_on_every_plan(
         assert await _shown(monkeypatch, "Zara", 11, lines, later) == []
 
 
+@pytest.mark.parametrize("who, i, line", [MILO_4, ZARA_2])
+async def test_eligibility_comes_before_the_movement_limit(monkeypatch, who, i, line):
+    """(F) W7 beat 0041 (SPEC-53): Milo's p4 is 7th nearest of his 8 chunks and
+    the 6 nearer are plot or past the cut; it is shown. (R) Zara's p2."""
+    import app.characters.context as ctx
+
+    beat, (canon, by) = PLANS["w7_beat_0041"], _cel()
+    store = TypedStore(
+        [
+            {
+                **_s(n, c["text"], c["chunk_type"], c["source"], c["score"]),
+                "source_id": 1,
+            }
+            for n, c in enumerate(beat["store"][who])
+        ]
+    )
+    monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
+    cast = [by[n.split()[0]] for n in beat["cast"]]
+    scope = ctx.SceneScope.of(
+        canon, cast, beat["secondary_names"], beat["plot"], {1: beat["later_from"]}
+    )
+    _, move = await ctx.character_samples(
+        by[who], beat["query"], 5, scope=scope, threshold=settings.RAG_SCORE_THRESHOLD
+    )
+    assert [s["text"] for s in move] == [line]
+
+
 def test_the_cel_voice_chunks_are_unchanged():
     """(R) SPEC-53 adds movement only: every cel dialogue chunk is as at 231087f."""
     _, by = _cel()

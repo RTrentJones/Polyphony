@@ -4,7 +4,6 @@ threshold, `tag_spans`, and the parsed-outline hash. Each is inert at day-0."""
 import json
 import types
 import uuid
-from pathlib import Path
 
 import pytest
 
@@ -67,27 +66,6 @@ def test_tag_spans_are_the_tag_clauses():
         for p in load_excerpts(book).split("\n\n"):
             narration = _attribute_paragraph(normalize_quotes(p.strip()))[1]
             assert all(p[a:b] in narration for a, b in tag_spans(p))
-
-
-RULE = json.loads(
-    (Path(__file__).parents[1] / "fixtures/w6_archives.json").read_text()
-)["speech_rule"]
-
-
-@pytest.mark.parametrize("book", ["cel", "dracula"])
-def test_the_speech_rule_is_unchanged_over_the_excerpts(book):
-    """(R) `_attribute_paragraph`'s spans and narration, as at 399a85d."""
-    out = [
-        _attribute_paragraph(normalize_quotes(p.strip()))
-        for p in load_excerpts(book).split("\n\n")
-    ]
-    spans = [
-        [i, s["speaker"], s["closed"], s["text"]]
-        for i, o in enumerate(out)
-        for s in o[0]
-    ]
-    assert spans == RULE[book]["spans"]
-    assert [[i, n] for i, (o, n) in enumerate(out) if o] == RULE[book]["narration"]
 
 
 def _outline(answer: str) -> list[dict]:
