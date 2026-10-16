@@ -319,6 +319,7 @@ class _ProductClient:
             "total": self.n_scenes,
             "queued": self.n_scenes,
             "deferred": 0,
+            "reason": "batch reason",
             "estimate": {"tokens": 1200},
             "scenes": ids,
         }
@@ -532,7 +533,11 @@ async def test_a_failed_planned_path_fails_loudly_and_is_tried_again(tmp_path):
     assert out["score"] is None and "fallback" not in json.dumps(out)
     again = await pipeline.step_prose(_cel_ctx(tmp_path, _ProductClient()))
     assert again["path"] == "planned" and again["score"] is not None
-    assert (again["queued"], again["deferred"]) == (2, 0)
+    assert (again["queued"], again["deferred"], again["reason"]) == (
+        2,
+        0,
+        "batch reason",
+    )
     assert again["estimate_over_actual"] == 1.2
 
 
@@ -975,3 +980,7 @@ def test_portable_outline_swaps_ids_in_beat_children_too():
         [{"title": "A", "pov": "Halvard Bell"}, {"title": "B", "pov": "Milo Voss"}], ids
     )
     assert "pov" not in two[0] and two[1]["pov"] == "Milo Voss"
+    # The outline book's minor cast ports as secondary names, not dropped.
+    three = portable_outline(nodes, ids, {"foreign": "Halvard Bell"})
+    assert three[0]["secondary_names"] == ["Halvard Bell"]
+    assert three[0]["children"][0]["secondary_names"] == ["Halvard Bell"]

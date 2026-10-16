@@ -19,7 +19,10 @@ never filtered by it.
 - `scope.brief` is the scene request's `scene_description`, the same in prose, ensemble and revise.
   A voice probe or a manual scene has `""`, which makes the rule inert.
 - **Thin canons.** A dropped sample is not replaced, so the Drawer beat has no Milo movement line.
-  `movement_coverage ≥ 0.8` is the eval's guard against starvation (it compounds W-6).
+  `movement_coverage ≥ 0.8` is the eval's guard against starvation (it compounds W-6). Residual
+  risk, measured in run-W4b: the cel store holds two Milo movement samples, so all four Drawer
+  beats had an empty Milo block and coverage fell to 0.727 (0.889 without those blocks). Wave 5
+  reports blocks the brief emptied separately from coverage.
 
 ## POV
 

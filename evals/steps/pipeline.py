@@ -569,7 +569,9 @@ def premise_text(premise: dict | None, edit: dict | None = None) -> str:
     return "\n".join(lines) or "(none)"
 
 
-async def _generate_outline(ctx: StepContext, book: dict) -> dict:
+async def _generate_outline(
+    ctx: StepContext, book: dict, minor: dict | None = None
+) -> dict:
     """Generate the book's outline through the product (with the author's
     premise edit when the corpus has one). `portable` is the content with the
     structural cast as NAMES, so it can be stored into another book of the
@@ -583,7 +585,7 @@ async def _generate_outline(ctx: StepContext, book: dict) -> dict:
     content = plan.get("content", [])
     return {
         "content": content,
-        "portable": portable_outline(content, book.get("character_ids") or {}),
+        "portable": portable_outline(content, book.get("character_ids") or {}, minor),
         "status": plan.get("status"),
         "warnings": plan.get("warnings", []),
         "premise": plan.get("premise"),
@@ -607,11 +609,15 @@ def outline_secondaries(nodes: list, secondaries: list[str]) -> dict:
     }
 
 
-def portable_outline(nodes: list, character_ids: dict[str, str]) -> list:
-    """Outline nodes with `character_ids` swapped for `characters` names (ids
-    the map does not know are dropped, and so is a POV it does not name: the
-    outline book's minor secondaries are not the other book's cast)."""
+def portable_outline(
+    nodes: list, character_ids: dict[str, str], minor: dict[str, str] | None = None
+) -> list:
+    """Outline nodes with `character_ids` swapped for `characters` names. The
+    outline book's minor cast (`minor`, id -> name) is not the other book's
+    cast, so those ids become `secondary_names` and a POV naming one is
+    dropped; any other id is dropped."""
     names = {cid: name for name, cid in character_ids.items()}
+    minor = minor or {}
     out = []
     for node in nodes or []:
         if not isinstance(node, dict):
@@ -620,17 +626,22 @@ def portable_outline(nodes: list, character_ids: dict[str, str]) -> list:
         ids = node.pop("character_ids", None)
         if isinstance(ids, list):
             node["characters"] = [names[c] for c in ids if c in names]
+            moved = [minor[c] for c in ids if c in minor]
+            have = node.get("secondary_names") or []
+            if moved:
+                node["secondary_names"] = have + [n for n in moved if n not in have]
         if node.get("pov") not in character_ids:
             node.pop("pov", None)
         # Beat children carry their own cast since wave 2 (SPEC-24).
         if isinstance(node.get("children"), list):
-            node["children"] = portable_outline(node["children"], character_ids)
+            node["children"] = portable_outline(node["children"], character_ids, minor)
         out.append(node)
     return out
 
 
-# Bumped when the outline book's canon changes (v1: the minor secondaries).
-OUTLINE_CACHE_KEY = "minor-v1"
+# Bumped when the outline book's canon changes (v1: the minor secondaries;
+# v2: they port as secondary names).
+OUTLINE_CACHE_KEY = "minor-v2"
 
 
 @step("outline", needs_api=True)
@@ -644,17 +655,19 @@ async def step_outline(ctx: StepContext) -> dict:
     # The secondaries an author accepting extraction's defaults has (S6),
     # described from the excerpt or the synopsis (Bell is only in the excerpt).
     known = [load_excerpts(ctx.book), gt["synopsis"]]
+    minor = {}
     for name in gt.get("secondary_cast") or []:
-        await ctx.client.create_character(
+        made = await ctx.client.create_character(
             name, book["id"], role="minor", description=intro_sentence(name, known)
         )
+        minor[made["id"]] = name
     edit = gt.get("premise_edit")
     chapters_target = len(gt["canonical_beats"])
 
     out = await ctx.cache.memo(
         "outline",
         f"{gt['synopsis']}|{OUTLINE_CACHE_KEY}",
-        lambda: _generate_outline(ctx, book),
+        lambda: _generate_outline(ctx, book, minor),
     )
     if not isinstance(out, dict):  # back-compat: a bare content list
         out = {"content": out or []}
@@ -920,8 +933,9 @@ async def _planned_scenes(ctx: StepContext, book: dict) -> dict:
 
 
 # Bumped when what a generation records changes (v4: no fallback path, the
-# batch's queued/deferred), so a stale cache entry is regenerated, not regraded.
-PROSE_CACHE_KEY = "planned-v4"
+# batch's queued/deferred; v5: its reason, and minor cast ported as secondary
+# names), so a stale cache entry is regenerated, not regraded.
+PROSE_CACHE_KEY = "planned-v5"
 
 
 def _planned_beat_text(scene: dict, beat: dict | None) -> str:
