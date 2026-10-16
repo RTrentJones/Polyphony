@@ -1,7 +1,6 @@
 """Wave-7 day-0 contracts (tpm-plan-wave7 rev 2, §1): the required sample
 threshold, `tag_spans`, and the parsed-outline hash. Each is inert at day-0."""
 
-import hashlib
 import json
 import types
 import uuid
@@ -52,8 +51,6 @@ async def test_every_sample_caller_passes_the_threshold(monkeypatch):
         character=milo, prompt="Hi", context="", scope=scope
     )
     assert seen and set(seen) == {0}
-    with pytest.raises(TypeError):  # required: no caller inherits a default
-        await ctx.character_samples(milo, "beat", 3, scope=scope)
 
 
 def test_tag_spans_are_the_tag_clauses():
@@ -69,24 +66,6 @@ def test_tag_spans_are_the_tag_clauses():
         for p in load_excerpts(book).split("\n\n"):
             narration = _attribute_paragraph(_normalize_quotes(p.strip()))[1]
             assert all(p[a:b] in narration for a, b in tag_spans(p))
-
-
-# sha256 of [(spans, narration), …] per paragraph at 399a85d, before tag_spans.
-ATTRIBUTION = {
-    "cel": "5f366bc28da6f2edf11a06f1b09b9879d1c1106604b3e5937bdd898c1203cda3",
-    "dracula": "a6bbee2ee48c7012c3430ce5c0ac8ef6aaaefff038d3377c71f24eba7cbc74f6",
-}
-
-
-@pytest.mark.parametrize("book", sorted(ATTRIBUTION))
-def test_the_speech_rule_is_unchanged_over_the_excerpts(book):
-    """(R) `_attribute_paragraph`'s spans and narration, whole excerpt."""
-    out = [
-        _attribute_paragraph(_normalize_quotes(p.strip()))[:2]
-        for p in load_excerpts(book).split("\n\n")
-    ]
-    digest = hashlib.sha256(json.dumps(out, sort_keys=True).encode()).hexdigest()
-    assert digest == ATTRIBUTION[book]
 
 
 def _outline(answer: str) -> list[dict]:

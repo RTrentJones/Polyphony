@@ -560,12 +560,9 @@ def test_without_a_signed_file_every_plot_value_is_null(tmp_path):
 def test_a_signed_file_missing_a_cell_is_an_error(tmp_path):
     _write(tmp_path, _outline("w5d"))
     records = pc.load_archive(tmp_path)
-    doc = _sign(records)
+    doc = _sign(records)  # the fixture's fresh dir holds only this file
     del doc["placements"]["drawer"]
-    (plot.PLACEMENTS / "short.json").write_text(json.dumps(doc))
-    for f in plot.PLACEMENTS.glob("*.json"):
-        if f.name != "short.json":
-            f.unlink()
+    (plot.PLACEMENTS / f"{doc['outline_hash'][:12]}.json").write_text(json.dumps(doc))
     with pytest.raises(ValueError, match="drawer"):
         pc.grade(records, **PLOT_GOLD)
 

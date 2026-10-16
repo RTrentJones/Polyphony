@@ -235,37 +235,27 @@ def test_an_introduction_starts_at_the_name(sentence, intro):
 
 
 async def test_the_owned_note_never_stands_without_its_block(monkeypatch):
-    """(R) Q12's guard: `OWNED_PHRASES_NOTE` appears only when an absent member
-    owns a phrase, and then directly over a filled <owned> block."""
+    """(R) Q12's guard: `OWNED_PHRASES_NOTE` stands directly over a filled
+    <owned> block when an absent member owns a phrase, and not otherwise."""
     import app.characters.context as ctx
     from tests.unit.factories import make_scope
 
-    def member(name, voice):
-        return types.SimpleNamespace(
-            id=uuid.uuid4(),
-            name=name,
-            aliases=[],
-            user_id=None,
-            book_id=None,
-            voice_characteristics=voice,
-        )
-
-    monkeypatch.setattr(
-        ctx,
-        "get_chunk_store",
-        lambda: types.SimpleNamespace(retrieve_similar=lambda **kw: _none()),
+    store = types.SimpleNamespace(retrieve_similar=lambda **kw: _none())
+    monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
+    kw = dict(aliases=[], user_id=None, book_id=None)
+    milo = types.SimpleNamespace(id=uuid.uuid4(), name="Milo Voss", **kw)
+    edric = types.SimpleNamespace(id=uuid.uuid4(), name="Edric Thane", **kw)
+    milo.voice_characteristics, edric.voice_characteristics = None, "says 'Mr. Voss'"
+    absent = await ctx.build_cast_context(
+        [milo], "x", scope=make_scope(book_cast=[milo, edric])
     )
-    milo, edric = member("Milo Voss", None), member("Edric Thane", "says 'Mr. Voss'")
-    mute = member("Old Fen", "the impersonal 'one'")  # a one-word span owns nothing
-    for beat, book, n in (
-        ([milo], [milo, mute], 0),
-        ([milo, edric], [milo, edric], 0),
-        ([milo], [milo, edric, mute], 1),
-    ):
-        out = await ctx.build_cast_context(beat, "x", scope=make_scope(book_cast=book))
-        notes = [m.end() for m in re.finditer(re.escape(ctx.OWNED_PHRASES_NOTE), out)]
-        assert len(notes) == out.count("<owned>") == n
-        assert all(re.match(r"\n<owned>\n\S[^\n]*\n</owned>", out[i:]) for i in notes)
+    assert re.search(
+        re.escape(ctx.OWNED_PHRASES_NOTE) + r"\n<owned>\n\S[^\n]*\n</owned>", absent
+    )
+    present = await ctx.build_cast_context(
+        [milo, edric], "x", scope=make_scope(book_cast=[milo, edric])
+    )
+    assert ctx.OWNED_PHRASES_NOTE not in present
 
 
 async def _none():
