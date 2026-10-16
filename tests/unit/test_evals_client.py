@@ -123,3 +123,20 @@ async def test_generate_planned_waits_for_the_queued_scenes_only():
     out = await c.generate_planned("cid")
     assert seen["settled"] == [False, True] and len(out["scenes"]) == 3
     await c.aclose()
+
+
+async def test_accept_posts_the_revision_and_a_409_raises():
+    from evals.harness.client import EvalClientError
+
+    c = PolyphonyClient("http://localhost:8000")
+    c._http.post = AsyncMock(return_value=_resp(200, {"status": "accepted"}))
+    await c.accept_proposal("sid", "rid")
+    path = c._http.post.await_args.args[0]
+    assert path == "/api/v1/books/scenes/sid/revisions/rid/accept"
+    c._http.post = AsyncMock(return_value=_resp(409, {"detail": "draft changed"}))
+    with pytest.raises(EvalClientError, match="409"):
+        await c.accept_proposal("sid", "rid")
+    c._http.get = AsyncMock(return_value=_resp(200, {"chunks": [{"id": "k"}]}))
+    assert await c.voice_chunks("cid", "dialogue") == [{"id": "k"}]
+    assert c._http.get.await_args.args[0] == "/api/v1/characters/cid/chunks"
+    await c.aclose()

@@ -482,6 +482,20 @@ class PolyphonyClient:
         r = await self._get(f"/api/v1/books/scenes/{scene_id}/proposals")
         return (r.json().get("draft") or "") if r.status_code == 200 else ""
 
+    async def accept_proposal(self, scene_id: str, revision_id: str) -> None:
+        """POST .../accept: the proposal becomes the draft (409 if it moved)."""
+        path = f"/api/v1/books/scenes/{scene_id}/revisions/{revision_id}/accept"
+        r = await self._post(path)
+        if r.status_code != 200:
+            raise EvalClientError(f"accept failed ({r.status_code}): {r.text[:400]}")
+
+    async def voice_chunks(self, character_id: str, chunk_type: str) -> list[dict]:
+        """A character's indexed chunks of one type (the first 200)."""
+        params = {"chunk_type": chunk_type, "limit": 200}
+        r = await self._get(f"/api/v1/characters/{character_id}/chunks", params=params)
+        r.raise_for_status()
+        return r.json().get("chunks") or []
+
     async def discard_proposal(self, scene_id: str, revision_id: str) -> None:
         await self._post(
             f"/api/v1/books/scenes/{scene_id}/revisions/{revision_id}/discard"

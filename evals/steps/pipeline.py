@@ -24,7 +24,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from app.parsing.names import match
-from evals.graders import attribution, continuity, extraction, retrieval, rubrics
+from evals.graders import attribution, continuity, extraction, plot, retrieval, rubrics
 from evals.harness import embed
 from evals.harness.vecmath import cosine
 from evals.steps.base import StepContext, step
@@ -115,7 +115,8 @@ async def _book_with_cast(
 async def _index_voice(ctx: StepContext, book_id: str, names: list[str]) -> dict:
     """Upload the excerpt into the book, commit the canon cast from it (names
     only, so the curated entries are not overwritten) and wait for voice
-    indexing. Returns {source_id, chunks: {name: n}}."""
+    indexing. Returns {source_id, chunks: {name: n}, speech: {name: dialogue
+    chunks of >= 3 words}} (SPEC-42's diagnostic)."""
     up = await ctx.client.upload_source(
         f"{ctx.book}-voice.txt",
         load_excerpts(ctx.book).encode("utf-8"),
@@ -131,11 +132,13 @@ async def _index_voice(ctx: StepContext, book_id: str, names: list[str]) -> dict
         {"characters": [{"name": n} for n in names], "canon_entries": []},
     )
     chars = await ctx.client.wait_voice_indexed(up["id"])
-    chunks = {}
+    chunks, speech = {}, {}
     for c in chars:
         stats = (await ctx.client.get_character(c["id"])).get("voice_stats") or {}
         chunks[c["name"]] = stats.get("total_chunks", 0)
-    return {"source_id": up["id"], "chunks": chunks}
+        rows = await ctx.client.voice_chunks(c["id"], "dialogue")
+        speech[c["name"]] = sum(r.get("word_count", 0) >= 3 for r in rows)
+    return {"source_id": up["id"], "chunks": chunks, "speech": speech}
 
 
 def load_corpus(book: str) -> tuple[str, dict]:
@@ -935,7 +938,7 @@ async def _planned_scenes(ctx: StepContext, book: dict) -> dict:
 # Bumped when what a generation records changes (v4: no fallback path, the
 # batch's queued/deferred; v5: its reason, and minor cast ported as secondary
 # names), so a stale cache entry is regenerated, not regraded.
-PROSE_CACHE_KEY = "planned-v5"
+PROSE_CACHE_KEY = "planned-v6"
 
 
 def _planned_beat_text(scene: dict, beat: dict | None) -> str:
@@ -1104,6 +1107,7 @@ async def step_prose(ctx: StepContext) -> dict:
     chapter = produced.get("chapter") or {}
     planned = chapter.get("planned_beats") or []
     alias_forms = [f for fs in forms.values() for f in fs]
+    owned = gt.get("owned_phrases") or {}
     detail, prev_text = [], ""
     for i, sc in enumerate(scenes):
         checks = _grade_scene_checks(sc, prev_text, forms)
@@ -1124,6 +1128,9 @@ async def step_prose(ctx: StepContext) -> dict:
             "unknown_canon": unknown,
             "deterministic_failures": checks["caps"],
             "deterministic_warnings": checks["warnings"],
+            "borrowed_phrase": plot.borrowed_phrase(
+                sc["content"], checks["cast"], owned
+            ),
         }
         if i < _JUDGED_SCENES:
             prior = " ".join(prev_text.split()[-_PRIOR_WORDS:]) or "(the scene opens)"
@@ -1196,9 +1203,10 @@ async def step_prose(ctx: StepContext) -> dict:
 
 # --- Step 6b: AI revision of a scene (SPEC-19 / SPEC-25; tpm-plan §3.4) -------
 # Three revisions of one generated cel scene, through the API, each as the
-# author would ask: a range ("tighten paragraph 2"), an exchange ("make Zara
-# colder") and a beat ("redo beat 2"). Proposals are discarded, never accepted,
-# so every revision is written against the same draft. Deterministic: the text
+# author would ask, in sequence (SPEC-45): a paragraph inside beat 1 is
+# tightened and ACCEPTED, then an exchange ("make Zara colder", discarded) and
+# a beat ("redo beat 2", discarded) are asked of the accepted draft. A 409 is
+# recorded as the author saw it (`refused`), not scored. Deterministic: the text
 # outside the range is byte-identical and the span names nobody new outside the
 # canon. Judged on RA (instruction adherence) and R5 (the span's continuity with
 # its surroundings): score = mean over revisions of mean(RA, R5).
@@ -1217,20 +1225,29 @@ def _paragraph_spans(text: str) -> list[tuple[int, int]]:
     return out
 
 
+def tighten_request(draft: str, beats: list[dict]) -> dict | None:
+    """The last paragraph inside beat 1's prose (the scene's last paragraph
+    when it has fewer than two beats), so the redo of beat 2 meets its own text."""
+    first = (beats[0].get("content") or "").strip() if len(beats) > 1 else ""
+    at = draft.find(first) if first else -1
+    paras = _paragraph_spans(draft)
+    inside = [p for p in paras if at <= p[0] and p[1] <= at + len(first)]
+    span = (inside if at >= 0 else paras)[-1:]
+    instruction = "Tighten this paragraph: cut every redundant word."
+    return (
+        {"id": "tighten", "instruction": instruction}
+        | {"range": {"start": span[0][0], "end": span[0][1]}}
+        if span
+        else None
+    )
+
+
 def revise_requests(draft: str, has_beats: bool, colder: str = "Zara") -> list[dict]:
-    """The revise eval's three requests against `draft` (§3.4); the beat one
-    only when the scene has beats to address."""
+    """The requests asked of the accepted draft: an exchange, and the beat one
+    when the scene has beats. The redo carries a direction and no keep clause:
+    keeping what later text depends on is the product's job (B-4)."""
     paras = _paragraph_spans(draft)
     out = []
-    if len(paras) >= 2:
-        start, end = paras[1]
-        out.append(
-            {
-                "id": "tighten",
-                "instruction": "Tighten this paragraph: cut every redundant word.",
-                "range": {"start": start, "end": end},
-            }
-        )
     talk = [
         i
         for i, (a, b) in enumerate(paras)
@@ -1247,7 +1264,10 @@ def revise_requests(draft: str, has_beats: bool, colder: str = "Zara") -> list[d
             }
         )
     if has_beats:
-        out.append({"id": "redo_beat", "instruction": "Redo beat 2.", "beat_index": 1})
+        redo = (
+            "Redo beat 2: let Milo notice one thing about the room that unsettles him."
+        )
+        out.append({"id": "redo_beat", "instruction": redo, "beat_index": 1})
     return out
 
 
@@ -1325,7 +1345,6 @@ async def step_revise(ctx: StepContext) -> dict:
     # "Make Zara colder": the corpus' second principal, by first name.
     second = list(_forms(gt))[1:2]
     colder = second[0].split()[0] if second else "Zara"
-    requests = revise_requests(draft, bool(beats), colder)
     canon = await _canon_block(ctx, scene["book_id"]) if scene.get("book_id") else ""
 
     async def run(req: dict) -> dict:
@@ -1334,19 +1353,18 @@ async def step_revise(ctx: StepContext) -> dict:
 
     from evals.harness.client import EvalClientError
 
-    rows = []
-    for req in requests:
+    async def one(req: dict, draft: str) -> tuple[dict, dict]:
         row: dict = {"id": req["id"], "instruction": req["instruction"]}
         try:
             out = await ctx.cache.memo(
                 "revise", f"{gt['book']}|{req['id']}|{draft}", lambda: run(req)
             )
         except EvalClientError as e:
-            # The API refused (e.g. 409 "The beat was edited"): what the author
-            # would have seen; the revision scores 0 and the others still run.
-            row.update(error=str(e)[:300], score=0.0)
-            rows.append(row)
-            continue
+            # The API refused: a 409 ("The beat was edited") is what the author
+            # would have seen, recorded unscored; any other refusal scores 0.
+            refused = "(409)" in str(e)
+            row.update(error=str(e)[:300], score=None if refused else 0.0)
+            return row | ({"refused": True} if refused else {}), {}
         prop = out.get("proposal") or {}
         if not prop.get("content") or prop.get("status") not in (
             "proposed",
@@ -1357,8 +1375,7 @@ async def step_revise(ctx: StepContext) -> dict:
                 f"{(out.get('job') or {}).get('error') or ''})"[:300],
                 score=0.0,
             )
-            rows.append(row)
-            continue
+            return row, {}
         start, end = prop.get("range") or [0, len(draft)]
         base = out.get("draft") or draft
         checks, caps = revision_checks(base, prop["content"], start, end, gt)
@@ -1367,6 +1384,8 @@ async def step_revise(ctx: StepContext) -> dict:
             outside_identical=checks["outside_identical"],
             new_names=checks["new_names"],
             warnings=prop.get("warnings") or [],
+            dropped_callbacks=prop.get("dropped_callbacks"),
+            borrowed_phrase=plot.borrowed_phrase(checks["revised"], cast, owned),
             deterministic_failures=caps,
         )
         before = base[max(0, start - 1200) : start]
@@ -1384,6 +1403,22 @@ async def step_revise(ctx: StepContext) -> dict:
         )
         row["rubrics"] = judged
         row["score"] = rubrics.revise_score(_scores(judged))
+        return row, prop
+
+    cast, owned = scene.get("characters") or [], gt.get("owned_phrases") or {}
+    rows = []
+    tighten = tighten_request(draft, beats)
+    if tighten:  # accepted, and verified: the draft is now the proposal
+        row, prop = await one(tighten, draft)
+        try:
+            await ctx.client.accept_proposal(scene_id, prop["id"])
+            draft = await ctx.client.revise_draft(scene_id)
+            row["accepted"] = draft == prop["content"]
+        except Exception as e:  # noqa: BLE001 - recorded, the others still run
+            row.update(accepted=False, accept_error=str(e)[:300])
+        rows.append(row)
+    for req in revise_requests(draft, bool(beats), colder):
+        row, prop = await one(req, draft)
         if prop.get("id") and prop.get("status") == "proposed":
             try:
                 await ctx.client.discard_proposal(scene_id, prop["id"])

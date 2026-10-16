@@ -500,3 +500,28 @@ class TestUnknownRate:
             {"Milo Voss", "Zara Okafor", "Aeon Holdings"},
         )
         assert rate == 0.0 and unknown == []
+
+
+class TestPlotGold:
+    """Wave-5 gold graders (SPEC-45) on the archived outlines' plan lines."""
+
+    @pytest.mark.parametrize("cast, n", [(["Milo Voss"], 1), (["Edric Thane"], 0)])
+    def test_borrowed_phrase(self, cast, n):
+        from evals.graders import plot
+
+        owned = {"Edric Thane": ["Mr. Voss"]}
+        text = 'Prava smiled. "Welcome, Mr. Voss. Sign here." Mr. Voss signed.'
+        assert len(plot.borrowed_phrase(text, cast, owned)) == n
+
+    def test_replayed_counts_answers_another_archive_gave(self):
+        from evals.graders import plot
+
+        def rec(prompt, answer, purpose="beat_prose"):
+            msgs = [{"role": "user", "content": prompt}]
+            return {"purpose": purpose, "messages": msgs, "answer": answer}
+
+        run = [rec("a", "same"), rec("b", "new"), rec("a", "same"), rec("c", "x")]
+        out = plot.replayed(run + [rec("d", "same", "plan_beats")], [rec("z", "same")])
+        # The repeat of prompt "a" is this run's own determinism, not a replay.
+        assert out["beat_prose"] == {"n": 3, "replayed": 1, "rate": 0.3333}
+        assert out["plan_beats"]["rate"] == 1.0

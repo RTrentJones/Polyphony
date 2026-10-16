@@ -214,5 +214,86 @@
   "premise_edit": {
     "premise_restated": "In the afterlife run by Aeon Holdings, newly dead analyst Milo Voss is trained in Reconciliations by Zara Okafor, who is quietly recruiting him. When Milo finds that the souls sent under are harvested to keep the Chief Executive Lich, Edric Thane, continuing, he and Zara use the Pipeline's own paperwork to reconcile Edric's account, and Edric, undone by his own terms of service, files it correctly, and goes onward.",
     "central_conflict": "A clerk who is good at a monstrous job must choose between climbing the Pipeline, as Edric Thane once did, and helping Zara organise the dead to refuse it."
+  },
+  "excerpt_events": [
+    {
+      "event": "intake",
+      "from": 0,
+      "terms": [
+        "org chart",
+        "retained"
+      ],
+      "narrated": [
+        0,
+        1
+      ]
+    },
+    {
+      "event": "training",
+      "from": 2,
+      "terms": [],
+      "narrated": []
+    },
+    {
+      "event": "bell",
+      "from": 9,
+      "terms": [
+        "Bell"
+      ],
+      "narrated": [
+        9,
+        11
+      ]
+    },
+    {
+      "event": "drawer",
+      "from": 13,
+      "terms": [
+        "drawer"
+      ],
+      "narrated": [
+        13
+      ]
+    },
+    {
+      "event": "summons",
+      "from": 14,
+      "terms": [
+        "memo",
+        "summon"
+      ],
+      "narrated": [
+        14,
+        15
+      ]
+    },
+    {
+      "event": "corner office",
+      "from": 17,
+      "terms": [
+        "corner office"
+      ],
+      "narrated": [
+        17,
+        19,
+        20
+      ]
+    },
+    {
+      "event": "discrepancy",
+      "from": 27,
+      "terms": [
+        "discrepanc"
+      ],
+      "narrated": [
+        27,
+        28
+      ]
+    }
+  ],
+  "owned_phrases": {
+    "Edric Thane": [
+      "Mr. Voss"
+    ]
   }
 }
