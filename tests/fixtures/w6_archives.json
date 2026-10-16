@@ -934,5 +934,2417 @@
     "label": "verbatim"
    }
   ]
+ },
+ "speech_rule": {
+  "about": "`_attribute_paragraph` over each excerpt as at 399a85d (the speech rule, SPEC-17): every quoted span as [paragraph, speaker, closed, text], and each speech paragraph's narration as [paragraph, narration].",
+  "cel": {
+   "spans": [
+    [
+     1,
+     "she",
+     true,
+     "You've been retained,"
+    ],
+    [
+     1,
+     "she",
+     true,
+     "Your skills are a strong culture fit. You'll be starting Monday in Reconciliations."
+    ],
+    [
+     2,
+     "she",
+     true,
+     "Don't thank her,"
+    ],
+    [
+     2,
+     "she",
+     true,
+     "Read the appendices first. Every one of them. Then thank no one."
+    ],
+    [
+     4,
+     "Milo",
+     true,
+     "So!"
+    ],
+    [
+     4,
+     "Milo",
+     true,
+     "Just so I'm aligned on expectations going in, what does a great first quarter look like here? Because I am very much a hit-the-ground-running person, and I'd love to circle back on any low-hanging fruit you've been meaning to get to."
+    ],
+    [
+     5,
+     "Zara",
+     true,
+     "Close the accounts in your queue,"
+    ],
+    [
+     5,
+     "Zara",
+     true,
+     "Don't open the ones that aren't."
+    ],
+    [
+     6,
+     null,
+     true,
+     "Totally, totally. And is there a dashboard, or a tracker, or some kind of shared doc where we log throughput? I only ask because in my last role I built a tracker that cut our cycle time by eleven percent, which, honestly, was the best week of my life."
+    ],
+    [
+     7,
+     null,
+     true,
+     "It was the best week of your death, too. You just haven't had the others yet."
+    ],
+    [
+     10,
+     "Milo",
+     true,
+     "That's it?"
+    ],
+    [
+     10,
+     "Milo",
+     true,
+     "Where does he actually go? Not in a weird way. I'm just trying to understand the end-to-end process, because if I don't know the downstream impact I can't really optimize the upstream workflow, you know?"
+    ],
+    [
+     11,
+     "Zara",
+     true,
+     "He goes under. Write that on the form. Nothing else."
+    ],
+    [
+     12,
+     "Old Fen",
+     true,
+     "Nobody reads the appendices,"
+    ],
+    [
+     12,
+     "Old Fen",
+     true,
+     "That's what they're for."
+    ],
+    [
+     15,
+     "Milo",
+     true,
+     "He wants to meet me. Personally. Is that normal? That feels like a really positive signal, career-wise."
+    ],
+    [
+     16,
+     "Zara",
+     true,
+     "It is not normal,"
+    ],
+    [
+     16,
+     "Zara",
+     true,
+     "Bring nothing. Sign nothing. If he offers you a chair, stand."
+    ],
+    [
+     18,
+     "the Lich",
+     true,
+     "Mr. Voss,"
+    ],
+    [
+     18,
+     "the Lich",
+     true,
+     "Do sit. One finds that a new analyst who stands is an analyst who intends to leave early, and leaving early is, in my experience, the most expensive habit a soul can acquire."
+    ],
+    [
+     19,
+     "Milo",
+     true,
+     "I'm good, thanks,"
+    ],
+    [
+     20,
+     "Edric Thane",
+     true,
+     "You closed the Bell account in under four minutes. I have read the figures. Four minutes is not diligence, Mr. Voss; four minutes is appetite. I was once possessed of the same appetite, and I have had six centuries in which to learn what it costs and who, in the end, pays."
+    ],
+    [
+     21,
+     null,
+     true,
+     "With respect, sir, I just like a clean ledger."
+    ],
+    [
+     22,
+     null,
+     true,
+     "Every clerk likes a clean ledger. It is the clerk who asks why the ledger is clean who becomes interesting to me."
+    ],
+    [
+     23,
+     null,
+     true,
+     "Is that a good thing? Being interesting?"
+    ],
+    [
+     24,
+     "Edric",
+     true,
+     "Let us speak plainly, since you will not sit,"
+    ],
+    [
+     24,
+     "Edric",
+     true,
+     "You were retained because you do not ask questions. Do not mistake that for the reason you will be kept."
+    ],
+    [
+     25,
+     null,
+     true,
+     "Is there a reason I'll be kept?"
+    ],
+    [
+     26,
+     null,
+     true,
+     "There is always a reason, Mr. Voss, and it is always recorded, and it is never the one the soul in question would have chosen."
+    ],
+    [
+     28,
+     "he",
+     true,
+     "Zara,"
+    ],
+    [
+     28,
+     "he",
+     true,
+     "Do you have a minute? I think I found a discrepancy, and I'm not totally sure who the right stakeholder is."
+    ],
+    [
+     30,
+     "she",
+     true,
+     "Now you've read an appendix,"
+    ],
+    [
+     30,
+     "she",
+     true,
+     "Sit down. We have a great deal of paperwork to do."
+    ]
+   ],
+   "narration": [
+    [
+     1,
+     "  she said, warmly.  "
+    ],
+    [
+     2,
+     "Zara Okafor, at the next desk, did not look up.   she said.  "
+    ],
+    [
+     4,
+     "  Milo said, rolling his chair an inch closer to the partition.  "
+    ],
+    [
+     5,
+     "  Zara said.  "
+    ],
+    [
+     6,
+     " "
+    ],
+    [
+     7,
+     " "
+    ],
+    [
+     10,
+     "  Milo asked.  "
+    ],
+    [
+     11,
+     "Zara set down her pen.  "
+    ],
+    [
+     12,
+     "  said Old Fen, without looking up from his filing.  "
+    ],
+    [
+     15,
+     "Milo read it twice.  "
+    ],
+    [
+     16,
+     "  said Zara.  "
+    ],
+    [
+     18,
+     "  the Lich said.  "
+    ],
+    [
+     19,
+     "  said Milo, and remained standing. He was surprised to hear himself say it."
+    ],
+    [
+     20,
+     "Edric Thane opened the ledger without looking at it.  "
+    ],
+    [
+     21,
+     " "
+    ],
+    [
+     22,
+     " "
+    ],
+    [
+     23,
+     " "
+    ],
+    [
+     24,
+     "  said Edric.  "
+    ],
+    [
+     25,
+     " "
+    ],
+    [
+     26,
+     " "
+    ],
+    [
+     28,
+     "  he said.  "
+    ],
+    [
+     30,
+     "  she said.  "
+    ]
+   ]
+  },
+  "dracula": {
+   "spans": [
+    [
+     7,
+     null,
+     true,
+     "Welcome to my house! Enter freely and of your own will!"
+    ],
+    [
+     8,
+     null,
+     true,
+     "Welcome to my house. Come freely. Go safely; and leave something of the\nhappiness you bring!"
+    ],
+    [
+     9,
+     null,
+     true,
+     "Count Vasska?"
+    ],
+    [
+     10,
+     null,
+     true,
+     "I am Vasska; and I bid you welcome, Mr. Kerr, to my house. Come in;\nthe night air is chill, and you must need to eat and rest."
+    ],
+    [
+     11,
+     "he",
+     true,
+     "Nay, sir, you are my guest. It is late, and my people are not\navailable. Let me see to your comfort myself."
+    ],
+    [
+     13,
+     null,
+     true,
+     "You will need, after your journey, to refresh yourself by making your\ntoilet. I trust you will find all you wish. When you are ready, come\ninto the other room, where you will find your supper prepared."
+    ],
+    [
+     16,
+     null,
+     true,
+     "I pray you, be seated and sup how you please. You will, I trust, excuse\nme that I do not join you; but I have dined already, and I do not sup."
+    ],
+    [
+     18,
+     null,
+     true,
+     "I must regret that an attack of gout, from which malady I am a constant\nsufferer, forbids absolutely any travelling on my part for some time to\ncome; but I am happy to say I can send a sufficient substitute, one in\nwhom I have every possible confidence. He is a young man, full of energy\nand talent in his own way, and of a very faithful disposition. He is\ndiscreet and silent, and has grown into manhood in my service. He shall\nbe ready to attend on you when you will during his stay, and shall take\nyour instructions in all matters."
+    ],
+    [
+     23,
+     null,
+     true,
+     "Listen to them--the children of the night. What music they make!"
+    ],
+    [
+     24,
+     null,
+     true,
+     "Ah, sir, you dwellers in the city cannot enter into the feelings of the\nhunter."
+    ],
+    [
+     25,
+     null,
+     true,
+     "But you must be tired. Your bedroom is all ready, and to-morrow you\nshall sleep as late as you will. I have to be away till the afternoon;\nso sleep well and dream well!"
+    ],
+    [
+     29,
+     null,
+     true,
+     "I have to be absent for a while. Do not wait for me.--D."
+    ],
+    [
+     30,
+     null,
+     true,
+     "Red"
+    ],
+    [
+     30,
+     null,
+     true,
+     "Blue"
+    ],
+    [
+     32,
+     null,
+     true,
+     "I am glad you found your way in here, for I am sure there is much that\nwill interest you. These companions"
+    ],
+    [
+     32,
+     null,
+     true,
+     "have been good friends to me, and for some years past, ever\nsince I had the idea of going to London, have given me many, many hours\nof pleasure. Through them I have come to know your great England; and to\nknow her is to love her. I long to go through the crowded streets of\nyour mighty London, to be in the midst of the whirl and rush of\nhumanity, to share its life, its change, its death, and all that makes\nit what it is. But alas! as yet I only know your tongue through books.\nTo you, my friend, I look that I know it to speak."
+    ],
+    [
+     33,
+     "i",
+     true,
+     "But, Count,"
+    ],
+    [
+     33,
+     "i",
+     true,
+     "you know and speak English thoroughly!"
+    ],
+    [
+     34,
+     null,
+     true,
+     "I thank you, my friend, for your all too-flattering estimate, but yet I\nfear that I am but a little way on the road I would travel. True, I know\nthe grammar and the words, but yet I know not how to speak them."
+    ],
+    [
+     35,
+     "i",
+     true,
+     "Indeed,"
+    ],
+    [
+     35,
+     "i",
+     true,
+     "you speak excellently."
+    ],
+    [
+     36,
+     "he",
+     true,
+     "Not so,"
+    ],
+    [
+     36,
+     "he",
+     true,
+     "Well, I know that, did I move and speak in your\nLondon, none there are who would not know me for a stranger. That is not\nenough for me. Here I am noble; I am _boyar_; the common people know me,\nand I am master. But a stranger in a strange land, he is no one; men\nknow him not--and to know not is to care not for. I am content if I am\nlike the rest, so that no man stops if he see me, or pause in his\nspeaking if he hear my words, 'Ha, ha! a stranger!' I have been so long\nmaster that I would be master still--or at least that none other should\nbe master of me. You come to me not alone as agent of my friend Peter\nFalk, of Elmsworth, to tell me all about my new estate in London. You\nshall, I trust, rest here with me awhile, so that by our talking I may\nlearn the English intonation; and I would that you tell me when I make\nerror, even of the smallest, in my speaking. I am sorry that I had to be\naway so long to-day; but you will, I know, forgive one who has so many\nimportant affairs in hand."
+    ],
+    [
+     37,
+     "he",
+     true,
+     "Yes, certainly,"
+    ],
+    [
+     38,
+     "i",
+     true,
+     "You may go anywhere you wish in the castle, except where the doors are\nlocked, where of course you will not wish to go. There is reason that\nall things are as they are, and did you see with my eyes and know with\nmy knowledge, you would perhaps better understand."
+    ],
+    [
+     39,
+     null,
+     true,
+     "We are in Vardarania; and Vardarania is not England. Our ways are\nnot your ways, and there shall be to you many strange things. Nay, from\nwhat you have told me of your experiences already, you know something of\nwhat strange things there may be."
+    ],
+    [
+     40,
+     "he",
+     true,
+     "That treasure has been hidden,"
+    ],
+    [
+     40,
+     "he",
+     true,
+     "in the region through which you came last night, there can be\nbut little doubt; for it was the ground fought over for centuries by the\nWallachian, the Saxon, and the Turk. Why, there is hardly a foot of soil\nin all this region that has not been enriched by the blood of men,\npatriots or invaders. In old days there were stirring times, when the\nAustrian and the Hungarian came up in hordes, and the patriots went out\nto meet them--men and women, the aged and the children too--and waited\ntheir coming on the rocks above the passes, that they might sweep\ndestruction on them with their artificial avalanches. When the invader\nwas triumphant he found but little, for whatever there was had been\nsheltered in the friendly soil."
+    ],
+    [
+     41,
+     "i",
+     true,
+     "But how,"
+    ],
+    [
+     41,
+     "i",
+     true,
+     "can it have remained so long undiscovered, when\nthere is a sure index to it if men will but take the trouble to look?"
+    ],
+    [
+     42,
+     null,
+     true,
+     "Because your peasant is at heart a coward and a fool! Those flames only\nappear on one night; and on that night no man of this land will, if he\ncan help it, stir without his doors. And, dear sir, even if he did he\nwould not know what to do. Why, even the peasant that you tell me of who\nmarked the place of the flame would not know where to look in daylight\neven for his own work. Even you would not, I dare be sworn, be able to\nfind these places again?"
+    ],
+    [
+     43,
+     "i",
+     true,
+     "There you are right,"
+    ],
+    [
+     43,
+     "i",
+     true,
+     "I know no more than the dead where even\nto look for them."
+    ],
+    [
+     44,
+     "he",
+     true,
+     "Come,"
+    ],
+    [
+     44,
+     "he",
+     true,
+     "tell me of London and of the house which you\nhave procured for me."
+    ],
+    [
+     45,
+     null,
+     true,
+     "Well, but, my friend, is it not needful that I should? When I go there\nI shall be all alone, and my friend Kerr Aldous--nay, pardon me, I\nfall into my country's habit of putting your patronymic first--my friend\nAldous Kerr will not be by my side to correct and aid me. He will be\nin Elmsworth, miles away, probably working at papers of the law with my\nother friend, Peter Falk. So!"
+    ],
+    [
+     47,
+     null,
+     false,
+     "At Purfleet, on a by-road, I came across just such a place as seemed to\nbe required, and where was displayed a dilapidated notice that the place\nwas for sale. It is surrounded by a high wall, of ancient structure,\nbuilt of heavy stones, and has not been repaired for a large number of\nyears. The closed gates are of heavy old oak and iron, all eaten with\nrust."
+    ],
+    [
+     48,
+     null,
+     true,
+     "The estate is called Carfell, no doubt a corruption of the old _Quatre\nFace_, as the house is four-sided, agreeing with the cardinal points of\nthe compass. It contains in all some twenty acres, quite surrounded by\nthe solid stone wall above mentioned. There are many trees on it, which\nmake it in places gloomy, and there is a deep, dark-looking pond or\nsmall lake, evidently fed by some springs, as the water is clear and\nflows away in a fair-sized stream. The house is very large and of all\nperiods back, I should say, to mediæval times, for one part is of stone\nimmensely thick, with only a few windows high up and heavily barred with\niron. It looks like part of a keep, and is close to an old chapel or\nchurch. I could not enter it, as I had not the key of the door leading\nto it from the house, but I have taken with my kodak views of it from\nvarious points. The house has been added to, but in a very straggling\nway, and I can only guess at the amount of ground it covers, which must\nbe very great. There are but few houses close at hand, one being a very\nlarge house only recently added to and formed into a private lunatic\nasylum. It is not, however, visible from the grounds."
+    ],
+    [
+     50,
+     null,
+     true,
+     "I am glad that it is old and big. I myself am of an old family, and to\nlive in a new house would kill me. A house cannot be made habitable in a\nday; and, after all, how few days go to make up a century. I rejoice\nalso that there is a chapel of old times. We Transylvanian nobles love\nnot to think that our bones may lie amongst the common dead. I seek not\ngaiety nor mirth, not the bright voluptuousness of much sunshine and\nsparkling waters which please the young and gay. I am no longer young;\nand my heart, through weary years of mourning over the dead, is not\nattuned to mirth. Moreover, the walls of my castle are broken; the\nshadows are many, and the wind breathes cold through the broken\nbattlements and casements. I love the shade and the shadow, and would\nbe alone with my thoughts when I may."
+    ],
+    [
+     52,
+     "he",
+     true,
+     "Aha!"
+    ],
+    [
+     52,
+     "he",
+     true,
+     "still at your books? Good! But you must not work always. Come; I\nam informed that your supper is ready."
+    ],
+    [
+     53,
+     null,
+     true,
+     "Why, there is the morning again! How remiss I am to let you stay up so\nlong. You must make your conversation regarding my dear new country of\nEngland less interesting, so that I may not forget how time flies by\nus,"
+    ],
+    [
+     57,
+     null,
+     true,
+     "Good-morning."
+    ],
+    [
+     58,
+     "he",
+     true,
+     "Take care,"
+    ],
+    [
+     58,
+     "he",
+     true,
+     "take care how you cut yourself. It is more\ndangerous than you think in this country."
+    ],
+    [
+     58,
+     "he",
+     true,
+     "And this is the wretched thing that has done the\nmischief. It is a foul bauble of man's vanity. Away with it!"
+    ],
+    [
+     64,
+     null,
+     false,
+     "_9 May._"
+    ],
+    [
+     65,
+     null,
+     false,
+     "My dearest Cora,--"
+    ],
+    [
+     66,
+     null,
+     false,
+     "Forgive my long delay in writing, but I have been simply overwhelmed\nwith work. The life of an assistant schoolmistress is sometimes trying.\nI am longing to be with you, and by the sea, where we can talk together\nfreely and build our castles in the air. I have been working very hard\nlately, because I want to keep up with Aldous's studies, and I have\nbeen practising shorthand very assiduously. When we are married I shall\nbe able to be useful to Aldous, and if I can stenograph well enough I\ncan take down what he wants to say in this way and write it out for\nhim on the typewriter, at which also I am practising very hard. He\nand I sometimes write letters in shorthand, and he is keeping a\nstenographic journal of his travels abroad. When I am with you I\nshall keep a diary in the same way. I don't mean one of those\ntwo-pages-to-the-week-with-Sunday-squeezed-in-a-corner diaries, but a\nsort of journal which I can write in whenever I feel inclined. I do not\nsuppose there will be much of interest to other people; but it is not\nintended for them. I may show it to Aldous some day if there is in it\nanything worth sharing, but it is really an exercise book. I shall try\nto do what I see lady journalists do: interviewing and writing\ndescriptions and trying to remember conversations. I am told that, with\na little practice, one can remember all that goes on or that one hears\nsaid during a day. However, we shall see. I will tell you of my little\nplans when we meet. I have just had a few hurried lines from Aldous\nfrom Vardarania. He is well, and will be returning in about a week. I\nam longing to hear all his news. It must be so nice to see strange\ncountries. I wonder if we--I mean Aldous and I--shall ever see them\ntogether. There is the ten o'clock bell ringing. Good-bye."
+    ],
+    [
+     67,
+     null,
+     false,
+     "Your loving"
+    ],
+    [
+     68,
+     null,
+     false,
+     "NORA."
+    ],
+    [
+     69,
+     null,
+     true,
+     "Tell me all the news when you write. You have not told me anything for\na long time. I hear rumours, and especially of a tall, handsome,\ncurly-haired man???"
+    ],
+    [
+     71,
+     null,
+     false,
+     "_17, Chatham Street_,"
+    ],
+    [
+     72,
+     null,
+     false,
+     "_Wednesday_."
+    ],
+    [
+     73,
+     null,
+     false,
+     "My dearest Nora,--"
+    ],
+    [
+     74,
+     null,
+     false,
+     "I must say you tax me _very_ unfairly with being a bad correspondent. I\nwrote to you _twice_ since we parted, and your last letter was only your\n_second_. Besides, I have nothing to tell you. There is really nothing\nto interest you. Town is very pleasant just now, and we go a good deal\nto picture-galleries and for walks and rides in the park. As to the\ntall, curly-haired man, I suppose it was the one who was with me at the\nlast Pop. Some one has evidently been telling tales. That was Mr.\nAlderton. He often comes to see us, and he and mamma get on very well\ntogether; they have so many things to talk about in common. We met some\ntime ago a man that would just _do for you_, if you were not already\nengaged to Aldous. He is an excellent _parti_, being handsome, well\noff, and of good birth. He is a doctor and really clever. Just fancy! He\nis only nine-and-twenty, and he has an immense lunatic asylum all under\nhis own care. Mr. Alderton introduced him to me, and he called here to\nsee us, and often comes now. I think he is one of the most resolute men\nI ever saw, and yet the most calm. He seems absolutely imperturbable. I\ncan fancy what a wonderful power he must have over his patients. He has\na curious habit of looking one straight in the face, as if trying to\nread one's thoughts. He tries this on very much with me, but I flatter\nmyself he has got a tough nut to crack. I know that from my glass. Do\nyou ever try to read your own face? _I do_, and I can tell you it is not\na bad study, and gives you more trouble than you can well fancy if you\nhave never tried it. He says that I afford him a curious psychological\nstudy, and I humbly think I do. I do not, as you know, take sufficient\ninterest in dress to be able to describe the new fashions. Dress is a\nbore. That is slang again, but never mind; Percy says that every day.\nThere, it is all out. Nora, we have told all our secrets to each other\nsince we were _children_; we have slept together and eaten together, and\nlaughed and cried together; and now, though I have spoken, I would like\nto speak more. Oh, Nora, couldn't you guess? I love him. I am blushing\nas I write, for although I _think_ he loves me, he has not told me so in\nwords. But oh, Nora, I love him; I love him; I love him! There, that\ndoes me good. I wish I were with you, dear, sitting by the fire\nundressing, as we used to sit; and I would try to tell you what I feel.\nI do not know how I am writing this even to you. I am afraid to stop,\nor I should tear up the letter, and I don't want to stop, for I _do_ so\nwant to tell you all. Let me hear from you _at once_, and tell me all\nthat you think about it. Nora, I must stop. Good-night. Bless me in your\nprayers; and, Nora, pray for my happiness."
+    ],
+    [
+     75,
+     null,
+     false,
+     "CORA."
+    ],
+    [
+     76,
+     null,
+     false,
+     "P.S.--I need not tell you this is a secret. Good-night again."
+    ],
+    [
+     77,
+     null,
+     true,
+     "L."
+    ],
+    [
+     79,
+     null,
+     false,
+     "_24 May_."
+    ],
+    [
+     80,
+     null,
+     false,
+     "My dearest Nora,--"
+    ],
+    [
+     81,
+     null,
+     false,
+     "Thanks, and thanks, and thanks again for your sweet letter. It was so\nnice to be able to tell you and to have your sympathy."
+    ],
+    [
+     82,
+     null,
+     false,
+     "My dear, it never rains but it pours. How true the old proverbs are.\nHere am I, who shall be twenty in September, and yet I never had a\nproposal till to-day, not a real proposal, and to-day I have had three.\nJust fancy! THREE proposals in one day! Isn't it awful! I feel sorry,\nreally and truly sorry, for two of the poor fellows. Oh, Nora, I am so\nhappy that I don't know what to do with myself. And three proposals!\nBut, for goodness' sake, don't tell any of the girls, or they would be\ngetting all sorts of extravagant ideas and imagining themselves injured\nand slighted if in their very first day at home they did not get six at\nleast. Some girls are so vain! You and I, Nora dear, who are engaged and\nare going to settle down soon soberly into old married women, can\ndespise vanity. Well, I must tell you about the three, but you must keep\nit a secret, dear, from _every one_, except, of course, Aldous. You\nwill tell him, because I would, if I were in your place, certainly tell\nPercy. A woman ought to tell her husband everything--don't you think\nso, dear?--and I must be fair. Men like women, certainly their wives, to\nbe quite as fair as they are; and women, I am afraid, are not always\nquite as fair as they should be. Well, my dear, number One came just\nbefore lunch. I told you of him, Dr. Elias Ward, the lunatic-asylum\nman, with the strong jaw and the good forehead. He was very cool\noutwardly, but was nervous all the same. He had evidently been schooling\nhimself as to all sorts of little things, and remembered them; but he\nalmost managed to sit down on his silk hat, which men don't generally do\nwhen they are cool, and then when he wanted to appear at ease he kept\nplaying with a lancet in a way that made me nearly scream. He spoke to\nme, Nora, very straightforwardly. He told me how dear I was to him,\nthough he had known me so little, and what his life would be with me to\nhelp and cheer him. He was going to tell me how unhappy he would be if I\ndid not care for him, but when he saw me cry he said that he was a brute\nand would not add to my present trouble. Then he broke off and asked if\nI could love him in time; and when I shook my head his hands trembled,\nand then with some hesitation he asked me if I cared already for any one\nelse. He put it very nicely, saying that he did not want to wring my\nconfidence from me, but only to know, because if a woman's heart was\nfree a man might have hope. And then, Nora, I felt a sort of duty to\ntell him that there was some one. I only told him that much, and then he\nstood up, and he looked very strong and very grave as he took both my\nhands in his and said he hoped I would be happy, and that if I ever\nwanted a friend I must count him one of my best. Oh, Nora dear, I can't\nhelp crying: and you must excuse this letter being all blotted. Being\nproposed to is all very nice and all that sort of thing, but it isn't at\nall a happy thing when you have to see a poor fellow, whom you know\nloves you honestly, going away and looking all broken-hearted, and to\nknow that, no matter what he may say at the moment, you are passing\nquite out of his life. My dear, I must stop here at present, I feel so\nmiserable, though I am so happy."
+    ],
+    [
+     83,
+     null,
+     false,
+     "_Evening._"
+    ],
+    [
+     84,
+     null,
+     false,
+     "Percy has just gone, and I feel in better spirits than when I left\noff, so I can go on telling you about the day. Well, my dear, number Two\ncame after lunch. He is such a nice fellow, an American from Texas, and\nhe looks so young and so fresh that it seems almost impossible that he\nhas been to so many places and has had such adventures. I sympathise\nwith poor Desdemona when she had such a dangerous stream poured in her\near, even by a black man. I suppose that we women are such cowards that\nwe think a man will save us from fears, and we marry him. I know now\nwhat I would do if I were a man and wanted to make a girl love me. No, I\ndon't, for there was Mr. Boone telling us his stories, and Percy never\ntold any, and yet---- My dear, I am somewhat previous. Mr. Cassidy P.\nBoone found me alone. It seems that a man always does find a girl\nalone. No, he doesn't, for Percy tried twice to _make_ a chance, and I\nhelping him all I could; I am not ashamed to say it now. I must tell you\nbeforehand that Mr. Boone doesn't always speak slang--that is to say,\nhe never does so to strangers or before them, for he is really well\neducated and has exquisite manners--but he found out that it amused me\nto hear him talk American slang, and whenever I was present, and there\nwas no one to be shocked, he said such funny things. I am afraid, my\ndear, he has to invent it all, for it fits exactly into whatever else he\nhas to say. But this is a way slang has. I do not know myself if I shall\never speak slang; I do not know if Percy likes it, as I have never\nheard him use any as yet. Well, Mr. Boone sat down beside me and looked\nas happy and jolly as he could, but I could see all the same that he was\nvery nervous. He took my hand in his, and said ever so sweetly:--"
+    ],
+    [
+     85,
+     null,
+     false,
+     "'Miss Cora, I know I ain't good enough to regulate the fixin's of your\nlittle shoes, but I guess if you wait till you find a man that is you\nwill go join them seven young women with the lamps when you quit. Won't\nyou just hitch up alongside of me and let us go down the long road\ntogether, driving in double harness?'"
+    ],
+    [
+     86,
+     null,
+     false,
+     "Well, he did look so good-humoured and so jolly that it didn't seem\nhalf so hard to refuse him as it did poor Dr. Ward; so I said, as\nlightly as I could, that I did not know anything of hitching, and that I\nwasn't broken to harness at all yet. Then he said that he had spoken in\na light manner, and he hoped that if he had made a mistake in doing so\non so grave, so momentous, an occasion for him, I would forgive him. He\nreally did look serious when he was saying it, and I couldn't help\nfeeling a bit serious too--I know, Nora, you will think me a horrid\nflirt--though I couldn't help feeling a sort of exultation that he was\nnumber two in one day. And then, my dear, before I could say a word he\nbegan pouring out a perfect torrent of love-making, laying his very\nheart and soul at my feet. He looked so earnest over it that I shall\nnever again think that a man must be playful always, and never earnest,\nbecause he is merry at times. I suppose he saw something in my face\nwhich checked him, for he suddenly stopped, and said with a sort of\nmanly fervour that I could have loved him for if I had been free:--"
+    ],
+    [
+     87,
+     null,
+     false,
+     "'Cora, you are an honest-hearted girl, I know. I should not be here\nspeaking to you as I am now if I did not believe you clean grit, right\nthrough to the very depths of your soul. Tell me, like one good fellow\nto another, is there any one else that you care for? And if there is\nI'll never trouble you a hair's breadth again, but will be, if you will\nlet me, a very faithful friend.'"
+    ],
+    [
+     88,
+     null,
+     false,
+     "My dear Nora, why are men so noble when we women are so little worthy\nof them? Here was I almost making fun of this great-hearted, true\ngentleman. I burst into tears--I am afraid, my dear, you will think\nthis a very sloppy letter in more ways than one--and I really felt very\nbadly. Why can't they let a girl marry three men, or as many as want\nher, and save all this trouble? But this is heresy, and I must not say\nit. I am glad to say that, though I was crying, I was able to look into\nMr. Boone's brave eyes, and I told him out straight:--"
+    ],
+    [
+     89,
+     null,
+     false,
+     "'Yes, there is some one I love, though he has not told me yet that he\neven loves me.' I was right to speak to him so frankly, for quite a\nlight came into his face, and he put out both his hands and took mine--I\nthink I put them into his--and said in a hearty way:--"
+    ],
+    [
+     90,
+     null,
+     false,
+     "'That's my brave girl. It's better worth being late for a chance of\nwinning you than being in time for any other girl in the world. Don't\ncry, my dear. If it's for me, I'm a hard nut to crack; and I take it\nstanding up. If that other fellow doesn't know his happiness, well, he'd\nbetter look for it soon, or he'll have to deal with me. Little girl,\nyour honesty and pluck have made me a friend, and that's rarer than a\nlover; it's more unselfish anyhow. My dear, I'm going to have a pretty\nlonely walk between this and Kingdom Come. Won't you give me one kiss?\nIt'll be something to keep off the darkness now and then. You can, you\nknow, if you like, for that other good fellow--he must be a good fellow,\nmy dear, and a fine fellow, or you could not love him--hasn't spoken\nyet.' That quite won me, Nora, for it _was_ brave and sweet of him, and\nnoble, too, to a rival--wasn't it?--and he so sad; so I leant over and\nkissed him. He stood up with my two hands in his, and as he looked down\ninto my face--I am afraid I was blushing very much--he said:--"
+    ],
+    [
+     91,
+     null,
+     false,
+     "'Little girl, I hold your hand, and you've kissed me, and if these\nthings don't make us friends nothing ever will. Thank you for your sweet\nhonesty to me, and good-bye.' He wrung my hand, and taking up his hat,\nwent straight out of the room without looking back, without a tear or a\nquiver or a pause; and I am crying like a baby. Oh, why must a man like\nthat be made unhappy when there are lots of girls about who would\nworship the very ground he trod on? I know I would if I were free--only\nI don't want to be free. My dear, this quite upset me, and I feel I\ncannot write of happiness just at once, after telling you of it; and I\ndon't wish to tell of the number three until it can be all happy."
+    ],
+    [
+     92,
+     null,
+     false,
+     "Ever your loving"
+    ],
+    [
+     93,
+     null,
+     false,
+     "CORA."
+    ],
+    [
+     94,
+     null,
+     false,
+     "P.S.--Oh, about number Three--I needn't tell you of number Three, need\nI? Besides, it was all so confused; it seemed only a moment from his\ncoming into the room till both his arms were round me, and he was\nkissing me. I am very, very happy, and I don't know what I have done to\ndeserve it. I must only try in the future to show that I am not\nungrateful to God for all His goodness to me in sending to me such a\nlover, such a husband, and such a friend."
+    ],
+    [
+     95,
+     null,
+     true,
+     "Good-bye."
+    ],
+    [
+     103,
+     null,
+     false,
+     "_25 May._"
+    ],
+    [
+     104,
+     null,
+     false,
+     "My dear Art,--"
+    ],
+    [
+     105,
+     null,
+     false,
+     "We've told yarns by the camp-fire in the prairies; and dressed one\nanother's wounds after trying a landing at the Marquesas; and drunk\nhealths on the shore of Titicaca. There are more yarns to be told, and\nother wounds to be healed, and another health to be drunk. Won't you let\nthis be at my camp-fire to-morrow night? I have no hesitation in asking\nyou, as I know a certain lady is engaged to a certain dinner-party, and\nthat you are free. There will only be one other, our old pal at the\nKorea, Eli Ward. He's coming, too, and we both want to mingle our\nweeps over the wine-cup, and to drink a health with all our hearts to\nthe happiest man in all the wide world, who has won the noblest heart\nthat God has made and the best worth winning. We promise you a hearty\nwelcome, and a loving greeting, and a health as true as your own right\nhand. We shall both swear to leave you at home if you drink too deep to\na certain pair of eyes. Come!"
+    ],
+    [
+     106,
+     null,
+     false,
+     "Yours, as ever and always,"
+    ],
+    [
+     107,
+     null,
+     true,
+     "CASSIDY P. BOONE."
+    ],
+    [
+     109,
+     null,
+     false,
+     "_26 May._"
+    ],
+    [
+     110,
+     null,
+     false,
+     "Count me in every time. I bear messages which will make both your ears\ntingle."
+    ],
+    [
+     111,
+     null,
+     true,
+     "ART."
+    ],
+    [
+     114,
+     null,
+     true,
+     "severe tea"
+    ],
+    [
+     114,
+     null,
+     true,
+     "New Woman"
+    ],
+    [
+     114,
+     null,
+     true,
+     "New Women"
+    ],
+    [
+     116,
+     "i",
+     true,
+     "Thank God,"
+    ],
+    [
+     116,
+     "i",
+     true,
+     "she cannot be far, as she is only in her nightdress."
+    ],
+    [
+     116,
+     null,
+     true,
+     "Cora! Cora!"
+    ],
+    [
+     118,
+     null,
+     true,
+     "wynds,"
+    ],
+    [
+     129,
+     null,
+     true,
+     "His red eyes again! They are just the same."
+    ],
+    [
+     137,
+     null,
+     false,
+     "_17 August._"
+    ],
+    [
+     138,
+     null,
+     false,
+     "Dear Sirs,--"
+    ],
+    [
+     139,
+     null,
+     false,
+     "Herewith please receive invoice of goods sent by Great Northern\nRailway. Same are to be delivered at Carfell, near Purfleet, immediately\non receipt at goods station King's Cross. The house is at present empty,\nbut enclosed please find keys, all of which are labelled."
+    ],
+    [
+     140,
+     null,
+     false,
+     "You will please deposit the boxes, fifty in number, which form the\nconsignment, in the partially ruined building forming part of the house\nand marked 'A' on rough diagram enclosed. Your agent will easily\nrecognise the locality, as it is the ancient chapel of the mansion. The\ngoods leave by the train at 9:30 to-night, and will be due at King's\nCross at 4:30 to-morrow afternoon. As our client wishes the delivery\nmade as soon as possible, we shall be obliged by your having teams ready\nat King's Cross at the time named and forthwith conveying the goods to\ndestination. In order to obviate any delays possible through any routine\nrequirements as to payment in your departments, we enclose cheque\nherewith for ten pounds (£10), receipt of which please acknowledge.\nShould the charge be less than this amount, you can return balance; if\ngreater, we shall at once send cheque for difference on hearing from\nyou. You are to leave the keys on coming away in the main hall of the\nhouse, where the proprietor may get them on his entering the house by\nmeans of his duplicate key."
+    ],
+    [
+     141,
+     null,
+     false,
+     "Pray do not take us as exceeding the bounds of business courtesy in\npressing you in all ways to use the utmost expedition."
+    ],
+    [
+     142,
+     null,
+     false,
+     "We are, dear Sirs,"
+    ],
+    [
+     143,
+     null,
+     false,
+     "Faithfully yours,"
+    ],
+    [
+     144,
+     null,
+     true,
+     "SAMUEL F. BILLINGTON & SON."
+    ],
+    [
+     146,
+     null,
+     false,
+     "_21 August._"
+    ],
+    [
+     147,
+     null,
+     false,
+     "Dear Sirs,--"
+    ],
+    [
+     148,
+     null,
+     false,
+     "We beg to acknowledge £10 received and to return cheque £1 17s. 9d,\namount of overplus, as shown in receipted account herewith. Goods are\ndelivered in exact accordance with instructions, and keys left in parcel\nin main hall, as directed."
+    ],
+    [
+     149,
+     null,
+     false,
+     "We are, dear Sirs,"
+    ],
+    [
+     150,
+     null,
+     false,
+     "Yours respectfully."
+    ],
+    [
+     151,
+     null,
+     true,
+     "_Pro_ CARTER, PATERSON & CO."
+    ],
+    [
+     154,
+     null,
+     true,
+     "My poor little feet didn't make much noise then! I daresay poor old Mr.\nSwales would have told me that it was because I didn't want to wake up\nGeordie."
+    ],
+    [
+     155,
+     null,
+     true,
+     "I didn't quite dream; but it all seemed to be real. I only wanted to be\nhere in this spot--I don't know why, for I was afraid of something--I\ndon't know what. I remember, though I suppose I was asleep, passing\nthrough the streets and over the bridge. A fish leaped as I went by, and\nI leaned over to look at it, and I heard a lot of dogs howling--the\nwhole town seemed as if it must be full of dogs all howling at once--as\nI went up the steps. Then I had a vague memory of something long and\ndark with red eyes, just as we saw in the sunset, and something very\nsweet and very bitter all around me at once; and then I seemed sinking\ninto deep green water, and there was a singing in my ears, as I have\nheard there is to drowning men; and then everything seemed passing away\nfrom me; my soul seemed to go out from my body and float about the air.\nI seem to remember that once the West Lighthouse was right under me,\nand then there was a sort of agonising feeling, as if I were in an\nearthquake, and I came back and found you shaking my body. I saw you do\nit before I felt you."
+    ],
+    [
+     160,
+     null,
+     false,
+     "_12 August._"
+    ],
+    [
+     161,
+     null,
+     false,
+     "Dear Madam,--"
+    ],
+    [
+     162,
+     null,
+     false,
+     "I write by desire of Mr. Aldous Kerr, who is himself not strong\nenough to write, though progressing well, thanks to God and St. Joseph\nand Ste. Mary. He has been under our care for nearly six weeks,\nsuffering from a violent brain fever. He wishes me to convey his love,\nand to say that by this post I write for him to Mr. Peter Falk,\nElmsworth, to say, with his dutiful respects, that he is sorry for his\ndelay, and that all of his work is completed. He will require some few\nweeks' rest in our sanatorium in the hills, but will then return. He\nwishes me to say that he has not sufficient money with him, and that he\nwould like to pay for his staying here, so that others who need shall\nnot be wanting for help."
+    ],
+    [
+     163,
+     null,
+     false,
+     "Believe me,"
+    ],
+    [
+     164,
+     null,
+     false,
+     "Yours, with sympathy and all blessings,"
+    ],
+    [
+     165,
+     null,
+     false,
+     "SISTER AGATHA."
+    ],
+    [
+     166,
+     null,
+     false,
+     "P. S.--My patient being asleep, I open this to let you know something\nmore. He has told me all about you, and that you are shortly to be his\nwife. All blessings to you both! He has had some fearful shock--so says\nour doctor--and in his delirium his ravings have been dreadful; of\nwolves and poison and blood; of ghosts and demons; and I fear to say of\nwhat. Be careful with him always that there may be nothing to excite him\nof this kind for a long time to come; the traces of such an illness as\nhis do not lightly die away. We should have written long ago, but we\nknew nothing of his friends, and there was on him nothing that any one\ncould understand. He came in the train from Klausenburg, and the guard\nwas told by the station-master there that he rushed into the station\nshouting for a ticket for home. Seeing from his violent demeanour that\nhe was English, they gave him a ticket for the furthest station on the\nway thither that the train reached."
+    ],
+    [
+     167,
+     null,
+     true,
+     "Be assured that he is well cared for. He has won all hearts by his\nsweetness and gentleness. He is truly getting on well, and I have no\ndoubt will in a few weeks be all himself. But be careful of him for\nsafety's sake. There are, I pray God and St. Joseph and Ste. Mary, many,\nmany, happy years for you both."
+    ],
+    [
+     170,
+     null,
+     true,
+     "I don't want to talk to you: you don't count now; the Master is at\n     hand."
+    ],
+    [
+     173,
+     null,
+     true,
+     "Bother them all! I don't care a pin about them."
+    ],
+    [
+     174,
+     "i",
+     true,
+     "What?"
+    ],
+    [
+     174,
+     "i",
+     true,
+     "You don't mean to tell me you don't care about\nspiders?"
+    ],
+    [
+     175,
+     null,
+     true,
+     "The bride-maidens rejoice the eyes that wait the coming of the bride;\nbut when the bride draweth nigh, then the maidens shine not to the eyes\nthat are filled."
+    ],
+    [
+     181,
+     null,
+     true,
+     "I am here to do Your bidding, Master. I am Your slave, and You will\nreward me, for I shall be faithful. I have worshipped You long and afar\noff. Now that You are near, I await Your commands, and You will not pass\nme by, will You, dear Master, in Your distribution of good things?"
+    ],
+    [
+     184,
+     null,
+     true,
+     "I shall be patient, Master. It is coming--coming--coming!"
+    ],
+    [
+     188,
+     null,
+     false,
+     "_6 September._"
+    ],
+    [
+     189,
+     null,
+     false,
+     "My dear Art,--"
+    ],
+    [
+     190,
+     null,
+     false,
+     "My news to-day is not so good. Cora this morning had gone back a bit.\nThere is, however, one good thing which has arisen from it; Mrs.\nEllis was naturally anxious concerning Cora, and has consulted me\nprofessionally about her. I took advantage of the opportunity, and told\nher that my old master, Verhoeven, the great specialist, was coming to\nstay with me, and that I would put her in his charge conjointly with\nmyself; so now we can come and go without alarming her unduly, for a\nshock to her would mean sudden death, and this, in Cora's weak\ncondition, might be disastrous to her. We are hedged in with\ndifficulties, all of us, my poor old fellow; but, please God, we shall\ncome through them all right. If any need I shall write, so that, if you\ndo not hear from me, take it for granted that I am simply waiting for\nnews. In haste"
+    ],
+    [
+     191,
+     null,
+     false,
+     "Yours ever,"
+    ],
+    [
+     192,
+     null,
+     true,
+     "ELIAS WARD."
+    ],
+    [
+     195,
+     null,
+     true,
+     "Have you said anything to our young friend the lover of her?"
+    ],
+    [
+     196,
+     "i",
+     true,
+     "No,"
+    ],
+    [
+     196,
+     "i",
+     true,
+     "I waited till I had seen you, as I said in my telegram. I\nwrote him a letter simply telling him that you were coming, as Miss\nEllis was not so well, and that I should let him know if need be."
+    ],
+    [
+     197,
+     "he",
+     true,
+     "Right, my friend,"
+    ],
+    [
+     197,
+     "he",
+     true,
+     "quite right! Better he not know as yet;\nperhaps he shall never know. I pray so; but if it be needed, then he\nshall know all. And, my good friend Elias, let me caution you. You deal\nwith the madmen. All men are mad in some way or the other; and inasmuch\nas you deal discreetly with your madmen, so deal with God's madmen,\ntoo--the rest of the world. You tell not your madmen what you do nor why\nyou do it; you tell them not what you think. So you shall keep knowledge\nin its place, where it may rest--where it may gather its kind around it\nand breed. You and I shall keep as yet what we know here, and here."
+    ],
+    [
+     197,
+     "he",
+     true,
+     "I have for myself thoughts at the present. Later I shall\nunfold to you."
+    ],
+    [
+     198,
+     "i",
+     true,
+     "Why not now?"
+    ],
+    [
+     198,
+     "i",
+     true,
+     "It may do some good; we may arrive at some\ndecision."
+    ],
+    [
+     199,
+     null,
+     true,
+     "My friend Elias, when the corn is grown, even before it has\nripened--while the milk of its mother-earth is in him, and the sunshine\nhas not yet begun to paint him with his gold, the husbandman he pull the\near and rub him between his rough hands, and blow away the green chaff,\nand say to you: 'Look! he's good corn; he will make good crop when the\ntime comes.'"
+    ],
+    [
+     199,
+     null,
+     true,
+     "The good husbandman tell\nyou so then because he knows, but not till then. But you do not find the\ngood husbandman dig up his planted corn to see if he grow; that is for\nthe children who play at husbandry, and not for those who take it as of\nthe work of their life. See you now, friend Elias? I have sown my corn,\nand Nature has her work to do in making it sprout; if he sprout at all,\nthere's some promise; and I wait till the ear begins to swell."
+    ],
+    [
+     200,
+     null,
+     true,
+     "You were always a careful student, and your case-book was ever more\nfull than the rest. You were only student then; now you are master, and\nI trust that good habit have not fail. Remember, my friend, that\nknowledge is stronger than memory, and we should not trust the weaker.\nEven if you have not kept the good practise, let me tell you that this\ncase of our dear miss is one that may be--mind, I say _may be_--of such\ninterest to us and others that all the rest may not make him kick the\nbeam, as your peoples say. Take then good note of it. Nothing is too\nsmall. I counsel you, put down in record even your doubts and surmises.\nHereafter it may be of interest to you to see how true you guess. We\nlearn from failure, not from success!"
+    ],
+    [
+     201,
+     null,
+     true,
+     "the ghastly paraphernalia\nof our beneficial trade,"
+    ],
+    [
+     202,
+     "he",
+     true,
+     "My God!"
+    ],
+    [
+     202,
+     "he",
+     true,
+     "this is dreadful. There is no time\nto be lost. She will die for sheer want of blood to keep the heart's\naction as it should be. There must be transfusion of blood at once. Is\nit you or me?"
+    ],
+    [
+     203,
+     null,
+     true,
+     "I am younger and stronger, Professor. It must be me."
+    ],
+    [
+     204,
+     null,
+     true,
+     "Then get ready at once. I will bring up my bag. I am prepared."
+    ],
+    [
+     206,
+     null,
+     true,
+     "Eli, I was so anxious. I read between the lines of your letter, and\nhave been in an agony. The dad was better, so I ran down here to see for\nmyself. Is not that gentleman Dr. Verhoeven? I am so thankful to you,\nsir, for coming."
+    ],
+    [
+     207,
+     null,
+     true,
+     "Sir, you have come in time. You are the lover of our dear miss. She is\nbad, very, very bad. Nay, my child, do not go like that."
+    ],
+    [
+     207,
+     null,
+     true,
+     "You are to\nhelp her. You can do more than any that live, and your courage is your\nbest help."
+    ],
+    [
+     208,
+     "Percy",
+     true,
+     "What can I do?"
+    ],
+    [
+     208,
+     "Percy",
+     true,
+     "Tell me, and I shall do it. My\nlife is hers, and I would give the last drop of blood in my body for\nher."
+    ],
+    [
+     209,
+     null,
+     true,
+     "My young sir, I do not ask so much as that--not the last!"
+    ],
+    [
+     210,
+     null,
+     true,
+     "What shall I do?"
+    ],
+    [
+     210,
+     "he",
+     true,
+     "Come!"
+    ],
+    [
+     210,
+     "he",
+     true,
+     "You are a man, and it is a man we want. You are better than\nme, better than my friend Elias."
+    ],
+    [
+     211,
+     null,
+     true,
+     "Young miss is bad, very bad. She wants blood, and blood she must have\nor die. My friend Elias and I have consulted; and we are about to perform\nwhat we call transfusion of blood--to transfer from full veins of one to\nthe empty veins which pine for him. Elias was to give his blood, as he is\nthe more young and strong than me"
+    ],
+    [
+     211,
+     null,
+     true,
+     "but, now you are here, you are more good than us,\nold or young, who toil much in the world of thought. Our nerves are not\nso calm and our blood not so bright than yours!"
+    ],
+    [
+     212,
+     null,
+     true,
+     "If you only knew how gladly I would die for her you would\nunderstand----"
+    ],
+    [
+     214,
+     "Verhoeven",
+     true,
+     "Good boy!"
+    ],
+    [
+     214,
+     "Verhoeven",
+     true,
+     "In the not-so-far-off you will be happy\nthat you have done all for her you love. Come now and be silent. You\nshall kiss her once before it is done, but then you must go; and you\nmust leave at my sign. Say no word to Madame; you know how it is with\nher! There must be no shock; any knowledge of this would be one. Come!"
+    ],
+    [
+     216,
+     null,
+     true,
+     "Now, little miss, here is your medicine. Drink it off, like a good\nchild. See, I lift you so that to swallow is easy. Yes."
+    ],
+    [
+     217,
+     "he",
+     true,
+     "You may take that one little kiss whiles I bring\nover the table. Friend Elias, help to me!"
+    ],
+    [
+     219,
+     null,
+     true,
+     "He is so young and strong and of blood so pure that we need not\ndefibrinate it."
+    ],
+    [
+     220,
+     null,
+     true,
+     "Do not stir an instant.\nIt is enough. You attend him; I will look to her."
+    ],
+    [
+     221,
+     null,
+     true,
+     "The brave lover, I think, deserve another kiss, which he shall have\npresently."
+    ],
+    [
+     221,
+     null,
+     true,
+     "Now take down our brave young lover, give him of the port\nwine, and let him lie down a while. He must then go home and rest, sleep\nmuch and eat much, that he may be recruited of what he has so given to\nhis love. He must not stay here. Hold! a moment. I may take it, sir,\nthat you are anxious of result. Then bring it with you that in all ways\nthe operation is successful. You have saved her life this time, and you\ncan go home and rest easy in mind that all that can be is. I shall tell\nher all when she is well; she shall love you none the less for what you\nhave done. Good-bye."
+    ],
+    [
+     223,
+     null,
+     true,
+     "What do you make of that mark on her throat?"
+    ],
+    [
+     224,
+     null,
+     true,
+     "What do you make of it?"
+    ],
+    [
+     225,
+     "i",
+     true,
+     "I have not examined it yet,"
+    ],
+    [
+     226,
+     "Verhoeven",
+     true,
+     "Well?"
+    ],
+    [
+     227,
+     "i",
+     true,
+     "Well,"
+    ],
+    [
+     227,
+     "i",
+     true,
+     "I can make nothing of it."
+    ],
+    [
+     227,
+     "he",
+     true,
+     "I\nmust go back to Amsterdam to-night,"
+    ],
+    [
+     227,
+     null,
+     true,
+     "There are books and\nthings there which I want. You must remain here all the night, and you\nmust not let your sight pass from her."
+    ],
+    [
+     228,
+     "i",
+     true,
+     "Shall I have a nurse?"
+    ],
+    [
+     229,
+     null,
+     true,
+     "We are the best nurses, you and I. You keep watch all night; see that\nshe is well fed, and that nothing disturbs her. You must not sleep all\nthe night. Later on we can sleep, you and I. I shall be back as soon as\npossible. And then we may begin."
+    ],
+    [
+     230,
+     "i",
+     true,
+     "May begin?"
+    ],
+    [
+     230,
+     "i",
+     true,
+     "What on earth do you mean?"
+    ],
+    [
+     231,
+     "he",
+     true,
+     "We shall see!"
+    ],
+    [
+     232,
+     null,
+     true,
+     "Remember, she is your charge. If you leave her, and harm befall, you\nshall not sleep easy hereafter!"
+    ],
+    [
+     235,
+     null,
+     true,
+     "You do not want to go to sleep?"
+    ],
+    [
+     236,
+     null,
+     true,
+     "No; I am afraid."
+    ],
+    [
+     237,
+     null,
+     true,
+     "Afraid to go to sleep! Why so? It is the boon we all crave for."
+    ],
+    [
+     238,
+     null,
+     true,
+     "Ah, not if you were like me--if sleep was to you a presage of horror!"
+    ],
+    [
+     239,
+     null,
+     true,
+     "A presage of horror! What on earth do you mean?"
+    ],
+    [
+     240,
+     null,
+     true,
+     "I don't know; oh, I don't know. And that is what is so terrible. All\nthis weakness comes to me in sleep; until I dread the very thought."
+    ],
+    [
+     241,
+     null,
+     true,
+     "But, my dear girl, you may sleep to-night. I am here watching you, and\nI can promise that nothing will happen."
+    ],
+    [
+     242,
+     null,
+     true,
+     "Ah, I can trust you!"
+    ],
+    [
+     242,
+     null,
+     true,
+     "I promise\nyou that if I see any evidence of bad dreams I will wake you at once."
+    ],
+    [
+     243,
+     null,
+     true,
+     "You will? Oh, will you really? How good you are to me. Then I will\nsleep!"
+    ],
+    [
+     248,
+     null,
+     true,
+     "No sitting up to-night for you. You are worn out. I am quite well\nagain; indeed, I am; and if there is to be any sitting up, it is I who\nwill sit up with you."
+    ],
+    [
+     248,
+     "she",
+     true,
+     "Now,"
+    ],
+    [
+     248,
+     "she",
+     true,
+     "you must stay\nhere. I shall leave this door open and my door too. You can lie on the\nsofa for I know that nothing would induce any of you doctors to go to\nbed whilst there is a patient above the horizon. If I want anything I\nshall call out, and you can come to me at once."
+    ],
+    [
+     248,
+     "she",
+     true,
+     "dog-tired,"
+    ],
+    [
+     253,
+     null,
+     true,
+     "And how is our patient?"
+    ],
+    [
+     254,
+     "i",
+     true,
+     "Well, when I left her, or rather when she left me,"
+    ],
+    [
+     255,
+     "he",
+     true,
+     "Come, let us see,"
+    ],
+    [
+     257,
+     null,
+     true,
+     "Gott in Himmel!"
+    ],
+    [
+     258,
+     "he",
+     true,
+     "Quick!"
+    ],
+    [
+     258,
+     "he",
+     true,
+     "Bring\nthe brandy."
+    ],
+    [
+     259,
+     null,
+     true,
+     "It is not too late. It beats, though but feebly. All our work is\nundone; we must begin again. There is no young Percy here now; I have\nto call on you yourself this time, friend Elias."
+    ],
+    [
+     259,
+     "he",
+     true,
+     "Do not stir,"
+    ],
+    [
+     259,
+     "he",
+     true,
+     "but I fear that with\ngrowing strength she may wake; and that would make danger, oh, so much\ndanger. But I shall precaution take. I shall give hypodermic injection\nof morphia."
+    ],
+    [
+     260,
+     "he",
+     true,
+     "That will do,"
+    ],
+    [
+     260,
+     null,
+     true,
+     "Already?"
+    ],
+    [
+     260,
+     "i",
+     true,
+     "You took a great deal more from Art."
+    ],
+    [
+     261,
+     null,
+     true,
+     "He is her lover, her _fiancé_. You have work, much work, to do for her\nand for others; and the present will suffice."
+    ],
+    [
+     263,
+     null,
+     true,
+     "Mind, nothing must be said of this. If our young lover should turn up\nunexpected, as before, no word to him. It would at once frighten him and\nenjealous him, too. There must be none. So!"
+    ],
+    [
+     265,
+     null,
+     true,
+     "You are not much the worse. Go into the room, and lie on your sofa, and\nrest awhile; then have much breakfast, and come here to me."
+    ],
+    [
+     269,
+     null,
+     true,
+     "We owe you so much, Dr. Ward, for all you have done, but you really\nmust now take care not to overwork yourself. You are looking pale\nyourself. You want a wife to nurse and look after you a bit; that you\ndo!"
+    ],
+    [
+     270,
+     null,
+     true,
+     "Now you go home, and eat much and drink enough. Make yourself strong. I\nstay here to-night, and I shall sit up with little miss myself. You and\nI must watch the case, and we must have none other to know. I have grave\nreasons. No, do not ask them; think what you will. Do not fear to think\neven the most not-probable. Good-night."
+    ],
+    [
+     271,
+     null,
+     true,
+     "foreign\ngentleman."
+    ],
+    [
+     274,
+     "he",
+     true,
+     "These are for you, Miss Cora,"
+    ],
+    [
+     275,
+     null,
+     true,
+     "For me? Oh, Dr. Verhoeven!"
+    ],
+    [
+     276,
+     null,
+     true,
+     "Yes, my dear, but not for you to play with. These are medicines."
+    ],
+    [
+     276,
+     null,
+     true,
+     "Nay, but they are not to take in a decoction or\nin nauseous form, so you need not snub that so charming nose, or I shall\npoint out to my friend Percy what woes he may have to endure in seeing\nso much beauty that he so loves so much distort. Aha, my pretty miss,\nthat bring the so nice nose all straight again. This is medicinal, but\nyou do not know how. I put him in your window, I make pretty wreath, and\nhang him round your neck, so that you sleep well. Oh yes! they, like the\nlotus flower, make your trouble forgotten. It smell so like the waters\nof Lethe, and of that fountain of youth that the Conquistadores sought\nfor in the Floridas, and find him all too late."
+    ],
+    [
+     278,
+     null,
+     true,
+     "Oh, Professor, I believe you are only putting up a joke on me. Why,\nthese flowers are only common garlic."
+    ],
+    [
+     280,
+     null,
+     true,
+     "No trifling with me! I never jest! There is grim purpose in all I do;\nand I warn you that you do not thwart me. Take care, for the sake of\nothers if not for your own."
+    ],
+    [
+     280,
+     null,
+     true,
+     "Oh, little miss, my dear, do not fear\nme. I only do for your good; but there is much virtue to you in those so\ncommon flowers. See, I place them myself in your room. I make myself the\nwreath that you are to wear. But hush! no telling to others that make so\ninquisitive questions. We must obey, and silence is a part of obedience;\nand obedience is to bring you strong and well into loving arms that wait\nfor you. Now sit still awhile. Come with me, friend Elias, and you shall\nhelp me deck the room with my garlic, which is all the way from Haarlem,\nwhere my friend Vanderpool raise herb in his glass-houses all the year.\nI had to telegraph yesterday, or they would not have been here."
+    ],
+    [
+     282,
+     null,
+     true,
+     "Well, Professor, I know you always have a reason for what you do, but\nthis certainly puzzles me. It is well we have no sceptic here, or he\nwould say that you were working some spell to keep out an evil spirit."
+    ],
+    [
+     283,
+     "he",
+     true,
+     "Perhaps I am!"
+    ],
+    [
+     285,
+     null,
+     true,
+     "Take care you do not disturb it; and even if the room feel close, do\nnot to-night open the window or the door."
+    ],
+    [
+     286,
+     "Cora",
+     true,
+     "I promise,"
+    ],
+    [
+     286,
+     "Cora",
+     true,
+     "and thank you both a thousand times for all\nyour kindness to me! Oh, what have I done to be blessed with such\nfriends?"
+    ],
+    [
+     288,
+     null,
+     true,
+     "To-night I can sleep in peace, and sleep I want--two nights of travel,\nmuch reading in the day between, and much anxiety on the day to follow,\nand a night to sit up, without to wink. To-morrow in the morning early\nyou call for me, and we come together to see our pretty miss, so much\nmore strong for my 'spell' which I have work. Ho! ho!"
+    ]
+   ],
+   "narration": [
+    [
+     7,
+     "  He made no\nmotion of stepping to meet me, but stood like a statue, as though his\ngesture of welcome had fixed him into stone. The instant, however, that\nI had stepped over the threshold, he moved impulsively forward, and\nholding out his hand grasped mine with a strength which made me wince,\nan effect which was not lessened by the fact that it seemed as cold as\nice--more like the hand of a dead than a living man. Again he said:--"
+    ],
+    [
+     8,
+     "  The strength of the handshake was so much akin to\nthat which I had noticed in the driver, whose face I had not seen, that\nfor a moment I doubted if it were not the same person to whom I was\nspeaking; so to make sure, I said interrogatively:--"
+    ],
+    [
+     9,
+     "  He bowed in a courtly way as he replied:--"
+    ],
+    [
+     10,
+     "  As he was\nspeaking, he put the lamp on a bracket on the wall, and stepping out,\ntook my luggage; he had carried it in before I could forestall him. I\nprotested but he insisted:--"
+    ],
+    [
+     11,
+     "  He insisted on carrying\nmy traps along the passage, and then up a great winding stair, and\nalong another great passage, on whose stone floor our steps rang\nheavily. At the end of this he threw open a heavy door, and I rejoiced\nto see within a well-lit room in which a table was spread for supper,\nand on whose mighty hearth a great fire of logs, freshly replenished,\nflamed and flared."
+    ],
+    [
+     13,
+     " "
+    ],
+    [
+     16,
+     " "
+    ],
+    [
+     18,
+     " "
+    ],
+    [
+     23,
+     " \nSeeing, I suppose, some expression in my face strange to him, he\nadded:--"
+    ],
+    [
+     24,
+     "  Then he rose and said:--"
+    ],
+    [
+     25,
+     "  With a courteous bow, he opened for me\nhimself the door to the octagonal room, and I entered my bedroom...."
+    ],
+    [
+     29,
+     "  I set to and\nenjoyed a hearty meal. When I had done, I looked for a bell, so that I\nmight let the servants know I had finished; but I could not find one.\nThere are certainly odd deficiencies in the house, considering the\nextraordinary evidences of wealth which are round me. The table service\nis of gold, and so beautifully wrought that it must be of immense value.\nThe curtains and upholstery of the chairs and sofas and the hangings of\nmy bed are of the costliest and most beautiful fabrics, and must have\nbeen of fabulous value when they were made, for they are centuries old,\nthough in excellent order. I saw something like them in Hampton Court,\nbut there they were worn and frayed and moth-eaten. But still in none of\nthe rooms is there a mirror. There is not even a toilet glass on my\ntable, and I had to get the little shaving glass from my bag before I\ncould either shave or brush my hair. I have not yet seen a servant\nanywhere, or heard a sound near the castle except the howling of wolves.\nSome time after I had finished my meal--I do not know whether to call it\nbreakfast or dinner, for it was between five and six o'clock when I had\nit--I looked about for something to read, for I did not like to go about\nthe castle until I had asked the Count's permission. There was\nabsolutely nothing in the room, book, newspaper, or even writing\nmaterials; so I opened another door in the room and found a sort of\nlibrary. The door opposite mine I tried, but found it locked."
+    ],
+    [
+     30,
+     "In the library I found, to my great delight, a vast number of English\nbooks, whole shelves full of them, and bound volumes of magazines and\nnewspapers. A table in the centre was littered with English magazines\nand newspapers, though none of them were of very recent date. The books\nwere of the most varied kind--history, geography, politics, political\neconomy, botany, geology, law--all relating to England and English life\nand customs and manners. There were even such books of reference as the\nLondon Directory, the   and   books, Whitaker's Almanac, the\nArmy and Navy Lists, and--it somehow gladdened my heart to see it--the\nLaw List."
+    ],
+    [
+     32,
+     " --and he laid his hand on some of\nthe books-- "
+    ],
+    [
+     33,
+     "  I said,   He bowed\ngravely."
+    ],
+    [
+     34,
+     " "
+    ],
+    [
+     35,
+     "  I said,  "
+    ],
+    [
+     36,
+     "  he answered.  "
+    ],
+    [
+     37,
+     "Of course I said all I could about being willing, and asked if I might\ncome into that room when I chose. He answered:   and\nadded:--"
+    ],
+    [
+     38,
+     "  I said I was sure of\nthis, and then he went on:--"
+    ],
+    [
+     39,
+     " "
+    ],
+    [
+     40,
+     "This led to much conversation; and as it was evident that he wanted to\ntalk, if only for talking's sake, I asked him many questions regarding\nthings that had already happened to me or come within my notice.\nSometimes he sheered off the subject, or turned the conversation by\npretending not to understand; but generally he answered all I asked most\nfrankly. Then as time went on, and I had got somewhat bolder, I asked\nhim of some of the strange things of the preceding night, as, for\ninstance, why the coachman went to the places where he had seen the blue\nflames. He then explained to me that it was commonly believed that on a\ncertain night of the year--last night, in fact, when all evil spirits\nare supposed to have unchecked sway--a blue flame is seen over any place\nwhere treasure has been concealed.   he\nwent on,  "
+    ],
+    [
+     41,
+     "  said I,  \nThe Count smiled, and as his lips ran back over his gums, the long,\nsharp, canine teeth showed out strangely; he answered:--"
+    ],
+    [
+     42,
+     " "
+    ],
+    [
+     43,
+     "  I said.   Then we drifted into other matters."
+    ],
+    [
+     44,
+     "  he said at last,   With an apology for my remissness, I went into my\nown room to get the papers from my bag. Whilst I was placing them in\norder I heard a rattling of china and silver in the next room, and as I\npassed through, noticed that the table had been cleared and the lamp\nlit, for it was by this time deep into the dark. The lamps were also lit\nin the study or library, and I found the Count lying on the sofa,\nreading, of all things in the world, an English Bradshaw's Guide. When I\ncame in he cleared the books and papers from the table; and with him I\nwent into plans and deeds and figures of all sorts. He was interested in\neverything, and asked me a myriad questions about the place and its\nsurroundings. He clearly had studied beforehand all he could get on the\nsubject of the neighbourhood, for he evidently at the end knew very much\nmore than I did. When I remarked this, he answered:--"
+    ],
+    [
+     45,
+     " "
+    ],
+    [
+     47,
+     " "
+    ],
+    [
+     48,
+     " "
+    ],
+    [
+     50,
+     "  Somehow his words and his look\ndid not seem to accord, or else it was that his cast of face made his\nsmile look malignant and saturnine."
+    ],
+    [
+     52,
+     "It was the better part of an hour when the Count returned.   he\nsaid;   He took my arm, and we went into\nthe next room, where I found an excellent supper ready on the table. The\nCount again excused himself, as he had dined out on his being away from\nhome. But he sat as on the previous night, and chatted whilst I ate.\nAfter supper I smoked, as on the last evening, and the Count stayed with\nme, chatting and asking questions on every conceivable subject, hour\nafter hour. I felt that it was getting very late indeed, but I did not\nsay anything, for I felt under obligation to meet my host's wishes in\nevery way. I was not sleepy, as the long sleep yesterday had fortified\nme; but I could not help experiencing that chill which comes over one at\nthe coming of the dawn, which is like, in its way, the turn of the tide.\nThey say that people who are near death die generally at the change to\nthe dawn or at the turn of the tide; any one who has when tired, and\ntied as it were to his post, experienced this change in the atmosphere\ncan well believe it. All at once we heard the crow of a cock coming up\nwith preternatural shrillness through the clear morning air; Count\nVasska, jumping to his feet, said:--"
+    ],
+    [
+     53,
+     "  and, with a courtly bow, he quickly left me."
+    ],
+    [
+     57,
+     "I only slept a few hours when I went to bed, and feeling that I could\nnot sleep any more, got up. I had hung my shaving glass by the window,\nand was just beginning to shave. Suddenly I felt a hand on my shoulder,\nand heard the Count's voice saying to me,   I started, for\nit amazed me that I had not seen him, since the reflection of the glass\ncovered the whole room behind me. In starting I had cut myself slightly,\nbut did not notice it at the moment. Having answered the Count's\nsalutation, I turned to the glass again to see how I had been mistaken.\nThis time there could be no error, for the man was close to me, and I\ncould see him over my shoulder. But there was no reflection of him in\nthe mirror! The whole room behind me was displayed; but there was no\nsign of a man in it, except myself. This was startling, and, coming on\nthe top of so many strange things, was beginning to increase that vague\nfeeling of uneasiness which I always have when the Count is near; but at\nthe instant I saw that the cut had bled a little, and the blood was\ntrickling over my chin. I laid down the razor, turning as I did so half\nround to look for some sticking plaster. When the Count saw my face, his\neyes blazed with a sort of demoniac fury, and he suddenly made a grab at\nmy throat. I drew away, and his hand touched the string of beads which\nheld the crucifix. It made an instant change in him, for the fury passed\nso quickly that I could hardly believe that it was ever there."
+    ],
+    [
+     58,
+     "  he said,   Then seizing the shaving\nglass, he went on:   and\nopening the heavy window with one wrench of his terrible hand, he flung\nout the glass, which was shattered into a thousand pieces on the stones\nof the courtyard far below. Then he withdrew without a word. It is very\nannoying, for I do not see how I am to shave, unless in my watch-case or\nthe bottom of the shaving-pot, which is fortunately of metal."
+    ],
+    [
+     64,
+     " "
+    ],
+    [
+     65,
+     " "
+    ],
+    [
+     66,
+     " "
+    ],
+    [
+     67,
+     " "
+    ],
+    [
+     68,
+     " "
+    ],
+    [
+     69,
+     " "
+    ],
+    [
+     71,
+     " "
+    ],
+    [
+     72,
+     " "
+    ],
+    [
+     73,
+     " "
+    ],
+    [
+     74,
+     " "
+    ],
+    [
+     75,
+     " "
+    ],
+    [
+     76,
+     " "
+    ],
+    [
+     77,
+     " "
+    ],
+    [
+     79,
+     " "
+    ],
+    [
+     80,
+     " "
+    ],
+    [
+     81,
+     " "
+    ],
+    [
+     82,
+     " "
+    ],
+    [
+     83,
+     " "
+    ],
+    [
+     84,
+     " "
+    ],
+    [
+     85,
+     " "
+    ],
+    [
+     86,
+     " "
+    ],
+    [
+     87,
+     " "
+    ],
+    [
+     88,
+     " "
+    ],
+    [
+     89,
+     " "
+    ],
+    [
+     90,
+     " "
+    ],
+    [
+     91,
+     " "
+    ],
+    [
+     92,
+     " "
+    ],
+    [
+     93,
+     " "
+    ],
+    [
+     94,
+     " "
+    ],
+    [
+     95,
+     " "
+    ],
+    [
+     103,
+     " "
+    ],
+    [
+     104,
+     " "
+    ],
+    [
+     105,
+     " "
+    ],
+    [
+     106,
+     " "
+    ],
+    [
+     107,
+     " "
+    ],
+    [
+     109,
+     " "
+    ],
+    [
+     110,
+     " "
+    ],
+    [
+     111,
+     " "
+    ],
+    [
+     114,
+     "_Same day, 11 o'clock p. m._--Oh, but I am tired! If it were not that I\nhad made my diary a duty I should not open it to-night. We had a lovely\nwalk. Cora, after a while, was in gay spirits, owing, I think, to some\ndear cows who came nosing towards us in a field close to the lighthouse,\nand frightened the wits out of us. I believe we forgot everything\nexcept, of course, personal fear, and it seemed to wipe the slate clean\nand give us a fresh start. We had a capital   at Robin Hood's\nBay in a sweet little old-fashioned inn, with a bow-window right over\nthe seaweed-covered rocks of the strand. I believe we should have\nshocked the   with our appetites. Men are more tolerant, bless\nthem! Then we walked home with some, or rather many, stoppages to rest,\nand with our hearts full of a constant dread of wild bulls. Cora was\nreally tired, and we intended to creep off to bed as soon as we could.\nThe young curate came in, however, and Mrs. Ellis asked him to stay\nfor supper. Cora and I had both a fight for it with the dusty miller; I\nknow it was a hard fight on my part, and I am quite heroic. I think that\nsome day the bishops must get together and see about breeding up a new\nclass of curates, who don't take supper, no matter how they may be\npressed to, and who will know when girls are tired. Cora is asleep and\nbreathing softly. She has more colour in her cheeks than usual, and\nlooks, oh, so sweet. If Mr. Alderton fell in love with her seeing her\nonly in the drawing-room, I wonder what he would say if he saw her now.\nSome of the   writers will some day start an idea that men and\nwomen should be allowed to see each other asleep before proposing or\naccepting. But I suppose the New Woman won't condescend in future to\naccept; she will do the proposing herself. And a nice job she will make\nof it, too! There's some consolation in that. I am so happy to-night,\nbecause dear Cora seems better. I really believe she has turned the\ncorner, and that we are over her troubles with dreaming. I should be\nquite happy if I only knew if Aldous.... God bless and keep him."
+    ],
+    [
+     116,
+     "_11 August, 3 a. m._--Diary again. No sleep now, so I may as well write.\nI am too agitated to sleep. We have had such an adventure, such an\nagonising experience. I fell asleep as soon as I had closed my diary....\nSuddenly I became broad awake, and sat up, with a horrible sense of fear\nupon me, and of some feeling of emptiness around me. The room was dark,\nso I could not see Cora's bed; I stole across and felt for her. The bed\nwas empty. I lit a match and found that she was not in the room. The\ndoor was shut, but not locked, as I had left it. I feared to wake her\nmother, who has been more than usually ill lately, so threw on some\nclothes and got ready to look for her. As I was leaving the room it\nstruck me that the clothes she wore might give me some clue to her\ndreaming intention. Dressing-gown would mean house; dress, outside.\nDressing-gown and dress were both in their places.   I said\nto myself,   I ran\ndownstairs and looked in the sitting-room. Not there! Then I looked in\nall the other open rooms of the house, with an ever-growing fear\nchilling my heart. Finally I came to the hall door and found it open. It\nwas not wide open, but the catch of the lock had not caught. The people\nof the house are careful to lock the door every night, so I feared that\nCora must have gone out as she was. There was no time to think of what\nmight happen; a vague, overmastering fear obscured all details. I took a\nbig, heavy shawl and ran out. The clock was striking one as I was in the\nCrescent, and there was not a soul in sight. I ran along the North\nTerrace, but could see no sign of the white figure which I expected. At\nthe edge of the West Cliff above the pier I looked across the harbour to\nthe East Cliff, in the hope or fear--I don't know which--of seeing Cora\nin our favourite seat. There was a bright full moon, with heavy black,\ndriving clouds, which threw the whole scene into a fleeting diorama of\nlight and shade as they sailed across. For a moment or two I could see\nnothing, as the shadow of a cloud obscured St. Mary's Church and all\naround it. Then as the cloud passed I could see the ruins of the abbey\ncoming into view; and as the edge of a narrow band of light as sharp as\na sword-cut moved along, the church and the churchyard became gradually\nvisible. Whatever my expectation was, it was not disappointed, for\nthere, on our favourite seat, the silver light of the moon struck a\nhalf-reclining figure, snowy white. The coming of the cloud was too\nquick for me to see much, for shadow shut down on light almost\nimmediately; but it seemed to me as though something dark stood behind\nthe seat where the white figure shone, and bent over it. What it was,\nwhether man or beast, I could not tell; I did not wait to catch another\nglance, but flew down the steep steps to the pier and along by the\nfish-market to the bridge, which was the only way to reach the East\nCliff. The town seemed as dead, for not a soul did I see; I rejoiced\nthat it was so, for I wanted no witness of poor Cora's condition. The\ntime and distance seemed endless, and my knees trembled and my breath\ncame laboured as I toiled up the endless steps to the abbey. I must have\ngone fast, and yet it seemed to me as if my feet were weighted with\nlead, and as though every joint in my body were rusty. When I got almost\nto the top I could see the seat and the white figure, for I was now\nclose enough to distinguish it even through the spells of shadow. There\nwas undoubtedly something, long and black, bending over the\nhalf-reclining white figure. I called in fright,   and\nsomething raised a head, and from where I was I could see a white face\nand red, gleaming eyes. Cora did not answer, and I ran on to the\nentrance of the churchyard. As I entered, the church was between me and\nthe seat, and for a minute or so I lost sight of her. When I came in\nview again the cloud had passed, and the moonlight struck so brilliantly\nthat I could see Cora half reclining with her head lying over the back\nof the seat. She was quite alone, and there was not a sign of any living\nthing about."
+    ],
+    [
+     118,
+     "Fortune favoured us, and we got home without meeting a soul. Once we saw\na man, who seemed not quite sober, passing along a street in front of\nus; but we hid in a door till he had disappeared up an opening such as\nthere are here, steep little closes, or   as they call them in\nScotland. My heart beat so loud all the time that sometimes I thought I\nshould faint. I was filled with anxiety about Cora, not only for her\nhealth, lest she should suffer from the exposure, but for her reputation\nin case the story should get wind. When we got in, and had washed our\nfeet, and had said a prayer of thankfulness together, I tucked her into\nbed. Before falling asleep she asked--even implored--me not to say a\nword to any one, even her mother, about her sleep-walking adventure. I\nhesitated at first to promise; but on thinking of the state of her\nmother's health, and how the knowledge of such a thing would fret her,\nand thinking, too, of how such a story might become distorted--nay,\ninfallibly would--in case it should leak out, I thought it wiser to do\nso. I hope I did right. I have locked the door, and the key is tied to\nmy wrist, so perhaps I shall not be again disturbed. Cora is sleeping\nsoundly; the reflex of the dawn is high and far over the sea...."
+    ],
+    [
+     129,
+     "  It was such an odd\nexpression, coming _apropos_ of nothing, that it quite startled me. I\nslewed round a little, so as to see Cora well without seeming to stare\nat her, and saw that she was in a half-dreamy state, with an odd look on\nher face that I could not quite make out; so I said nothing, but\nfollowed her eyes. She appeared to be looking over at our own seat,\nwhereon was a dark figure seated alone. I was a little startled myself,\nfor it seemed for an instant as if the stranger had great eyes like\nburning flames; but a second look dispelled the illusion. The red\nsunlight was shining on the windows of St. Mary's Church behind our\nseat, and as the sun dipped there was just sufficient change in the\nrefraction and reflection to make it appear as if the light moved. I\ncalled Cora's attention to the peculiar effect, and she became herself\nwith a start, but she looked sad all the same; it may have been that she\nwas thinking of that terrible night up there. We never refer to it; so I\nsaid nothing, and we went home to dinner. Cora had a headache and went\nearly to bed. I saw her asleep, and went out for a little stroll myself;\nI walked along the cliffs to the westward, and was full of sweet\nsadness, for I was thinking of Aldous. When coming home--it was then\nbright moonlight, so bright that, though the front of our part of the\nCrescent was in shadow, everything could be well seen--I threw a glance\nup at our window, and saw Cora's head leaning out. I thought that\nperhaps she was looking out for me, so I opened my handkerchief and\nwaved it. She did not notice or make any movement whatever. Just then,\nthe moonlight crept round an angle of the building, and the light fell\non the window. There distinctly was Cora with her head lying up against\nthe side of the window-sill and her eyes shut. She was fast asleep, and\nby her, seated on the window-sill, was something that looked like a\ngood-sized bird. I was afraid she might get a chill, so I ran upstairs,\nbut as I came into the room she was moving back to her bed, fast\nasleep, and breathing heavily; she was holding her hand to her throat,\nas though to protect it from cold."
+    ],
+    [
+     137,
+     " "
+    ],
+    [
+     138,
+     " "
+    ],
+    [
+     139,
+     " "
+    ],
+    [
+     140,
+     " "
+    ],
+    [
+     141,
+     " "
+    ],
+    [
+     142,
+     "_ "
+    ],
+    [
+     143,
+     " "
+    ],
+    [
+     144,
+     " _"
+    ],
+    [
+     146,
+     " "
+    ],
+    [
+     147,
+     " "
+    ],
+    [
+     148,
+     " "
+    ],
+    [
+     149,
+     " "
+    ],
+    [
+     150,
+     " "
+    ],
+    [
+     151,
+     " "
+    ],
+    [
+     154,
+     "  As she was in such a communicative humour, I asked her if she\nhad dreamed at all that night. Before she answered, that sweet, puckered\nlook came into her forehead, which Percy--I call him Percy from her\nhabit--says he loves; and, indeed, I don't wonder that he does. Then she\nwent on in a half-dreaming kind of way, as if trying to recall it to\nherself:--"
+    ],
+    [
+     155,
+     " "
+    ],
+    [
+     160,
+     " "
+    ],
+    [
+     161,
+     " "
+    ],
+    [
+     162,
+     " "
+    ],
+    [
+     163,
+     " "
+    ],
+    [
+     164,
+     " "
+    ],
+    [
+     165,
+     " "
+    ],
+    [
+     166,
+     " "
+    ],
+    [
+     167,
+     " "
+    ],
+    [
+     170,
+     " "
+    ],
+    [
+     173,
+     " "
+    ],
+    [
+     174,
+     "  I said.   (Spiders at present are his hobby and the note-book is filling\nup with columns of small figures.) To this he answered enigmatically:--"
+    ],
+    [
+     175,
+     " "
+    ],
+    [
+     181,
+     " "
+    ],
+    [
+     184,
+     " "
+    ],
+    [
+     188,
+     " "
+    ],
+    [
+     189,
+     " "
+    ],
+    [
+     190,
+     " "
+    ],
+    [
+     191,
+     " "
+    ],
+    [
+     192,
+     " "
+    ],
+    [
+     195,
+     " "
+    ],
+    [
+     196,
+     "  I said.  "
+    ],
+    [
+     197,
+     "  he said,   He\ntouched me on the heart and on the forehead, and then touched himself\nthe same way.  "
+    ],
+    [
+     198,
+     "  I asked.   He stopped and looked at me, and said:--"
+    ],
+    [
+     199,
+     "  I did not see the application, and told him so. For reply\nhe reached over and took my ear in his hand and pulled it playfully, as\nhe used long ago to do at lectures, and said:   He broke\noff, for he evidently saw that I understood. Then he went on, and very\ngravely:--"
+    ],
+    [
+     200,
+     " "
+    ],
+    [
+     201,
+     "When I described Cora's symptoms--the same as before, but infinitely\nmore marked--he looked very grave, but said nothing. He took with him a\nbag in which were many instruments and drugs,   as he once called, in one of his lectures, the\nequipment of a professor of the healing craft. When we were shown in,\nMrs. Ellis met us. She was alarmed, but not nearly so much as I\nexpected to find her. Nature in one of her beneficent moods has ordained\nthat even death has some antidote to its own terrors. Here, in a case\nwhere any shock may prove fatal, matters are so ordered that, from some\ncause or other, the things not personal--even the terrible change in her\ndaughter to whom she is so attached--do not seem to reach her. It is\nsomething like the way Dame Nature gathers round a foreign body an\nenvelope of some insensitive tissue which can protect from evil that\nwhich it would otherwise harm by contact. If this be an ordered\nselfishness, then we should pause before we condemn any one for the vice\nof egoism, for there may be deeper root for its causes than we have\nknowledge of."
+    ],
+    [
+     202,
+     "I used my knowledge of this phase of spiritual pathology, and laid down\na rule that she should not be present with Cora or think of her illness\nmore than was absolutely required. She assented readily, so readily that\nI saw again the hand of Nature fighting for life. Verhoeven and I were\nshown up to Cora's room. If I was shocked when I saw her yesterday, I\nwas horrified when I saw her to-day. She was ghastly, chalkily pale; the\nred seemed to have gone even from her lips and gums, and the bones of\nher face stood out prominently; her breathing was painful to see or\nhear. Verhoeven's face grew set as marble, and his eyebrows converged\ntill they almost touched over his nose. Cora lay motionless, and did not\nseem to have strength to speak, so for a while we were all silent. Then\nVerhoeven beckoned to me, and we went gently out of the room. The\ninstant we had closed the door he stepped quickly along the passage to\nthe next door, which was open. Then he pulled me quickly in with him and\nclosed the door.   he said;  "
+    ],
+    [
+     203,
+     " "
+    ],
+    [
+     204,
+     " "
+    ],
+    [
+     206,
+     "  When first the Professor's eye had lit upon him he had\nbeen angry at his interruption at such a time; but now, as he took in\nhis stalwart proportions and recognised the strong young manhood which\nseemed to emanate from him, his eyes gleamed. Without a pause he said to\nhim gravely as he held out his hand:--"
+    ],
+    [
+     207,
+     "  For he\nsuddenly grew pale and sat down in a chair almost fainting.  "
+    ],
+    [
+     208,
+     "  asked Percy hoarsely.   The Professor has a strongly humorous side, and I could from old\nknowledge detect a trace of its origin in his answer:--"
+    ],
+    [
+     209,
+     " "
+    ],
+    [
+     210,
+     "  There was fire in his eyes, and his open nostril\nquivered with intent. Verhoeven slapped him on the shoulder.  \nhe said.   Percy looked bewildered, and the\nProfessor went on by explaining in a kindly way:--"
+    ],
+    [
+     211,
+     " --here Percy took my hand and wrung\nit hard in silence--  Percy turned to him\nand said:--"
+    ],
+    [
+     212,
+     " "
+    ],
+    [
+     214,
+     "  said Verhoeven.  "
+    ],
+    [
+     216,
+     "  She had made\nthe effort with success."
+    ],
+    [
+     217,
+     "It astonished me how long the drug took to act. This, in fact, marked\nthe extent of her weakness. The time seemed endless until sleep began to\nflicker in her eyelids. At last, however, the narcotic began to manifest\nits potency; and she fell into a deep sleep. When the Professor was\nsatisfied he called Percy into the room, and bade him strip off his\ncoat. Then he added:   So neither of us looked whilst\nhe bent over her."
+    ],
+    [
+     219,
+     " "
+    ],
+    [
+     220,
+     "Then with swiftness, but with absolute method, Verhoeven performed the\noperation. As the transfusion went on something like life seemed to come\nback to poor Cora's cheeks, and through Percy's growing pallor the joy\nof his face seemed absolutely to shine. After a bit I began to grow\nanxious, for the loss of blood was telling on Percy, strong man as he\nwas. It gave me an idea of what a terrible strain Cora's system must\nhave undergone that what weakened Percy only partially restored her.\nBut the Professor's face was set, and he stood watch in hand and with\nhis eyes fixed now on the patient and now on Percy. I could hear my own\nheart beat. Presently he said in a soft voice:   When all was over I\ncould see how much Percy was weakened. I dressed the wound and took his\narm to bring him away, when Verhoeven spoke without turning round--the\nman seems to have eyes in the back of his head:--"
+    ],
+    [
+     221,
+     "  And as he had now finished his operation, he adjusted the\npillow to the patient's head. As he did so the narrow black velvet band\nwhich she seems always to wear round her throat, buckled with an old\ndiamond buckle which her lover had given her, was dragged a little up,\nand showed a red mark on her throat. Percy did not notice it, but I\ncould hear the deep hiss of indrawn breath which is one of Verhoeven's\nways of betraying emotion. He said nothing at the moment, but turned to\nme, saying:  "
+    ],
+    [
+     223,
+     " "
+    ],
+    [
+     224,
+     " "
+    ],
+    [
+     225,
+     "  I answered, and then and there proceeded\nto loose the band. Just over the external jugular vein there were two\npunctures, not large, but not wholesome-looking. There was no sign of\ndisease, but the edges were white and worn-looking, as if by some\ntrituration. It at once occurred to me that this wound, or whatever it\nwas, might be the means of that manifest loss of blood; but I abandoned\nthe idea as soon as formed, for such a thing could not be. The whole bed\nwould have been drenched to a scarlet with the blood which the girl must\nhave lost to leave such a pallor as she had before the transfusion."
+    ],
+    [
+     226,
+     "  said Verhoeven."
+    ],
+    [
+     227,
+     "  said I,   The Professor stood up.   he said.  "
+    ],
+    [
+     228,
+     "  I asked."
+    ],
+    [
+     229,
+     " "
+    ],
+    [
+     230,
+     "  I said.  "
+    ],
+    [
+     231,
+     "  he answered, as he hurried out. He came back a moment\nlater and put his head inside the door and said with warning finger held\nup:--"
+    ],
+    [
+     232,
+     " "
+    ],
+    [
+     235,
+     " "
+    ],
+    [
+     236,
+     " "
+    ],
+    [
+     237,
+     " "
+    ],
+    [
+     238,
+     " "
+    ],
+    [
+     239,
+     " "
+    ],
+    [
+     240,
+     " "
+    ],
+    [
+     241,
+     " "
+    ],
+    [
+     242,
+     "  I seized the opportunity, and said:  "
+    ],
+    [
+     243,
+     "  And almost at the word she gave a deep sigh of relief, and sank\nback, asleep."
+    ],
+    [
+     248,
+     "  I would not argue the point, but went and had my\nsupper. Cora came with me, and, enlivened by her charming presence, I\nmade an excellent meal, and had a couple of glasses of the more than\nexcellent port. Then Cora took me upstairs, and showed me a room next\nher own, where a cozy fire was burning.   she said,   I could not but\nacquiesce, for I was   and could not have sat up had I tried.\nSo, on her renewing her promise to call me if she should want anything,\nI lay on the sofa, and forgot all about everything."
+    ],
+    [
+     253,
+     " "
+    ],
+    [
+     254,
+     "  I answered."
+    ],
+    [
+     255,
+     "  he said. And together we went into the room."
+    ],
+    [
+     257,
+     "As I raised the blind, and the morning sunlight flooded the room, I\nheard the Professor's low hiss of inspiration, and knowing its rarity, a\ndeadly fear shot through my heart. As I passed over he moved back, and\nhis exclamation of horror,   needed no enforcement from\nhis agonised face. He raised his hand and pointed to the bed, and his\niron face was drawn and ashen white. I felt my knees begin to tremble."
+    ],
+    [
+     258,
+     "There on the bed, seemingly in a swoon, lay poor Cora, more horribly\nwhite and wan-looking than ever. Even the lips were white, and the gums\nseemed to have shrunken back from the teeth, as we sometimes see in a\ncorpse after a prolonged illness. Verhoeven raised his foot to stamp\nin anger, but the instinct of his life and all the long years of habit\nstood to him, and he put it down again softly.   he said.   I flew to the dining-room, and returned with the decanter.\nHe wetted the poor white lips with it, and together we rubbed palm and\nwrist and heart. He felt her heart, and after a few moments of agonising\nsuspense said:--"
+    ],
+    [
+     259,
+     "  As he spoke, he was\ndipping into his bag and producing the instruments for transfusion; I\nhad taken off my coat and rolled up my shirt-sleeve. There was no\npossibility of an opiate just at present, and no need of one; and so,\nwithout a moment's delay, we began the operation. After a time--it did\nnot seem a short time either, for the draining away of one's blood, no\nmatter how willingly it be given, is a terrible feeling--Verhoeven\nheld up a warning finger.   he said,   He proceeded then, swiftly and deftly, to carry out his\nintent. The effect on Cora was not bad, for the faint seemed to merge\nsubtly into the narcotic sleep. It was with a feeling of personal pride\nthat I could see a faint tinge of colour steal back into the pallid\ncheeks and lips. No man knows, till he experiences it, what it is to\nfeel his own life-blood drawn away into the veins of the woman he loves."
+    ],
+    [
+     260,
+     "The Professor watched me critically.   he said.  \nI remonstrated.   To which he\nsmiled a sad sort of smile as he replied:--"
+    ],
+    [
+     261,
+     " "
+    ],
+    [
+     263,
+     " "
+    ],
+    [
+     265,
+     " "
+    ],
+    [
+     269,
+     "  As she spoke, Cora turned crimson, though it was only momentarily,\nfor her poor wasted veins could not stand for long such an unwonted\ndrain to the head. The reaction came in excessive pallor as she turned\nimploring eyes on me. I smiled and nodded, and laid my finger on my\nlips; with a sigh, she sank back amid her pillows."
+    ],
+    [
+     270,
+     "Verhoeven returned in a couple of hours, and presently said to me:\n "
+    ],
+    [
+     271,
+     "In the hall two of the maids came to me, and asked if they or either of\nthem might not sit up with Miss Cora. They implored me to let them; and\nwhen I said it was Dr. Verhoeven's wish that either he or I should sit\nup, they asked me quite piteously to intercede with the   I was much touched by their kindness. Perhaps it is because\nI am weak at present, and perhaps because it was on Cora's account, that\ntheir devotion was manifested; for over and over again have I seen\nsimilar instances of woman's kindness. I got back here in time for a\nlate dinner; went my rounds--all well; and set this down whilst waiting\nfor sleep. It is coming."
+    ],
+    [
+     274,
+     "  he said."
+    ],
+    [
+     275,
+     " "
+    ],
+    [
+     276,
+     "  Here\nCora made a wry face.  "
+    ],
+    [
+     278,
+     " "
+    ],
+    [
+     280,
+     "  Then seeing poor Cora scared, as she might\nwell be, he went on more gently:  "
+    ],
+    [
+     282,
+     " "
+    ],
+    [
+     283,
+     "  he answered quietly as he began to make the wreath which\nCora was to wear round her neck."
+    ],
+    [
+     285,
+     " "
+    ],
+    [
+     286,
+     "  said Cora,  "
+    ],
+    [
+     288,
+     " "
+    ]
+   ]
+  }
+ },
+ "cel_voice": {
+  "about": "Cel's dialogue (voice) chunks per eval cast member as at 231087f: [name, text, source_location]. SPEC-53 adds movement only.",
+  "chunks": [
+   [
+    "Milo Voss",
+    "So! Just so I'm aligned on expectations going in, what does a great first quarter look like here? Because I am very much a hit-the-ground-running person, and I'd love to circle back on any low-hanging fruit you've been meaning to get to.",
+    "dialogue_4"
+   ],
+   [
+    "Milo Voss",
+    "Totally, totally. And is there a dashboard, or a tracker, or some kind of shared doc where we log throughput? I only ask because in my last role I built a tracker that cut our cycle time by eleven percent, which, honestly, was the best week of my life.",
+    "dialogue_6"
+   ],
+   [
+    "Milo Voss",
+    "That's it? Where does he actually go? Not in a weird way. I'm just trying to understand the end-to-end process, because if I don't know the downstream impact I can't really optimize the upstream workflow, you know?",
+    "dialogue_10"
+   ],
+   [
+    "Milo Voss",
+    "He wants to meet me. Personally. Is that normal? That feels like a really positive signal, career-wise.",
+    "dialogue_15"
+   ],
+   [
+    "Milo Voss",
+    "I'm good, thanks.",
+    "dialogue_19"
+   ],
+   [
+    "Zara Okafor",
+    "Close the accounts in your queue. Don't open the ones that aren't.",
+    "dialogue_5"
+   ],
+   [
+    "Zara Okafor",
+    "It was the best week of your death, too. You just haven't had the others yet.",
+    "dialogue_7"
+   ],
+   [
+    "Zara Okafor",
+    "He goes under. Write that on the form. Nothing else.",
+    "dialogue_11"
+   ],
+   [
+    "Zara Okafor",
+    "It is not normal. Bring nothing. Sign nothing. If he offers you a chair, stand.",
+    "dialogue_16"
+   ],
+   [
+    "Edric Thane",
+    "Mr. Voss. Do sit. One finds that a new analyst who stands is an analyst who intends to leave early, and leaving early is, in my experience, the most expensive habit a soul can acquire.",
+    "dialogue_18"
+   ],
+   [
+    "Edric Thane",
+    "You closed the Bell account in under four minutes. I have read the figures. Four minutes is not diligence, Mr. Voss; four minutes is appetite. I was once possessed of the same appetite, and I have had six centuries in which to learn what it costs and who, in the end, pays.",
+    "dialogue_20"
+   ],
+   [
+    "Edric Thane",
+    "Let us speak plainly, since you will not sit. You were retained because you do not ask questions. Do not mistake that for the reason you will be kept.",
+    "dialogue_24"
+   ]
+  ]
  }
 }

@@ -1090,17 +1090,14 @@ async def test_a_chapter_one_scene_shows_the_line_on_every_plan(
 
 def test_the_cel_voice_chunks_are_unchanged():
     """(R) SPEC-53 adds movement only: every cel dialogue chunk is as at 231087f."""
-    import hashlib
-
     _, by = _cel()
     cast = [{"name": c.name, "aliases": c.aliases} for c in by.values()]
     voice = [
-        (c["name"], x["text"], x["source_location"])
+        [c["name"], x["text"], x["source_location"]]
         for c in cast
         for x in CharacterExtractor().extract_character_content(
             load_excerpts("cel"), c["name"], aliases=c["aliases"], cast=cast
         )
         if x["chunk_type"] == ChunkType.DIALOGUE.value
     ]
-    digest = hashlib.sha256(json.dumps(voice).encode()).hexdigest()
-    assert digest == "5171b0d0ee755190d9c2a648cf8d43bd6558353e823555e626db702776f79117"
+    assert voice == PLANS["cel_voice"]["chunks"]
