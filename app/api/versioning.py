@@ -182,6 +182,12 @@ async def restore_entity_version(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found"
             )
+        if plan.status in ("generating", "paused"):
+            # The running job writes its nodes over the plan when it finishes.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This plan is being generated; restore it when that finishes.",
+            )
         payload = version.content or {}
         nodes = payload.get("content") if isinstance(payload, dict) else payload
         try:

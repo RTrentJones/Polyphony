@@ -271,19 +271,24 @@ function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: stri
   const saveTitle = () => {
     const next = title.trim()
     if (!scene) return
-    titleSave.current = Promise.resolve(true)
+    // Chained, so an earlier save still in flight cannot land after this one.
+    // Resolves false on failure, so Previous/Next keep the author on this scene;
+    // a later blur with nothing to save clears that once the chain settles.
+    const prev = titleSave.current
+    titleSave.current = prev.then(() => true)
     if (next === (scene.title ?? '')) return
     if (!next) return setTitle(scene.title ?? '')
-    // Resolves false on failure, so Previous/Next keep the author on this scene.
-    titleSave.current = booksApi.updateSceneTitle(sceneId, next).then(
-      (r) => {
-        setScene({ ...scene, title: r.title })
-        return true
-      },
-      (err: any) => {
-        addToast(err.message || 'Failed to rename the scene', 'error')
-        return false
-      }
+    titleSave.current = prev.then(() =>
+      booksApi.updateSceneTitle(sceneId, next).then(
+        (r) => {
+          setScene((s) => (s ? { ...s, title: r.title } : s))
+          return true
+        },
+        (err: any) => {
+          addToast(err.message || 'Failed to rename the scene', 'error')
+          return false
+        }
+      )
     )
   }
 
