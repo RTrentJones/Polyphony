@@ -103,6 +103,8 @@ async def get_scene(
     an unfiled scene has neither)."""
     scene = await owned_scene(scene_id, current_user, db, selectinload(SceneORM.beats))
     chapter = await db.get(ChapterORM, scene.chapter_id) if scene.chapter_id else None
+    if chapter is not None and chapter.deleted_at is not None:
+        chapter = None  # a trashed chapter leaves its scene unfiled (book_order)
     prev = nxt = None
     if chapter is not None:
         filed = book_order(live(select(SceneORM.id), SceneORM)).where(
