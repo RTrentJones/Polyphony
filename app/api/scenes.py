@@ -108,7 +108,7 @@ async def get_scene(
     prev = nxt = None
     if chapter is not None:
         filed = book_order(live(select(SceneORM.id), SceneORM)).where(
-            SceneORM.book_id == scene.book_id, SceneORM.chapter_id.is_not(None)
+            SceneORM.book_id == scene.book_id, ChapterORM.id.is_not(None)
         )
         ids = [None, *(await db.execute(filed)).scalars(), None]
         at = ids.index(scene.id)

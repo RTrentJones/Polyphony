@@ -332,12 +332,21 @@ class TestBookOrder:
 async def test_a_scene_in_a_trashed_chapter_reads_as_unfiled(
     client, auth_headers, async_session, test_book
 ):
-    chapter = await add_chapter(async_session, test_book)
+    filed = await add_scene(
+        async_session, test_book, await add_chapter(async_session, test_book)
+    )
+    chapter = await add_chapter(async_session, test_book, position=1, title="Gone")
     scene = await add_scene(async_session, test_book, chapter)
     chapter.deleted_at = datetime.now(timezone.utc)
     await async_session.commit()
-    body = (await client.get(f"/api/v1/scenes/{scene.id}", headers=auth_headers)).json()
+
+    async def read(sid):
+        return (await client.get(f"/api/v1/scenes/{sid}", headers=auth_headers)).json()
+
+    body = await read(scene.id)
     assert (body["chapter"], body["neighbours"]) == (None, {"prev": None, "next": None})
+    # Nor is it the last filed scene's Next.
+    assert (await read(filed.id))["neighbours"] == {"prev": None, "next": None}
 
 
 def test_no_query_lists_scenes_by_user_id_alone():
