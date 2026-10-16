@@ -87,8 +87,6 @@ def extract_json_object(text: str) -> dict:
     try:
         whole = json.loads(t)
         if isinstance(whole, dict):
-            if isinstance(whole.get("items"), list):  # the prompts' wrapper key
-                return whole["items"]
             return whole
     except json.JSONDecodeError:
         pass
