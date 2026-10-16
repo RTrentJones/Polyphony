@@ -651,8 +651,11 @@ def _canon_hash(setup: SceneSetup, summary: str, position, prior_tail="") -> str
     canon and secondary block, the chapter and its story position, and the
     prose of the scene before this one (SPEC-29/30). Editing any of them while
     the job is paused restarts it rather than continuing from beats that no
-    longer follow."""
+    longer follow. The book's plan and the chapter's earlier beats the planner
+    sees (SPEC-43) count too, when there are any, so an unplanned scene keeps
+    its old fingerprint."""
     import hashlib
+    import json
 
     # Hash the tail's last PREV_TAIL_WORDS words, whitespace-normalised: that
     # is exactly what the pre-SPEC-18 flattened tail was, and `prose_tail`
@@ -661,6 +664,8 @@ def _canon_hash(setup: SceneSetup, summary: str, position, prior_tail="") -> str
     tail = " ".join((prior_tail or "").split()[-PREV_TAIL_WORDS:])
     canon = setup.canon.full_block() + setup.secondary_block
     parts = (canon, (summary or "") + story_position_line(position), tail)
+    if setup.plan or setup.earlier:
+        parts += (json.dumps([setup.plan, setup.earlier], sort_keys=True),)
     return hashlib.sha256("\x00".join(parts).encode("utf-8")).hexdigest()[:16]
 
 

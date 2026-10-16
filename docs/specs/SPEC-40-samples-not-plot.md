@@ -30,8 +30,9 @@
 **Residual risk.** One paragraph whose narration best matches a later chapter at ≥ 4 ends that
 source's usable text for every earlier chapter. Thinner movement blocks: `emptied_by_rule` (SPEC-45) separates them
 from starvation. **Restart:** the introduction cut changes `setup.secondary_block`, which
-`_canon_hash` hashes, so a paused job with an Also-named secondary restarts once after deploy, and
-again if a plan edit moves where the source's later plot begins; `plot` is not hashed. It records
+`_canon_hash` hashes, so a paused job with an Also-named secondary restarts once after deploy.
+The hash also covers the book plan and earlier beats the planner sees (SPEC-43), so any paused
+scene in a planned book restarts once after deploy and again after a plan edit. It records
 `CANON_CHANGED_NOTE`, which misnames the cause.
 
 **Known limitation (cel, measured on the W5 and W5b stores).** Cel chapter 1: 0 movement lines for
