@@ -9,7 +9,7 @@
 
 import { type ChangeEvent, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ArrowDown, ArrowUp, type LucideIcon, Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 
 import Button from '@/components/Button'
 import CastChips, { chapterPovLock } from '@/components/book/CastChips'
@@ -80,12 +80,6 @@ export default function PlannedBeatsEditor({
 
   const edit = (i: number, patch: Partial<FormBeat>) =>
     setBeats((bs) => bs.map((b, j) => (j === i ? { ...b, ...patch } : b)))
-  const move = (i: number, to: number) =>
-    setBeats((bs) => {
-      const next = [...bs]
-      ;[next[i], next[to]] = [next[to], next[i]]
-      return next
-    })
   const toggle = (i: number, id: string) =>
     edit(i, {
       touchedCast: true,
@@ -128,17 +122,6 @@ export default function PlannedBeatsEditor({
     }
   }
 
-  const iconButton = (label: string, onClick: () => void, Icon: LucideIcon, disabled = false) => (
-    <button
-      type="button"
-      aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
-      className="p-1 text-gray-500 hover:text-gray-900 disabled:opacity-30"
-    >
-      <Icon className="h-4 w-4" />
-    </button>
-  )
   const alert = (message: string) => (
     <p role="alert" className="text-sm text-red-700">
       {message}
@@ -179,9 +162,14 @@ export default function PlannedBeatsEditor({
           >
             <div className="flex items-center gap-1">
               {field('title')}
-              {iconButton(`Move ${beat} up`, () => move(i, i - 1), ArrowUp, i === 0)}
-              {iconButton(`Move ${beat} down`, () => move(i, i + 1), ArrowDown, !beats[i + 1])}
-              {iconButton(`Delete ${beat}`, () => setBeats((bs) => bs.filter((x) => x !== b)), Trash2)}
+              <button
+                type="button"
+                aria-label={`Delete ${beat}`}
+                onClick={() => setBeats((bs) => bs.filter((x) => x !== b))}
+                className="p-1 text-gray-500 hover:text-gray-900"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
             </div>
             {field('summary')}
             <div className="grid grid-cols-2 gap-1">

@@ -6,7 +6,7 @@
 ## Outcome
 
 The author changes the plan the product writes from (title, summary, and each beat's title,
-summary, cast, setting and tone; add, delete, reorder beats) before generating, in one form.
+summary, cast, setting and tone; add and delete beats) before generating, in one form.
 
 ## Design
 
@@ -25,10 +25,7 @@ summary, cast, setting and tone; add, delete, reorder beats) before generating, 
   not failed or cancelled scenes, first in chapter order) and each scene's `title`. A written beat
   shows "written" and links to its scene. Editing it does not change the scene: "Edit the scene,
   or delete it and generate again." The row reads "k of n planned scenes written".
-- **Reorder and insert.** Scenes keep the order they were written in: the chain appends each new
-  scene at the end of the chapter. A beat inserted (or moved) before a written one gets its scene
-  after it; the author moves scenes with the existing scene reorder. There is no "insert the scene
-  at its beat's place" rule. An edit while a batch is in flight applies to unqueued beats only.
-- **Labels** use `chapter.number`: "Edit chapter 1", "Beat 2 of chapter 1, title", "Move beat 2 of
-  chapter 1 up", "Delete beat 2 of chapter 1", "Cast of beat 2 of chapter 1".
+- **Scene order:** scenes keep the order they were written in (the chain appends), so a scene for a beat added before a written one lands after it; the author moves scenes with the scene reorder.
+- **Labels** use `chapter.number`: "Edit chapter 1", "Beat 2 of chapter 1, title", "Delete beat 2
+  of chapter 1", "Cast of beat 2 of chapter 1".
 - Restoring a chapter version (History) reloads the open beat list.

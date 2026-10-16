@@ -112,13 +112,11 @@ describe('PlannedBeatsEditor (SPEC-35)', () => {
     expect((await sent()).planned_beats[2]).toMatchObject({ node_id: '', title: '', character_ids: [] })
   })
 
-  it('Delete and Move reorder the list', async () => {
+  it('Delete removes the beat from the list', async () => {
     open(chapter({ planned_beats: [beat(1), beat(2), beat(3)] }))
-    fireEvent.click(screen.getByRole('button', { name: 'Move beat 3 of chapter 1 up' }))
     fireEvent.click(screen.getByRole('button', { name: 'Delete beat 1 of chapter 1' }))
-    expect(screen.getByRole('button', { name: 'Move beat 1 of chapter 1 up' })).toBeDisabled()
     save()
-    expect((await sent()).planned_beats.map((b: PlannedBeat) => b.node_id)).toEqual(['n-3', 'n-2'])
+    expect((await sent()).planned_beats.map((b: PlannedBeat) => b.node_id)).toEqual(['n-2', 'n-3'])
   })
 
   it('a written beat links to its scene and says editing it does not change the scene', () => {
