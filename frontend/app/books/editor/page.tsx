@@ -10,13 +10,25 @@
  * AI revision (SPEC-25): RevisePanel asks for a revision of a selection, a
  * beat or the whole saved scene, and shows it as a word diff to accept or
  * discard. Accepting is a server-side save, so the editor is not dirty after.
+ *
+ * Header (SPEC-37): "Ch N · chapter ›" and the scene's title, renamed on blur
+ * (not part of the dirty state); Previous/Next walk the book order through the
+ * guard, after any pending title save.
  */
 
 'use client'
 
 import { useCallback, useEffect, useRef, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { ArrowLeft, FileText, History, RotateCcw, Save } from 'lucide-react'
+import {
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  FileText,
+  History,
+  RotateCcw,
+  Save,
+} from 'lucide-react'
 import Button from '@/components/Button'
 import Card from '@/components/Card'
 import Loading from '@/components/Loading'
@@ -32,8 +44,8 @@ import {
   type SceneDraft,
 } from '@/lib/draft-store'
 import { useUnsavedChangesGuard } from '@/lib/useUnsavedChangesGuard'
-import type { Scene, SceneRevision } from '@/lib/types'
-import { formatRelativeTime } from '@/lib/utils'
+import type { SceneDetail, SceneRequest, SceneRevision } from '@/lib/types'
+import { displayChapterTitle, formatRelativeTime } from '@/lib/utils'
 
 interface ToastItem {
   id: string
@@ -110,7 +122,10 @@ function useModalDialog(open: boolean, onClose: () => void) {
 }
 
 function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: string }) {
-  const [scene, setScene] = useState<Scene | null>(null)
+  const [scene, setScene] = useState<SceneDetail | null>(null)
+  const [title, setTitle] = useState('')
+  /** The pending title save: Previous/Next wait for it. */
+  const titleSave = useRef<Promise<unknown>>(Promise.resolve())
   const [content, setContent] = useState('')
   const [savedContent, setSavedContent] = useState('')
   const [revisions, setRevisions] = useState<SceneRevision[]>([])
@@ -156,6 +171,7 @@ function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: stri
       try {
         const data = await booksApi.getScene(sceneId)
         setScene(data)
+        setTitle(data.title ?? '')
         const serverText = data.content || ''
         setContent(serverText)
         setSavedContent(serverText)
@@ -252,6 +268,21 @@ function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: stri
     addToast('Revision loaded into editor — save to keep it', 'info')
   }
 
+  const saveTitle = () => {
+    const next = title.trim()
+    if (!scene || next === (scene.title ?? '')) return
+    if (!next) return setTitle(scene.title ?? '')
+    titleSave.current = booksApi.updateSceneTitle(sceneId, next).then(
+      (r) => setScene({ ...scene, title: r.title }),
+      (err: any) => addToast(err.message || 'Failed to rename the scene', 'error')
+    )
+  }
+
+  const goTo = async (id: string | null) => {
+    await titleSave.current
+    if (id) guardedPush(`/books/editor?scene=${id}&book=${bookId}`)
+  }
+
   const backHref = bookId ? `/books/detail?id=${bookId}` : '/books'
 
   if (isLoading) {
@@ -280,12 +311,13 @@ function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: stri
     )
   }
 
+  const pov = (scene.scene_request as SceneRequest | undefined)?.pov_character
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+      <div data-testid="scene-header" className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div>
           <Button
             variant="ghost"
@@ -296,7 +328,25 @@ function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: stri
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to book
           </Button>
-          <h1 className="text-2xl font-bold text-gray-900">Scene Editor</h1>
+          <h1 className="flex flex-wrap items-baseline gap-x-2 text-2xl font-bold text-gray-900">
+            {scene.chapter && (
+              <span className="text-base font-medium text-gray-600">
+                Ch {scene.chapter.number} · {displayChapterTitle(scene.chapter.title)} ›
+              </span>
+            )}
+            <input
+              aria-label="Scene title"
+              value={title}
+              placeholder="Untitled scene"
+              onChange={(e) => setTitle(e.target.value)}
+              onBlur={saveTitle}
+              onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+              className="min-w-0 flex-1 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-primary-500 focus:outline-none"
+            />
+          </h1>
+          <p className="text-sm text-gray-600">
+            {[pov && `POV: ${pov}`, scene.characters?.join(', ')].filter(Boolean).join(' · ')}
+          </p>
           <p className="text-sm text-gray-600">
             {scene.status === 'paused'
               ? 'Paused — daily AI quota reached; generation resumes automatically'
@@ -312,10 +362,30 @@ function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: stri
             )}
           </p>
         </div>
-        <Button onClick={handleSave} isLoading={saving} disabled={!isDirty || !content.trim()}>
-          <Save className="h-4 w-4 mr-2" />
-          Save
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            aria-label="Previous scene"
+            disabled={!scene.neighbours.prev}
+            onClick={() => goTo(scene.neighbours.prev)}
+          >
+            <ChevronLeft className="h-4 w-4 mr-1" />
+            Previous
+          </Button>
+          <Button
+            variant="outline"
+            aria-label="Next scene"
+            disabled={!scene.neighbours.next}
+            onClick={() => goTo(scene.neighbours.next)}
+          >
+            Next
+            <ChevronRight className="h-4 w-4 ml-1" />
+          </Button>
+          <Button onClick={handleSave} isLoading={saving} disabled={!isDirty || !content.trim()}>
+            <Save className="h-4 w-4 mr-2" />
+            Save
+          </Button>
+        </div>
       </div>
 
       {pendingDraft && (
@@ -355,13 +425,8 @@ function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: stri
               placeholder="Write your scene..."
               className="w-full min-h-[60vh] px-4 py-3 text-gray-900 leading-relaxed border-0 rounded-lg resize-y focus:outline-none focus:ring-2 focus:ring-primary-500"
             />
-            <div className="flex items-center justify-between px-4 py-2 border-t border-gray-100 text-sm text-gray-500">
-              <span>{wordCount.toLocaleString()} words</span>
-              <span>
-                {scene.characters && scene.characters.length > 0
-                  ? scene.characters.join(', ')
-                  : ''}
-              </span>
+            <div className="px-4 py-2 border-t border-gray-100 text-sm text-gray-500">
+              {wordCount.toLocaleString()} words
             </div>
           </Card>
           <RevisePanel

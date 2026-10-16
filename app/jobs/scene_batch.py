@@ -81,6 +81,14 @@ async def written_beats(session: AsyncSession, chapter_id: UUID) -> dict[str, st
     return out
 
 
+def scene_title(request: dict) -> str:
+    """A generated scene's title (SPEC-37): its planned beat's title, else the
+    first six words of its description. The ONE title rule; the author renames
+    it in the editor."""
+    words = (request.get("scene_description") or "").split()[:6]
+    return (request.get("beat_title") or " ".join(words))[:500]  # scenes.title
+
+
 async def add_scene_job(
     session: AsyncSession,
     *,
@@ -113,6 +121,7 @@ async def add_scene_job(
         source_id=source_id,
         chapter_id=chapter_id,
         position=next_pos,
+        title=scene_title(request),
         setting=request.get("setting"),
         emotional_tone=request.get("emotional_tone"),
         characters=request.get("characters"),

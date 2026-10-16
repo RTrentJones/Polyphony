@@ -90,6 +90,16 @@ export const booksApi = {
     }
   },
 
+  /** PATCH /books/scenes/{id} — rename a scene (SPEC-37; not versioned). */
+  async updateSceneTitle(sceneId: string, title: string): Promise<{ id: string; title: string }> {
+    try {
+      const { data } = await apiClient.patch(`/books/scenes/${sceneId}`, { title })
+      return data
+    } catch (err) {
+      throw toApiError(err)
+    }
+  },
+
   /** GET /books/{id}/scenes — every scene the book owns (chapter + standalone). */
   async listBookScenes(bookId: string): Promise<BookSceneSummary[]> {
     try {
