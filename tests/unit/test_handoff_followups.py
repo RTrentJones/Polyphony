@@ -543,6 +543,13 @@ async def test_a_batch_over_budget_queues_what_fits_and_defers_the_rest(
     assert running["already_running"] is True
     # A repeat while the batch runs still says what it deferred.
     assert (running["deferred"], running["reason"]) == (1, body["reason"])
+    # Its queued requests are already written: beat edits wait for it.
+    edit = await client.patch(
+        f"/api/v1/books/chapters/{chapter_id}",
+        json={"planned_beats": []},
+        headers=auth_headers,
+    )
+    assert edit.status_code == 409, edit.text
 
 
 async def test_the_deferred_scene_is_written_once_the_budget_frees_up(

@@ -76,6 +76,13 @@ describe('PlannedBeatsEditor (SPEC-35)', () => {
     expect(body.planned_beats[1]).toMatchObject({ summary: 'New', character_ids: ['c-edric'] })
   })
 
+  it('an untouched beat drops a character since moved to the Trash', async () => {
+    open(chapter({ planned_beats: [beat(1, { character_ids: ['c-edric', 'c-gone'] })] }))
+    fireEvent.change(screen.getByLabelText('Beat 1 of chapter 1, summary'), { target: { value: 'New' } })
+    save()
+    expect((await sent()).planned_beats[0].character_ids).toEqual(['c-edric'])
+  })
+
   it("toggling beat 1's chips sends the shown chips; the POV chip cannot be removed", async () => {
     open()
     expect(chip(1, 'Milo')).toHaveAttribute('aria-disabled', 'true')

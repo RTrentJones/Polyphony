@@ -22,10 +22,15 @@ type FormBeat = PlannedBeat & { key: string; touchedCast: boolean }
 const input =
   'w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-primary-500'
 
-/** What Save sends for a beat: the shown chips only if the author toggled them. */
-const toInput = ({ key, touchedCast, cast_ids, ...b }: FormBeat): PlannedBeatInput => ({
+/** What Save sends for a beat: the shown chips only if the author toggled them,
+ * else its stored ids less any character since moved to the Trash (no chip
+ * shows one, and the server refuses it). */
+const toInput = (
+  { key, touchedCast, cast_ids, ...b }: FormBeat,
+  live: Set<string>
+): PlannedBeatInput => ({
   ...b,
-  character_ids: touchedCast ? cast_ids : b.character_ids,
+  character_ids: touchedCast ? cast_ids : b.character_ids.filter((id) => live.has(id)),
 })
 const stored = (ch: ChapterDetail): PlannedBeatInput[] =>
   (ch.planned_beats ?? []).map(({ cast_ids, ...b }) => b)
@@ -72,6 +77,7 @@ export default function PlannedBeatsEditor({
   )
   const [error, setError] = useState<{ message: string; unknown: string[] } | null>(null)
   const [saving, setSaving] = useState(false)
+  const live = new Set(characters.map((c) => c.id))
   const locked = chapterPovLock(chapter, characters.map((c) => c.id))
 
   useEffect(() => {
@@ -100,7 +106,7 @@ export default function PlannedBeatsEditor({
     if (beats.some((b) => !b.title.trim())) {
       return setError({ message: 'Every beat needs a title. Remove a beat to drop it.', unknown: [] })
     }
-    const out = beats.map(toInput)
+    const out = beats.map((b) => toInput(b, live))
     const body = {
       ...(title !== chapter.title ? { title } : {}),
       ...(summary !== (chapter.summary ?? '') ? { summary } : {}),
@@ -191,7 +197,7 @@ export default function PlannedBeatsEditor({
               <p className="text-xs text-gray-600">Also named: {b.secondary_names.join(', ')}</p>
             )}
             {error &&
-              toInput(b).character_ids.some((id) => error.unknown.includes(id)) &&
+              toInput(b, live).character_ids.some((id) => error.unknown.includes(id)) &&
               alert(error.message)}
             {chapter.written[b.node_id] && (
               <p className="text-xs text-gray-600">
