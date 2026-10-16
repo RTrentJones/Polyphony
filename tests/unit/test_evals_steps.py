@@ -504,10 +504,10 @@ async def test_prose_writes_the_planned_scenes_of_a_two_principal_chapter(tmp_pa
     assert s2["score"] == pytest.approx(1.0 * (0.8 + 0.6 + 0.9 + 0.7) / 4)
     assert out["score"] == pytest.approx((s1["score"] + s2["score"]) / 2, abs=1e-4)
     assert out["cast_named"] == 1.0 and out["words"] > 0
-    # (F) Reported beside unknown_canon: the app's stored warning (W6-3), and
-    # the gold events this run's outline never places (W6-7 (b)); it has none.
+    # (F) Reported beside unknown_canon: the app's stored warning (W6-3). The
+    # unplaced events are the signed file's, in prompt_contract (W7-2, D4).
     assert [s["name_warnings"] for s in out["scenes"]] == [["Gary"], []]
-    assert len(out["unplaced_events"]) == 7 and "training" not in out["unplaced_events"]
+    assert "unplaced_events" not in out
 
     shown = dict(judge.seen[-5:])
     # The judge sees the canon, the style guide's sample prose and the beats...

@@ -531,3 +531,33 @@ class TestPlotGold:
             {"purpose": "continuity", "messages": []},
         ]
         assert "continuity" not in plot.replayed(blank, [rec("z", "[]")])
+
+
+class TestHistory:
+    """W7-6 (a): the history table is reported, never gated (S-5)."""
+
+    def test_the_checked_in_history_renders_with_the_act_rule(self):
+        from evals.harness import report
+
+        lines = report.history(report.HISTORY).splitlines()
+        assert lines[0].split() == [
+            *("run", "pair", "redo_ra", "untouched_share", "rewording_note"),
+            *("r2_mean", "r2_min", "attribution"),
+        ]
+        assert [ln.split()[0] for ln in lines[1:10]] == [
+            *("W4b2", "W5", "W5b", "W5c", "W5bc", "W5d", "W5bd", "W6", "W6b")
+        ]
+        assert lines[-2] == report.ACT_RULE
+
+    def test_the_act_rule_fires_only_on_both_draws_of_a_pair(self, tmp_path):
+        from evals.harness import report
+
+        rows = [
+            "run,pair,redo_ra,untouched_share,rewording_note,r2_mean,r2_min,attribution",
+            "A,7,0.9,0.25,yes,0.95,0.9,",
+            "Ab,7,0.9,0.40,yes,0.89,0.85,",
+            "B,8,0.9,,no,0.95,0.9,",
+            "Bb,8,0.9,0.9,no,0.85,0.8,",
+        ]
+        (path := tmp_path / "h.csv").write_text("\n".join(rows) + "\n")
+        assert report.history(path).splitlines()[-1] == "Fires on: untouched_share (7)"

@@ -276,6 +276,7 @@ def main() -> None:
     )
     result = asyncio.run(run(args.book, step_names, args.out, repeat=args.repeat))
     print(report.scorecard(result))
+    print("\nhistory (reported, not gated)\n" + report.history(report.HISTORY))
     print(f"\nfull report -> {args.out}")
     if args.export:
         import json

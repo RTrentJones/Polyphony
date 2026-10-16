@@ -1,0 +1,40 @@
+{
+  "run": "W6",
+  "outline_hash": "a3459550deb751ea56592759f35bb118df47ac0e834de03494c83c687d1a0e53",
+  "signed_by": "PM",
+  "signed_at": "2026-10-16T18:04:36Z",
+  "placements": {
+    "intake": {
+      "chapter": 1,
+      "line": "A Strong Culture Fit: Prava slides a laminated org chart across the desk and tells Milo he has been retained for Reconciliations; for the first time in decades he feels seen and useful, and he says yes before anyone offers him a choice."
+    },
+    "training": {
+      "chapter": null,
+      "line": null
+    },
+    "partition": {
+      "chapter": 1,
+      "line": "Across the Partition: At his new desk Milo pitches throughput trackers and low-hanging fruit; Zara answers with flat instructions to close only his queue and read the appendices, and Milo mistakes her deadpan for a joke and her courtesy for friendship."
+    },
+    "bell": {
+      "chapter": 1,
+      "line": "Four Minutes: The Bell account arrives; Milo zeroes ninety years of Halvard Bell's tenure, initials the form and watches Facilities clear Bell's desk before the coffee finishes dispensing, and when he asks where Bell goes Zara tells him to write 'under' and nothing else."
+    },
+    "drawer": {
+      "chapter": 1,
+      "line": "Nobody Reads the Appendices: Old Fen remarks without looking up that nobody reads the appendices, and that night Milo locks the ledger in his drawer without being asked, his first unexplained act of caution."
+    },
+    "summons": {
+      "chapter": 2,
+      "line": "Paper With Its Own Gravity: A heavy memo signed by Edric Thane summons Milo, who reads it as a career win until Zara, unsmiling, tells him to bring nothing, sign nothing and stand if offered a chair, and his excitement acquires its first edge of fear."
+    },
+    "corner office": {
+      "chapter": 2,
+      "line": "An Analyst Who Stands: In the library-cold office the Lich invites Milo to sit, praises his four-minute close as appetite and warns that he was retained for not asking questions; Milo stays standing, surprising himself, and leaves knowing he has been noticed by the top of the org chart."
+    },
+    "discrepancy": {
+      "chapter": 2,
+      "line": "The Column Nobody Explained: Back at his desk Milo unlocks the ledger and finds, beneath his own initials on the Bell entry, a column showing Bell's tenure was never zeroed but moved; he turns to Zara with the word discrepancy, and she tells him to sit down because they have a great deal of paperwork to do."
+    }
+  }
+}

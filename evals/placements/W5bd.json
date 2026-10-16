@@ -1,0 +1,40 @@
+{
+  "run": "W5bd",
+  "outline_hash": "d4ecbf4b8ea4bf361ec81abdac5775787507b22ff7bdd69755b292e376d2a448",
+  "signed_by": "PM",
+  "signed_at": "2026-10-16T18:05:00Z",
+  "placements": {
+    "intake": {
+      "chapter": 1,
+      "line": "Retained: Prava slides a laminated org chart across a laminate desk and tells Milo, warmly, that he has been retained and is a strong culture fit for Reconciliations. Milo, who has never been told his boredom was valuable, says yes before anyone offers him a choice, and Prava writes his name somewhere he cannot see."
+    },
+    "training": {
+      "chapter": null,
+      "line": null
+    },
+    "partition": {
+      "chapter": 1,
+      "line": "Sometimes It's Quieter: In the windowless Marrow District, Milo is given a lanyard, a desk and a trainer, Zara Okafor, who teaches him tenure, quotas and the one graduation per quarter in short flat sentences and never looks up. He mistakes her courtesy for friendship; she, without saying so, starts measuring him."
+    },
+    "bell": {
+      "chapter": 2,
+      "line": "The File of Halvard Bell: Milo opens the account of Halvard Bell, a dentist who spent ninety years in Retention and was restructured at nine that morning. For the first time a closure has a face and a career attached, and Milo, reading it more carefully than the quota requires, finds he is slower than usual."
+    },
+    "drawer": {
+      "chapter": null,
+      "line": null
+    },
+    "summons": {
+      "chapter": 5,
+      "line": "Filed Through Reconciliations: Zara and Milo submit the restructuring of Edric Thane's own pooled account through the department built to close accounts, every box correct, every appendix cited. Within the hour Milo receives a calendar invitation to his quarterly review in the corner office, and Zara, for the first time, looks up."
+    },
+    "corner office": {
+      "chapter": 6,
+      "line": "Mr. Voss: Edric Thane receives Milo courteously, reviews his numbers, and offers him exactly what he once wanted: recognition, promotion, the path Edric himself climbed. Milo, recognising himself across the desk six centuries on, understands that saying yes would make him the next Edric, and declines."
+    },
+    "discrepancy": {
+      "chapter": 2,
+      "line": "It Doesn't Reconcile: Halvard's ninety years of tenure do not add up to the balance Milo is meant to zero; the difference has already left, flowing upward into a single pooled account at the top of the org chart. Milo turns to tell Zara as if he has found a bug; she does not look up, says 'Again,' and makes him run the numbers until he understands it is not a bug, ending the act with the discrepancy his and no longer deniable."
+    }
+  }
+}
