@@ -53,6 +53,10 @@ sample lines in its own prompt (voice and movement); reports ``max_shared`` and
 whole-outline block names every chapter title of the run's latest
 outline:chapters answer (SPEC-38).
 
+Wave 5: ``samples_not_plot``  beat_prose, scene_revise: no sample is plot by
+the corpus gold (``evals.graders.plot``, SPEC-45); reports ``classified`` and
+``later_plot_slots``, and ``emptied_by_rule`` blocks leave ``movement_coverage``.
+
 Each check reports ``{n, passed, rate, failures}``; a check with nothing to
 check (no such call in the archive) reports ``n == 0`` and ``rate = None``, so
 an archive from before a contract existed still grades.
@@ -95,7 +99,7 @@ from app.core.prompt_markers import (
 )
 from app.orchestration.pov import Pov
 from app.parsing.names import NON_NAME_TOKENS, mentions, norm
-from evals.graders import seams
+from evals.graders import plot, seams
 
 # The house-style paragraph the beat prompt hard-codes today; it must not
 # appear when the author's style guide supplies sample prose.
@@ -728,6 +732,26 @@ def check_whole_outline(prompt: str, titles: set[str]) -> list[str]:
     ]
 
 
+def check_samples_not_plot(
+    prompt: str, gold: dict, placed: dict[str, int], counts: dict[str, int]
+) -> tuple[list[str], int | None]:
+    """W5-1 (d): (reasons, the scene's chapter) over every sample shown; adds
+    to `counts` (``classified``: placed in a gold paragraph)."""
+    m = STORY_POSITION_RE.search(prompt)
+    chapter = int(m.group("n")) if m else None
+    moves = movement_blocks(characters_section(prompt) or "")
+    reasons = []
+    for kind, owner, sample in [
+        *(("voice", o, s) for o, ss in voice_samples(prompt).items() for s in ss),
+        *(("movement", o, s) for o, ss in moves for s in ss),
+    ]:
+        why, at, later = plot.plot_reasons(kind, sample, chapter, gold, placed)
+        counts["classified"] += at is not None
+        counts["later_plot_slots"] += later
+        reasons += [f"{owner}: {r}" for r in why]
+    return reasons, chapter
+
+
 def _json_object(text: str) -> dict:
     t = (text or "").strip().replace("```json", "").replace("```", "")
     start, end = t.find("{"), t.rfind("}")
@@ -762,6 +786,8 @@ CHECKS = (
     # wave 4
     "sample_lift",
     "beats_see_whole_outline",
+    # wave 5
+    "samples_not_plot",
 )
 
 
@@ -785,6 +811,8 @@ def grade(
     pov: str | None = None,
     descriptions: list[str] | None = None,
     secondary_cast: list | None = None,
+    excerpt_events: list | None = None,
+    excerpt: str = "",
 ) -> dict:
     """Run every check over an archive (see the module docstring).
 
@@ -796,7 +824,8 @@ def grade(
     chapter is not in the outline answers), and
     the canon `descriptions` that must appear exactly once per beat prompt.
     `secondary_cast` (names, or {name, aliases}) joins the principals as the
-    people a movement sample may not name outside its scene (wave 3)."""
+    people a movement sample may not name outside its scene (wave 3).
+    `excerpt_events` and the `excerpt` they index are the plot gold (wave 5)."""
     gold = {
         who: [*(v.get("train") or []), *(v.get("test") or [])]
         for who, v in (gold_lines or {}).items()
@@ -826,12 +855,24 @@ def grade(
     openings: set[str] = set()  # records come oldest first (load_archive)
     lifts: list[int] = []
     book_titles: set[str] = set()
+    pg = {"events": excerpt_events or [], "paragraphs": excerpt.split("\n\n")}
+    placed = plot.locate(pg["events"], plot.outline_chapters(records))
+    plotted = dict.fromkeys(("classified", "later_plot_slots"), 0)
+    emptied = dict.fromkeys(principal_names, 0)
+    shown: dict[str, set[str]] = {}  # every movement line each owner is shown
+    for rec in (r for r in records if purpose(r) == "beat_prose"):
+        for o, ls in movement_blocks(characters_section(prompt_text(rec)) or ""):
+            shown.setdefault(o, set()).update(ls)
 
     for rec in records:
         pur = purpose(rec)
         purposes[pur or "(none)"] = purposes.get(pur or "(none)", 0) + 1
         prompt = prompt_text(rec)
         tallies["no_doubled_voice_label"].add(rec, check_no_doubled_voice(prompt))
+        chapter = None
+        if pur in ("beat_prose", "scene_revise") and pg["events"]:
+            reasons, chapter = check_samples_not_plot(prompt, pg, placed, plotted)
+            tallies["samples_not_plot"].add(rec, reasons)
         if pur == "outline:beats":
             outline.add(rec.get("answer") or "")
         if pur == "plan_beats":
@@ -866,7 +907,10 @@ def grade(
             reasons, blocks = check_movement_in_scene(prompt, people, aliases)
             tallies["movement_names_in_scene"].add(rec, reasons)
             for owner, n in blocks:
-                if owner in movement:
+                only_plot = plot.only_plot(shown.get(owner), chapter, pg, placed)
+                if owner in movement and not n and only_plot:  # D6
+                    emptied[owner] += 1
+                elif owner in movement:
                     movement[owner] += n
                     moving_blocks.append(n > 0)
         if pur == "extraction_reduce" and principal_names:
@@ -935,6 +979,8 @@ def grade(
         round(sum(moving_blocks) / len(moving_blocks), 4) if moving_blocks else None
     )
     out["movement_names_in_scene"]["movement_lines"] = movement
+    out["movement_names_in_scene"]["emptied_by_rule"] = emptied
+    out["samples_not_plot"].update(plotted, placed=placed)
     # Gated 0 / 0 by the eval (§6.2): the worst beat, and how many beats lift.
     out["sample_lift"]["max_shared"] = max(lifts, default=0)
     out["sample_lift"]["share_of_beats"] = (
@@ -967,7 +1013,14 @@ def corpus_inputs(gt: dict, style: dict | None) -> dict:
             c["description"] for c in gt.get("characters") or [] if c.get("description")
         ],
         "secondary_cast": list(gt.get("secondary_cast") or []),
+        "excerpt_events": gt.get("excerpt_events"),
+        "excerpt": _excerpt(gt.get("book") or ""),
     }
+
+
+def _excerpt(book: str) -> str:
+    path = Path(__file__).resolve().parent.parent / "corpora" / book / "excerpts.txt"
+    return path.read_text(encoding="utf-8") if book and path.is_file() else ""
 
 
 def main() -> None:
