@@ -1591,7 +1591,4 @@ async def prompt_contract_result(
             **prompt_contract.corpus_inputs(ctx.ground_truth, load_style(ctx.book)),
             movement_store=movement_store,
         ),
-        **prompt_contract.placement_report(
-            records, ctx.ground_truth.get("excerpt_events") or []
-        ),
     }

@@ -1201,6 +1201,8 @@ def grade(
     out["samples_not_plot"]["vacuous"] = plotted["classified"] == 0
     # Gated 1.0 (§6.2): the evidence lines that are the author's own words.
     out["evidence_verbatim"]["lines"] = evidence
+    # Reported (S-4): where the term-match draft and the signed file disagree.
+    out["placement_disagreements"] = plot.disagreements(records, pg["events"], signed)
     if pg["events"]:  # D4: a plot gate reads the signed placement, or nothing
         out["outline_hash"] = plot.outline_hash(records)
         out["placement_signed"] = signed is not None
@@ -1220,13 +1222,6 @@ def grade(
     # The fraction of checked calls that met every contract, check by check.
     out["score"] = round(sum(scored) / len(scored), 4) if scored else None
     return out
-
-
-def placement_report(records: list[dict], events: list[dict]) -> dict:
-    """Reported beside ``grade`` (S-4): the cells where the term-match draft and
-    the signed placement disagree; None when the run has no signed file."""
-    signed = plot.placements(records, events, plot.PLACEMENTS) if events else None
-    return {"placement_disagreements": plot.disagreements(records, events, signed)}
 
 
 def corpus_inputs(gt: dict, style: dict | None) -> dict:
@@ -1283,7 +1278,6 @@ def main() -> None:
     if args.against:  # §6.1: answers another archive already gave
         old = [r for a in args.against for r in load_archive(a)]
         result["replayed"] = plot.replayed(records, old)
-    result |= placement_report(records, gt.get("excerpt_events") or [])
     print(json.dumps(result, indent=2))
 
 

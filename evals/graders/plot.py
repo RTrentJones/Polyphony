@@ -75,19 +75,27 @@ def placements(
     records: list[dict], events: list[dict], signed_dir: Path
 ) -> dict | None:
     """D4: the signed file (evals/README.md) whose `outline_hash` is this run's,
-    else None. A draft (no `signed_by`) is not signed; a signed file missing an
-    event's cell is an error, never a guess."""
+    else None. A draft (no `signed_by`) is not signed; two signed files for one
+    outline, or a signed file missing an event's cell, is an error, never a
+    guess."""
     key = outline_hash(records)
-    for path in sorted(Path(signed_dir).glob("*.json")):
-        doc = json.loads(path.read_text(encoding="utf-8"))
-        if doc.get("outline_hash") != key or not doc.get("signed_by"):
-            continue
-        if missing := [
-            e["event"] for e in events if e["event"] not in doc["placements"]
-        ]:
-            raise ValueError(f"{path.name} has no cell for {missing}")
-        return doc
-    return None
+    docs = {
+        p.name: json.loads(p.read_text(encoding="utf-8"))
+        for p in Path(signed_dir).glob("*.json")
+    }
+    found = [
+        n
+        for n, d in sorted(docs.items())
+        if d.get("outline_hash") == key and d.get("signed_by")
+    ]
+    if len(found) > 1:
+        raise ValueError(f"{found} all sign outline {key[:12]}")
+    if not found:
+        return None
+    doc = docs[found[0]]
+    if missing := [e["event"] for e in events if e["event"] not in doc["placements"]]:
+        raise ValueError(f"{found[0]} has no cell for {missing}")
+    return doc
 
 
 def placed_chapters(signed: dict) -> dict[str, int]:

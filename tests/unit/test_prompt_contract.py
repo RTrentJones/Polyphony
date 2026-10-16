@@ -530,11 +530,11 @@ def test_unplaced_events_are_the_events_signed_null(tmp_path):
     _write(tmp_path, _outline("w5d"))
     records = pc.load_archive(tmp_path)
     _sign(records, {"partition": None})
-    out = pc.grade(records, **PLOT_GOLD)["samples_not_plot"]
-    assert out["unplaced_events"] == ["partition"]
-    assert pc.placement_report(records, CEL["excerpt_events"]) == {
-        "placement_disagreements": [{"event": "partition", "draft": 1, "signed": None}]
-    }
+    out = pc.grade(records, **PLOT_GOLD)
+    assert out["samples_not_plot"]["unplaced_events"] == ["partition"]
+    assert out["placement_disagreements"] == [
+        {"event": "partition", "draft": 1, "signed": None}
+    ]
 
 
 def test_without_a_signed_file_every_plot_value_is_null(tmp_path):
@@ -547,13 +547,12 @@ def test_without_a_signed_file_every_plot_value_is_null(tmp_path):
     for signer in (None, "PM"):
         _sign(records, signed_by=signer)
         out = pc.grade(records, principals=PRINCIPALS, **PLOT_GOLD)
-        report = pc.placement_report(records, CEL["excerpt_events"])
         if signer is None:
             assert out["placement_signed"] is False
             assert out["outline_hash"] == plot.outline_hash(records)
             assert (out["samples_not_plot"], out["movement"]) == (None, None)
-            assert report == {"placement_disagreements": None}
-    assert out["placement_signed"] is True and report["placement_disagreements"] == []
+            assert out["placement_disagreements"] is None
+    assert out["placement_signed"] is True and out["placement_disagreements"] == []
     assert out["samples_not_plot"]["later_plot_slots"] == 1
 
 
@@ -564,6 +563,15 @@ def test_a_signed_file_missing_a_cell_is_an_error(tmp_path):
     del doc["placements"]["drawer"]
     (plot.PLACEMENTS / f"{doc['outline_hash'][:12]}.json").write_text(json.dumps(doc))
     with pytest.raises(ValueError, match="drawer"):
+        pc.grade(records, **PLOT_GOLD)
+
+
+def test_two_signed_files_for_one_outline_are_an_error(tmp_path):
+    _write(tmp_path, _outline("w5d"))
+    records = pc.load_archive(tmp_path)
+    doc = _sign(records)
+    (plot.PLACEMENTS / "again.json").write_text(json.dumps(doc))
+    with pytest.raises(ValueError, match="all sign"):
         pc.grade(records, **PLOT_GOLD)
 
 
