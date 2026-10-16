@@ -972,9 +972,10 @@ async def _planned_scenes(ctx: StepContext, book: dict) -> dict:
 
 # Bumped when what a generation records changes (v4: no fallback path, the
 # batch's queued/deferred; v5: its reason, and minor cast ported as secondary
-# names; v7: voice.movement; v8: name_warnings), so a stale cache entry is
+# names; v7: voice.movement; v8: name_warnings; v9: the brief is known to
+# them, and the hindsight example is ungendered), so a stale cache entry is
 # regenerated, not regraded.
-PROSE_CACHE_KEY = "planned-v8"
+PROSE_CACHE_KEY = "planned-v9"
 
 
 def _planned_beat_text(scene: dict, beat: dict | None) -> str:
