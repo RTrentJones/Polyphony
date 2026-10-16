@@ -83,6 +83,13 @@ describe('PlannedBeatsEditor (SPEC-35)', () => {
     expect((await sent()).planned_beats[0].character_ids).toEqual(['c-edric'])
   })
 
+  it('a rename alone sends no beats, even with a trashed id stored', async () => {
+    open(chapter({ planned_beats: [beat(1, { character_ids: ['c-edric', 'c-gone'] })] }))
+    fireEvent.change(screen.getByLabelText('Title of chapter 1'), { target: { value: 'Arrival' } })
+    save()
+    expect(await sent()).toEqual({ title: 'Arrival' })
+  })
+
   it('keeps stored ids while the cast has not loaded', async () => {
     const props = { chapter: chapter(), onSaved: vi.fn(), onCancel: vi.fn() }
     renderWithBook(
