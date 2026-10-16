@@ -59,6 +59,12 @@ route, change the spec in the same PR so it stays true. The acceptance criteria 
 | [SPEC-37](SPEC-37-scene-identity.md) | Scenes have names, and the editor knows where you are | W4-4 | M | wave-4 day-0 contracts | ✅ |
 | [SPEC-38](SPEC-38-outline-history.md) | An outline you can go back to, whose acts see the whole book | W4-5 | S/M | wave-4 day-0 contracts | ✅ |
 | [SPEC-39](SPEC-39-eval-harness-v5.md) | Eval harness v5: grade the path authors use | W4-6 | S/M | SPEC-33, SPEC-34 | ✅ |
+| [SPEC-40](SPEC-40-samples-not-plot.md) | Samples show manner, never plot | W5-1 | M | wave-5 day-0 (`SceneScope.plot`, `later_from`) | ✅ |
+| [SPEC-41](SPEC-41-redo-beat.md) | Redo beat keeps what the rest of the chapter refers to | W5-2 | S/M | wave-5 day-0 (`SceneScope.plot`, `beats_block`) | ✅ |
+| [SPEC-42](SPEC-42-own-voices.md) | Each speaker sounds like only themselves | W5-3 | S | SPEC-40 | ✅ |
+| [SPEC-43](SPEC-43-planner-sees-its-chapter.md) | A scene's planner sees the rest of its chapter | W5-4 | S | wave-5 day-0 (`book_plan`, `earlier_beats`) | ✅ |
+| [SPEC-44](SPEC-44-names-not-honorifics.md) | Name warnings flag inventions, not honorifics, weekdays or split phrases | W5-5 | S | SPEC-21, SPEC-33 | ✅ |
+| [SPEC-45](SPEC-45-eval-harness-v6.md) | Eval harness v6: an author's revision sequence, and plot graded from gold | W5-6 | S/M | SPEC-39 to SPEC-42 | ✅ |
 
 SPEC-01 to SPEC-15 close review findings (`F…`). SPEC-16 to SPEC-22 are wave 1 of the 2026-10
 cycle: they close product-backlog items (`B…`) and findings from the relay eval run, and SPEC-22
@@ -72,6 +78,10 @@ SPEC-34 to SPEC-39 are wave 4 (backlog items `W4-…`), built on one day-0 contr
 `Chapter.number`, `written_beats`, the scene brief and the wave-4 API types); their BRD and
 feature-set edits landed with the wave. Wave 4 also amended SPEC-22 (no fallback scene, up to five
 judged scenes) and SPEC-23 (`scene_batch.written_beats`) in place.
+
+SPEC-40 to SPEC-45 are wave 5 (backlog items `W5-…`), built on one day-0 contract commit (`SceneScope.plot`
+and `later_from`, `prose.book_plan` and `earlier_beats`, `source_paragraph`, retrieval `source_id`).
+Wave 5 amended SPEC-36 in place: its event rule now reads every line of `SceneScope.plot`.
 
 ## Sequencing
 

@@ -5,9 +5,10 @@ labels (`VOICE_SAMPLES_LABEL`, `MOVEMENT_LABEL`: "for manner only") and `SceneSc
 
 ## The event rule
 
-`context.restates_brief(text, brief)` is the one rule: a movement sample that shares
+`context.restates(text, line)` is the one rule: a movement sample that shares
 `RESTATES_MIN = 4` content words (`[a-z]+`, longer than 3 letters, not `fidelity.FUNCTION_WORDS`)
-with the brief narrates the event being written, which the brief already carries. It is dropped
+with any line of `SceneScope.plot` (the brief, and since SPEC-40 the book's plan lines) narrates
+an event the prompt already carries, which the brief already carries. It is dropped
 in `character_samples` beside `names_outside_scene`, with no refill (SPEC-30). Voice samples are
 never filtered by it.
 
