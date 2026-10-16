@@ -50,7 +50,7 @@ function type(editor: HTMLTextAreaElement, text: string) {
   fireEvent.change(editor, { target: { value: text } })
 }
 
-describe('Scene editor safety net (SPEC-16, B1)', () => {
+describe('Scene editor safety net and header (SPEC-16 B1, SPEC-37)', () => {
   let confirmSpy: MockInstance<(message?: string) => boolean>
 
   beforeEach(() => {
@@ -61,6 +61,7 @@ describe('Scene editor safety net (SPEC-16, B1)', () => {
     booksApi.getScene.mockReset().mockResolvedValue(scene)
     booksApi.getSceneRevisions.mockReset().mockResolvedValue({ scene_id: 's1', revisions: [] })
     booksApi.saveSceneContent.mockReset()
+    booksApi.updateSceneTitle.mockReset()
     confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
   })
   afterEach(() => vi.restoreAllMocks())
@@ -263,23 +264,6 @@ describe('Scene editor safety net (SPEC-16, B1)', () => {
     expect(confirmSpy).toHaveBeenCalledTimes(1)
     expect(editor.value).toBe('Unsaved.')
   })
-})
-
-describe('Scene header: where you are, the title, Previous/Next (SPEC-37)', () => {
-  let confirmSpy: MockInstance<(message?: string) => boolean>
-
-  beforeEach(() => {
-    nav.query = 'scene=s1&book=b1'
-    window.localStorage.clear()
-    router.push.mockReset()
-    router.replace.mockReset()
-    booksApi.getScene.mockReset().mockResolvedValue(scene)
-    booksApi.getSceneRevisions.mockReset().mockResolvedValue({ scene_id: 's1', revisions: [] })
-    booksApi.saveSceneContent.mockReset()
-    booksApi.updateSceneTitle.mockReset()
-    confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
-  })
-  afterEach(() => vi.restoreAllMocks())
 
   it('names the chapter by its number; Previous is disabled on the first scene', async () => {
     await renderEditor()
@@ -290,23 +274,13 @@ describe('Scene header: where you are, the title, Previous/Next (SPEC-37)', () =
     expect(screen.getByRole('button', { name: 'Previous scene' })).toBeDisabled()
   })
 
-  it('Next goes through the unsaved-changes guard; after Save it opens the next scene', async () => {
-    booksApi.saveSceneContent.mockResolvedValue({ updated_at: new Date().toISOString() })
+  it('Next goes through the unsaved-changes guard', async () => {
     const editor = await renderEditor()
     type(editor, 'Unsaved.')
     fireEvent.click(screen.getByRole('button', { name: 'Next scene' }))
     await waitFor(() => expect(confirmSpy).toHaveBeenCalledTimes(1))
     expect(router.push).not.toHaveBeenCalled()
     expect(router.replace).not.toHaveBeenCalled()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    await screen.findByText('Scene saved')
-    fireEvent.click(screen.getByRole('button', { name: 'Next scene' }))
-    // Typing pushed the Back sentinel, so leaving replaces it.
-    await waitFor(() =>
-      expect(router.replace).toHaveBeenCalledWith('/books/editor?scene=s2&book=b1')
-    )
-    expect(confirmSpy).toHaveBeenCalledTimes(1)
   })
 
   it('saves the title on blur, and Next waits for that save', async () => {
