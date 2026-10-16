@@ -627,9 +627,12 @@ async def get_chapter(
     jobs = await latest_jobs(db, "scene", [s.id for s in scenes])
     return {
         **_chapter_dict(chapter, await book_cast_index(db, chapter.book_id)),
+        # {beat id: scene id}: the beats already written (SPEC-35).
+        "written": await scene_batch.written_beats(db, chapter.id),
         "scenes": [
             {
                 "id": str(s.id),
+                "title": s.title,
                 "job": jobs.get(str(s.id)),
                 "position": s.position,
                 "status": s.status,

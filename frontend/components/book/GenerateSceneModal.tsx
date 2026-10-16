@@ -17,6 +17,7 @@ import Input from '@/components/Input'
 import Loading from '@/components/Loading'
 import EstimateHint from '@/components/EstimateHint'
 import Modal from '@/components/Modal'
+import CastChips, { chapterPovLock } from '@/components/book/CastChips'
 import { canonApi } from '@/lib/canon-store'
 import { useBookStore } from '@/lib/books-store'
 import type {
@@ -129,19 +130,15 @@ export default function GenerateSceneModal({
   // A chapter promoted from the outline carries its cast and POV (SPEC-10):
   // pre-select them when the cast loads or the target chapter changes. Only
   // characters still in the book's cast are selected.
-  // The server puts the chapter's live POV in every scene (with_pov), so its
-  // chip is locked on (R-2): the picker shows what is sent.
-  const povLock =
-    activeChapter?.pov_character_id && byId.has(activeChapter.pov_character_id)
-      ? activeChapter.pov_character_id
-      : null
+  // The chapter's live POV chip is locked on (R-2, CastChips).
+  const locked = chapterPovLock(activeChapter, cast.map((c) => c.id))
   useEffect(() => {
     if (loadingCast || !activeChapter) return
     const ids = (activeChapter.character_ids ?? []).filter((id) => byId.has(id))
-    if (povLock && !ids.includes(povLock)) ids.unshift(povLock)
+    if (locked && !ids.includes(locked)) ids.unshift(locked)
     if (ids.length === 0) return
     setSelected(ids)
-    setPovId(povLock ?? '')
+    setPovId(locked ?? '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingCast, activeChapter?.id])
 
@@ -157,12 +154,10 @@ export default function GenerateSceneModal({
     setBeatId(beat.node_id)
   }
 
-  const toggle = (id: string) => {
-    if (id === povLock) return
+  const toggle = (id: string) =>
     setSelected((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     )
-  }
 
   const handleSubmit = async () => {
     setError(null)
@@ -255,29 +250,13 @@ export default function GenerateSceneModal({
               extract them from a source) before generating a scene.
             </p>
           ) : (
-            <div className="flex flex-wrap gap-2" data-testid="cast-picker">
-              {cast.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => toggle(c.id)}
-                  aria-pressed={selected.includes(c.id)}
-                  aria-disabled={c.id === povLock || undefined}
-                  className={`px-3 py-1 text-sm rounded-full border transition-colors ${
-                    selected.includes(c.id)
-                      ? 'border-primary-500 bg-primary-50 text-primary-700'
-                      : 'border-gray-300 text-gray-700 hover:border-primary-300'
-                  }`}
-                >
-                  {c.name}
-                  {c.id === povLock || c.role ? (
-                    <span className="ml-1 text-xs text-gray-500">
-                      · {c.id === povLock ? 'point of view for this chapter' : c.role}
-                    </span>
-                  ) : null}
-                </button>
-              ))}
-            </div>
+            <CastChips
+              cast={cast}
+              selected={selected}
+              locked={locked}
+              onToggle={toggle}
+              label="Who is in this scene?"
+            />
           )}
         </div>
 

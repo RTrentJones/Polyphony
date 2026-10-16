@@ -504,6 +504,28 @@ async def test_promote_and_generate_planned_on_postgres(monkeypatch):
             assert request["emotional_tone"] == "dread"
             assert request["planned_beat_id"] == str(beat_id)
             assert request["scene_description"] == "File: Edric reads it"
+
+            # (R) SPEC-35 / S8: a beat inserted before a written one gets its
+            # scene appended after it; scenes keep the order they were written.
+            written_scene = str(job.domain_id)
+            async with engine.begin() as c:
+                await c.execute(
+                    text("DELETE FROM jobs WHERE user_id = :u"), {"u": user_id}
+                )
+            url = f"/api/v1/books/chapters/{chapter_id}"
+            beats = (await client.get(url, headers=headers)).json()["planned_beats"]
+            new = {"node_id": "", "title": "Before", "summary": "Earlier"}
+            r = await client.patch(
+                url, json={"planned_beats": [new, *beats]}, headers=headers
+            )
+            assert r.status_code == 200, r.text
+            r = await client.post(
+                f"{url}/scenes/generate-planned", json={}, headers=headers
+            )
+            assert (r.json()["queued"], r.json()["skipped"]) == (1, 1)
+            scenes = (await client.get(url, headers=headers)).json()["scenes"]
+            assert [s["id"] for s in scenes] == [written_scene, r.json()["scene_id"]]
+            assert [s["position"] for s in scenes] == [0, 1]
     finally:
         async with engine.begin() as c:
             await c.execute(text("DELETE FROM jobs WHERE user_id = :u"), {"u": user_id})
