@@ -175,6 +175,32 @@ class TestRefreshRotation:
         assert await rotate_refresh_token(async_session, raw) is None
 
     @pytest.mark.asyncio
+    async def test_family_revocation_leaves_expired_rows_alone(
+        self, async_session, user
+    ):
+        old_raw = await issue_refresh_token(async_session, user)
+        live_raw = await issue_refresh_token(async_session, user)
+        await async_session.commit()
+        rows = {
+            t.token_hash: t
+            for t in (
+                await async_session.execute(
+                    select(RefreshToken).where(RefreshToken.user_id == user.id)
+                )
+            ).scalars()
+        }
+        past = datetime.now(timezone.utc) - timedelta(days=1)
+        rows[_hash_refresh_token(old_raw)].expires_at = past
+        await async_session.commit()
+
+        await revoke_all_refresh_tokens(async_session, user.id)
+        await async_session.commit()
+        old_row = rows[_hash_refresh_token(old_raw)]
+        await async_session.refresh(old_row)
+        assert old_row.revoked_at is None  # untouched
+        assert await rotate_refresh_token(async_session, live_raw) is None
+
+    @pytest.mark.asyncio
     async def test_garbage_token_rejected(self, async_session, user):
         assert await rotate_refresh_token(async_session, "not-a-token") is None
 

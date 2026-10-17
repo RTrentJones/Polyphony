@@ -268,10 +268,12 @@ def _end(token: RefreshToken, now: datetime) -> None:
 
 
 async def revoke_all_refresh_tokens(db: AsyncSession, user_id) -> None:
-    result = await db.execute(
-        select(RefreshToken).where(RefreshToken.user_id == user_id)
-    )
     now = datetime.now(timezone.utc)
+    result = await db.execute(  # an expired token is already dead: leave it
+        select(RefreshToken).where(
+            RefreshToken.user_id == user_id, RefreshToken.expires_at > now
+        )
+    )
     for token in result.scalars().all():
         _end(token, now)
 
