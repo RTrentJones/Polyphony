@@ -4,6 +4,7 @@ from the relay's answered/ archive (cycle 2026-10 eval plan §3.3).
 Passing prompts come from the app itself (`test_prompt_roundtrip.py`); this
 file keeps one FAILING fixture per check, so each check is shown to bite."""
 
+import copy
 import json
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from app.core.prompt_markers import (
     MOVEMENT_LABEL,
     OUTLINE_CHAPTERS_HEADER,
     SCENE_CHARACTERS_SECTION,
+    TIGHTEN_CLAUSE,
     VOICE_SAMPLES_LABEL,
 )
 from app.llm.json_utils import JSON_OBJECT
@@ -88,6 +90,8 @@ LIFT_ANSWER = (
     'week of my life."'
 )
 
+TIGHTEN = "Tighten this paragraph: cut every redundant word."
+
 # One record per purpose, each breaking every check that reads it.
 FAILING = [
     (
@@ -158,6 +162,7 @@ FAILING = [
         "Beat 2 of this scene's plan: Prava slides an org chart across.\nRedo beat 2.",
         "",
     ),
+    ("scene_revise", f"<instruction>\n{TIGHTEN}\n</instruction>", ""),  # wave 8
 ]
 
 REASONS = {
@@ -187,6 +192,7 @@ REASONS = {
     "redo_sees_plan": "no <beats> block marking beat 2",
     "json_mode_where_json": "response_format null, not JSON_OBJECT",
     "evidence_verbatim": "not in the source: 'one line'",
+    "tighten_clause": "no tighten clause",
 }
 
 
@@ -217,6 +223,7 @@ def test_every_check_fails_its_failing_fixture(tmp_path):
         principals=PRINCIPALS,
         style_tone="Dry, deadpan",
         descriptions=[MILO_DESC],
+        revise_rows=[{"id": "tighten", "kind": "tighten", "instruction": TIGHTEN}],
         **PLOT_GOLD,
     )
     assert sorted(REASONS) == sorted(pc.CHECKS)
@@ -587,8 +594,9 @@ def _plan_record(plan: list[list[str]]) -> dict:
 
 def test_movement_lists_every_ineligible_principal_on_the_w5_stores(tmp_path):
     """(F) D3a on W5d's and W5bd's stores and plans: in chapter 1 every store
-    line is gold plot or past the gold tail, so no principal is eligible, and
-    the result passes only because each is listed with its gold paragraphs."""
+    line is gold plot or past the gold tail, so no principal is eligible. Each
+    is listed with its gold paragraphs and, under D4 (wave 8), the gate fails:
+    the principals cast in chapter 1 are not eligible."""
     for row in W5["movement"]["rows"]:
         (run := tmp_path / row["run"]).mkdir()
         _write(run, _plan_record(row["plan"]))
@@ -604,7 +612,8 @@ def test_movement_lists_every_ineligible_principal_on_the_w5_stores(tmp_path):
         assert out["samples_not_plot"]["placed"] == row["placed"]
         assert out["movement"] == {
             **{"n": 0, "passed": 0, "rate": None, "failures": []},
-            **{"ineligible": row["ineligible"], "ok": True},
+            **{"ineligible": row["ineligible"], "ok": False, "not_cast": []},
+            "not_eligible": sorted(row["store"]),
         }
 
 
@@ -633,7 +642,13 @@ def test_an_eligible_principal_with_an_empty_block_fails(tmp_path):
     assert move["ineligible"] == {"Milo Voss": [0, 13]}
     assert (grade(movement_store={})["n"], grade(movement_store={})["ok"]) == (0, False)
     move = grade(movement_store={"Milo Voss": store["Milo Voss"]})  # (R) S-5
-    assert move["ok"] and move["ineligible"]["Zara Okafor"] == ["none indexed"]
+    assert move["ineligible"]["Zara Okafor"] == ["none indexed"]
+    # D4: nobody is cast in chapter 1, but no eligible block is no gate (n = 0).
+    assert (move["n"], move["ok"], move["not_cast"]) == (
+        0,
+        False,
+        ["Edric Thane", "Milo Voss", "Zara Okafor"],
+    )
 
 
 def test_json_mode_where_json_reads_the_recorded_response_format(tmp_path):
@@ -823,3 +838,82 @@ def test_without_a_store_movement_is_null(tmp_path):
     out = plot.regrade(run)
     assert (out["movement"], out["movement_reason"]) == (None, "no movement_store")
     assert out["placement_signed"] is True
+
+
+# --- wave 8 (tpm-plan-wave8 §3 E1) ------------------------------------------------
+
+
+@pytest.mark.parametrize("row", W7_ARCHIVES["tighten"]["rows"], ids=lambda r: r["run"])
+def test_tighten_cut_and_content_kept_on_the_eight_targets(row):
+    """(F) W8-1 (c): the grader's own stems reproduce the PM's counts (cut to
+    0.01, kept to 0.05; the PM's function-word list is not the grader's)."""
+    target, answer = row["target"], row["answer"]
+    assert abs(pc.tighten_cut(target, answer) - row["words_cut"]) <= 0.01 + 1e-9
+    assert abs(pc.content_share(target, answer) - row["content_kept"]) <= 0.05 + 1e-9
+    if row["run"] == "W7b":  # the worst draw: RA 0.62
+        assert pc.content_share(target, answer) == 0.65
+
+
+def test_tighten_clause_eligibility_is_the_report_rows_kind(tmp_path):
+    """(F) W8-1 (b): a scene_revise prompt is graded when the revise step's row
+    for its instruction says `kind: "tighten"`, never by the instruction's
+    words: "Trim the ending" without a tighten row is not eligible."""
+    for i, ask in enumerate((TIGHTEN, "Trim the ending.")):
+        clause = TIGHTEN_CLAUSE if i == 0 else ""
+        prompt = f"<instruction>\n{ask}\n</instruction>\n{clause}"
+        _write(tmp_path, _rec(str(i), "scene_revise", prompt, created=float(i)))
+    rows = [{"id": "tighten", "kind": "tighten", "instruction": TIGHTEN}]
+    graded = lambda r: pc.grade(pc.load_archive(tmp_path), revise_rows=r)  # noqa: E731
+    assert graded(rows)["tighten_clause"] | {"failures": []} == {
+        **{"n": 1, "passed": 1, "rate": 1.0, "failures": []}
+    }
+    assert graded([{**rows[0], "kind": None}])["tighten_clause"]["n"] == 0
+    assert graded(None)["tighten_clause"]["n"] == 0
+
+
+def test_plan_quotes_source_reproduces_10_of_85(tmp_path):
+    """(F) W8-3 (b), S-6: source dialogue is cel's gold lines plus every quoted
+    span of the excerpt; a beat line counts when it shares a pronoun-folded
+    6-word run with it. The 85 plan_beats lines of W5d to W7br give the
+    baseline's 10, line for line."""
+    fx = W7_ARCHIVES["plan_beats"]
+    answers: dict[str, list[str]] = {}
+    for line in fx["lines"]:
+        answers.setdefault(f"{line['run']}/{line['request']}", []).append(line["line"])
+    for i, (rid, lines) in enumerate(answers.items()):
+        items = json.dumps({"items": [{"description": d} for d in lines]})
+        _write(tmp_path, _rec(rid.replace("/", "_"), "plan_beats", "p", items, i))
+    inputs = pc.book_inputs("cel")
+    out = pc.grade(
+        pc.load_archive(tmp_path),
+        gold_lines=inputs["gold_lines"],
+        excerpt=inputs["excerpt"],
+    )["plan_quotes_source"]
+    assert (out["n"], out["quoting"]) == (85, 10)
+    assert sorted(i.replace("_", "/", 1) for i in out["ids"]) == sorted(
+        fx["quotes_source"]
+    )
+
+
+def test_movement_ok_is_the_gate(tmp_path, monkeypatch):
+    """(F) D4: ok needs every principal cast in a chapter-1 block eligible and
+    >= 0.8 of the eligible blocks moving. W7 (Milo eligible in 9 blocks, never
+    moving) reads false; the same run with his lines shown reads true. Edric is
+    cast in no block: listed `not cast`, not required."""
+    fx = copy.deepcopy(W7_ARCHIVES["w7_movement"])
+    out = plot.regrade(_w7_run(tmp_path / "w7", fx["store"]))["movement"]
+    assert (out["ok"], out["not_eligible"], out["not_cast"]) == (
+        False,
+        [],
+        ["Edric Thane"],
+    )
+    for b in fx["beats"]:  # W7r's shape: Milo's stored lines reach the prose
+        b["movement"] = {**b["movement"], "Milo Voss": fx["store"]["Milo Voss"][:1]}
+    monkeypatch.setitem(W7_ARCHIVES, "w7_movement", fx)
+    out = plot.regrade(_w7_run(tmp_path / "w7r", fx["store"]))["movement"]
+    assert (out["ok"], out["n"], out["passed"], out["not_cast"]) == (
+        True,
+        9,
+        9,
+        ["Edric Thane"],
+    )

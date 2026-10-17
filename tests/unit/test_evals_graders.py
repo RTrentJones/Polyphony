@@ -543,11 +543,20 @@ class TestHistory:
         assert lines[0].split() == [
             *("run", "pair", "redo_ra", "untouched_share", "rewording_note"),
             *("r2_mean", "r2_min", "attribution"),
+            *("tighten_ra_1", "tighten_ra_2", "tighten_ra_3"),  # W8-1, Could 4
         ]
-        assert [ln.split()[0] for ln in lines[1:10]] == [
-            *("W4b2", "W5", "W5b", "W5c", "W5bc", "W5d", "W5bd", "W6", "W6b")
+        assert [ln.split()[0] for ln in lines[1:14]] == [
+            *("W4b2", "W5", "W5b", "W5c", "W5bc", "W5d", "W5bd", "W6", "W6b"),
+            *("W7", "W7b", "W7r", "W7br"),
         ]
         assert lines[-2] == report.ACT_RULE
+        # (F) W8-2 (c): attribution pooled over W7 and W7r, with its interval;
+        # the tighten act rule fires on both wave-7 pairs.
+        assert lines[-3] == (
+            "Attribution pooled from W7 (Wilson 95%): Milo 4/6 (0.3, 0.9); "
+            "Zara 3/6 (0.19, 0.81); Edric 3/6 (0.19, 0.81)"
+        )
+        assert lines[-1].endswith("tighten RA (7), tighten RA (7r)")
 
     def test_the_act_rule_fires_only_on_both_draws_of_a_pair(self, tmp_path):
         from evals.harness import report

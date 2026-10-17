@@ -149,13 +149,19 @@ async def test_attribution_creates_book_scoped_characters(tmp_path, monkeypatch)
     assert "error" not in out
     # M3: each in their own role; Edric reviews, Milo is reviewed.
     milo, edric = cel["voice_probe"]["Milo Voss"], cel["voice_probe"]["Edric Thane"]
-    # (F) D13: three draws each, memoised per draw; the majority per character.
-    assert client.prompts == [milo] * 3 + [edric] * 3
-    assert "your desk for review" in edric and out["generated"] == 6
-    assert [d["probe"] for d in out["detail"]] == [milo] * 3 + [edric] * 3
+    # (F) W8-2: ten draws each, memoised per draw; reported, with an interval.
+    assert client.prompts == [milo] * 10 + [edric] * 10
+    assert "your desk for review" in edric and out["generated"] == 20
+    assert [d["probe"] for d in out["detail"]] == [milo] * 10 + [edric] * 10
+    assert out["status"] == "reported"
     assert out["per_character"] == {  # identical vectors: Milo ranks first
-        "Milo Voss": {"correct": 3, "majority": True},
-        "Edric Thane": {"correct": 0, "majority": False},
+        "Milo Voss": {"correct": 10, "k": 10, "accuracy": 1.0, "wilson95": (0.72, 1.0)},
+        "Edric Thane": {
+            "correct": 0,
+            "k": 10,
+            "accuracy": 0.0,
+            "wilson95": (0.0, 0.28),
+        },
     }
 
 
@@ -885,16 +891,30 @@ REVISE_BEATS = [
 
 
 def test_tighten_the_longest_paragraph_of_beat_1_then_ask_the_rest():
-    """(F) W6-7 (c): the longest beat-1 paragraph of >= 30 words, so the redo
-    meets beat 2 as written; else the scene's longest; else none (W5b's
-    five-word target). B-4: no keep clause."""
+    """(F) W6-7 (c), D2: the longest beat-1 paragraph of >= 30 words first, so
+    the redo meets beat 2 as written (else the scene's longest), then the
+    longest of the rest; distinct, never repeated; none for W5b's five-word
+    target. B-4: no keep clause."""
     long, longer = " ".join(["He read the ledger."] * 8), " ".join(["Zara."] * 40)
     draft = f"{long}\n\nShort.\n\n{longer}"
     beats = [{"content": f"{long}\n\nShort."}, {"content": longer}]
-    for bs, text in ((beats, long), ([{"content": "Short."}], longer), ([], longer)):
-        got = pipeline.tighten_request(draft, bs)["range"]
-        assert draft[got["start"] : got["end"]] == text
-    assert pipeline.tighten_request("Short.\n\nAlso short.", []) is None
+    for bs, texts in (
+        (beats, [long, longer]),
+        ([{"content": "Short."}], [longer, long]),
+        ([], [longer, long]),
+    ):
+        reqs = pipeline.tighten_requests(draft, bs)
+        assert [draft[r["range"]["start"] : r["range"]["end"]] for r in reqs] == texts
+        assert [r["id"] for r in reqs] == ["tighten", "tighten_2"]
+        assert {r["kind"] for r in reqs} == {"tighten"}
+    assert pipeline.tighten_requests("Short.\n\nAlso short.", []) == []
+    four = "\n\n".join([long, longer, long + " Again.", longer + " Zara."])
+    got = pipeline.tighten_requests(four, [{"content": long}])
+    assert [r["range"]["start"] for r in got] == [
+        0,
+        four.index(longer + " Zara."),
+        four.index(longer),
+    ]
     reqs = pipeline.revise_requests(REVISE_DRAFT, has_beats=True)
     assert [r["id"] for r in reqs] == ["colder", "redo_beat"]
     colder = reqs[0]["range"]
@@ -992,7 +1012,13 @@ async def test_revise_step_accepts_the_tighten_and_asks_the_rest_of_it(tmp_path)
     assert tighten["accepted"] is True and client.discarded == ["p2", "p3"]
     # Wave-8 day-0: the report's kind and count; the API body has no kind.
     assert [r.get("kind") for r in out["revisions"]] == ["tighten", None, None]
-    assert (out["tighten_n"], out["tighten_short_reason"]) == (1, None)
+    assert (out["tighten_n"], out["tighten_short_reason"]) == (
+        1,
+        "only 1 paragraph(s) of >= 30 words",
+    )
+    # W8-1 (c): cut and kept shares, by the grader's own stems, and the RAs.
+    assert (tighten["tighten_cut"], tighten["content_kept"]) == (0.2, 0.81)
+    assert out["tighten_ras"] == [tighten["rubrics"]["RA"]["score"]]
     assert not any("kind" in body for body in client.revised)
     accepted = client.proposals["p1"]["content"]
     assert [r["draft"] for r in client.revised] == [REVISE_DRAFT, accepted, accepted]
@@ -1003,6 +1029,40 @@ async def test_revise_step_accepts_the_tighten_and_asks_the_rest_of_it(tmp_path)
     assert "INSTRUCTION: Tighten this paragraph" in seen
     assert (
         "PASSAGE AFTER REVISION:\nAcross the partition, Zara did not look up." in seen
+    )
+
+
+LONG_2 = " ".join(["Milo counted the chairs and found one more each time."] * 4)
+LONG_3 = " ".join(["The ledger ran to the floor."] * 6)
+
+
+@pytest.mark.parametrize("extra", [[LONG_2, LONG_3], [LONG_2]])
+async def test_revise_step_requests_three_tightens_and_accepts_the_first(
+    tmp_path, extra
+):
+    """(F) D2: up to three distinct paragraphs; the first is accepted and the
+    others are asked of the accepted draft, then discarded. Short of three,
+    `tighten_n` and its reason say so (S-1)."""
+    client = _ReviseClient()
+    client.draft = "\n\n".join([REVISE_DRAFT, *extra])
+    ctx = _cel_ctx(tmp_path, client, _RubricJudge())
+    await ctx.client.create_book("x", "s")
+    out = await pipeline.step_revise(ctx)
+    tightens = [r for r in out["revisions"] if r.get("kind") == "tighten"]
+    accepted = client.proposals["p1"]["content"]
+    assert tightens[0]["accepted"] is True and len(tightens) == 1 + len(extra)
+    assert [r["draft"] for r in client.revised[: len(tightens)]] == [
+        client.revised[0]["draft"],
+        *[accepted] * len(extra),
+    ]
+    asked = [b["range"] for b in client.revised[1 : len(tightens)]]
+    longest = sorted(extra, key=len, reverse=True)  # the rest, longest first
+    assert [accepted[a["start"] : a["end"]] for a in asked] == longest
+    assert client.discarded[: len(extra)] == [f"p{i + 2}" for i in range(len(extra))]
+    assert not any("kind" in body for body in client.revised)
+    assert out["tighten_n"] == len(tightens)
+    assert out["tighten_short_reason"] == (
+        None if len(extra) == 2 else "only 2 paragraph(s) of >= 30 words"
     )
 
 
