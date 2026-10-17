@@ -49,3 +49,13 @@ Verified unchanged:
 - W7r: bell ch 1 "Four Minutes". It is unusual but correct: this outline closes the Bell account in chapter 1.
 - W7r: intake and partition ch 1; summons "Paper With Its Own Gravity" and corner office "Do Sit", both ch 2.
 - W7br: intake ch 1 "Retained", drawer null (nothing locks the ledger), and corner office ch 6 "The Corner Office".
+
+## Gold: bell `narrated` [9, 11] → [9] (PM, 2026-10-17)
+
+**Ruling: bell narrates paragraph 9 only.** D1 now indexes a speech paragraph's narration apart from its speech, so `narrated` must be read at that finer grain. In p11 the bell event is carried by Zara's line, "He goes under. Write that on the form. Nothing else.", which stays in bell's span and is still later plot as voice wherever the bell is later. The narration left over, "Zara set down her pen.", is a reaction gesture, not the event. No outline plans it, and it does not `restate` any bell line.
+
+This applies the same test as the wave-6 partition ruling. There, Zara's one-second glance in p3 counted as narration because the outlines plan that moment itself.
+
+Effect, regraded offline by the principal: W7r `samples_not_plot` goes from 0.7 to 1.0. W7br, W5d, W5bd, W6, W6b, W7 and W7b are unchanged, including their movement listings. The product did not change, so no re-draw is needed.
+
+Wave 8: re-confirm every event's `narrated` list at D1 granularity, meaning the narration left in each speech paragraph after its quoted speech is removed. Check in particular p2 (training), p4 (Milo rolling his chair to the partition), p11 (done here) and p20 (Edric opening the ledger, inside the corner-office span).
