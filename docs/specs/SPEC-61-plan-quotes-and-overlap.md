@@ -3,7 +3,8 @@
 - **Source dialogue (S-6)** is cel's gold lines (train and test) plus every quoted span of the excerpt
   (attributed speech, approximated as quoted spans at day-0), as `folded6` 6-grams, once per run.
 - `plan_quotes_source` (reported, Q1): the plan_beats beat lines sharing one of those 6-grams. Baseline
-  **10 of 85** over W5d to W7br reproduces line for line, so it was not restated.
+  **10 of 85** over W5d to W7br reproduces line for line, so it was not restated. The product side is
+  `workflow.DESCRIBE_NOT_QUOTE`, printed after plan_beats' POV line (D8, E2).
 - **One stemmer** (`prompt_contract.stem` and `content_stems`, with its own stop list, not the product's
   `FUNCTION_WORDS`) serves `content_share`, `scripted_slots`, the revise step's `content_kept` and the bound below.
 ## The no-refill bound (`python -m evals.measure.voice_overlap <run-dirs>`)
