@@ -287,43 +287,25 @@ class TestRefreshRotation:
         assert await rotate_refresh_token(async_session, t1) is None
 
     @pytest.mark.asyncio
-    async def test_a_family_found_on_reload_is_locked_too(
+    async def test_every_token_change_takes_the_users_lock(
         self, async_session, user, monkeypatch
     ):
-        """A pre-0020 token locked by its id, then found (on re-read) to have
-        been given a family by a concurrent rotation: that family is locked."""
-        import uuid as _uuid
-
-        from sqlalchemy import update
-
+        """Rotation, logout and theft revocation serialize on one per-user lock,
+        so no lineage (or pre-0020 token) can slip a successor past another."""
         from app.core import security
 
-        raw = await issue_refresh_token(async_session, user)
-        await async_session.commit()
-        stored = (
-            await async_session.execute(
-                select(RefreshToken).where(
-                    RefreshToken.token_hash == _hash_refresh_token(raw)
-                )
-            )
-        ).scalar_one()
-        stored.family_id = None
-        await async_session.commit()
-        family = _uuid.uuid4()
         keys = []
 
-        async def record(db, key):
-            keys.append(key)
-            if len(keys) == 1:  # the concurrent rotation commits meanwhile
-                await db.execute(
-                    update(RefreshToken)
-                    .where(RefreshToken.id == stored.id)
-                    .values(family_id=family)
-                )
+        async def record(db, user_id):
+            keys.append(user_id)
 
-        monkeypatch.setattr(security, "_lock_lineage", record)
-        await security._lock_and_reload(async_session, stored)
-        assert keys == [stored.id, family]
+        monkeypatch.setattr(security, "_lock_user", record)
+        t0 = await issue_refresh_token(async_session, user)
+        await async_session.commit()
+        _, t1 = await rotate_refresh_token(async_session, t0)
+        await revoke_refresh_token(async_session, t1)
+        await revoke_all_refresh_tokens(async_session, user.id)
+        assert keys == [user.id] * 3
 
     @pytest.mark.asyncio
     async def test_logout_and_theft_are_never_graced(self, async_session, user):

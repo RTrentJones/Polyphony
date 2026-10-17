@@ -160,3 +160,58 @@ async def test_downgrade_keeps_ended_tokens_refused():
     finally:
         await asyncio.to_thread(command.upgrade, cfg, "head")
         await engine.dispose()
+
+
+async def test_theft_revocation_waits_for_another_familys_rotation():
+    """Two logins of one user: a refresh in family B holds the user's lock while
+    a replay in family A is detected as theft; the revocation waits and then
+    ends B's new successor too."""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import update
+
+    from app.core.database import get_async_db_url
+    from app.core.orm_models import RefreshToken, User
+    from app.core.security import (
+        _hash_refresh_token,
+        get_password_hash,
+        issue_refresh_token,
+        rotate_refresh_token,
+    )
+
+    engine = create_async_engine(get_async_db_url())
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with sessions() as s:
+            user = User(
+                email=f"two-{uuid.uuid4().hex[:8]}@example.com",
+                hashed_password=get_password_hash("longenoughpassword"),
+                is_active=True,
+            )
+            s.add(user)
+            await s.commit()
+            a0 = await issue_refresh_token(s, user)  # login A
+            b0 = await issue_refresh_token(s, user)  # login B
+            await s.commit()
+            await rotate_refresh_token(s, a0)
+            await s.commit()
+            await s.execute(  # A's rotation is long past the grace window
+                update(RefreshToken)
+                .where(RefreshToken.token_hash == _hash_refresh_token(a0))
+                .values(revoked_at=datetime.now(timezone.utc) - timedelta(minutes=5))
+            )
+            await s.commit()
+
+        async with sessions() as b, sessions() as thief:
+            _, b1 = await rotate_refresh_token(b, b0)  # holds the user's lock
+            replay = asyncio.create_task(rotate_refresh_token(thief, a0))
+            await asyncio.sleep(0.5)
+            assert not replay.done()  # theft handling waits for B
+            await b.commit()
+            assert await replay is None
+            await thief.commit()
+
+        async with sessions() as s:
+            assert await rotate_refresh_token(s, b1) is None  # B's successor ended
+    finally:
+        await engine.dispose()

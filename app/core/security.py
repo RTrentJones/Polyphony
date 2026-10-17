@@ -219,25 +219,24 @@ async def _by_raw(db: AsyncSession, raw_token: str) -> Optional[RefreshToken]:
     return result.scalar_one_or_none()
 
 
-async def _lock_lineage(db: AsyncSession, key) -> None:
-    """Serialize rotation and logout of one lineage until the transaction ends
-    (Postgres advisory lock; a no-op on SQLite, which the unit tests use)."""
+async def _lock_user(db: AsyncSession, user_id) -> None:
+    """Serialize every refresh-token change of one user (rotation, logout,
+    theft revocation) until the transaction ends: a Postgres advisory lock,
+    re-entrant within a transaction; a no-op on SQLite, which the unit tests use.
+    One user refreshes rarely, so one lock per user costs nothing and covers
+    every lineage, pre-0020 tokens included."""
     if db.get_bind().dialect.name == "postgresql":
         await db.execute(
-            text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": str(key)}
+            text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+            {"k": f"refresh:{user_id}"},
         )
 
 
 async def _lock_and_reload(db: AsyncSession, stored: RefreshToken) -> None:
-    """Take the lineage lock and re-read the token under it. A pre-0020 token is
-    keyed by its id; if the re-read shows a concurrent rotation gave it a
-    family, take that family's lock too (ids before families, so no deadlock)."""
-    key = stored.family_id or stored.id
-    await _lock_lineage(db, key)
+    """Take the user's lock and re-read the token under it, so a rotation or
+    logout that committed meanwhile is seen."""
+    await _lock_user(db, stored.user_id)
     await db.refresh(stored)
-    if stored.family_id is not None and stored.family_id != key:
-        await _lock_lineage(db, stored.family_id)
-        await db.refresh(stored)
 
 
 async def rotate_refresh_token(
@@ -310,10 +309,13 @@ async def revoke_refresh_token(db: AsyncSession, raw_token: str) -> None:
 async def revoke_all_refresh_tokens(db: AsyncSession, user_id) -> None:
     """Theft: end every token of the user that is live or still graceable.
     Expired rows past any grace are already dead and are left alone."""
+    await _lock_user(db, user_id)  # a concurrent rotation's successor is seen
     now = datetime.now(timezone.utc)
     grace = timedelta(seconds=settings.REFRESH_REUSE_GRACE_SECONDS)
     result = await db.execute(
-        select(RefreshToken).where(
+        select(RefreshToken)
+        .execution_options(populate_existing=True)
+        .where(
             RefreshToken.user_id == user_id,
             RefreshToken.ended_at.is_(None),
             RefreshToken.expires_at > now - grace,
