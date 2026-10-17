@@ -226,15 +226,17 @@ async def rotate_refresh_token(
     if expires_at is not None and expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
 
-    if expires_at is not None and expires_at <= now:
-        return None
+    expired = expires_at is not None and expires_at <= now
     revoked_at = stored.revoked_at
     if revoked_at is not None and revoked_at.tzinfo is None:
         revoked_at = revoked_at.replace(tzinfo=timezone.utc)
     grace = timedelta(seconds=settings.REFRESH_REUSE_GRACE_SECONDS)
-    if revoked_at is not None and now - revoked_at >= grace:
-        # Reuse detected — revoke the family.
+    if revoked_at is not None and (expired or now - revoked_at >= grace):
+        # Reuse detected (checked before expiry, so a rotated token replayed
+        # after it would have expired anyway still counts) — revoke the family.
         await revoke_all_refresh_tokens(db, stored.user_id)
+        return None
+    if expired:
         return None
 
     user = (

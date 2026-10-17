@@ -137,6 +137,29 @@ class TestRefreshRotation:
         assert await rotate_refresh_token(async_session, again[1]) is not None
 
     @pytest.mark.asyncio
+    async def test_reuse_after_natural_expiry_still_revokes(self, async_session, user):
+        """A token rotated just before it expired, replayed after both its expiry
+        and the grace window, is still reuse: the successor dies too."""
+        raw = await issue_refresh_token(async_session, user)
+        await async_session.commit()
+        rotated = await rotate_refresh_token(async_session, raw)
+        await async_session.commit()
+        stored = (
+            await async_session.execute(
+                select(RefreshToken).where(
+                    RefreshToken.token_hash == _hash_refresh_token(raw)
+                )
+            )
+        ).scalar_one()
+        stored.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await async_session.commit()
+        await _age_rotation(async_session, _hash_refresh_token(raw), 31)
+
+        assert await rotate_refresh_token(async_session, raw) is None
+        await async_session.commit()
+        assert await rotate_refresh_token(async_session, rotated[1]) is None
+
+    @pytest.mark.asyncio
     async def test_logout_and_theft_are_never_graced(self, async_session, user):
         raw = await issue_refresh_token(async_session, user)
         await async_session.commit()
