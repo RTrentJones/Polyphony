@@ -10,15 +10,19 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from pathlib import Path
+from statistics import mean
 
 from evals.graders.prompt_contract import CHECKS as _CONTRACT_CHECKS
+from evals.measure.wilson import wilson
 
 HISTORY = Path(__file__).resolve().parent.parent / "history.csv"
 ACT_RULE = (
-    "Act rule (PM, wave 7): untouched_share < 0.5 or R2 mean < 0.90 in both draws "
-    "of a wave makes the item P0 next wave."
+    "Act rule (PM, wave 7): untouched_share < 0.5, R2 mean < 0.90 or tighten RA "
+    "mean < 0.85 in both draws of a wave makes the item P0 next wave."
 )
+POOL_FROM = "W7"  # W8-2 (c): attribution is pooled over W7, W7r and later runs
 
 
 def scorecard(run: dict) -> str:
@@ -67,8 +71,12 @@ def scorecard(run: dict) -> str:
             extra = f"grounded={res.get('grounded')}/{res.get('n_characters')} avg_chunks={res.get('avg_chunks')}"
         elif name == "retrieval":
             extra = f"p@k={res['precision_at_k']} mrr={res['mrr']}"
-        elif name == "attribution":
-            extra = f"acc={res['accuracy']} chance={res['chance']} gap={res.get('mean_gap')}"
+        elif name == "attribution":  # W8-2: reported, never gated
+            per = (res.get("per_character") or {}).items()
+            extra = f"acc={res['accuracy']} chance={res['chance']} " + " ".join(
+                f"{c.split()[0]}={v.get('correct')}/{v.get('k')}{v.get('wilson95')}"
+                for c, v in per
+            )
         elif name == "continuity":
             extra = f"recall={res['detection_recall']} fpr={res['false_positive_rate']}"
         elif name == "outline":
@@ -87,6 +95,7 @@ def scorecard(run: dict) -> str:
             )
         elif name == "revise":
             extra = (
+                f"tighten_n={res.get('tighten_n')} ras={res.get('tighten_ras')} "
                 f"outside_identical={res.get('outside_identical')} "
                 f"new_names={res.get('new_names')} {res.get('rubric_means')}"
             )
@@ -117,17 +126,38 @@ def history(path: Path) -> str:
     cols = list(rows[0])
     lines = ["  ".join(cols), *("  ".join(r[c] or "-" for c in cols) for r in rows)]
     misses: dict[str, dict[str, list[bool]]] = {}
-    for r in rows:
-        pair = misses.setdefault(r["pair"], {"untouched_share": [], "R2 mean": []})
-        pair["untouched_share"].append(float(r["untouched_share"] or 1) < 0.5)
-        pair["R2 mean"].append(float(r["r2_mean"]) < 0.90)
+    pooled: dict[str, list[int]] = {}  # name: [correct, k]
+    runs = [r["run"] for r in rows]
+    pool = runs.index(POOL_FROM) if POOL_FROM in runs else len(runs)
+    for i, r in enumerate(rows):
+        pair = misses.setdefault(r["pair"], {})
+        pair.setdefault("untouched_share", []).append(
+            float(r["untouched_share"] or 1) < 0.5
+        )
+        pair.setdefault("R2 mean", []).append(float(r["r2_mean"]) < 0.90)
+        ras = [float(r[c]) for c in cols if c.startswith("tighten_ra_") and r[c]]
+        pair.setdefault("tighten RA", []).append(bool(ras) and mean(ras) < 0.85)
+        for who, k, n in re.findall(r"(\w+) (\d+)/(\d+)", r["attribution"] or ""):
+            if i >= pool:
+                tally = pooled.setdefault(who, [0, 0])
+                tally[0], tally[1] = tally[0] + int(k), tally[1] + int(n)
     fired = [
         f"{signal} ({p})"
         for p, signals in misses.items()
         for signal, missed in signals.items()
         if len(missed) > 1 and all(missed)
     ]
-    return "\n".join([*lines, ACT_RULE, f"Fires on: {', '.join(fired) or 'nothing'}"])
+    attribution = "; ".join(
+        f"{who} {k}/{n} {wilson(k, n)}" for who, (k, n) in pooled.items()
+    )
+    return "\n".join(
+        [
+            *lines,
+            f"Attribution pooled from {POOL_FROM} (Wilson 95%): {attribution or '-'}",
+            ACT_RULE,
+            f"Fires on: {', '.join(fired) or 'nothing'}",
+        ]
+    )
 
 
 # A step "passes" when its score clears this floor — a coarse boolean so Tracer

@@ -228,7 +228,10 @@ def regrade(run_dir: str | Path) -> dict:
     doc = json.loads(reports[0].read_text(encoding="utf-8"))
     store = ((doc["steps"].get("prose") or {}).get("voice") or {}).get("movement")
     records = pc.load_archive(run / "answered-archive" / "model" / "answered")
-    out = pc.grade(records, **pc.book_inputs(doc["book"]), movement_store=store)
+    rows = (doc["steps"].get("revise") or {}).get("revisions")  # tighten_clause
+    out = pc.grade(
+        records, **pc.book_inputs(doc["book"]), movement_store=store, revise_rows=rows
+    )
     for who, why in ((out.get("movement") or {}).get("ineligible") or {}).items():
         if (store or {}).get(who) and pc.NONE_INDEXED in why:
             raise ValueError(f"{who}: read as none indexed; the store holds lines")
