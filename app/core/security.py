@@ -228,6 +228,18 @@ async def _lock_lineage(db: AsyncSession, key) -> None:
         )
 
 
+async def _lock_and_reload(db: AsyncSession, stored: RefreshToken) -> None:
+    """Take the lineage lock and re-read the token under it. A pre-0020 token is
+    keyed by its id; if the re-read shows a concurrent rotation gave it a
+    family, take that family's lock too (ids before families, so no deadlock)."""
+    key = stored.family_id or stored.id
+    await _lock_lineage(db, key)
+    await db.refresh(stored)
+    if stored.family_id is not None and stored.family_id != key:
+        await _lock_lineage(db, stored.family_id)
+        await db.refresh(stored)
+
+
 async def rotate_refresh_token(
     db: AsyncSession, raw_token: str, user_agent: str = ""
 ) -> Optional[tuple[UserORM, str]]:
@@ -243,8 +255,7 @@ async def rotate_refresh_token(
     stored = await _by_raw(db, raw_token)
     if stored is None:
         return None
-    await _lock_lineage(db, stored.family_id or stored.id)
-    await db.refresh(stored)  # a logout that held the lock may have ended it
+    await _lock_and_reload(db, stored)  # a logout may have ended it meanwhile
     if stored.ended_at is not None:
         return None
     now = datetime.now(timezone.utc)
@@ -275,10 +286,9 @@ async def revoke_refresh_token(db: AsyncSession, raw_token: str) -> None:
     stored = await _by_raw(db, raw_token)
     if stored is None:
         return
-    # The key rotation takes: the family, or a pre-0020 token's own id. Re-read
-    # under it, so a rotation that won the race has its new family ended too.
-    await _lock_lineage(db, stored.family_id or stored.id)
-    await db.refresh(stored)
+    # Re-read under the lineage lock, so a rotation that won the race has its
+    # new family (and that family's lock) taken too.
+    await _lock_and_reload(db, stored)
     now = datetime.now(timezone.utc)
     if stored.family_id is None:
         stored.ended_at = stored.ended_at or now

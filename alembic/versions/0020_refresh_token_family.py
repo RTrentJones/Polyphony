@@ -5,7 +5,8 @@ so logout can end the whole family, siblings minted inside the grace window
 included. `refresh_tokens.ended_at` (nullable) marks a token ended by logout or
 theft revocation, which is never honoured; `revoked_at` now means only
 "rotated". Existing rows keep NULLs: a pre-0020 token joins a new family on its
-first rotation.
+first rotation. Downgrade copies `ended_at` into `revoked_at` so the old code
+still refuses a logged-out or theft-revoked token.
 
 postgres-only and guarded: 0001 runs `create_all`, so a fresh database already
 has the columns when this runs.
@@ -44,5 +45,10 @@ def downgrade() -> None:
     if op.get_bind().dialect.name != "postgresql":
         return
     op.execute("DROP INDEX IF EXISTS idx_refresh_tokens_family_id")
+    # Pre-0020 code knows only revoked_at: keep logout/theft ends refused.
+    op.execute(
+        "UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, ended_at) "
+        "WHERE ended_at IS NOT NULL"
+    )
     op.execute("ALTER TABLE refresh_tokens DROP COLUMN IF EXISTS ended_at")
     op.execute("ALTER TABLE refresh_tokens DROP COLUMN IF EXISTS family_id")

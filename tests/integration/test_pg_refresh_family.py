@@ -115,3 +115,48 @@ async def test_logout_of_a_pre_0020_token_waits_for_a_concurrent_rotation():
             assert await rotate_refresh_token(s, t1) is None
     finally:
         await engine.dispose()
+
+
+async def test_downgrade_keeps_ended_tokens_refused():
+    """Rolling 0020 back copies ended_at into revoked_at, so the old code still
+    refuses a logged-out token."""
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import text
+
+    from app.core.database import get_async_db_url
+
+    cfg = Config("alembic.ini")
+    cfg.set_main_option("script_location", "alembic")
+    await asyncio.to_thread(command.upgrade, cfg, "head")
+    engine = create_async_engine(get_async_db_url())
+    uid, tid = uuid.uuid4(), uuid.uuid4()
+    try:
+        async with engine.begin() as c:
+            await c.execute(
+                text(
+                    "INSERT INTO users (id, email, hashed_password, is_active) "
+                    "VALUES (:u, :e, 'x', true)"
+                ),
+                {"u": uid, "e": f"down-{uid.hex[:8]}@example.com"},
+            )
+            await c.execute(
+                text(
+                    "INSERT INTO refresh_tokens (id, user_id, token_hash, "
+                    "expires_at, ended_at) VALUES (:t, :u, :h, "
+                    "now() + interval '30 days', now())"
+                ),
+                {"t": tid, "u": uid, "h": uuid.uuid4().hex * 2},
+            )
+        await asyncio.to_thread(command.downgrade, cfg, "-1")
+        async with engine.connect() as c:
+            revoked = (
+                await c.execute(
+                    text("SELECT revoked_at FROM refresh_tokens WHERE id = :t"),
+                    {"t": tid},
+                )
+            ).scalar()
+        assert revoked is not None
+    finally:
+        await asyncio.to_thread(command.upgrade, cfg, "head")
+        await engine.dispose()

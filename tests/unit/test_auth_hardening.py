@@ -287,6 +287,45 @@ class TestRefreshRotation:
         assert await rotate_refresh_token(async_session, t1) is None
 
     @pytest.mark.asyncio
+    async def test_a_family_found_on_reload_is_locked_too(
+        self, async_session, user, monkeypatch
+    ):
+        """A pre-0020 token locked by its id, then found (on re-read) to have
+        been given a family by a concurrent rotation: that family is locked."""
+        import uuid as _uuid
+
+        from sqlalchemy import update
+
+        from app.core import security
+
+        raw = await issue_refresh_token(async_session, user)
+        await async_session.commit()
+        stored = (
+            await async_session.execute(
+                select(RefreshToken).where(
+                    RefreshToken.token_hash == _hash_refresh_token(raw)
+                )
+            )
+        ).scalar_one()
+        stored.family_id = None
+        await async_session.commit()
+        family = _uuid.uuid4()
+        keys = []
+
+        async def record(db, key):
+            keys.append(key)
+            if len(keys) == 1:  # the concurrent rotation commits meanwhile
+                await db.execute(
+                    update(RefreshToken)
+                    .where(RefreshToken.id == stored.id)
+                    .values(family_id=family)
+                )
+
+        monkeypatch.setattr(security, "_lock_lineage", record)
+        await security._lock_and_reload(async_session, stored)
+        assert keys == [stored.id, family]
+
+    @pytest.mark.asyncio
     async def test_logout_and_theft_are_never_graced(self, async_session, user):
         raw = await issue_refresh_token(async_session, user)
         await async_session.commit()
