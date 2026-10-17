@@ -39,6 +39,7 @@ from app.core.prompt_markers import (
     POV_LIMIT_OPEN,
     POV_LINE_RE,
     STORY_POSITION,
+    TIGHTEN_CLAUSE,
 )
 from app.orchestration.pov import NAMING_RULE, Pov
 from tests.unit.factories import add_scene
@@ -638,7 +639,7 @@ async def test_a_redo_finds_its_beat_by_number(
     assert f"<beats>\n{CURRENT_BEAT_MARK} 1. b1\n2. b2\n</beats>" in fake.prompts[0]
 
 
-def _redo_prompt(instruction, keep=()):
+def _redo_prompt(instruction, keep=(), beat=(1, ["b0", "b1"])):
     return rv.build_revise_prompt(
         canon_block="CANON",
         chapter_summary="",
@@ -650,7 +651,7 @@ def _redo_prompt(instruction, keep=()):
         pov=Pov("third person limited", "Milo Voss"),
         story_position=None,
         secondary_block="",
-        beat=(1, ["b0", "b1"]),
+        beat=beat,
         keep=keep,
     )
 
@@ -667,6 +668,36 @@ def test_a_redo_with_a_direction_keeps_every_other_sentence():
     assert (
         'refers to them): nine days ("reporting cycle from nine days down to six")\n'
     ) in _redo_prompt("Redo beat 2.", keep)
+
+
+_W7 = json.loads((Path(__file__).parents[1] / "fixtures/w7_archives.json").read_text())
+_CUTS = {r["instruction"] for r in _W7["tighten"]["rows"]}  # the eight archived asks
+_ASKS = [*_CUTS, "Trim the ending", "Cut the adverbs", "please SHORTEN it", "Condense."]
+_NOT = ["Make Zara colder", "Add a cutting remark.", "He trimmed it."]
+
+
+@pytest.mark.parametrize("ask", [*_ASKS, "Pare it back.", *_NOT])
+def test_a_cut_word_and_only_a_cut_word_prints_the_tighten_clause(ask):
+    """(F) SPEC-59 (D1): a whole cut word, in any case, prints the clause once
+    after the return rule, and nothing else changes; (R) no cut word, no
+    clause ("cutting", "trimmed" are not whole words)."""
+    prompt, bare = _redo_prompt(ask, beat=None), _redo_prompt("x", beat=None)
+    if ask in _NOT:
+        assert TIGHTEN_CLAUSE not in prompt
+        return
+    assert f"and nothing else.\n{TIGHTEN_CLAUSE}\n\nRevised passage:" in prompt
+    clause = f"\n{TIGHTEN_CLAUSE}"
+    assert prompt.replace(clause, "") == bare.replace("\nx\n", f"\n{ask}\n")
+
+
+def test_a_redo_reads_its_cut_word_after_the_lead():
+    """(F) Could 1: "Redo beat 2: cut the aside" gets REDO_CHANGE and the
+    clause; (R) "Redo beat 2." gets neither."""
+    asked, terse = _redo_prompt("Redo beat 2: cut the aside"), _redo_prompt(
+        "Redo beat 2."
+    )
+    assert rv.REDO_CHANGE in asked and TIGHTEN_CLAUSE in asked
+    assert rv.REDO_CHANGE not in terse and TIGHTEN_CLAUSE not in terse
 
 
 W5 = json.loads(

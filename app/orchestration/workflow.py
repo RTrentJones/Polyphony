@@ -136,6 +136,13 @@ ALSO_NAMED_NOTE = (
 )
 
 
+# Beside the POV line (SPEC-61): a beat says what is said, never the author's words.
+DESCRIBE_NOT_QUOTE = (
+    "Describe what people say; do not quote lines from the author's source or "
+    "samples."
+)
+
+
 async def plan_scene_beats(
     scene_request: dict,
     user_id: Optional[UUID] = None,
@@ -164,7 +171,9 @@ async def plan_scene_beats(
     chapter_plan = chapter_plan_block(plan, story_position, scene_request, earlier)
     chapter_plan += "\n\n" if chapter_plan else ""
     pov_and_secondaries = "\n\n".join(
-        p for p in (plan_pov_instruction(pov), secondary_block) if p
+        p
+        for p in (f"{plan_pov_instruction(pov)}\n{DESCRIBE_NOT_QUOTE}", secondary_block)
+        if p
     )
     prompt = f"""{STORY_MATERIAL_NOTICE}
 

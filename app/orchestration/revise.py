@@ -29,6 +29,7 @@ from app.core.prompt_markers import (
     CURRENT_BEAT_MARK,
     PRIOR_FENCE,
     SCENE_CHARACTERS_SECTION,
+    TIGHTEN_CLAUSE,
 )
 from app.llm.client import get_llm_client
 from app.orchestration.pov import NAMING_RULE, Pov, pov_instruction
@@ -210,6 +211,9 @@ REDO_CHANGE = (
     "as written, unless it must change to fit the change."
 )
 _REDO_LEAD = re.compile(r"^\s*redo beat \d+\s*[.:]?", re.I)
+# A cut request (SPEC-59): what is asked, its "Redo beat N" lead removed, names
+# one of these words. The product's rule alone; no grader reads it.
+_CUT_WORDS = re.compile(r"\b(?:cut|tighten|trim|shorten|condense|pare)\b", re.I)
 DROPPED_CALLBACK = (
     "This version drops {terms}, which the rest of this chapter refers to."
 )
@@ -309,13 +313,15 @@ def build_revise_prompt(
     `beat` is (beat_index, the scene's beat lines) when the author asked to
     redo a beat: the prompt names the beat and shows the scene's whole plan
     with it marked, then `keep` (what the rest of the chapter refers to, as
-    (term, context)) and how much to change (SPEC-41, SPEC-47)."""
+    (term, context)) and how much to change (SPEC-41, SPEC-47). A cut request
+    also gets `TIGHTEN_CLAUSE`: a direction, never a quota (SPEC-59)."""
+    asked = _REDO_LEAD.sub("", instruction).strip()
+    tighten = f"\n{TIGHTEN_CLAUSE}" if _CUT_WORDS.search(asked) else ""
     plan_line = ""
     if beat:
         index, lines = beat
         description = " ".join(clean_for_llm(lines[index]).split())
         terms = ", ".join(f'{t} ("{c}")' for t, c in keep)
-        asked = _REDO_LEAD.sub("", instruction).strip()
         plan_line = "\n".join(
             [
                 f"\nBeat {index + 1} of this scene's plan: {description}",
@@ -374,7 +380,7 @@ faithful to the canon above: its people, places, terms and its style guide
 (point of view, tense, tone). Keep the events, and the facts, people and
 objects the surrounding text depends on. Do not add headings, labels,
 quotation of the instruction, or commentary — return the revised passage
-itself, and nothing else.
+itself, and nothing else.{tighten}
 
 Revised passage:"""
 
