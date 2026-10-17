@@ -234,7 +234,7 @@ and the judge at a **separate** relay so the model under test never grades itsel
 ```bash
 EVAL_JUDGE_BASE_URL=http://127.0.0.1:8298/v1 EVAL_JUDGE_LABEL=claude-judge \
 LLM_TIMEOUT_SECONDS=1800 EVAL_POLL_SCALE=20 EVAL_RELAY_DIR=/tmp/relay-queue \
-python -m evals.run --book cel --steps extraction,attribution,outline,continuity,prose,revise
+python -m evals.run --book cel --steps extraction,outline,continuity,prose,revise,attribution
 ```
 
 `EVAL_POLL_SCALE` multiplies every harness poll timeout (default 1), because an agent

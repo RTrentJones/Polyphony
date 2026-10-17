@@ -109,6 +109,13 @@ class TestTracerExport:
             c["name"] for c in report.greenlight_export(run | {"book": "b"})["checks"]
         }
 
+    def test_a_reported_only_run_does_not_pass(self):
+        from evals.harness import report
+
+        run = {"steps": {"attribution": {"score": 0.9, "status": "reported"}}}
+        out = report.tracer_export(run, model="m")
+        assert (out["passed"], out["pass_rate"], len(out["cases"])) == (False, 0.0, 1)
+
     def test_scores_bounded_0_1_for_zod(self):
         # Tracer's zod caps case.score at [0,1]; the export must clamp so an
         # out-of-range score can't 422 the whole payload.

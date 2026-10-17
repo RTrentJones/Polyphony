@@ -496,7 +496,7 @@ async def step_retrieval(ctx: StepContext) -> dict:
     return {**score.as_dict(), "score": score.precision_at_k, "characters": list(gold)}
 
 
-# --- Step 3: voice attribution (real generation + embedding) ---------------
+# --- Voice attribution (real generation + embedding), registered last -------
 # D13: probe draws per character; W8-2: ten, pooled and reported, never gated
 # (the fixed-input gate is SPEC-55's probe rows). Run it last (S-3).
 ATTRIBUTION_DRAWS = 10

@@ -181,7 +181,7 @@ def tracer_export(
     (what we're trending), not the judge. Skipped/errored steps are dropped so a
     partial run (e.g. keyless, retrieval-only) still ingests cleanly.
     """
-    cases = []
+    cases, gated = [], []
     for name, res in run["steps"].items():
         if res.get("skipped") or "error" in res or res.get("score") is None:
             continue
@@ -201,10 +201,8 @@ def tracer_export(
                 "judge_rationale": (res.get("judge_explanation") or "")[:16000] or None,
             }
         )
-    # A reported step (attribution, SPEC-60) is trended, never gated.
-    gated = [
-        c for c in cases if run["steps"][c["name"][5:]].get("status") != "reported"
-    ]
+        if res.get("status") != "reported":  # SPEC-60: trended, never gated
+            gated.append(cases[-1])
     n = len(gated)
     n_pass = sum(1 for c in gated if c["passed"])
     return {
@@ -213,6 +211,7 @@ def tracer_export(
         "mode": "eval",
         "env": env,
         "git_sha": run.get("app_sha"),
+        # No gated case, no pass (a reported-only run, e.g. attribution alone).
         "passed": n > 0 and n_pass == n,
         "pass_rate": round(n_pass / n, 4) if n else 0.0,
         "cases": cases,
