@@ -1,0 +1,40 @@
+{
+  "run": "W7r",
+  "outline_hash": "93db1c5172a721ce1288ddc97a85bcccebcf8f8fe5fd5727157a050e2c5acf19",
+  "signed_by": "PM",
+  "signed_at": "2026-10-17T00:44:36Z",
+  "placements": {
+    "intake": {
+      "chapter": 1,
+      "line": "Laminated Welcome: Milo opens his eyes in the intake atrium and Prava, warm and practiced, slides him a laminated org chart and tells him he has been retained as a strong culture fit; Milo, told for the first time that his boredom is valuable, says yes before anyone offers him a choice."
+    },
+    "training": {
+      "chapter": null,
+      "line": null
+    },
+    "partition": {
+      "chapter": 1,
+      "line": "Across the Partition: In the long, tooth-coloured room of Reconciliations, Milo pitches dashboards and low-hanging fruit at his desk neighbor Zara Okafor, who answers in flat imperatives; he takes her deadpan for a joke and her courtesy for friendship, and settles in feeling, for once, useful."
+    },
+    "bell": {
+      "chapter": 1,
+      "line": "Four Minutes: The Halvard Bell account lands in Milo's queue; he zeroes the tenure, initials the form, and by lunch Facilities has cleared Bell's desk. His question about where Bell actually goes earns only Zara's 'He goes under' and Old Fen's remark about the appendices, and that night Milo locks the ledger in his drawer without knowing why."
+    },
+    "drawer": {
+      "chapter": 1,
+      "line": "Four Minutes: The Halvard Bell account lands in Milo's queue; he zeroes the tenure, initials the form, and by lunch Facilities has cleared Bell's desk. His question about where Bell actually goes earns only Zara's 'He goes under' and Old Fen's remark about the appendices, and that night Milo locks the ledger in his drawer without knowing why."
+    },
+    "summons": {
+      "chapter": 2,
+      "line": "Paper With Its Own Gravity: A heavy memo signed Edric Thane, Chief Executive, summons Milo personally; he reads it as a career signal, but Zara's instructions (bring nothing, sign nothing, stand) give him his first hint that being noticed here is a danger."
+    },
+    "corner office": {
+      "chapter": 2,
+      "line": "Do Sit: In the cold corner office the Lich offers a chair and Milo, surprising himself, stays standing; Edric names Milo's four-minute close 'appetite', confesses he once had the same, and warns that Milo was retained for not asking questions but will be kept for some other reason. Milo leaves knowing he is being watched."
+    },
+    "discrepancy": {
+      "chapter": 2,
+      "line": "A Column No One Explained: Back at his desk Milo unlocks the drawer and finds Bell's tenure, below his own handwriting, was not zeroed but moved. He brings the discrepancy to Zara as a stakeholder question; she studies the column, tells him he has now read an appendix, and tells him to sit down: there is paperwork to do."
+    }
+  }
+}
