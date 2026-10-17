@@ -41,3 +41,5 @@ every principal, all emptied by rule (paragraphs 0, 3, 9, 13, 27 for Milo; 3, 29
 past the later-plot cut. The rule is right and the store is too thin: this is a target the wave did
 not measure, not a pass of `movement_coverage` ≥ 0.8. Voice is unchanged: Milo [4, 6], Zara [5, 7].
 Wave 6 (W6-1, ex W5-11) makes manner samples survive a thin store.
+
+**Amendment (wave 8, W8b).** A paragraph's chapter is the earliest whose line restates it (≥ RESTATES_MIN) within `TIE_WORDS` = 1 of its best line, so placement no longer depends on the scope and the cut is monotone. On W8b's outline (`polyphony_w8b`), `later_plot_from` returns 9 for chapters 1–3, where it returned 3 (the ch-1 desk scene shares 5, the ch-4 line 6); W4's chapters 2–4 move from 17 to None (W4 plans the corner office in ch 2).

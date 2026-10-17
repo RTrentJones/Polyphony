@@ -1,5 +1,5 @@
 {
- "about": "Plan lines of the W4, W4b2, W5, W5b and W5d relay outlines (the outline:beats answers, in order): one entry per scene node, with its 1-based chapter number. A node's plan line is beat_scene_description(entry), 'title: summary'. Copied once (tpm-plan-wave5 §1(i)); tests never read the archives.",
+ "about": "Plan lines of the W4, W4b2, W5, W5b, W5d and W8b relay outlines (the outline:beats answers, in order): one entry per scene node, with its 1-based chapter number. A node's plan line is beat_scene_description(entry), 'title: summary'. Copied once (tpm-plan-wave5 §1(i)); tests never read the archives.",
  "w4": [
   {
    "chapter": 1,
@@ -563,6 +563,118 @@
    "chapter": 6,
    "title": "Plain Language",
    "summary": "Back in Reconciliations, Milo's boredom returns and he understands it was never a personality but a wound where his questions used to be. Zara, after two centuries of anger, has company. The Undeath Pipeline must now explain to its customers, in plain language, what it does."
+  }
+ ],
+ "w8b": [
+  {
+   "chapter": 1,
+   "title": "A Meeting That Could Have Been an Email",
+   "summary": "Milo dies mid-sentence, complaining about a pointless meeting, and opens his eyes in a queue of the newly dead; the end of his life registers less as a catastrophe than as an agenda item he was not consulted on."
+  },
+  {
+   "chapter": 1,
+   "title": "The Laminated Org Chart",
+   "summary": "Prava, warm and practised, slides a laminated org chart across a laminate desk, explains tenure as the only currency and the onward as what it buys, and tells Milo his forty-one years of optimisation make him a strong culture fit for Reconciliations; for the first time in decades he feels seen, and he says yes before any choice is offered."
+  },
+  {
+   "chapter": 1,
+   "title": "Lanyard, Desk, Mentor",
+   "summary": "Milo is issued a lanyard and walked into the windowless, clockless Marrow District to a desk beside Zara Okafor, whose flat reply to his eager questions he decides to read as friendliness; his new life now has a quota, a neighbour, and a mentor who does not look up."
+  },
+  {
+   "chapter": 2,
+   "title": "Zero It Out",
+   "summary": "Zara teaches Milo the procedure in short commands, review the tenure, zero it, file the form that sends the soul under, and refuses to say where under is; Milo learns the work and learns that asking the next question earns only silence."
+  },
+  {
+   "chapter": 2,
+   "title": "Best Numbers on the Floor",
+   "summary": "Over a fiscal year of gray coffee and all-hands confetti that dissolves before it lands, Milo becomes the fastest closer in the department and enjoys it, while Zara's only training becomes the instruction to check every line twice; his competence turns into pride."
+  },
+  {
+   "chapter": 2,
+   "title": "It Doesn't Reconcile",
+   "summary": "Closing a routine restructured account, Milo checks twice as he was taught and finds the tenure leaving the ledger faster than labour can explain, all of it flowing upward to one pooled account at the top of the org chart marked only CEL, which he has always assumed was a department; Zara, asked what it means, tells him to check it a third time."
+  },
+  {
+   "chapter": 3,
+   "title": "A Request for Source Documents",
+   "summary": "Milo asks Zara how to trace a pooled account; she gives him a Records requisition form already filled out except for his signature, and he realises, without quite saying so, that she has been waiting for him to ask."
+  },
+  {
+   "chapter": 3,
+   "title": "Old Fen Files Himself",
+   "summary": "In the endless stacks Milo finds Old Fen, so long in Records that parts of him are cross-referenced, contentedly indexing; Fen's untroubled calm unsettles Milo and tempts him, because it looks like peace."
+  },
+  {
+   "chapter": 3,
+   "title": "Under Is Upward",
+   "summary": "Old Fen pulls the original routing schedules without a flicker of concern and shows Milo that souls sent under are not closed but harvested, their accrued tenure piped up to sustain the CEL, which the oldest file names as a person: Edric Thane, once a clerk in Reconciliations; Milo learns that the department he loves is the intake valve of the harvest."
+  },
+  {
+   "chapter": 3,
+   "title": "Opportunities for Improvement",
+   "summary": "Back at his desk, Milo's first reflex is to open a template titled Process Improvement Proposal and start bulleting the leak as an efficiency finding for Management; Zara watches him type and says nothing at all, and the silence is the first thing that makes him hesitate."
+  },
+  {
+   "chapter": 4,
+   "title": "Stakeholder Alignment",
+   "summary": "Milo polishes the report and rehearses the review where it earns him tenure and a step up the org chart, the same climb the oldest file describes; the ambition feels good, and he notices for the first time that the good feeling frightens him."
+  },
+  {
+   "chapter": 4,
+   "title": "A Retention Call",
+   "summary": "Sent to Retention to verify a figure, Milo watches Halvard Bell, once a dentist, cheerfully talk a wavering soul out of despair and back onto the schedule, then sit alone afterwards with his hands shaking; Milo sees what being good at this job costs the people who do it."
+  },
+  {
+   "chapter": 4,
+   "title": "Eleven Thousand Names",
+   "summary": "Prava, off the clock, shows Milo the private ledger she is not permitted to keep, the name of every soul she has onboarded, his own among the most recent, and tells him she weeps at every graduation because it is her only proof that leaving is possible; the souls in his closed accounts acquire names."
+  },
+  {
+   "chapter": 4,
+   "title": "Not a Rebellion",
+   "summary": "Milo deletes the report and tells Zara, in a long hedging rush, that he cannot stand himself; she answers in four flat sentences, not a war, not a rebellion, a work stoppage, a union of the dead run through Reconciliations, and slides a signature sheet onto his desk, and he signs it."
+  },
+  {
+   "chapter": 5,
+   "title": "Signature Sheet",
+   "summary": "Milo follows Zara floor to floor and watches her organise in near silence: Halvard Bell signs first, relieved to stop talking anyone back onto anything, and Prava signs and adds eleven thousand names from her ledger as witnesses; Milo learns that solidarity, here, looks exactly like filling in a form."
+  },
+  {
+   "chapter": 5,
+   "title": "Fen Declines",
+   "summary": "Old Fen, content as ever, will not sign, but he hands Milo the cross-reference that ties every sent-under soul to the pooled account, the one document the reconciliation needs; Milo understands that contentment can still be useful and that Zara expected exactly this."
+  },
+  {
+   "chapter": 5,
+   "title": "Restructuring the Account at the Top",
+   "summary": "Working end to end through the clockless dark, Milo reconciles every soul the Pipeline ever sent under, restores their tenure line by line, and files the restructuring of Edric Thane's pooled account through Reconciliations under the Lich's own procedures; the job he was good at becomes the instrument that will close its owner."
+  },
+  {
+   "chapter": 5,
+   "title": "Reply All",
+   "summary": "Milo drafts the all-staff email announcing the work stoppage, deletes every phrase of corporate jargon at Zara's instruction until only plain language is left, and sends it; the Marrow District stops hoping on schedule, and within minutes the summons to the corner office arrives."
+  },
+  {
+   "chapter": 6,
+   "title": "The Office at the Top",
+   "summary": "Milo walks alone into the office no employee returns from unchanged and meets Edric Thane, who addresses him as Mr. Voss, reviews his numbers with real admiration, and offers him the climb the Lich himself once made; Milo recognises his own ambition in the offer and feels its full pull."
+  },
+  {
+   "chapter": 6,
+   "title": "One Sheet of Paper",
+   "summary": "Milo hands over a single sheet, his resignation, with the full reconciliation attached, and when Edric argues that hope is a renewable resource meant to be spent, Milo says aloud that the one soul who could buy the onward chose not to take it; the Lich's certainty cracks along the fear Milo names."
+  },
+  {
+   "chapter": 6,
+   "title": "Filed Correctly",
+   "summary": "Edric checks the reconciliation, finds it procedurally flawless under the rules he enforced for six centuries, initials it in the correct box, and, a clerk undone by a clerk, goes onward; Milo watches the pooled account zero out and the most powerful being in the afterlife leave like any other closed account."
+  },
+  {
+   "chapter": 6,
+   "title": "Sometimes It's Quieter",
+   "summary": "Milo returns to his desk beside Zara as a plain-language notice explaining exactly what the Pipeline does goes out to every soul in the Marrow District; he finds his boredom back and understands it was a wound where his questions used to be, and Zara, for once, looks up."
   }
  ]
 }

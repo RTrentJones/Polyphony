@@ -1284,6 +1284,8 @@ def grade(
             tallies["voice_dialogue"].add(rec, reasons)
 
     out = {k: t.as_dict() for k, t in tallies.items()}
+    # Reported beside score (§6.2 names the run's exemptions): checks with n = 0.
+    out["empty_checks"] = sorted(k for k in CHECKS if not out[k]["n"])
     short = voice_counts.pop("short")
     out["voice_dialogue"]["samples"] = voice_counts
     # Reported, not gated (§6.3): voice samples too short to carry a voice.
