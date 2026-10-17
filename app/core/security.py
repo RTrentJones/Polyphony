@@ -10,7 +10,7 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from .config import settings
 from .logging_config import log_error, setup_logging
@@ -219,6 +219,15 @@ async def _by_raw(db: AsyncSession, raw_token: str) -> Optional[RefreshToken]:
     return result.scalar_one_or_none()
 
 
+async def _lock_lineage(db: AsyncSession, key) -> None:
+    """Serialize rotation and logout of one lineage until the transaction ends
+    (Postgres advisory lock; a no-op on SQLite, which the unit tests use)."""
+    if db.get_bind().dialect.name == "postgresql":
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": str(key)}
+        )
+
+
 async def rotate_refresh_token(
     db: AsyncSession, raw_token: str, user_agent: str = ""
 ) -> Optional[tuple[UserORM, str]]:
@@ -227,15 +236,23 @@ async def rotate_refresh_token(
     Returns (user, new_raw_token) or None. An ended token (logout, theft) is
     refused. A rotated token presented again within the grace window gets a
     fresh token in its family, even past its natural expiry; after the window
-    it is theft and every token of the user is ended.
+    it is theft and every token of the user is ended. A rotated pre-0020 token
+    has no family, so it is never graced. The caller must commit even on None,
+    or the theft revocation is rolled back.
     """
     stored = await _by_raw(db, raw_token)
-    if stored is None or stored.ended_at is not None:
+    if stored is None:
+        return None
+    await _lock_lineage(db, stored.family_id or stored.id)
+    await db.refresh(stored)  # a logout that held the lock may have ended it
+    if stored.ended_at is not None:
         return None
     now = datetime.now(timezone.utc)
     rotated_at = _utc(stored.revoked_at)
     grace = timedelta(seconds=settings.REFRESH_REUSE_GRACE_SECONDS)
-    if rotated_at is not None and now - rotated_at >= grace:
+    if rotated_at is not None and (
+        stored.family_id is None or now - rotated_at >= grace
+    ):
         await revoke_all_refresh_tokens(db, stored.user_id)
         return None
     if rotated_at is None and _utc(stored.expires_at) <= now:
@@ -262,11 +279,14 @@ async def revoke_refresh_token(db: AsyncSession, raw_token: str) -> None:
     if stored.family_id is None:
         stored.ended_at = stored.ended_at or now
         return
-    family = await db.execute(
-        select(RefreshToken).where(
+    await _lock_lineage(db, stored.family_id)
+    family = await db.execute(  # after the lock: sees a graced sibling
+        select(RefreshToken)
+        .where(
             RefreshToken.family_id == stored.family_id,
             RefreshToken.ended_at.is_(None),
         )
+        .execution_options(populate_existing=True)
     )
     for token in family.scalars().all():
         token.ended_at = now

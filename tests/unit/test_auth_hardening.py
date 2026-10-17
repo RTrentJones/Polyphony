@@ -9,6 +9,7 @@ from sqlalchemy import select
 from app.api.auth import _consume_invite
 from app.core.orm_models import InviteCode, RefreshToken, User
 from app.core.security import (
+    REFRESH_COOKIE_NAME,
     _hash_refresh_token,
     get_password_hash,
     issue_refresh_token,
@@ -203,6 +204,63 @@ class TestRefreshRotation:
         stored.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
         await async_session.commit()
         assert await rotate_refresh_token(async_session, raw) is not None
+
+    @pytest.mark.asyncio
+    async def test_a_rotated_pre_0020_token_is_never_graced(self, async_session, user):
+        """No family to end on logout, so no grace: reuse is theft, as before."""
+        raw = await issue_refresh_token(async_session, user)
+        live = await issue_refresh_token(async_session, user)
+        await async_session.commit()
+        stored = (
+            await async_session.execute(
+                select(RefreshToken).where(
+                    RefreshToken.token_hash == _hash_refresh_token(raw)
+                )
+            )
+        ).scalar_one()
+        stored.family_id = None
+        stored.revoked_at = datetime.now(timezone.utc)
+        await async_session.commit()
+        assert await rotate_refresh_token(async_session, raw) is None
+        await async_session.commit()
+        assert await rotate_refresh_token(async_session, live) is None
+
+    @pytest.mark.asyncio
+    async def test_theft_detected_by_the_endpoint_is_kept(self, async_session, user):
+        """/refresh answers 401 on theft; the revocation must survive the
+        rollback that the 401 triggers in get_db."""
+        import httpx
+
+        from app.core.database import get_db
+        from app.main import app
+
+        async def real_get_db():  # get_db's semantics on the test session
+            try:
+                yield async_session
+                await async_session.commit()
+            except Exception:
+                await async_session.rollback()
+                raise
+
+        t0 = await issue_refresh_token(async_session, user)
+        await async_session.commit()
+        _, t1 = await rotate_refresh_token(async_session, t0)
+        await async_session.commit()
+        await _age_rotation(async_session, _hash_refresh_token(t0), 31)
+
+        app.dependency_overrides[get_db] = real_get_db
+        try:
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://test"
+            ) as c:
+                r = await c.post(
+                    "/api/v1/auth/refresh", cookies={REFRESH_COOKIE_NAME: t0}
+                )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+        assert r.status_code == 401
+        assert await rotate_refresh_token(async_session, t1) is None
 
     @pytest.mark.asyncio
     async def test_logout_and_theft_are_never_graced(self, async_session, user):

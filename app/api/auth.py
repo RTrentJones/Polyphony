@@ -195,6 +195,7 @@ async def refresh(
         )
     rotated = await rotate_refresh_token(db, raw, request.headers.get("user-agent", ""))
     if rotated is None:
+        await db.commit()  # keep a theft revocation: the 401 below rolls back
         response.delete_cookie(REFRESH_COOKIE_NAME, path="/api/v1/auth")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
