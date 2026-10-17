@@ -205,6 +205,59 @@ class TestEvidence:
         assert re.search(r"up to\s+3 short quotes", prompt)
 
 
+# --- SPEC-56 (W7-4 (a)): map evidence is the author's text, or nothing ---------------
+
+W6 = json.loads(
+    (Path(__file__).parents[1] / "fixtures" / "w6_archives.json").read_text()
+)
+VOSS = '"Mr. Voss," the Lich said. "Do sit.'
+
+
+def test_every_archived_evidence_line_is_kept_repaired_or_dropped():
+    """(F) The 80 W5d/W5bd/W6/W6b evidence lines against their windows: verbatim
+    is kept as written, a splice across a tag becomes the author's span (tag
+    included), and what remains is a run of the window. ", warmly" is no tag
+    clause (`tag_spans`), so that one splice is dropped."""
+    from collections import Counter
+
+    from app.parsing.character_extractor import normalize_quotes
+
+    seen = Counter()
+    for row in W6["evidence"]["rows"]:
+        window = W6["windows"][row["window"]]
+        out = ce.verbatim_evidence([row["quote"]], window)
+        flat = " ".join(normalize_quotes(window).split())
+        assert all(e.strip("\"' ") in flat for e in out), row
+        kind = "kept" if out == [row["quote"]] else "repaired" if out else "dropped"
+        seen[kind] += 1
+        adverb = "adverb" in row.get("note", "")
+        expect = {"verbatim": "kept", "tag_split": "dropped" if adverb else "repaired"}
+        assert kind == expect.get(row["label"], kind), row
+        assert row["label"] != "tag_split" or adverb or " said. " in out[0], row
+    assert seen == {"kept": 60, "repaired": 14, "dropped": 6}
+    assert ce.verbatim_evidence(
+        ["Mr. Voss, do sit."], W6["windows"]["cel_excerpt"]
+    ) == [VOSS]
+
+
+async def test_the_map_keeps_only_the_authors_text(monkeypatch):
+    """(F) Through the map call; a member left with nothing narrates its part."""
+    raw = {
+        "characters": [
+            {"name": "Edric Thane", "evidence": ["Mr. Voss, do sit.", "I am kind."]},
+            {"name": "Old Fen", "evidence": ["Fen was never here."]},
+        ]
+    }
+
+    async def answer(*a, **kw):
+        return raw
+
+    monkeypatch.setattr(ce, "_json_call", answer)
+    (win,), _ = await ce._map_one(W6["windows"]["cel_excerpt"], "1", 1, None, {})
+    merged = {g["name"]: g["evidence"] for g in ce.merge_characters([(0, win)])}
+    assert merged == {"Edric Thane": [(0, VOSS)], "Old Fen": [(0, "narrates part 1")]}
+
+
 # --- reduce input (P10) --------------------------------------------------------
 
 

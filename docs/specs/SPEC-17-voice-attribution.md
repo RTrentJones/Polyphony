@@ -76,13 +76,14 @@ case-insensitive dedupe across the source:
 
 - A paragraph where the character speaks yields **one `dialogue` chunk per run of their spans**,
   containing their words only. A split quote is one utterance; the narration around the line is
-  not their voice. **A voice sample is at least 3 words**: a bare vocative or exclamation
+  not their voice, but it is their movement (SPEC-53). **A voice sample is at least 3 words**: a bare vocative or exclamation
   (`"Zara,"`, `"So!"`) is not indexed, and the paragraph is not indexed as narration either.
 - A paragraph that carries anyone else's speech is **not indexed for this character**. That
   covers a span credited to someone else (a pronoun tag included), and an uncredited span of at
   least 3 words; shorter uncredited spans are treated as scare quotes. Without this rule, another
   speaker's words would reach this character's samples (`"You've been retained," the caseworker
-  said. Milo Voss nodded slowly.` is not Milo's).
+  said. Milo Voss nodded slowly.` is not Milo's). Since SPEC-53, when no span is credited to
+  someone else, the paragraph's tag-less narration is still indexed as their movement.
 - Any other paragraph that names them is indexed as action, thought or description, as before.
   `_classify_chunk` only ever types narration (dialogue chunks are the character's own lines).
 - `extract_narration` (SPEC-09) applies the same rule to its alias and first-person-narration

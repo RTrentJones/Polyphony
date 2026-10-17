@@ -63,6 +63,14 @@ Wave 6 (SPEC-52): ``json_mode_where_json``  each ``JSON_PURPOSES`` call recorded
 ``response_format`` JSON_OBJECT. ``movement`` (D3a) and the reported
 ``hindsight`` and ``scripted_slots``: see ``grade``.
 
+Wave 7 (SPEC-54): the plot gates (``samples_not_plot``, ``movement``,
+``unplaced_events``) read only the PM-signed placement whose outline hash is
+the run's (``plot.placements``); without one they are ``None`` and
+``placement_signed`` is false. ``evidence_verbatim``  extraction_reduce: every
+evidence quote is a run of the uploaded source (whitespace and quote marks
+normalised); reports ``lines`` {n, verbatim, stand_ins}: a run whose
+quotes were mostly dropped to stand-ins shows it.
+
 Each check reports ``{n, passed, rate, failures}``; a check with nothing to
 check (no such call in the archive) reports ``n == 0`` and ``rate = None``, so
 an archive from before a contract existed still grades.
@@ -90,6 +98,8 @@ from app.core.prompt_markers import (
     CURRENT_BEAT_MARK,
     EARLIER_BEATS,
     EMOTIONAL_TONE_LABEL,
+    EVIDENCE_ITEM,
+    EVIDENCE_STAND_IN,
     INTRODUCED_LABEL,
     MOVEMENT_LABEL,
     NAME_HEADING,
@@ -542,6 +552,41 @@ def check_reduce_evidence(
     return reasons, checked
 
 
+_QUOTE_MARKS = str.maketrans(dict.fromkeys('"“”‘’', "'"))
+_EVIDENCE_ITEM = re.compile(
+    r"(?m)^\s*"
+    + re.escape(EVIDENCE_ITEM)
+    .replace(re.escape("{part}"), r"\d+")
+    .replace(re.escape("{quote}"), r"(.+?)\s*$")
+)
+
+
+# The extractor's mark for a member with no quote left (W7-4 (a)): evidence
+# "marked as not" verbatim, so it is neither a quote nor a failure.
+_STAND_IN = re.compile(
+    re.escape(EVIDENCE_STAND_IN).replace(re.escape("{part}"), r"\d+")
+)
+
+
+def verbatim_text(text: str) -> str:
+    """Whitespace collapsed and every quote mark one mark (W7-4 (b))."""
+    return " ".join(text.translate(_QUOTE_MARKS).split())
+
+
+def check_evidence_verbatim(prompt: str, source: str) -> tuple[list[str], int, int]:
+    """W7-4 (b): (reasons, quotes, stand-ins) over the reduce prompt's evidence
+    lines; a quote passes when, outer quote marks aside, it is a run of
+    `source` (the uploaded manuscript, already `verbatim_text`)."""
+    items = _EVIDENCE_ITEM.findall(prompt)
+    quotes = [q for q in items if not _STAND_IN.fullmatch(q)]
+    reasons = [
+        f"not in the source: {q!r}"
+        for q in quotes
+        if verbatim_text(q).strip("' ") not in source
+    ]
+    return reasons, len(quotes), len(items) - len(quotes)
+
+
 def _json_array(text: str) -> list:
     t = (text or "").strip().replace("```json", "").replace("```", "")
     start, end = t.find("["), t.rfind("]")
@@ -864,6 +909,8 @@ CHECKS = (
     "samples_not_plot",
     # wave 6
     "json_mode_where_json",
+    # wave 7
+    "evidence_verbatim",
 )
 
 NONE_INDEXED = "none indexed"  # D3a: a principal whose store is empty
@@ -913,6 +960,7 @@ def grade(
     excerpt_events: list | None = None,
     excerpt: str = "",
     movement_store: dict[str, list[str]] | None = None,
+    source: str = "",
 ) -> dict:
     """Run every check over an archive (see the module docstring).
 
@@ -927,7 +975,9 @@ def grade(
     people a movement sample may not name outside its scene (wave 3).
     `excerpt_events` and the `excerpt` they index are the plot gold (wave 5).
     `movement_store` is each principal's indexed movement chunks (the prose
-    step's `voice.movement`): D6 reads it, else the lines shown in the run."""
+    step's `voice.movement`): D6 reads it, else the lines shown in the run.
+    `source` is the manuscript the run uploaded (wave 7, evidence_verbatim).
+    The events are placed by the signed file in `plot.PLACEMENTS` (D4)."""
     gold = {
         who: [*(v.get("train") or []), *(v.get("test") or [])]
         for who, v in (gold_lines or {}).items()
@@ -959,7 +1009,14 @@ def grade(
     lifts: list[int] = []
     book_titles: set[str] = set()
     pg = {"events": excerpt_events or [], "paragraphs": excerpt.split("\n\n")}
-    placed = plot.locate(pg["events"], plot.outline_chapters(records))
+    signed = (
+        plot.placements(records, pg["events"], plot.PLACEMENTS)
+        if pg["events"]
+        else None
+    )
+    placed = plot.placed_chapters(signed) if signed else {}
+    src = verbatim_text(source)
+    evidence = dict.fromkeys(("n", "verbatim", "stand_ins"), 0)
     plotted = dict.fromkeys(("classified", "later_plot_slots"), 0)
     # D3a: a principal is eligible in a beat when the store holds a line of
     # theirs that is not gold plot there; every eligible block must move.
@@ -1051,6 +1108,13 @@ def grade(
                 for o, ss in voice_samples(prompt).items()
                 for s in ss
             ]
+        if pur == "extraction_reduce" and src:
+            reasons, quotes, stand_ins = check_evidence_verbatim(prompt, src)
+            evidence["stand_ins"] += stand_ins
+            if quotes:
+                tallies["evidence_verbatim"].add(rec, reasons)
+                evidence["n"] += quotes
+                evidence["verbatim"] += quotes - len(reasons)
         if pur == "extraction_reduce" and principal_names:
             reasons, checked = check_reduce_evidence(prompt, principal_names, aliases)
             if checked:
@@ -1131,10 +1195,19 @@ def grade(
     out["movement"]["ok"] = move.passed == move.n if move.n else stored
     out["hindsight"] = hindsight  # reported (W6-3)
     out["scripted_slots"] = scripted  # reported (D4)
-    unplaced = plot.unplaced(pg["events"], plot.outline_chapters(records))
+    unplaced = plot.unplaced(pg["events"], signed) if signed else None
     out["samples_not_plot"].update(plotted, placed=placed, unplaced_events=unplaced)
     # Gated with classified > 0 (§6.2): a run that showed no sample proves nothing.
     out["samples_not_plot"]["vacuous"] = plotted["classified"] == 0
+    # Gated 1.0 (§6.2): the evidence lines that are the author's own words.
+    out["evidence_verbatim"]["lines"] = evidence
+    # Reported (S-4): where the term-match draft and the signed file disagree.
+    out["placement_disagreements"] = plot.disagreements(records, pg["events"], signed)
+    if pg["events"]:  # D4: a plot gate reads the signed placement, or nothing
+        out["outline_hash"] = plot.outline_hash(records)
+        out["placement_signed"] = signed is not None
+        if signed is None:  # S-4: no provisional numbers
+            out["samples_not_plot"] = out["movement"] = None
     # Gated 0 / 0 by the eval (§6.2): the worst beat, and how many beats lift.
     out["sample_lift"]["max_shared"] = max(lifts, default=0)
     out["sample_lift"]["share_of_beats"] = (
@@ -1168,13 +1241,21 @@ def corpus_inputs(gt: dict, style: dict | None) -> dict:
         ],
         "secondary_cast": list(gt.get("secondary_cast") or []),
         "excerpt_events": gt.get("excerpt_events"),
-        "excerpt": _excerpt(gt.get("book") or ""),
+        "excerpt": _corpus_file(gt.get("book") or "", "excerpts.txt"),
+        "source": _source(gt.get("book") or ""),
     }
 
 
-def _excerpt(book: str) -> str:
-    path = Path(__file__).resolve().parent.parent / "corpora" / book / "excerpts.txt"
+def _corpus_file(book: str, name: str) -> str:
+    path = Path(__file__).resolve().parent.parent / "corpora" / book / name
     return path.read_text(encoding="utf-8") if book and path.is_file() else ""
+
+
+def _source(book: str) -> str:
+    """The manuscript the eval uploads (`pipeline.load_corpus`): the synopsis,
+    when the corpus has one, then the excerpt."""
+    parts = (_corpus_file(book, n) for n in ("synopsis.txt", "excerpts.txt"))
+    return "\n\n".join(t.rstrip() for t in parts if t)
 
 
 def main() -> None:

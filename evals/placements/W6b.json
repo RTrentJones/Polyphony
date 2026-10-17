@@ -1,0 +1,40 @@
+{
+  "run": "W6b",
+  "outline_hash": "782d0796f58560ac3e0315013c361f3a0cdb602f77ee9e342b51cb107e54119e",
+  "signed_by": "PM",
+  "signed_at": "2026-10-16T18:04:36Z",
+  "placements": {
+    "intake": {
+      "chapter": 1,
+      "line": "Strong Culture Fit: Prava slides a laminated org chart across her desk and tells him warmly that his forty-one years of optimisation make him a strong culture fit. Milo says yes to Reconciliations before anyone offers him a choice. He notices she writes his name in a small private notebook that is not the official form, but his overriding feeling is that someone has finally seen him."
+    },
+    "training": {
+      "chapter": null,
+      "line": null
+    },
+    "partition": {
+      "chapter": 1,
+      "line": "Sometimes It's Quieter: Milo arrives in Reconciliations with a lanyard and a desk beside Zara Okafor, who trains him in short flat instructions and never looks up. He chatters, over-explains and asks eager questions, and she answers in single words. By the end of the shift he has closed his first restructured account cleanly and feels useful for the first time in decades, without asking where the account went."
+    },
+    "bell": {
+      "chapter": 2,
+      "line": "Top of the Curve: A year on, Milo leads Reconciliations on quota and is praised in the newsletter, which everyone at the coffee station quietly agrees is the worst part. Zara asks him one flat question about where a closed account goes, and he answers cheerfully that it is not their workstream. His competence is now visibly a habit of not asking."
+    },
+    "drawer": {
+      "chapter": null,
+      "line": null
+    },
+    "summons": {
+      "chapter": 6,
+      "line": "Summoned Upstairs: The stoppage notice reaches the top of the org chart and Milo is summoned to the office no employee returns from unchanged. At the lift Zara tells him, 'Don't explain. Hand it over.' Milo goes up alone with one sheet of paper and its attachment."
+    },
+    "corner office": {
+      "chapter": 6,
+      "line": "Mr. Voss: Edric Thane receives Milo with formal courtesy and tries to recruit him upward, offering the same climb he once made. Milo hands over his resignation with the reconciliation attached. Edric reads it, finds no error and sees that by his own rules his pooled account is zeroed and every harvested soul's tenure restored. He recognises in Milo the clerk he used to be."
+    },
+    "discrepancy": {
+      "chapter": 2,
+      "line": "The Numbers Do Not Reconcile: Closing a routine restructured account, Milo finds the remaining tenure leaving the ledger faster than any labor could explain. He follows the transfers, still sure it is a clerical error he can fix, and finds every one routed into a single pooled account at the top of the org chart. He asks Zara whether it is always like this, and she says, 'Look again.' The act ends with Milo unable to make the numbers balance."
+    }
+  }
+}

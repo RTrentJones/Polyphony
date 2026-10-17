@@ -265,6 +265,26 @@ python -m evals.tools.build_gt --book dracula                                 # 
   `premise_edit` and five continuity injections planted in the excerpt;
   `style.json` is the style guide. Provenance in `corpora/cel/PROVENANCE.md`.
 
+## Signed placements
+
+`evals/placements/<run>.json` is a person's reading of where one run's outline plans each
+`excerpt_events` event. It is the only placement a plot gate reads:
+
+```json
+{"run": "W6b", "outline_hash": "<plot.outline_hash(records)>", "signed_by": "PM", "signed_at": "2026-10-…",
+ "placements": {"bell": {"chapter": 2, "line": "The Numbers Do Not Reconcile: …"},
+                "drawer": {"chapter": null, "line": null}, …}}
+```
+
+Every event has a cell; `null` means "not planned in this outline", and a placed cell quotes
+the scene line the signer read. `outline_hash` is the SHA-256 of
+`json.dumps(outline_chapters(records), sort_keys=True)`, so whitespace in an answer is ignored.
+
+Draft one with `python -m evals.graders.plot draft <answered-dir> --run W7` (a word-boundary
+term match, written with `signed_by: null`). The signer corrects the cells and sets `signed_by`
+and `signed_at`. An unsigned file is not read. Without a signed file, the plot gates report
+`null` and `placement_signed: false` (SPEC-54).
+
 ## Adding a book — data only, no code
 
 1. `corpora/<book>/aliases.json` — rename map + the `sections` to extract.

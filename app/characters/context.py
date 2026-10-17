@@ -18,6 +18,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.core.database import get_async_session
 from app.core.llm_text import as_quoted_block, clean_for_llm
 from app.core.orm_models import Character
@@ -182,6 +183,7 @@ async def build_character_context(
             beat_description,
             max_samples,
             scope=scope,
+            threshold=settings.RAG_SCORE_THRESHOLD,
             chunk_types=chunk_types,
         )
         if grounding is not None:
@@ -239,9 +241,9 @@ def _bible_lines(character: Character) -> list[str]:
 # credited to them, or first-person narration of their own section (SPEC-09).
 # Everything else is movement, under MOVEMENT_LABEL.
 _MOVEMENT_SAMPLES = 3
-# Voice fetches the character's dialogue pool, so the nearest rows cannot all be
-# ineligible; eligibility, then the threshold, then k (SPEC-40).
-_VOICE_POOL = 50
+# Voice and movement each fetch the character's pool, so the nearest rows cannot
+# all be ineligible; eligibility, then the threshold, then k (SPEC-40, SPEC-53).
+_POOL = 50
 # Ensemble agents are grounded on how they SPEAK and how they MOVE separately
 # (BRD R6.2): one mixed retrieval lets dialogue crowd action out. The ingest
 # classifier under-labels, so a movement block with fewer than this many hits
@@ -438,6 +440,7 @@ async def character_samples(
     k: int,
     *,
     scope: SceneScope,
+    threshold: float,
     chunk_types: Optional[Iterable[str]] = None,
 ) -> tuple[list[dict], list[dict]]:
     """(their own words, how they move) for one character, retrieved separately:
@@ -449,9 +452,11 @@ async def character_samples(
     is action / description / thought, falling back to untyped retrieval (minus
     dialogue) when the classifier under-labelled. It keeps only narration that
     centres them, names no one outside the scene (`names_outside_scene`) and
-    restates no line of `scope.plot` (`restates`), with no refill: a filtered
-    block shows what is left (SPEC-30, SPEC-36, SPEC-40). Neither block shows a
-    sample from its source's later plot (`scope.later_from`).
+    restates no line of `scope.plot` (`restates`): a block shows only eligible
+    lines, judged before the limit (SPEC-30, SPEC-36, SPEC-40, SPEC-53).
+    Neither block shows a sample from its source's later plot
+    (`scope.later_from`). `threshold` is
+    the store's score floor (`score_threshold`), which every caller passes.
     """
     k_voice, k_move = k, min(_MOVEMENT_SAMPLES, k)
     allowed = set(chunk_types) if chunk_types else None
@@ -473,49 +478,52 @@ async def character_samples(
             and not scripted(s)
         )
 
-    words = (
-        (await _retrieve(character, query, _VOICE_POOL, voice_types, spoken))[:k_voice]
-        if voice_types
-        else []
-    )
-    seen = {s.get("id") for s in words}
+    words = []
+    if voice_types:
+        words = await _retrieve(character, query, _POOL, voice_types, threshold, spoken)
+        words = words[:k_voice]
+    aliases = getattr(character, "aliases", None) or []
+    name = getattr(character, "name", "") or ""
 
-    def fresh(samples: list[dict]) -> list[dict]:
-        out = []
-        for s in samples:
-            if s.get("id") in seen or s.get("chunk_type") == _DIALOGUE:
-                continue
-            if allowed is not None and s.get("chunk_type") not in allowed:
-                continue
-            seen.add(s.get("id"))
-            out.append(s)
-        return out
+    voiced = {s.get("id") for s in words}
+
+    def moves(s: dict) -> bool:  # movement eligibility, before the threshold
+        text = s.get("text") or ""
+        return (
+            s.get("id") not in voiced  # an untyped row can be a voice sample
+            and s.get("chunk_type") != _DIALOGUE
+            and (allowed is None or s.get("chunk_type") in allowed)
+            and not _later_plot(s, scope)
+            # First-person narration of their own section is their voice: it
+            # is admitted here and split off below.
+            and (
+                _own_narration(s)
+                or (
+                    (
+                        _location(s)[0] != "paragraph"
+                        or _centres(text, name, scope.cast, aliases)
+                    )
+                    and not names_outside_scene(text, character, scope)
+                    and not any(restates(text, p) for p in scope.plot)
+                )
+            )
+        )
 
     body = (
-        fresh(await _retrieve(character, query, k_move, move_types))
+        await _retrieve(character, query, _POOL, move_types, threshold, moves)
         if move_types
         else []
     )
     if move_types and len(body) < _MIN_TYPED_HITS:
-        body += fresh(await _retrieve(character, query, k_move * 2, None))
-    body = [s for s in body if not _later_plot(s, scope)]
-    aliases = getattr(character, "aliases", None) or []
-    name = getattr(character, "name", "") or ""
-    # First-person narration of their own section is their voice, not movement.
+        typed = {s.get("id") for s in body}
+        body += [
+            s
+            for s in await _retrieve(character, query, _POOL, None, threshold, moves)
+            if s.get("id") not in typed
+        ]
     own = [s for s in body if _own_narration(s) and not scripted(s)]
     words += own[: max(0, k_voice - len(words))]
-    body = [
-        s
-        for s in body
-        if not _own_narration(s)
-        and (
-            _location(s)[0] != "paragraph"
-            or _centres(s.get("text") or "", name, scope.cast, aliases)
-        )
-        and not names_outside_scene(s.get("text") or "", character, scope)
-        and not any(restates(s.get("text") or "", p) for p in scope.plot)
-    ][:k_move]
-    return words, body
+    return words, [s for s in body if not _own_narration(s)][:k_move]
 
 
 async def _retrieve(
@@ -523,6 +531,7 @@ async def _retrieve(
     query: str,
     k: int,
     chunk_types: Optional[Iterable[str]],
+    threshold: float,
     keep=None,
 ) -> list[dict]:
     """Voice samples for one character. Retrieve across ALL chunk types unless a
@@ -533,6 +542,7 @@ async def _retrieve(
         character_id=str(character.id),
         query=query,
         keep=keep,
+        score_threshold=threshold,
         user_id=str(character.user_id) if character.user_id else None,
         book_id=str(character.book_id) if character.book_id else None,
     )
@@ -609,7 +619,13 @@ async def build_agent_context(
     if character is None:
         return "\n\n".join(b for b in blocks if b)
 
-    voice, body = await character_samples(character, beat_description, k, scope=scope)
+    voice, body = await character_samples(
+        character,
+        beat_description,
+        k,
+        scope=scope,
+        threshold=settings.RAG_SCORE_THRESHOLD,
+    )
     if grounding is not None:
         grounding.extend(grounding_entries(character, [*voice, *body]))
     if voice:

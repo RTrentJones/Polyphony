@@ -83,6 +83,14 @@ def _blocks(prompt: str) -> dict[str, str]:
     return out
 
 
+def _evidence(name: str, source: str) -> list[str]:
+    """Map evidence as a real model should give it (W7-4): the part's own
+    sentences naming them, else its first sentence."""
+    sentences = [x.strip() for x in re.split(r"(?<=[.!?])\s+", source) if x.strip()]
+    hits = [x for x in sentences if name.split()[0] in x]
+    return (hits or sentences)[:2]
+
+
 def _cast(prompt: str) -> list[str]:
     """Character names the prompt actually carries, most-specific source first."""
     blocks = _blocks(prompt)
@@ -279,7 +287,7 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
                         "role": "protagonist" if i == 0 else "supporting",
                         "description": f"{n}, from the text.",
                         "aliases": [n.split()[0]],
-                        "evidence": f"{n} appears.",
+                        "evidence": _evidence(n, _blocks(prompt).get("source", "")),
                     }
                     for i, n in enumerate(cast)
                 ],

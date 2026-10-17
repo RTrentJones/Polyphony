@@ -29,6 +29,7 @@ import app.llm.client as llm_client
 from app.core.orm_models import Chapter, Character, Scene, Source, StyleGuide
 from app.core.prompt_markers import ACT_CHAPTERS_HEADER
 from evals import stub_llm
+from evals.graders import plot
 from evals.graders import prompt_contract as pc
 from evals.steps import pipeline
 from tests.unit.factories import add_chapter, add_scene, add_scene_beats
@@ -308,12 +309,30 @@ async def test_the_apps_prompts_pass_every_contract_check(
         for n in cast
         if str(cast[n].id) in moves
     }
-    out = pc.grade(
-        pc.load_archive(tmp_path),
+    records = pc.load_archive(tmp_path)
+    grade = lambda: pc.grade(  # noqa: E731
+        records,
         # This run confirmed no premise: the skeleton's own is the one to carry.
         **{**pc.corpus_inputs(gt, style), "premise_edit": None},
         movement_store=held,
     )
+    # W7-2 (S-4): unsigned, the plot values are null and the run says so.
+    monkeypatch.setattr(plot, "PLACEMENTS", tmp_path / "placements")
+    plot.PLACEMENTS.mkdir()
+    out = grade()
+    assert (out["placement_signed"], out["samples_not_plot"], out["movement"]) == (
+        False,
+        None,
+        None,
+    )
+    # Signed as the draft reads it (the stub's outline plans no excerpt event
+    # by other words), every check runs.
+    cells = plot.draft_placements(gt["excerpt_events"], plot.outline_chapters(records))
+    signed = {"outline_hash": plot.outline_hash(records), "signed_by": "PM"}
+    signed |= {"run": "roundtrip", "signed_at": "2026-10-16", "placements": cells}
+    (plot.PLACEMENTS / "roundtrip.json").write_text(json.dumps(signed))
+    out = grade()
+    assert out["placement_signed"] and out["evidence_verbatim"]["lines"]["n"] > 0
     ran = {c: out[c] for c in pc.CHECKS if out[c]["n"]}
     failing = {c: r["failures"] for c, r in ran.items() if r["rate"] != 1.0}
     # B-3: the gold sees real samples, and none of them is plot.
@@ -321,7 +340,7 @@ async def test_the_apps_prompts_pass_every_contract_check(
     assert out["samples_not_plot"]["later_plot_slots"] == 0
     assert out["voice_dialogue"]["voice_coverage"] >= 0.8, out["voice_dialogue"]
     assert not failing, json.dumps(failing, indent=1)[:4000]
-    assert set(ran) == set(pc.CHECKS)  # 22, each n > 0, json_mode_where_json strict
+    assert set(ran) == set(pc.CHECKS)  # 23, each n > 0, json_mode_where_json strict
     assert out["plan_cast_from_beat"]["unmatched"] == []
     assert out["voice_dialogue"]["short_samples"] == 0
     assert out["sample_lift"]["max_shared"] == 0

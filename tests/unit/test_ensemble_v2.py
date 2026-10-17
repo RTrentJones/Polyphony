@@ -63,11 +63,13 @@ class TypedStore:
             ],
         }
 
-    async def retrieve_similar(self, *, chunk_type=None, k=5, **kw):
+    async def retrieve_similar(self, *, chunk_type=None, k=5, keep=None, **kw):
         if chunk_type is None:
             every = [*self.samples["dialogue"], *self.samples["action"]]
-            return [*every, *self.samples.get("unknown", [])][:k]
-        return list(self.samples.get(chunk_type, []))[:k]
+            rows = [*every, *self.samples.get("unknown", [])][:k]
+        else:
+            rows = list(self.samples.get(chunk_type, []))[:k]
+        return [r for r in rows if keep is None or keep(r)]  # the store's `keep`
 
 
 def _character():

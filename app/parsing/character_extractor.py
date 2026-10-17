@@ -21,7 +21,8 @@ _SPEECH_VERBS = (
 )
 
 
-def _normalize_quotes(text: str) -> str:
+def normalize_quotes(text: str) -> str:
+    """Curly quote marks as straight ones, for the speech rule and the evidence."""
     return text.translate(_SMART_QUOTES)
 
 
@@ -70,7 +71,7 @@ _SINGLE_QUOTED = re.compile(r"(?<!\w)'(?=\S).*?(?<=\S)'(?!\w)", re.DOTALL)
 def _narration_only(paragraph: str) -> str:
     """The paragraph minus quoted speech — a narrator's "I" is outside quotes.
     Both dialogue styles are stripped: double and single quotation marks."""
-    text = re.sub(r'"[^"]*"', " ", _normalize_quotes(paragraph))
+    text = re.sub(r'"[^"]*"', " ", normalize_quotes(paragraph))
     return _SINGLE_QUOTED.sub(" ", text)
 
 
@@ -112,14 +113,14 @@ def _heading(para: str):
     heading-like paragraph. A paragraph that keeps its line breaks (a PDF's
     heading block: "CHAPTER VIII\nNORA VANCE'S JOURNAL") is also read line by
     line; the last narrator line wins."""
-    flat = " ".join(_normalize_quotes(para).split())
+    flat = " ".join(normalize_quotes(para).split())
     if len(flat) > _HEADING_MAX_CHARS:
         return None, False
     head = _NARRATOR_HEAD.match(flat)
     chapter = bool(_CHAPTER_HEAD.match(flat))
     if head is None and "\n" in para:
         for line in para.split("\n"):
-            line = " ".join(_normalize_quotes(line).split())
+            line = " ".join(normalize_quotes(line).split())
             head = _NARRATOR_HEAD.match(line) or head
             chapter = chapter or bool(_CHAPTER_HEAD.match(line))
     return head, chapter
@@ -227,6 +228,8 @@ _OBJ = r"(?:\s+(?:to\s+)?(?:him|her|them|me|us|it|[a-z]+ly))?"
 _BEFORE_PLAIN = re.compile(rf"(?<![\w'-]){_WHO}\s+{_ADV}{_VERB}{_OBJ}\s*[,:]\s*$")
 _BEFORE_INVERTED = re.compile(rf"{_VERB}\s+{_WHO}\s*[,:]\s*$")
 _BEFORE_SCRIPT = re.compile(rf"(?:^|[.!?]\s+|\n)\s*(?P<who>{_PROPER})\s*:\s*$")
+_AFTER = (_AFTER_INVERTED, _AFTER_PLAIN)
+_BEFORE = (_BEFORE_PLAIN, _BEFORE_INVERTED, _BEFORE_SCRIPT)
 # Capitalised sentence-openers that are not part of a speaker's name.
 _OPENERS = {
     "then",
@@ -323,13 +326,47 @@ def _beat_subject(narration: str) -> Optional[str]:
     return who
 
 
-def _tag(narration: str, rules, find) -> Optional[str]:
-    """The speaker of the first rule that `find`s a tag in the narration."""
+def _tag(para: str, lo: int, hi: int, rules, find) -> Optional[tuple]:
+    """(start, end, who) of the first rule that `find`s a tag in para[lo:hi],
+    placed in the paragraph without its edge spaces and punctuation."""
     for rx in rules:
-        m = find(rx, narration)
+        m = find(rx, para[lo:hi])
         if m:
-            return _canon_speaker(m.group("who"))
+            t, edge = m.group(), " \t\n,:;.!?—-"
+            a = lo + m.start() + len(t) - len(t.lstrip(edge))
+            return a, lo + m.start() + len(t.rstrip(edge)), m.group("who")
     return None
+
+
+def _tagged(para: str):
+    """Per quoted span of a normalized paragraph: (start, end, closed), the
+    text before and after it, and the tag after and before it."""
+    spans = _quote_spans(para)
+    for k, (start, end, closed) in enumerate(spans):
+        lo = spans[k - 1][1] + 1 if k else 0  # only the last span is open
+        hi = spans[k + 1][0] - 1 if k + 1 < len(spans) else len(para)
+        before, after = para[lo : max(lo, start - 1)], para[end + 1 : hi]
+        a_tag = _tag(para, end + 1, hi, _AFTER, re.match)
+        b_tag = _tag(para, lo, max(lo, start - 1), _BEFORE, re.search)
+        yield (start, end, closed), before, after, a_tag, b_tag
+
+
+def tag_spans(paragraph: str) -> list[tuple[int, int]]:
+    """(start, end) of each speech-tag clause beside a quoted span ("Milo
+    said", "the Lich said"): the one statement of the tag clauses, as the
+    speech rule applies them (SPEC-17). Offsets index `paragraph`."""
+    tags = _tagged(normalize_quotes(paragraph))
+    return sorted({t[:2] for *_, after, before in tags for t in (after, before) if t})
+
+
+def _tagless_narration(paragraph: str) -> str:
+    """A speech paragraph's narration without its quoted spans or its tag
+    clauses (`tag_spans`); punctuation left on its own is dropped (SPEC-53):
+    `"So!" Milo said, rolling his chair closer.` → "rolling his chair closer."."""
+    text = normalize_quotes(paragraph)
+    cut = [(s - 1, e + 1) for s, e, _ in _quote_spans(text)] + tag_spans(text)
+    kept = "".join(c for k, c in enumerate(text) if not any(a <= k < b for a, b in cut))
+    return " ".join(w for w in kept.split() if re.search(r"\w", w))
 
 
 _NEW_SENTENCE = re.compile(r"[.!?]\s+\S")
@@ -345,23 +382,17 @@ def _attribute_paragraph(para: str) -> tuple[list[dict], str]:
     new sentence starts between it and a neighbouring quote — and nobody's
     when the paragraph names two speakers or none, or when narration comes
     between (`"Go," Zara told the guard. The guard laughed. "Make me."`)."""
-    spans = _quote_spans(para)
+    tagged = list(_tagged(para))
     out: list[dict] = []
     outside: list[str] = []
-    prev_end = 0
-    for k, (start, end, closed) in enumerate(spans):
-        before = para[prev_end : max(prev_end, start - 1)]
+    for k, ((start, end, closed), before, after, a_tag, b_tag) in enumerate(tagged):
         outside.append(before)
-        next_open = spans[k + 1][0] - 1 if k + 1 < len(spans) else len(para)
-        after = para[end + 1 : next_open] if closed else ""
         speaker = (
-            _tag(after, (_AFTER_INVERTED, _AFTER_PLAIN), re.match)
-            or _tag(
-                before, (_BEFORE_PLAIN, _BEFORE_INVERTED, _BEFORE_SCRIPT), re.search
-            )
+            (a_tag and _canon_speaker(a_tag[2]))
+            or (b_tag and _canon_speaker(b_tag[2]))
             or _beat_subject(before)
         )
-        after_gap = after if k + 1 < len(spans) else None
+        after_gap = after if k + 1 < len(tagged) else None
         out.append(
             {
                 "text": para[start:end].strip(),
@@ -372,8 +403,7 @@ def _attribute_paragraph(para: str) -> tuple[list[dict], str]:
                 or (after_gap is not None and not _NEW_SENTENCE.search(after_gap)),
             }
         )
-        prev_end = end + 1 if closed else len(para)
-    outside.append(para[prev_end:])
+    outside.append(para[end + 1 :] if tagged else para)
     named = {s["speaker"] for s in out} - {None}
     if len(named) == 1:
         for s in out:
@@ -386,7 +416,7 @@ def _attribute_paragraph(para: str) -> tuple[list[dict], str]:
 
 def narration_of(paragraph: str) -> str:
     """A source paragraph minus its quoted speech, by the extractor's split."""
-    return _attribute_paragraph(_normalize_quotes(paragraph.strip()))[1]
+    return _attribute_paragraph(normalize_quotes(paragraph.strip()))[1]
 
 
 def attribute_speech(text: str) -> list[list[dict]]:
@@ -409,7 +439,7 @@ def attribute_speech(text: str) -> list[list[dict]]:
     exchange: list[str] = []  # speakers of the current back-and-forth
     carry: Optional[str] = None  # speaker of the last paragraph's open quote
     for raw in source_paragraphs(text):
-        para = _normalize_quotes(raw.strip())
+        para = normalize_quotes(raw.strip())
         if not para:
             result.append([])
             continue
@@ -546,10 +576,11 @@ class CharacterExtractor:
 
         A paragraph where the character speaks yields a `dialogue` chunk of
         THEIR words only (SPEC-17): the narration around a line is not their
-        voice. A paragraph that carries anyone else's speech is not indexed for
-        them at all, so another speaker's words can never become their sample.
-        Other paragraphs that name them are indexed as action / thought /
-        description ("how they move").
+        voice. Another speaker's words never become their sample: a paragraph
+        with a span credited to someone else gives them nothing, and one with
+        long uncredited speech only its tag-less narration (SPEC-53), which
+        their own speech paragraphs give too. Other paragraphs that name them
+        are indexed as action / thought / description ("how they move").
         """
         index, speaks = self._paragraph_indexer(text, character_name, aliases, cast)
         chunks: List[Dict[str, str]] = []
@@ -574,9 +605,13 @@ class CharacterExtractor:
         - where they speak: their own lines, as `dialogue` — each at least
           `SPEECH_MIN_WORDS` words, so a lone vocative is no voice sample;
         - where anyone else speaks (a credited span, or an uncredited one of
-          `SPEECH_MIN_WORDS`+ words): nothing — in their own narration
+          `SPEECH_MIN_WORDS`+ words): no paragraph — in their own narration
           (`where == "narration"`) "said I" is them, not someone else;
-        - otherwise the paragraph, typed as action / thought / description."""
+        - otherwise the paragraph, typed as action / thought / description.
+        A speech paragraph not indexed whole also gives them its tag-less
+        narration as `paragraph_{i}` (SPEC-53) unless a span is credited to
+        someone else; beside an uncredited span, only narration whose (first
+        sentence's) subject is them. `_centres` decides whom it is shown to."""
         attributed = attribute_speech(text)
         own: Dict[int, List[str]] = {}
         for i, line in spoken_lines(
@@ -587,20 +622,42 @@ class CharacterExtractor:
 
         def index(i: int, para: str, where: str) -> List[Dict[str, str]]:
             themselves = ("i", "we") if where == "narration" else ()
-            if i in own:
-                found = [
-                    (line, ChunkType.DIALOGUE.value, f"dialogue_{i}")
-                    for line in own[i]
-                    if len(line.split()) >= SPEECH_MIN_WORDS
-                ]
-            elif any(
+            spans = attributed[i]
+            if i not in own and not any(
                 s["speaker"] not in themselves
                 and (s["speaker"] or len(s["text"].split()) >= SPEECH_MIN_WORDS)
-                for s in attributed[i]
+                for s in spans
             ):
-                return []
-            else:
                 found = [(para, self._classify_chunk(para), f"{where}_{i}")]
+            else:
+                found = [
+                    (line, ChunkType.DIALOGUE.value, f"dialogue_{i}")
+                    for line in own.get(i, [])
+                    if len(line.split()) >= SPEECH_MIN_WORDS
+                ]
+                bare = _tagless_narration(para)
+                mine = [
+                    speaker_matches(s["speaker"], character_name, aliases, cast)
+                    for s in spans
+                ]
+                lead = _beat_subject(_SENTENCE_END.split(bare)[0])
+                # One word longer than a voice sample's floor: a bare "Zara
+                # said." is no manner. A pronoun tag credits no one (SPEC-17):
+                # beside one, the narration is theirs only when they are its
+                # subject ("she said, pushing it toward Milo" is not Milo's).
+                if (
+                    len(bare.split()) >= SPEECH_MIN_WORDS + 1
+                    and not any(
+                        s["speaker"] not in _PRONOUNS and not m
+                        for s, m in zip(spans, mine)
+                        if s["speaker"]
+                    )
+                    and (
+                        all(mine)
+                        or speaker_matches(lead, character_name, aliases, cast)
+                    )
+                ):
+                    found.append((bare, self._classify_chunk(bare), f"paragraph_{i}"))
             out = []
             for chunk_text, kind, location in found:
                 if chunk_text.lower() not in seen:

@@ -1,0 +1,40 @@
+{
+  "run": "W5",
+  "outline_hash": "c2a09789e0e87aff571dff407f63ab9f242a60bc1c5d8c888c3049a8265ef09f",
+  "signed_by": "PM",
+  "signed_at": "2026-10-16T18:04:59Z",
+  "placements": {
+    "intake": {
+      "chapter": 1,
+      "line": "Retained: Milo, dead mid-sentence on a Tuesday, is slid a laminated org chart by Prava and told his skills are a strong culture fit; for the first time in decades he feels seen, and says yes before anyone offers him a choice."
+    },
+    "training": {
+      "chapter": null,
+      "line": null
+    },
+    "partition": {
+      "chapter": 1,
+      "line": "The Desk Across the Partition: In Reconciliations, Zara Okafor answers his eager questions about throughput and dashboards with flat instructions and tells him to read the appendices; Milo laughs at a bleak line she did not mean as a joke, and decides she is his friend."
+    },
+    "bell": {
+      "chapter": 2,
+      "line": "The Bell Account: Milo zeroes the tenure of Halvard Bell, ninety years in Retention, in under four minutes; Facilities clears Bell's desk before lunch, and when Milo asks where Bell actually goes, Zara tells him to write 'under' and nothing else. That night he locks the ledger in his drawer without knowing why."
+    },
+    "drawer": {
+      "chapter": 2,
+      "line": "The Bell Account: Milo zeroes the tenure of Halvard Bell, ninety years in Retention, in under four minutes; Facilities clears Bell's desk before lunch, and when Milo asks where Bell actually goes, Zara tells him to write 'under' and nothing else. That night he locks the ledger in his drawer without knowing why."
+    },
+    "summons": {
+      "chapter": 2,
+      "line": "The Memo: A memo heavy enough to have its own gravity arrives signed by Edric Thane; Milo reads it as a career win, Zara tells him it is not normal and gives him rules: bring nothing, sign nothing, stand. His excitement acquires its first crack of fear."
+    },
+    "corner office": {
+      "chapter": 2,
+      "line": "The Chair: In the cold corner office the Chief Executive Lich offers Milo a chair, names his speed as appetite and warns that he was retained for not asking questions; Milo stays standing and asks whether there is a reason he will be kept, the first refusal and first real question of his death."
+    },
+    "discrepancy": {
+      "chapter": 2,
+      "line": "Moved, Not Zeroed: Back at his desk Milo unlocks the ledger and finds in an unexplained column that Bell's tenure was not zeroed but moved; he brings the discrepancy to Zara, who tells him he has finally read an appendix and that they have a great deal of paperwork to do."
+    }
+  }
+}

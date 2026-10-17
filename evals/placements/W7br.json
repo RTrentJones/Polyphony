@@ -1,0 +1,40 @@
+{
+  "run": "W7br",
+  "outline_hash": "4cc8cb1736a7a0bab1348de7e0e911e953d8230b38d1b4033da4f1492c5867db",
+  "signed_by": "PM",
+  "signed_at": "2026-10-17T00:44:36Z",
+  "placements": {
+    "intake": {
+      "chapter": 1,
+      "line": "Retained: In the intake atrium Prava slides a laminated org chart across a laminate desk, calls his forty-one years of pointless optimisation an asset, and Milo, seen for the first time, says yes to Reconciliations before anyone offers him a choice; he leaves with a lanyard and a balance of zero tenure."
+    },
+    "training": {
+      "chapter": null,
+      "line": null
+    },
+    "partition": {
+      "chapter": 1,
+      "line": "Desk Neighbour: At his new desk in the Marrow District Milo meets Zara Okafor, his trainer, who answers each of his eager questions about tenure, quotas and graduation in as few words as possible; he mistakes her flat courtesy for friendship, and she, without looking up, hands him a first account and tells him to check the appendices."
+    },
+    "bell": {
+      "chapter": 2,
+      "line": "Top of the Curve: Milo closes accounts faster than anyone in Reconciliations and his calibrated review comes back glowing; he finds he likes zeroing out tenure and filing souls under, and the liking is the change, while Zara only says 'Good' and asks whether he read the appendix."
+    },
+    "drawer": {
+      "chapter": null,
+      "line": null
+    },
+    "summons": {
+      "chapter": 5,
+      "line": "Reply All: Zara drafts the all-staff email announcing the work stoppage and hands Milo the keyboard to send it; it says, in plain language, what the Pipeline pipes, and as it lands the Marrow District goes silent desk by desk until even the coffee station stops dispensing, and a summons arrives for Milo from the office at the top."
+    },
+    "corner office": {
+      "chapter": 6,
+      "line": "The Corner Office: Milo enters the one office no employee returns from unchanged and finds Edric Thane, formal and thorough, who addresses him as Mr. Voss and calmly offers him a path up, a pooled account of his own; Milo recognises his own forty-one years in the offer and declines it."
+    },
+    "discrepancy": {
+      "chapter": 2,
+      "line": "Does Not Tie Out: Closing a routine restructured account the long way Zara taught him, line by line through the appendices, Milo finds tenure leaving the ledger faster than labor can explain; he follows the transfers and watches them converge on a single pooled account at the very top of the org chart, and he cannot make the numbers reconcile."
+    }
+  }
+}

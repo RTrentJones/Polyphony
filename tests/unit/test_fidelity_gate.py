@@ -251,10 +251,16 @@ PROBE_QUIET = [
     "Dust hung in the air. Perhaps Milo was wrong.",
     "Outside, Milo paused.",
     '"Fine," Milo said. "Whatever."',
+    "'Don't explain.'",  # W7-5 (a): a contraction's stem is not a name
+    "'Won't'",
+    "'Can't'",
+    "Milo said Quince’ll file it, and Quince’d know.",  # curly, 'll, 'd
 ]
 PROBE_FLAGGED = {
     "Milo nodded. Bartholomew Quince smiled.": ["Bartholomew Quince"],
     "Milo nodded to Quince.": ["Quince"],
+    "Milo sat at Gary's desk.": ["Gary"],  # a possessive still names someone
+    "Milo sat at Quince’s desk.": ["Quince"],
 }
 
 
@@ -270,6 +276,17 @@ def test_a_two_word_or_mid_sentence_name_is_still_reported(text, flagged):
     from app.planning.fidelity import unknown_proper_nouns
 
     assert unknown_proper_nouns(text, {"Milo"}, canon_text=PROBE_DRAFT) == flagged
+
+
+def test_the_summoned_upstairs_warning_has_no_contraction(cel_canon):
+    """(F) SPEC-57: W6b's plan line no longer warns of "Don"."""
+    path = Path(__file__).parents[1] / "fixtures" / "w6_archives.json"
+    title, summary = json.loads(path.read_text())["summoned_upstairs"]["line"].split(
+        ": ", 1
+    )
+    assert (
+        _audit(cel_canon, _chapter({"title": title, "summary": summary})).unknown == []
+    )
 
 
 def test_a_name_that_only_opens_an_outline_sentence_stays_quiet(cel_canon):

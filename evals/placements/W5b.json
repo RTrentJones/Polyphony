@@ -1,0 +1,40 @@
+{
+  "run": "W5b",
+  "outline_hash": "8ed58b8729efe9da291d63d9d517b8e7eab67ac58a4b6abb8c61b18c81ad6a44",
+  "signed_by": "PM",
+  "signed_at": "2026-10-16T18:05:24Z",
+  "placements": {
+    "intake": {
+      "chapter": 1,
+      "line": "Strong Culture Fit: Prava slides a laminated org chart across the desk and tells Milo his forty-one years of pointless optimization are an asset; for the first time in decades he feels seen, and he accepts the placement in Reconciliations before anyone thinks to offer him a choice."
+    },
+    "training": {
+      "chapter": null,
+      "line": null
+    },
+    "partition": {
+      "chapter": 1,
+      "line": "Lanyard, Desk, Mentor: Milo is issued a lanyard and walked into the windowless, clockless Marrow District, where he gushes to his assigned trainer Zara Okafor; her flat, unbroken courtesy is the first thing he misreads as friendship."
+    },
+    "bell": {
+      "chapter": 2,
+      "line": "Halvard Bell's Account: Milo is handed his first restructured account: Halvard Bell, a former dentist who spent ninety years in Retention and was restructured at nine that morning. He zeroes the tenure cleanly and only afterwards notices that the destination field reads 'under'."
+    },
+    "drawer": {
+      "chapter": null,
+      "line": null
+    },
+    "summons": {
+      "chapter": 6,
+      "line": "All-Staff: The work stoppage begins with an all-staff email that is, for once, entirely honest; the Marrow District goes quiet in a new way, and Milo is summoned to the quarterly review in the corner office."
+    },
+    "corner office": {
+      "chapter": 6,
+      "line": "Mr. Voss: In the office no employee leaves unchanged, Edric Thane receives Milo with measured, ledger-bound courtesy and recognises in him the clerk he once was; Milo, stammering through his corporate hedges, holds out a single sheet of paper anyway."
+    },
+    "discrepancy": {
+      "chapter": 4,
+      "line": "A Routine Account: Closing an ordinary restructured file, Milo's tally comes up short: the soul's tenure leaves the ledger faster than any labour or fee schedule can explain, and his professional pride will not let the discrepancy go."
+    }
+  }
+}

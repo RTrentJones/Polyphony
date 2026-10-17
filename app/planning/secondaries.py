@@ -33,6 +33,7 @@ NO_SAMPLES_NOTE = "No samples: keep them brief and distinct from the cast."
 
 _SENTENCE_BREAK = re.compile(r"(?<=[.!?…])[\"”’'\)\]]*\s+(?=[\"“‘'(\[]?[A-Z0-9])")
 _PARAGRAPH = re.compile(r"\n[ \t]*\n")
+_EXISTENTIAL = re.compile(r"there (?:is|was|are)\s+", re.IGNORECASE)
 
 
 def _paragraphs(text: str) -> list[str]:
@@ -77,9 +78,12 @@ def introduction(sentence: str, name: str) -> str:
     """The naming sentence through its first appositive (SPEC-40): cut before
     the second comma, less a trailing "and" / "and who" / "and which", capped.
     The canon block still carries the whole sentence (BRD R1.1). A comma-led
-    clause before `name` is dropped first ("On his first day, Prava, ...")."""
+    clause before `name` is dropped first ("On his first day, Prava, ..."), and
+    so is an existential "There is / was / are" that `name` follows directly
+    ("There is Old Fen, who ..."; SPEC-57)."""
     at = sentence.lower().find(name.lower())  # outlines may differ in case
-    if sentence[: max(at, 0)].rstrip().endswith(","):
+    lead = sentence[: max(at, 0)]
+    if lead.rstrip().endswith(",") or _EXISTENTIAL.fullmatch(lead):
         sentence = sentence[at:]
     head = ",".join(sentence.split(",")[:2]).strip()
     return _cap(re.sub(r"\s+and(?:\s+(?:who|which))?$", "", head))

@@ -1,0 +1,40 @@
+{
+  "run": "W7b",
+  "outline_hash": "05c506eca084cc121e5b0492a11a3e5b74ae79fa5f35e498107326d8cddd3a1b",
+  "signed_by": "PM",
+  "signed_at": "2026-10-16T23:49:06Z",
+  "placements": {
+    "intake": {
+      "chapter": 1,
+      "line": "The Laminated Org Chart: In the intake atrium, Prava slides a laminated org chart across a laminate desk, calls his forty-one years of optimisation a strong culture fit and tells him he starts Monday in Reconciliations. Milo says yes before anyone has offered him a choice. Being seen as valuable changes him from a dead man into an eager new hire, though he is left wondering about the box at the top marked CEL."
+    },
+    "training": {
+      "chapter": null,
+      "line": null
+    },
+    "partition": {
+      "chapter": 1,
+      "line": "Lanyard, Desk, Mentor: Milo is issued a lanyard and a desk in the windowless Marrow District and seated beside Zara Okafor, who answers his run-on questions in three words or none. Her flat courtesy shuts him out, but he decides it is the start of a friendship and goes home to nowhere feeling useful for the first time in decades."
+    },
+    "bell": {
+      "chapter": 2,
+      "line": "Zero It Out: Zara shows Milo how to review a restructured soul's remaining tenure, zero it out and file it under. Within a week he has streamlined her process and climbed the quota board. She does not praise him; she only tells him to check the totals twice. His competence becomes a kind of happiness, and the word 'under' stops snagging on him."
+    },
+    "drawer": {
+      "chapter": null,
+      "line": null
+    },
+    "summons": {
+      "chapter": 5,
+      "line": "Completely Honest: Zara dictates and Milo types an all-staff email announcing the work stoppage in plain language, with no stakeholders and no circling back. He hits send. The whole floor stops working. Within minutes a calendar invite arrives from the corner office: quarterly review, Mr. Voss. The rebellion is now on record."
+    },
+    "corner office": {
+      "chapter": 6,
+      "line": "The Office at the Top: Milo climbs to the office no one returns from unchanged and meets Edric Thane, the CEL. The Lich reviews him with formal courtesy, calls him Mr. Voss and offers him the climb. He speaks plainly of having once been a clerk exactly like him. Milo sees the man he would have become, and is no longer tempted."
+    },
+    "discrepancy": {
+      "chapter": 2,
+      "line": "It Does Not Reconcile: Closing a routine restructured account, Milo finds that the tenure leaving the ledger outruns anything labour can explain. Following the remainder line by line, he watches it drain upward into one pooled account at the very top of the org chart, under the three letters CEL. For the first time, Milo does not file the account. He sits with the question instead, while across the partition Zara does not look up."
+    }
+  }
+}

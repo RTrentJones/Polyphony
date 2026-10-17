@@ -1,0 +1,40 @@
+{
+  "run": "W5bc",
+  "outline_hash": "e02b939e5202f7233ab2caa1d3744e837843b7b4ba67101dedc548b89bdde7d1",
+  "signed_by": "PM",
+  "signed_at": "2026-10-16T18:05:25Z",
+  "placements": {
+    "intake": {
+      "chapter": 1,
+      "line": "Retained: Prava slides a laminated org chart across a laminate desk and tells Milo, warmly, that he has been retained as a strong culture fit; the first person ever to call his boredom valuable wins his yes before a choice is offered, and he files away, without asking, that she used his name before he gave it."
+    },
+    "training": {
+      "chapter": null,
+      "line": null
+    },
+    "partition": {
+      "chapter": 1,
+      "line": "Sometimes It's Quieter: Zara Okafor, his desk neighbour and trainer, answers Milo's run-on, eager questions in three words or fewer and never looks up; Milo mistakes her flat courtesy for the start of a friendship, and the reader sees that she is assessing him."
+    },
+    "bell": {
+      "chapter": 2,
+      "line": "Halvard Bell Does Not Reconcile: Closing the file of Halvard Bell, a former dentist with ninety years in Retention whose contract was restructured at nine that morning, Milo finds that Bell's tenure is gone before it was zeroed, more than his labour could explain; for the first time he does not file it, and asks Zara where it went, and she looks up."
+    },
+    "drawer": {
+      "chapter": null,
+      "line": null
+    },
+    "summons": {
+      "chapter": 4,
+      "line": "Summons: A memo arrives: the CEL would like a word regarding Mr. Voss's report; Zara, still not looking up, tells him only to read everything before he signs anything, and Milo realises that his report has already reached the one reader who matters."
+    },
+    "corner office": {
+      "chapter": 4,
+      "line": "The Corner Office: Edric Thane, formal and thorough, commends Mr. Voss's diligence, admits he was once a clerk who reconciled exactly as Milo does, and offers him a path upward into Management and eventually into continuance; Milo is tempted, until a question the Lich cannot answer plainly about the onward shows him that Edric Thane stayed because he is afraid of what graduation actually is."
+    },
+    "discrepancy": {
+      "chapter": 2,
+      "line": "Halvard Bell Does Not Reconcile: Closing the file of Halvard Bell, a former dentist with ninety years in Retention whose contract was restructured at nine that morning, Milo finds that Bell's tenure is gone before it was zeroed, more than his labour could explain; for the first time he does not file it, and asks Zara where it went, and she looks up."
+    }
+  }
+}

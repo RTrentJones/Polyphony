@@ -50,6 +50,28 @@ CEL = pipeline.load_corpus("cel")[1]
 PARAS = pipeline.load_excerpts("cel").split("\n\n")
 PLOT_GOLD = {"excerpt_events": CEL["excerpt_events"], "excerpt": "\n\n".join(PARAS)}
 
+
+@pytest.fixture(autouse=True)
+def _signed_dir(tmp_path_factory, monkeypatch):
+    """Every test reads signed placements from its own empty dir, never the
+    committed evals/placements (D4)."""
+    monkeypatch.setattr(plot, "PLACEMENTS", tmp_path_factory.mktemp("placements"))
+
+
+def _sign(records, placed=None, signed_by="PM"):
+    """A signed placement file for `records`' outline: the draft's reading,
+    with `placed` ({event: chapter}) as the signer's corrections."""
+    cells = plot.draft_placements(CEL["excerpt_events"], plot.outline_chapters(records))
+    cells |= {
+        e: {"chapter": c, "line": c and "signed"} for e, c in (placed or {}).items()
+    }
+    key = plot.outline_hash(records)
+    doc = {"run": "t", "outline_hash": key, "signed_by": signed_by}
+    doc |= {"signed_at": "2026-10-16", "placements": cells}
+    (plot.PLACEMENTS / f"{key[:12]}.json").write_text(json.dumps(doc))
+    return doc
+
+
 # Run-W3 record 1792100839-0017: Milo's sample, and the answer that lifts it.
 LIFT_PROMPT = (
     f"CHARACTERS IN THIS BEAT\n### Milo Voss\n{VOICE_SAMPLES_LABEL}\n"
@@ -164,6 +186,7 @@ REASONS = {
     "plan_sees_chapter": "no chapter-scenes block",
     "redo_sees_plan": "no <beats> block marking beat 2",
     "json_mode_where_json": "response_format null, not JSON_OBJECT",
+    "evidence_verbatim": "not in the source: 'one line'",
 }
 
 
@@ -184,8 +207,10 @@ def _write(dirpath, rec):
 def test_every_check_fails_its_failing_fixture(tmp_path):
     for i, (purpose, prompt, answer) in enumerate(FAILING):
         _write(tmp_path, _rec(str(i), purpose, prompt, answer, created=float(i)))
+    _sign(pc.load_archive(tmp_path))
     out = pc.grade(
         pc.load_archive(tmp_path),
+        source="\n\n".join(PARAS),
         gold_lines=GOLD,
         other_lines=OTHER,
         sample_prose=SAMPLE,
@@ -368,23 +393,43 @@ def _outline(name: str) -> dict:
         # "Reply All" (ch 5) summons Milo to the corner office: that line places
         # the summons, so the meeting is "The Corner Office" (ch 6).
         ("w4b2", [1, 1, 2, None, 5, 6, 4]),
-        ("w5", [1, 1, 2, 4, 1, 2, 2]),
+        # (F) W7-2 (b): "memory" no longer places W5's summons in ch 1
+        ("w5", [1, 1, 2, 4, 2, 2, 2]),
         ("w5b", [1, 1, 2, None, 6, 6, 4]),
         ("w5d", [1, 1, 1, 1, 2, 2, 2]),
     ],
 )
-def test_locate_places_each_event_by_the_first_line_naming_it(outline, placed):
+def test_the_draft_places_each_event_by_the_first_line_naming_it(outline, placed):
     events = ["intake", "partition", "bell", "drawer", "summons", "corner office"]
     events += ["discrepancy"]
-    got = plot.locate(CEL["excerpt_events"], plot.outline_chapters([_outline(outline)]))
-    assert [got.get(e) for e in events] == placed
+    chapters = plot.outline_chapters([_outline(outline)])
+    got = plot.draft_placements(CEL["excerpt_events"], chapters)
+    assert [got[e]["chapter"] for e in events] == placed
+    assert got["training"] == {"chapter": None, "line": None}  # a span, no terms
+    assert all(c["line"] in sum(chapters, []) for c in got.values() if c["chapter"])
 
 
 def test_an_event_whose_lines_are_all_taken_still_places():
     """C1: an unplaced event could never be later plot, so it would pass."""
     events = [{"event": e, "terms": ["drawer"]} for e in ("drawer", "column")]
     chapters = [[], ["The Column: Milo opens the drawer."]]
-    assert plot.locate(events, chapters) == {"drawer": 2, "column": 2}
+    got = plot.draft_placements(events, chapters)
+    assert {e: c["chapter"] for e, c in got.items()} == {"drawer": 2, "column": 2}
+
+
+@pytest.mark.parametrize(
+    "line, chapter",
+    [  # (F) W7-2 (b): W5's "memory" placed the summons (term "memo") in ch 1
+        ("Retained: Milo has no memory of dying.", None),
+        ("The Memo: Milo is summoned.", 1),
+        ("Upstairs: Milo is Summoned.", 1),  # a term names its inflections
+        ("The Numbers: a discrepancy surfaces.", 1),  # "discrepanc" is a stem
+        ("Memorandum: Milo files.", None),
+    ],
+)
+def test_the_draft_matches_terms_as_words(line, chapter):
+    events = [{"event": "summons", "terms": ["memo", "summon", "discrepanc"]}]
+    assert plot.draft_placements(events, [[line]])["summons"]["chapter"] == chapter
 
 
 def _beat(chapter: int, blocks: dict[str, tuple[list, list]]) -> str:
@@ -435,6 +480,7 @@ def test_samples_not_plot_grades_against_the_gold(
 ):
     for rec in (_outline(outline), _rec("b", "beat_prose", _beat(1, blocks))):
         _write(tmp_path, rec)
+    _sign(pc.load_archive(tmp_path))
     out = pc.grade(pc.load_archive(tmp_path), **PLOT_GOLD)["samples_not_plot"]
     got = [r.split(": ", 1)[1] for f in out["failures"] for r in f["reasons"]]
     assert (out["n"], got, out["later_plot_slots"]) == (1, reasons, later)
@@ -446,6 +492,7 @@ def test_a_run_that_shows_no_sample_is_vacuous(tmp_path):
     voice presence, so the empty cards passed; now voice_coverage is 0 and
     samples_not_plot's 1.0 is reported vacuous (classified == 0)."""
     _write(tmp_path, _outline("w5b"))
+    _sign(pc.load_archive(tmp_path))
     cast = {"Milo Voss": ([], []), "Zara Okafor": ([], [])}
     for i in range(3):
         _write(tmp_path, _rec(f"b{i}", "beat_prose", _beat(1, cast)))
@@ -476,19 +523,56 @@ W5 = json.loads(
 )
 
 
-def test_unplaced_events_are_listed_per_run(tmp_path):
-    """(F) W6-7 (b): on the gold before "next desk", W5d places no partition,
-    and the report lists it; (R) on the signed gold every event places."""
+def test_unplaced_events_are_the_events_signed_null(tmp_path):
+    """(F) D4: W5d's draft places the partition by "next desk"; the signer
+    read it as not planned, so it is listed. A draft miss alone is never
+    unplaced: it shows only as a disagreement cell."""
     _write(tmp_path, _outline("w5d"))
-    old = [
-        {**e, "terms": [t for t in e["terms"] if t != "next desk"]}
-        for e in CEL["excerpt_events"]
+    records = pc.load_archive(tmp_path)
+    _sign(records, {"partition": None})
+    out = pc.grade(records, **PLOT_GOLD)
+    assert out["samples_not_plot"]["unplaced_events"] == ["partition"]
+    assert out["placement_disagreements"] == [
+        {"event": "partition", "draft": 1, "signed": None}
     ]
-    for events, unplaced in ((old, ["partition"]), (CEL["excerpt_events"], [])):
-        out = pc.grade(
-            pc.load_archive(tmp_path), **{**PLOT_GOLD, "excerpt_events": events}
-        )
-        assert out["samples_not_plot"]["unplaced_events"] == unplaced
+
+
+def test_without_a_signed_file_every_plot_value_is_null(tmp_path):
+    """(F) S-4: the draft places W4b2's summons in chapter 5, so its chapter-1
+    voice sample would be later plot; unsigned, nothing is graded from it.
+    A draft file (no signer) is not a signature, and the hash names the run."""
+    _write(tmp_path, _outline("w4b2"))
+    _write(tmp_path, _rec("b", "beat_prose", _beat(1, {"Milo Voss": ([SUMMONS], [])})))
+    records = pc.load_archive(tmp_path)
+    for signer in (None, "PM"):
+        _sign(records, signed_by=signer)
+        out = pc.grade(records, principals=PRINCIPALS, **PLOT_GOLD)
+        if signer is None:
+            assert out["placement_signed"] is False
+            assert out["outline_hash"] == plot.outline_hash(records)
+            assert (out["samples_not_plot"], out["movement"]) == (None, None)
+            assert out["placement_disagreements"] is None
+    assert out["placement_signed"] is True and out["placement_disagreements"] == []
+    assert out["samples_not_plot"]["later_plot_slots"] == 1
+
+
+def test_a_signed_file_missing_a_cell_is_an_error(tmp_path):
+    _write(tmp_path, _outline("w5d"))
+    records = pc.load_archive(tmp_path)
+    doc = _sign(records)  # the fixture's fresh dir holds only this file
+    del doc["placements"]["drawer"]
+    (plot.PLACEMENTS / f"{doc['outline_hash'][:12]}.json").write_text(json.dumps(doc))
+    with pytest.raises(ValueError, match="drawer"):
+        pc.grade(records, **PLOT_GOLD)
+
+
+def test_two_signed_files_for_one_outline_are_an_error(tmp_path):
+    _write(tmp_path, _outline("w5d"))
+    records = pc.load_archive(tmp_path)
+    doc = _sign(records)
+    (plot.PLACEMENTS / "again.json").write_text(json.dumps(doc))
+    with pytest.raises(ValueError, match="all sign"):
+        pc.grade(records, **PLOT_GOLD)
 
 
 def _plan_record(plan: list[list[str]]) -> dict:
@@ -510,6 +594,7 @@ def test_movement_lists_every_ineligible_principal_on_the_w5_stores(tmp_path):
         _write(run, _plan_record(row["plan"]))
         blocks = {who: ([], []) for who in row["store"]}
         _write(run, _rec("b", "beat_prose", _beat(row["chapter"], blocks)))
+        _sign(pc.load_archive(run))
         out = pc.grade(
             pc.load_archive(run),
             principals=PRINCIPALS,
@@ -535,6 +620,7 @@ def test_an_eligible_principal_with_an_empty_block_fails(tmp_path):
     ]
     for i, blocks in enumerate(shapes):
         _write(tmp_path, _rec(f"b{i}", "beat_prose", _beat(3, blocks), created=1.0 + i))
+    _sign(pc.load_archive(tmp_path))
     store = {"Zara Okafor": [PARAS[29]], "Milo Voss": [PARAS[0], PARAS[13]]}
     grade = lambda **kw: pc.grade(  # noqa: E731
         pc.load_archive(tmp_path), principals=PRINCIPALS, **PLOT_GOLD, **kw
@@ -602,3 +688,76 @@ def test_scripted_slots_are_reported_from_the_fixture(tmp_path):
     slots = pc.grade(pc.load_archive(tmp_path))["scripted_slots"]
     assert [s["folded6"] for s in slots] == [r["drop"] for r in W5["scripted"]["rows"]]
     assert all(0 <= s["content_share"] <= 1 for s in slots)
+
+
+# --- wave 7 (SPEC-54, SPEC-58) ---------------------------------------------------
+
+W6_ARCHIVES = json.loads(
+    (Path(__file__).parents[1] / "fixtures" / "w6_archives.json").read_text()
+)
+
+
+def test_evidence_verbatim_on_the_archived_reduce_prompts(tmp_path):
+    """(F) W7-4 (b): the reduce prompts' evidence, rebuilt from the fixture's
+    quotes (never its labels), against the manuscript the eval uploads.
+    W6b's "Mr. Voss, do sit." joins two of Edric's sentences across "the Lich
+    said", so it is not the author's sentence."""
+    from app.core.prompt_markers import EVIDENCE_ITEM, EVIDENCE_LABEL, NAME_HEADING
+
+    requests: dict[tuple, dict[str, list[str]]] = {}
+    for row in W6_ARCHIVES["evidence"]["rows"]:
+        who = requests.setdefault((row["run"], row["request"]), {})
+        item = EVIDENCE_ITEM.format(part=row["part"], quote=row["quote"])
+        who.setdefault(row["character"], []).append(item)
+    for i, ((run, _), cast) in enumerate(requests.items()):
+        prompt = "".join(
+            f"{NAME_HEADING}{who}\n{EVIDENCE_LABEL}\n" + "\n".join(items) + "\n"
+            for who, items in cast.items()
+        )
+        (tmp_path / run).mkdir(exist_ok=True)
+        _write(tmp_path / run, _rec(str(i), "extraction_reduce", prompt))
+    source = pc.corpus_inputs(CEL, None)["source"]
+    got = {}
+    for run in ("W5d", "W5bd", "W6", "W6b"):
+        out = pc.grade(pc.load_archive(tmp_path / run), source=source)
+        got[run] = out["evidence_verbatim"]["lines"]
+        if run == "W6b":
+            reasons = [
+                r for f in out["evidence_verbatim"]["failures"] for r in f["reasons"]
+            ]
+            assert "not in the source: '\"Mr. Voss, do sit.\"'" in reasons
+    assert {r: (g["verbatim"], g["n"]) for r, g in got.items()} == {
+        "W5d": (18, 28),
+        "W5bd": (12, 12),
+        "W6": (22, 28),
+        "W6b": (8, 12),
+    }
+
+
+def test_evidence_verbatim_normalises_marks_and_skips_the_stand_in():
+    source = pc.verbatim_text("“Sit,” said Edric.\n  Milo   sat down.")
+    prompt = (
+        '- (part 1) "Sit," said Edric.\n- (part 1) Milo sat down.\n'
+        "- (part 2) narrates part 2\n- (part 1) Milo sat."
+    )
+    assert pc.check_evidence_verbatim(prompt, source) == (
+        ["not in the source: 'Milo sat.'"],
+        3,
+        1,
+    )
+
+
+@pytest.mark.parametrize(
+    "answer, counted",
+    [  # (F) D9: the clean control's findings are empty one level down
+        ('{"findings": []}', False),
+        ('{"items": [], "satisfied": ""}', False),
+        ('{"findings": [{"quote": "x"}]}', True),
+        ('{"findings": [[]]}', True),  # nothing deeper than one level
+        ("[]", False),
+        ("Milo signed.", True),
+    ],
+)
+def test_replayed_skips_all_empty_json(answer, counted):
+    rec = _rec("a", "continuity", "p", answer)
+    assert ("continuity" in plot.replayed([rec], [rec])) is counted
