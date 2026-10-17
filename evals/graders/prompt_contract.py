@@ -99,6 +99,7 @@ from app.core.prompt_markers import (
     EARLIER_BEATS,
     EMOTIONAL_TONE_LABEL,
     EVIDENCE_ITEM,
+    EVIDENCE_NO_QUOTE,
     EVIDENCE_STAND_IN,
     INTRODUCED_LABEL,
     MOVEMENT_LABEL,
@@ -561,10 +562,13 @@ _EVIDENCE_ITEM = re.compile(
 )
 
 
-# The extractor's mark for a member with no quote left (W7-4 (a)): evidence
-# "marked as not" verbatim, so it is neither a quote nor a failure.
+# The extractor's marks for a member with no quote left (W7-4 (a), SPEC-64):
+# evidence "marked as not" verbatim, so neither a quote nor a failure.
 _STAND_IN = re.compile(
-    re.escape(EVIDENCE_STAND_IN).replace(re.escape("{part}"), r"\d+")
+    "|".join(
+        re.escape(m).replace(re.escape("{part}"), r"\d+")
+        for m in (EVIDENCE_STAND_IN, EVIDENCE_NO_QUOTE)
+    )
 )
 
 
@@ -975,7 +979,7 @@ def grade(
     people a movement sample may not name outside its scene (wave 3).
     `excerpt_events` and the `excerpt` they index are the plot gold (wave 5).
     `movement_store` is each principal's indexed movement chunks (the prose
-    step's `voice.movement`): D6 reads it, else the lines shown in the run.
+    step's `voice.movement`); without it the movement result is null.
     `source` is the manuscript the run uploaded (wave 7, evidence_verbatim).
     The events are placed by the signed file in `plot.PLACEMENTS` (D4)."""
     gold = {
@@ -1023,12 +1027,8 @@ def grade(
     move = _Tally()
     ineligible: dict[str, set[int]] = {}  # owner: the gold paragraphs
     hindsight, scripted = [], []
-    shown: dict[str, set[str]] = {}  # every movement line each owner is shown
-    for rec in (r for r in records if purpose(r) == "beat_prose"):
-        for o, ls in movement_blocks(characters_section(prompt_text(rec)) or ""):
-            shown.setdefault(o, set()).update(ls)
-    if movement_store is not None:  # D3a reads what the store holds
-        shown = {_who(o, aliases): set(ls) for o, ls in movement_store.items()}
+    # D3a reads what the run's store holds, and nothing else (wave 8).
+    shown = {_who(o, aliases): set(ls) for o, ls in (movement_store or {}).items()}
 
     for rec in records:
         pur = purpose(rec)
@@ -1193,6 +1193,8 @@ def grade(
     out["movement"] = move.as_dict() | {"ineligible": listed}
     stored = any(ps != [NONE_INDEXED] for ps in listed.values())
     out["movement"]["ok"] = move.passed == move.n if move.n else stored
+    if movement_store is None:  # a movement grade needs the run's store
+        out["movement"], out["movement_reason"] = None, "no movement_store"
     out["hindsight"] = hindsight  # reported (W6-3)
     out["scripted_slots"] = scripted  # reported (D4)
     unplaced = plot.unplaced(pg["events"], signed) if signed else None
@@ -1258,14 +1260,9 @@ def _source(book: str) -> str:
     return "\n\n".join(t.rstrip() for t in parts if t)
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("archive", help="the relay's answered/ directory")
-    ap.add_argument("--book", default="cel", help="corpus for gold lines + style")
-    ap.add_argument("--since", type=float, default=None)
-    ap.add_argument("--against", nargs="*", default=[], help="archives: replayed")
-    args = ap.parse_args()
-    corpus = Path(__file__).resolve().parent.parent / "corpora" / args.book
+def book_inputs(book: str) -> dict:
+    """grade()'s keyword arguments for a corpus, read from evals/corpora."""
+    corpus = Path(__file__).resolve().parent.parent / "corpora" / book
     gt = json.loads((corpus / "ground_truth.json").read_text(encoding="utf-8"))
     style_path = corpus / "style.json"
     style = (
@@ -1273,8 +1270,18 @@ def main() -> None:
         if style_path.exists()
         else {}
     )
+    return corpus_inputs(gt, style)
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("archive", help="the relay's answered/ directory")
+    ap.add_argument("--book", default="cel", help="corpus for gold lines + style")
+    ap.add_argument("--since", type=float, default=None)
+    ap.add_argument("--against", nargs="*", default=[], help="archives: replayed")
+    args = ap.parse_args()
     records = load_archive(args.archive, args.since)
-    result = grade(records, **corpus_inputs(gt, style))
+    result = grade(records, **book_inputs(args.book))
     if args.against:  # §6.1: answers another archive already gave
         old = [r for a in args.against for r in load_archive(a)]
         result["replayed"] = plot.replayed(records, old)

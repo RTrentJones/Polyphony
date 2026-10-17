@@ -1263,6 +1263,9 @@ def _paragraph_spans(text: str) -> list[tuple[int, int]]:
     return out
 
 
+SHORT_SCENE = "no paragraph of >= 30 words"
+
+
 def tighten_request(draft: str, beats: list[dict]) -> dict | None:
     """The longest paragraph of beat 1's prose with >= 30 words, so the redo of
     beat 2 meets its own text; else the scene's longest such; else None."""
@@ -1274,7 +1277,7 @@ def tighten_request(draft: str, beats: list[dict]) -> dict | None:
     span = sorted(inside or paras, key=lambda p: p[0] - p[1])[:1]
     instruction = "Tighten this paragraph: cut every redundant word."
     return (
-        {"id": "tighten", "instruction": instruction}
+        {"id": "tighten", "kind": "tighten", "instruction": instruction}
         | {"range": {"start": span[0][0], "end": span[0][1]}}
         if span
         else None
@@ -1387,13 +1390,14 @@ async def step_revise(ctx: StepContext) -> dict:
     canon = await _canon_block(ctx, scene["book_id"]) if scene.get("book_id") else ""
 
     async def run(req: dict) -> dict:
-        body = {k: v for k, v in req.items() if k != "id"}
+        body = {k: v for k, v in req.items() if k not in ("id", "kind")}
         return await ctx.client.revise(scene_id, body)
 
     from evals.harness.client import EvalClientError
 
     async def one(req: dict, draft: str) -> tuple[dict, dict]:
         row: dict = {"id": req["id"], "instruction": req["instruction"]}
+        row |= {"kind": req["kind"]} if "kind" in req else {}
         try:
             out = await ctx.cache.memo(
                 "revise", f"{gt['book']}|{req['id']}|{draft}", lambda: run(req)
@@ -1460,7 +1464,7 @@ async def step_revise(ctx: StepContext) -> dict:
             row.update(accepted=False, accept_error=str(e)[:300])
         rows.append(row)
     else:  # recorded: the tighten row says why, instead of being missing
-        rows.append({"id": "tighten", "error": "no paragraph of >= 30 words"})
+        rows.append({"id": "tighten", "kind": "tighten", "error": SHORT_SCENE})
     for req in revise_requests(draft, bool(beats), colder):
         row, prop = await one(req, draft)
         if prop.get("id") and prop.get("status") == "proposed":
@@ -1490,6 +1494,10 @@ async def step_revise(ctx: StepContext) -> dict:
             for rid in rubrics.REVISE_RUBRICS
         },
         "revisions": rows,
+        # Fixed names (wave 8 day-0): the tightens requested and, when short of
+        # the run's number, why. E1 fills the three-request rule (D2).
+        "tighten_n": int(bool(tighten)),
+        "tighten_short_reason": None if tighten else SHORT_SCENE,
         "score": round(sum(scored) / len(scored), 4) if scored else None,
     }
 

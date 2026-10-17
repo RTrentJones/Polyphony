@@ -285,6 +285,10 @@ term match, written with `signed_by: null`). The signer corrects the cells and s
 and `signed_at`. An unsigned file is not read. Without a signed file, the plot gates report
 `null` and `placement_signed: false` (SPEC-54).
 
+Regrade a run offline with `python -m evals.graders.plot regrade <run-dir>` (the dir holding its
+`eval-report-<book>.json` and `answered-archive/`). It grades with the movement store the run's own
+report holds (`steps.prose.voice.movement`); without one, `movement` is `null`.
+
 ## Adding a book — data only, no code
 
 1. `corpora/<book>/aliases.json` — rename map + the `sections` to extract.

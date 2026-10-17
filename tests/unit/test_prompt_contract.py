@@ -738,12 +738,13 @@ def test_evidence_verbatim_normalises_marks_and_skips_the_stand_in():
     source = pc.verbatim_text("“Sit,” said Edric.\n  Milo   sat down.")
     prompt = (
         '- (part 1) "Sit," said Edric.\n- (part 1) Milo sat down.\n'
-        "- (part 2) narrates part 2\n- (part 1) Milo sat."
+        "- (part 2) narrates part 2\n- (part 1) Milo sat.\n"
+        "- (part 1) no verbatim quote in part 1"  # wave 8: either marker
     )
     assert pc.check_evidence_verbatim(prompt, source) == (
         ["not in the source: 'Milo sat.'"],
         3,
-        1,
+        2,
     )
 
 
@@ -761,3 +762,64 @@ def test_evidence_verbatim_normalises_marks_and_skips_the_stand_in():
 def test_replayed_skips_all_empty_json(answer, counted):
     rec = _rec("a", "continuity", "p", answer)
     assert ("continuity" in plot.replayed([rec], [rec])) is counted
+
+
+# --- wave 8 day-0: the regrade contract (tpm-plan-wave8 §1(a)) -------------------
+
+W7_ARCHIVES = json.loads(
+    (Path(__file__).parents[1] / "fixtures" / "w7_archives.json").read_text()
+)
+
+
+def _w7_run(run, store) -> Path:
+    """W7 as an eval-out run dir: its outline, the nine beat prompts that cast
+    Milo (the movement each owner was shown) and a report holding `store`."""
+    fx = W7_ARCHIVES["w7_movement"]
+    answered = run / "answered-archive" / "model" / "answered"
+    answered.mkdir(parents=True)
+    _write(answered, _plan_record(fx["plan"]))
+    for i, b in enumerate(fx["beats"]):
+        blocks = {who: ([], moves) for who, moves in b["movement"].items()}
+        _write(
+            answered,
+            _rec(
+                b["request"], "beat_prose", _beat(b["chapter"], blocks), created=1.0 + i
+            ),
+        )
+    report = {"book": "cel", "steps": {"prose": {"voice": {"movement": store}}}}
+    (run / "eval-report-cel.json").write_text(json.dumps(report))
+    signed = Path(pc.__file__).parents[1] / "placements" / "W7.json"
+    (plot.PLACEMENTS / "W7.json").write_text(signed.read_text())
+    return run
+
+
+def test_the_regrade_reads_the_runs_own_store(tmp_path, capsys):
+    """(F) W7 was shown no movement line for Milo, but its store holds eight:
+    the regrade CLI reads the report's store, so Milo is eligible (and empty)
+    in all nine blocks, never "none indexed"."""
+    run = _w7_run(tmp_path / "w7", W7_ARCHIVES["w7_movement"]["store"])
+    plot.main(["regrade", str(run)])
+    move = json.loads(capsys.readouterr().out)["movement"]
+    assert (move["n"], move["passed"], move["ineligible"]) == (9, 0, {})
+    assert {r for f in move["failures"] for r in f["reasons"]} == {
+        "Milo Voss: eligible, no movement line"
+    }
+
+
+def test_a_contradicted_none_indexed_is_an_error(tmp_path, monkeypatch):
+    """(F) A grade that lists Milo "none indexed" while the run's store holds
+    his lines raises; it is never a result."""
+    run = _w7_run(tmp_path / "w7", W7_ARCHIVES["w7_movement"]["store"])
+    movement = {"ineligible": {"Milo Voss": [pc.NONE_INDEXED]}}
+    monkeypatch.setattr(pc, "grade", lambda *a, **kw: {"movement": movement})
+    with pytest.raises(ValueError, match="Milo Voss: read as none indexed"):
+        plot.regrade(run)
+
+
+def test_without_a_store_movement_is_null(tmp_path):
+    """(F) No fallback to the lines the prompts show: without the run's store
+    the movement result is null, with its reason."""
+    run = _w7_run(tmp_path / "w7", None)
+    out = plot.regrade(run)
+    assert (out["movement"], out["movement_reason"]) == (None, "no movement_store")
+    assert out["placement_signed"] is True

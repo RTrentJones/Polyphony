@@ -47,6 +47,12 @@ BEATS_FENCE = "beats"
 PRIOR_FENCE = "prior"
 CHAPTER_FENCE = "chapter"
 
+# --- the revise prompt: printed for a cut request (SPEC-59) --------------------
+TIGHTEN_CLAUSE = (
+    "Cut every word that adds nothing; keep every fact, image, joke, aside and "
+    "voice marker in the passage."
+)
+
 # --- character blocks (characters/context, parsing/canon_extractor reduce) -----
 NAME_HEADING = "### "  # followed by the character's name
 VOICE_SAMPLES_LABEL = (
@@ -55,8 +61,10 @@ VOICE_SAMPLES_LABEL = (
 )
 EVIDENCE_LABEL = "Evidence:"
 EVIDENCE_ITEM = "- (part {part}) {quote}"  # .format(part=<1-based>, quote=...)
-# A member left with no verbatim quote (SPEC-56): a mark, not a quote.
-EVIDENCE_STAND_IN = "narrates part {part}"  # .format(part=<1-based>)
+# A member left with no verbatim quote (SPEC-56, SPEC-64): a mark, not a quote;
+# "narrates" on the narrator path only. Both .format(part=<1-based>).
+EVIDENCE_STAND_IN = "narrates part {part}"
+EVIDENCE_NO_QUOTE = "no verbatim quote in part {part}"
 QUOTED_LINES_LABEL = "Quoted lines (their own words):"
 MOVEMENT_LABEL = (
     "How they move (gesture and habit, for manner only: never copy a sample's "

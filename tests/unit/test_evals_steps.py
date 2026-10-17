@@ -990,6 +990,10 @@ async def test_revise_step_accepts_the_tighten_and_asks_the_rest_of_it(tmp_path)
     out = await pipeline.step_revise(ctx)
     tighten, colder, redo = out["revisions"]
     assert tighten["accepted"] is True and client.discarded == ["p2", "p3"]
+    # Wave-8 day-0: the report's kind and count; the API body has no kind.
+    assert [r.get("kind") for r in out["revisions"]] == ["tighten", None, None]
+    assert (out["tighten_n"], out["tighten_short_reason"]) == (1, None)
+    assert not any("kind" in body for body in client.revised)
     accepted = client.proposals["p1"]["content"]
     assert [r["draft"] for r in client.revised] == [REVISE_DRAFT, accepted, accepted]
     assert colder["outside_identical"] and redo["dropped_callbacks"] == ["B-flat"]
