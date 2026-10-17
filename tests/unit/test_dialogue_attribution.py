@@ -943,6 +943,13 @@ async def test_a_sample_that_restates_any_plot_line_goes(
         ("w4", 6, None),
         ("w5b", 1, 9),
         ("w5b", 2, 14),
+        # (F) paragraph 3, the desk, shares 5 with ch-1 "Lanyard, Desk, Mentor" and 6
+        # with ch-4 "Not a Rebellion": within one word, chapter 1 takes it; the cut
+        # is the same in ch 2 (monotone)
+        ("w8b", 1, 9),
+        ("w8b", 2, 9),
+        ("w8b", 4, 27),  # (R)
+        ("w4", 2, None),  # (F) W4 plans the corner office in ch 2 (p17: 4 vs 5 in ch 6)
     ],
 )
 def test_later_plot_begins_at_a_later_chapters_best_match(outline, chapter, cut):

@@ -256,6 +256,8 @@ _DIALOGUE = "dialogue"
 # event, which the plan already carries (SPEC-36, SPEC-40). Unrelated pairs
 # share at most 2-3, event pairs 5-6 (the run-W3, W4 and W4b2 archives).
 RESTATES_MIN = 4
+# Within this many words of its best line, the earlier chapter takes it (SPEC-40).
+TIE_WORDS = 1
 
 
 # A voice sample sharing a run of this many words, pronouns folded, with the beat
@@ -293,7 +295,9 @@ def later_plot_from(
     """The first paragraph of a source whose event the plan places after
     `chapter`, or None (SPEC-40). A paragraph's chapter is that of the plan line
     its narration (speech left out: one speech rule) shares the most content
-    words with, at RESTATES_MIN or more; a tie goes to the earlier chapter."""
+    words with, at RESTATES_MIN or more; within TIE_WORDS of its best line, the
+    earliest chapter takes it, so a paragraph's chapter does not depend on the
+    scope (monotone)."""
     from app.parsing.character_extractor import narration_of
     from app.planning.fidelity import FUNCTION_WORDS
     from app.planning.planned_beat import beat_scene_description
@@ -301,8 +305,11 @@ def later_plot_from(
     lines = [(n, _words(beat_scene_description(b), FUNCTION_WORDS)) for n, b in plan]
     for i, paragraph in enumerate(paragraphs):
         words = _words(narration_of(paragraph))
-        shared, earlier = max(((len(words & w), -n) for n, w in lines), default=(0, 0))
-        if shared >= RESTATES_MIN and -earlier > chapter:
+        scores = [(len(words & w), n) for n, w in lines]
+        best = max((s for s, _ in scores), default=0)
+        floor = max(RESTATES_MIN, best - TIE_WORDS)
+        placed = min((n for s, n in scores if s >= floor), default=0)
+        if best >= RESTATES_MIN and placed > chapter:
             return i
     return None
 

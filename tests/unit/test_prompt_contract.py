@@ -870,6 +870,7 @@ def test_tighten_clause_eligibility_is_the_report_rows_kind(tmp_path):
     }
     assert graded([{**rows[0], "kind": None}])["tighten_clause"]["n"] == 0
     assert graded(None)["tighten_clause"]["n"] == 0
+    assert "tighten_clause" in graded(None)["empty_checks"]
 
 
 def test_plan_quotes_source_reproduces_10_of_85(tmp_path):

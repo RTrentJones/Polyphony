@@ -100,7 +100,8 @@ def scorecard(run: dict) -> str:
                 f"new_names={res.get('new_names')} {res.get('rubric_means')}"
             )
         elif name == "prompt_contract":
-            extra = " ".join(
+            empty = ", ".join(res.get("empty_checks") or [])
+            extra = f"empty=[{empty}] " + " ".join(
                 f"{k}={res[k]['rate']}"
                 for k in _CONTRACT_CHECKS
                 if isinstance(res.get(k), dict)
