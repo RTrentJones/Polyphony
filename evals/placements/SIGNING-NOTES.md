@@ -59,3 +59,30 @@ This applies the same test as the wave-6 partition ruling. There, Zara's one-sec
 Effect, regraded offline by the principal: W7r `samples_not_plot` goes from 0.7 to 1.0. W7br, W5d, W5bd, W6, W6b, W7 and W7b are unchanged, including their movement listings. The product did not change, so no re-draw is needed.
 
 Wave 8: re-confirm every event's `narrated` list at D1 granularity, meaning the narration left in each speech paragraph after its quoted speech is removed. Check in particular p2 (training), p4 (Milo rolling his chair to the partition), p11 (done here) and p20 (Edric opening the ledger, inside the corner-office span).
+
+## Wave-8 narrated re-sign (PM, 2026-10-17)
+
+The test is the same one used for the partition glance (wave 6) and bell p11 (wave 7). At D1 grain, a paragraph is `narrated` for an event only when its narration (the text left after the quoted speech and speech tags are removed) **is** the event itself, not a reaction, gesture or tag. Speech that carries an event stays inside the event's span, so as voice it is still later plot wherever the event comes later. I re-read every paragraph in every event span.
+
+**Changed cells**
+
+| Event | Was | Now | Paragraph | Narration at D1 grain | Reason |
+|---|---|---|---|---|---|
+| intake | [0, 1] | [0] | p1 | "she said, warmly." | Only a speech tag is left. The event (retained, culture fit) is the speech, which is voice inside the span. No movement chunk can come from the tag, so this cell changes no grade. |
+| summons | [14, 15] | [14] | p15 | "Milo read it twice." | A reaction to the memo, like "Zara set down her pen" in p11. p14 (the memo arriving, Edric's signature) is the event. |
+| corner office | [17, 19, 20] | [17, 19] | p20 | "Edric Thane opened the ledger without looking at it." | A gesture inside the meeting that no outline plans. The outlines plan the meeting through p17's room (the closed ledger, hands folded) and p19's refused chair. |
+| discrepancy | [27, 28] | [27] | p28 | "he said." | Only a tag is left. The finding is p27's narration plus p28's speech, and the speech stays in the span. This cell changes no grade either. |
+
+**Named paragraphs, confirmed unchanged**
+
+- **p2** ("Zara Okafor, at the next desk, did not look up."): training span, not narrated. This is Zara's standing habit (the synopsis's "she never looks up"), not an event.
+- **p4** ("rolling his chair an inch closer to the partition"): partition span, not narrated. It is Milo's eager gesture, not the meeting, which is p3. Marking it would make Milo's one chapter-1 movement line plot again.
+- **p19** ("and remained standing. He was surprised to hear himself say it."): stays narrated. Refusing the chair is the event itself; the outlines plan it as "An Analyst Who Stands", "Do Sit" and "Stand".
+- **p11** ("Zara set down her pen."): not narrated, from the wave-7 ruling.
+
+**Other spans, confirmed unchanged:** p0, p3, p9, p13, p14, p17 and p27 are pure narration of their events. p10, p12, p16, p18, p21–26, p29 and p30 are speech, tags or reactions, and none was narrated before.
+
+**Grading effect:**
+- p1 and p28 index no movement chunk, so they are inert.
+- p15 and p20 are D1 movement chunks for Milo and Edric. Shown in a chapter before the summons or the meeting, they now pass as manner instead of failing as plot.
+- The product is unchanged. E1's 13-archive regrade picks this up.
