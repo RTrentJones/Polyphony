@@ -172,10 +172,12 @@ async def get_current_admin_user(
 
 
 # --- Refresh tokens -----------------------------------------------------------
-# Opaque 256-bit random tokens, stored hashed. Rotation on every /refresh;
-# reuse of a revoked token revokes the user's whole token family, except a
-# token rotated less than REFRESH_REUSE_GRACE_SECONDS ago (a lost response).
-# Logout and family revocation also expire the token, so neither is graced.
+# Opaque 256-bit random tokens, stored hashed. Each login starts a family;
+# /refresh rotates within it. Reuse of a rotated token revokes all of the
+# user's tokens (theft), except within REFRESH_REUSE_GRACE_SECONDS of its
+# rotation, when it gets a fresh token in the same family (an aborted /refresh
+# left the browser with the old cookie). Logout ends the family, siblings
+# included; an ended token is never honoured.
 
 REFRESH_COOKIE_NAME = "polyphony_refresh"
 
@@ -184,15 +186,21 @@ def _hash_refresh_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def _utc(at: Optional[datetime]) -> Optional[datetime]:
+    return at.replace(tzinfo=timezone.utc) if at and at.tzinfo is None else at
+
+
 async def issue_refresh_token(
-    db: AsyncSession, user: UserORM, user_agent: str = ""
+    db: AsyncSession, user: UserORM, user_agent: str = "", family_id=None
 ) -> str:
-    """Create and persist a refresh token; returns the raw token for the cookie."""
+    """Create and persist a refresh token; returns the raw token for the cookie.
+    A new login starts a family; a rotation passes its predecessor's."""
     raw = secrets.token_urlsafe(32)
     db.add(
         RefreshToken(
             user_id=user.id,
             token_hash=_hash_refresh_token(raw),
+            family_id=family_id or uuid.uuid4(),
             expires_at=datetime.now(timezone.utc)
             + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
             user_agent=user_agent[:500],
@@ -202,41 +210,35 @@ async def issue_refresh_token(
     return raw
 
 
-async def rotate_refresh_token(
-    db: AsyncSession, raw_token: str, user_agent: str = ""
-) -> Optional[tuple[UserORM, str]]:
-    """Validate + rotate a refresh token.
-
-    Returns (user, new_raw_token) or None if invalid/expired. Reuse of an
-    already-rotated token is treated as theft (every live token for that user
-    is revoked) unless it was rotated within the grace window, when a fresh
-    token is issued instead.
-    """
+async def _by_raw(db: AsyncSession, raw_token: str) -> Optional[RefreshToken]:
     result = await db.execute(
         select(RefreshToken).where(
             RefreshToken.token_hash == _hash_refresh_token(raw_token)
         )
     )
-    stored = result.scalar_one_or_none()
-    if stored is None:
+    return result.scalar_one_or_none()
+
+
+async def rotate_refresh_token(
+    db: AsyncSession, raw_token: str, user_agent: str = ""
+) -> Optional[tuple[UserORM, str]]:
+    """Validate + rotate a refresh token.
+
+    Returns (user, new_raw_token) or None. An ended token (logout, theft) is
+    refused. A rotated token presented again within the grace window gets a
+    fresh token in its family, even past its natural expiry; after the window
+    it is theft and every token of the user is ended.
+    """
+    stored = await _by_raw(db, raw_token)
+    if stored is None or stored.ended_at is not None:
         return None
-
     now = datetime.now(timezone.utc)
-    expires_at = stored.expires_at
-    if expires_at is not None and expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-
-    expired = expires_at is not None and expires_at <= now
-    revoked_at = stored.revoked_at
-    if revoked_at is not None and revoked_at.tzinfo is None:
-        revoked_at = revoked_at.replace(tzinfo=timezone.utc)
+    rotated_at = _utc(stored.revoked_at)
     grace = timedelta(seconds=settings.REFRESH_REUSE_GRACE_SECONDS)
-    if revoked_at is not None and (expired or now - revoked_at >= grace):
-        # Reuse detected (checked before expiry, so a rotated token replayed
-        # after it would have expired anyway still counts) — revoke the family.
+    if rotated_at is not None and now - rotated_at >= grace:
         await revoke_all_refresh_tokens(db, stored.user_id)
         return None
-    if expired:
+    if rotated_at is None and _utc(stored.expires_at) <= now:
         return None
 
     user = (
@@ -245,51 +247,45 @@ async def rotate_refresh_token(
     if user is None or not user.is_active:
         return None
 
-    stored.revoked_at = revoked_at or now
-    new_raw = await issue_refresh_token(db, user, user_agent)
+    stored.family_id = stored.family_id or uuid.uuid4()  # rows from before 0020
+    stored.revoked_at = rotated_at or now
+    new_raw = await issue_refresh_token(db, user, user_agent, stored.family_id)
     return user, new_raw
 
 
 async def revoke_refresh_token(db: AsyncSession, raw_token: str) -> None:
-    result = await db.execute(
-        select(RefreshToken).where(
-            RefreshToken.token_hash == _hash_refresh_token(raw_token)
-        )
-    )
-    stored = result.scalar_one_or_none()
+    """Logout: end the presented token's whole family, siblings included."""
+    stored = await _by_raw(db, raw_token)
     if stored is None:
         return
     now = datetime.now(timezone.utc)
-    _end(stored, now)
-    # A predecessor still inside its grace window could mint a fresh token
-    # after logout; end every one of this user's still-graceable tokens too.
-    grace = timedelta(seconds=settings.REFRESH_REUSE_GRACE_SECONDS)
-    graceable = await db.execute(
+    if stored.family_id is None:
+        stored.ended_at = stored.ended_at or now
+        return
+    family = await db.execute(
         select(RefreshToken).where(
-            RefreshToken.user_id == stored.user_id,
-            RefreshToken.revoked_at > now - grace,
-            RefreshToken.expires_at > now,
+            RefreshToken.family_id == stored.family_id,
+            RefreshToken.ended_at.is_(None),
         )
     )
-    for token in graceable.scalars().all():
-        _end(token, now)
-
-
-def _end(token: RefreshToken, now: datetime) -> None:
-    """Revoke and expire: an ended token is never graced."""
-    token.revoked_at = token.revoked_at or now
-    token.expires_at = now
+    for token in family.scalars().all():
+        token.ended_at = now
 
 
 async def revoke_all_refresh_tokens(db: AsyncSession, user_id) -> None:
+    """Theft: end every token of the user that is live or still graceable.
+    Expired rows past any grace are already dead and are left alone."""
     now = datetime.now(timezone.utc)
-    result = await db.execute(  # an expired token is already dead: leave it
+    grace = timedelta(seconds=settings.REFRESH_REUSE_GRACE_SECONDS)
+    result = await db.execute(
         select(RefreshToken).where(
-            RefreshToken.user_id == user_id, RefreshToken.expires_at > now
+            RefreshToken.user_id == user_id,
+            RefreshToken.ended_at.is_(None),
+            RefreshToken.expires_at > now - grace,
         )
     )
     for token in result.scalars().all():
-        _end(token, now)
+        token.ended_at = now
 
 
 async def authenticate_user(

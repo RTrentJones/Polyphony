@@ -114,7 +114,7 @@ class TestRefreshRotation:
                 await async_session.execute(
                     select(RefreshToken).where(
                         RefreshToken.user_id == user.id,
-                        RefreshToken.revoked_at.is_(None),
+                        RefreshToken.ended_at.is_(None),
                     )
                 )
             )
@@ -171,6 +171,40 @@ class TestRefreshRotation:
         assert await rotate_refresh_token(async_session, t0) is None
 
     @pytest.mark.asyncio
+    async def test_logout_ends_a_sibling_minted_in_the_window(
+        self, async_session, user
+    ):
+        """Two tabs refresh T0 inside the window (T1, T1'); logout with T1 must
+        also end T1'."""
+        t0 = await issue_refresh_token(async_session, user)
+        await async_session.commit()
+        _, t1 = await rotate_refresh_token(async_session, t0)
+        await async_session.commit()
+        _, t1b = await rotate_refresh_token(async_session, t0)
+        await async_session.commit()
+        await revoke_refresh_token(async_session, t1)
+        await async_session.commit()
+        assert await rotate_refresh_token(async_session, t1b) is None
+
+    @pytest.mark.asyncio
+    async def test_the_window_holds_past_natural_expiry(self, async_session, user):
+        """Rotated in its last seconds, retried just after expiry: still graced."""
+        raw = await issue_refresh_token(async_session, user)
+        await async_session.commit()
+        await rotate_refresh_token(async_session, raw)
+        await async_session.commit()
+        stored = (
+            await async_session.execute(
+                select(RefreshToken).where(
+                    RefreshToken.token_hash == _hash_refresh_token(raw)
+                )
+            )
+        ).scalar_one()
+        stored.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await async_session.commit()
+        assert await rotate_refresh_token(async_session, raw) is not None
+
+    @pytest.mark.asyncio
     async def test_logout_and_theft_are_never_graced(self, async_session, user):
         raw = await issue_refresh_token(async_session, user)
         await async_session.commit()
@@ -208,7 +242,7 @@ class TestRefreshRotation:
         await async_session.commit()
         old_row = rows[_hash_refresh_token(old_raw)]
         await async_session.refresh(old_row)
-        assert old_row.revoked_at is None  # untouched
+        assert old_row.ended_at is None  # untouched
         assert await rotate_refresh_token(async_session, live_raw) is None
 
     @pytest.mark.asyncio
@@ -234,7 +268,7 @@ class TestRefreshRotation:
                 await async_session.execute(
                     select(RefreshToken).where(
                         RefreshToken.user_id == user.id,
-                        RefreshToken.revoked_at.is_(None),
+                        RefreshToken.ended_at.is_(None),
                     )
                 )
             )

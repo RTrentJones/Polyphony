@@ -100,13 +100,19 @@ class RefreshToken(Base):
     )
     token_hash = Column(String(64), unique=True, nullable=False, index=True)
     expires_at = Column(DateTime(timezone=True), nullable=False)
-    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)  # rotated
+    # One login's rotation lineage; logout ends the whole family (0020).
+    family_id = Column(UUID(as_uuid=True), nullable=True)
+    ended_at = Column(DateTime(timezone=True), nullable=True)  # logout / theft
     user_agent = Column(String(500))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="refresh_tokens")
 
-    __table_args__ = (Index("idx_refresh_tokens_user_id", "user_id"),)
+    __table_args__ = (
+        Index("idx_refresh_tokens_user_id", "user_id"),
+        Index("idx_refresh_tokens_family_id", "family_id"),
+    )
 
 
 class Source(Base):
