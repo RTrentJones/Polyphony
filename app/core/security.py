@@ -173,7 +173,9 @@ async def get_current_admin_user(
 
 # --- Refresh tokens -----------------------------------------------------------
 # Opaque 256-bit random tokens, stored hashed. Rotation on every /refresh;
-# reuse of a revoked token revokes the user's whole token family.
+# reuse of a revoked token revokes the user's whole token family, except a
+# token rotated less than REFRESH_REUSE_GRACE_SECONDS ago (a lost response).
+# Logout and family revocation also expire the token, so neither is graced.
 
 REFRESH_COOKIE_NAME = "polyphony_refresh"
 
@@ -206,8 +208,9 @@ async def rotate_refresh_token(
     """Validate + rotate a refresh token.
 
     Returns (user, new_raw_token) or None if invalid/expired. Reuse of an
-    already-revoked token is treated as theft: every live token for that user
-    is revoked.
+    already-rotated token is treated as theft (every live token for that user
+    is revoked) unless it was rotated within the grace window, when a fresh
+    token is issued instead.
     """
     result = await db.execute(
         select(RefreshToken).where(
@@ -223,11 +226,15 @@ async def rotate_refresh_token(
     if expires_at is not None and expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
 
-    if stored.revoked_at is not None:
+    if expires_at is not None and expires_at <= now:
+        return None
+    revoked_at = stored.revoked_at
+    if revoked_at is not None and revoked_at.tzinfo is None:
+        revoked_at = revoked_at.replace(tzinfo=timezone.utc)
+    grace = timedelta(seconds=settings.REFRESH_REUSE_GRACE_SECONDS)
+    if revoked_at is not None and now - revoked_at >= grace:
         # Reuse detected — revoke the family.
         await revoke_all_refresh_tokens(db, stored.user_id)
-        return None
-    if expires_at is not None and expires_at <= now:
         return None
 
     user = (
@@ -236,7 +243,7 @@ async def rotate_refresh_token(
     if user is None or not user.is_active:
         return None
 
-    stored.revoked_at = now
+    stored.revoked_at = revoked_at or now
     new_raw = await issue_refresh_token(db, user, user_agent)
     return user, new_raw
 
@@ -248,19 +255,23 @@ async def revoke_refresh_token(db: AsyncSession, raw_token: str) -> None:
         )
     )
     stored = result.scalar_one_or_none()
-    if stored is not None and stored.revoked_at is None:
-        stored.revoked_at = datetime.now(timezone.utc)
+    if stored is not None:
+        _end(stored, datetime.now(timezone.utc))
+
+
+def _end(token: RefreshToken, now: datetime) -> None:
+    """Revoke and expire: an ended token is never graced."""
+    token.revoked_at = token.revoked_at or now
+    token.expires_at = now
 
 
 async def revoke_all_refresh_tokens(db: AsyncSession, user_id) -> None:
     result = await db.execute(
-        select(RefreshToken).where(
-            RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None)
-        )
+        select(RefreshToken).where(RefreshToken.user_id == user_id)
     )
     now = datetime.now(timezone.utc)
     for token in result.scalars().all():
-        token.revoked_at = now
+        _end(token, now)
 
 
 async def authenticate_user(

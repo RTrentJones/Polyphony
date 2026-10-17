@@ -180,7 +180,7 @@ product's whole history.
 
 | Feature | Status | Notes |
 |---|---|---|
-| Invite-gated multi-user auth, rotating refresh tokens | ✅ | |
+| Invite-gated multi-user auth, rotating refresh tokens (a just-rotated token is honoured for 30 s, `REFRESH_REUSE_GRACE_SECONDS`, so an aborted /refresh does not sign the user out; logout and theft revocation are never graced) | ✅ | |
 | Rate limits per real client IP (trusted `CF-Connecting-IP`) and per user | ✅ | SPEC-05 / F7. Was keyed on the tunnel, so every limit was global |
 | Per-email failed-login limit; polling and LLM route classes; `Retry-After` | ✅ | SPEC-05. UI polls back off on 429 |
 | Background jobs (lock, retry, dead-letter) | ✅ | `available_at` already exists — the pause/resume mechanism |

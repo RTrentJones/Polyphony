@@ -9,11 +9,24 @@ from sqlalchemy import select
 from app.api.auth import _consume_invite
 from app.core.orm_models import InviteCode, RefreshToken, User
 from app.core.security import (
+    _hash_refresh_token,
     get_password_hash,
     issue_refresh_token,
     revoke_all_refresh_tokens,
+    revoke_refresh_token,
     rotate_refresh_token,
 )
+
+
+async def _age_rotation(session, raw_hash_of, seconds):
+    """Pretend the token was rotated `seconds` ago."""
+    stored = (
+        await session.execute(
+            select(RefreshToken).where(RefreshToken.token_hash == raw_hash_of)
+        )
+    ).scalar_one()
+    stored.revoked_at = datetime.now(timezone.utc) - timedelta(seconds=seconds)
+    await session.commit()
 
 
 @pytest.fixture
@@ -88,9 +101,12 @@ class TestRefreshRotation:
         rotated = await rotate_refresh_token(async_session, raw)
         assert rotated is not None
         await async_session.commit()
+        await _age_rotation(async_session, _hash_refresh_token(raw), 31)
 
-        # Replaying the old token = theft signal -> everything revoked
+        # Replaying the old token after the grace = theft signal -> all revoked
         assert await rotate_refresh_token(async_session, raw) is None
+        await async_session.commit()
+        assert await rotate_refresh_token(async_session, rotated[1]) is None
         await async_session.commit()
 
         live = (
@@ -106,6 +122,34 @@ class TestRefreshRotation:
             .all()
         )
         assert live == []
+
+    @pytest.mark.asyncio
+    async def test_a_lost_rotation_is_graced(self, async_session, user):
+        """An aborted /refresh leaves the old cookie: within the grace window its
+        reuse gets a fresh token and the session survives."""
+        raw = await issue_refresh_token(async_session, user)
+        await async_session.commit()
+        first = await rotate_refresh_token(async_session, raw)
+        await async_session.commit()
+        again = await rotate_refresh_token(async_session, raw)
+        await async_session.commit()
+        assert again is not None and again[1] != first[1]
+        assert await rotate_refresh_token(async_session, again[1]) is not None
+
+    @pytest.mark.asyncio
+    async def test_logout_and_theft_are_never_graced(self, async_session, user):
+        raw = await issue_refresh_token(async_session, user)
+        await async_session.commit()
+        await revoke_refresh_token(async_session, raw)  # logout
+        await async_session.commit()
+        assert await rotate_refresh_token(async_session, raw) is None
+
+        raw = await issue_refresh_token(async_session, user)
+        await async_session.commit()
+        await rotate_refresh_token(async_session, raw)
+        await revoke_all_refresh_tokens(async_session, user.id)  # theft elsewhere
+        await async_session.commit()
+        assert await rotate_refresh_token(async_session, raw) is None
 
     @pytest.mark.asyncio
     async def test_garbage_token_rejected(self, async_session, user):
