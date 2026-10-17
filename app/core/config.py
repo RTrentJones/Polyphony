@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    # A just-rotated refresh token may be presented again for this long (an
+    # aborted /refresh response leaves the browser with the old cookie).
+    REFRESH_REUSE_GRACE_SECONDS: int = 30
 
     # First-boot admin bootstrap (created only when the users table is empty)
     ADMIN_EMAIL: Optional[str] = None

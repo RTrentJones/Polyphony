@@ -10,7 +10,7 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from .config import settings
 from .logging_config import log_error, setup_logging
@@ -172,8 +172,12 @@ async def get_current_admin_user(
 
 
 # --- Refresh tokens -----------------------------------------------------------
-# Opaque 256-bit random tokens, stored hashed. Rotation on every /refresh;
-# reuse of a revoked token revokes the user's whole token family.
+# Opaque 256-bit random tokens, stored hashed. Each login starts a family;
+# /refresh rotates within it. Reuse of a rotated token revokes all of the
+# user's tokens (theft), except within REFRESH_REUSE_GRACE_SECONDS of its
+# rotation, when it gets a fresh token in the same family (an aborted /refresh
+# left the browser with the old cookie). Logout ends the family, siblings
+# included; an ended token is never honoured.
 
 REFRESH_COOKIE_NAME = "polyphony_refresh"
 
@@ -182,15 +186,21 @@ def _hash_refresh_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def _utc(at: Optional[datetime]) -> Optional[datetime]:
+    return at.replace(tzinfo=timezone.utc) if at and at.tzinfo is None else at
+
+
 async def issue_refresh_token(
-    db: AsyncSession, user: UserORM, user_agent: str = ""
+    db: AsyncSession, user: UserORM, user_agent: str = "", family_id=None
 ) -> str:
-    """Create and persist a refresh token; returns the raw token for the cookie."""
+    """Create and persist a refresh token; returns the raw token for the cookie.
+    A new login starts a family; a rotation passes its predecessor's."""
     raw = secrets.token_urlsafe(32)
     db.add(
         RefreshToken(
             user_id=user.id,
             token_hash=_hash_refresh_token(raw),
+            family_id=family_id or uuid.uuid4(),
             expires_at=datetime.now(timezone.utc)
             + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
             user_agent=user_agent[:500],
@@ -200,34 +210,62 @@ async def issue_refresh_token(
     return raw
 
 
-async def rotate_refresh_token(
-    db: AsyncSession, raw_token: str, user_agent: str = ""
-) -> Optional[tuple[UserORM, str]]:
-    """Validate + rotate a refresh token.
-
-    Returns (user, new_raw_token) or None if invalid/expired. Reuse of an
-    already-revoked token is treated as theft: every live token for that user
-    is revoked.
-    """
+async def _by_raw(db: AsyncSession, raw_token: str) -> Optional[RefreshToken]:
     result = await db.execute(
         select(RefreshToken).where(
             RefreshToken.token_hash == _hash_refresh_token(raw_token)
         )
     )
-    stored = result.scalar_one_or_none()
+    return result.scalar_one_or_none()
+
+
+async def _lock_user(db: AsyncSession, user_id) -> None:
+    """Serialize every refresh-token change of one user (rotation, logout,
+    theft revocation) until the transaction ends: a Postgres advisory lock,
+    re-entrant within a transaction; a no-op on SQLite, which the unit tests use.
+    One user refreshes rarely, so one lock per user costs nothing and covers
+    every lineage, pre-0020 tokens included."""
+    if db.get_bind().dialect.name == "postgresql":
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+            {"k": f"refresh:{user_id}"},
+        )
+
+
+async def _lock_and_reload(db: AsyncSession, stored: RefreshToken) -> None:
+    """Take the user's lock and re-read the token under it, so a rotation or
+    logout that committed meanwhile is seen."""
+    await _lock_user(db, stored.user_id)
+    await db.refresh(stored)
+
+
+async def rotate_refresh_token(
+    db: AsyncSession, raw_token: str, user_agent: str = ""
+) -> Optional[tuple[UserORM, str]]:
+    """Validate + rotate a refresh token.
+
+    Returns (user, new_raw_token) or None. An ended token (logout, theft) is
+    refused. A rotated token presented again within the grace window gets a
+    fresh token in its family, even past its natural expiry; after the window
+    it is theft and every token of the user is ended. A rotated pre-0020 token
+    has no family, so it is never graced. The caller must commit even on None,
+    or the theft revocation is rolled back.
+    """
+    stored = await _by_raw(db, raw_token)
     if stored is None:
         return None
-
+    await _lock_and_reload(db, stored)  # a logout may have ended it meanwhile
+    if stored.ended_at is not None:
+        return None
     now = datetime.now(timezone.utc)
-    expires_at = stored.expires_at
-    if expires_at is not None and expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-
-    if stored.revoked_at is not None:
-        # Reuse detected — revoke the family.
+    rotated_at = _utc(stored.revoked_at)
+    grace = timedelta(seconds=settings.REFRESH_REUSE_GRACE_SECONDS)
+    if rotated_at is not None and (
+        stored.family_id is None or now - rotated_at >= grace
+    ):
         await revoke_all_refresh_tokens(db, stored.user_id)
         return None
-    if expires_at is not None and expires_at <= now:
+    if rotated_at is None and _utc(stored.expires_at) <= now:
         return None
 
     user = (
@@ -236,31 +274,55 @@ async def rotate_refresh_token(
     if user is None or not user.is_active:
         return None
 
-    stored.revoked_at = now
-    new_raw = await issue_refresh_token(db, user, user_agent)
+    stored.family_id = stored.family_id or uuid.uuid4()  # rows from before 0020
+    stored.revoked_at = rotated_at or now
+    new_raw = await issue_refresh_token(db, user, user_agent, stored.family_id)
     return user, new_raw
 
 
 async def revoke_refresh_token(db: AsyncSession, raw_token: str) -> None:
-    result = await db.execute(
-        select(RefreshToken).where(
-            RefreshToken.token_hash == _hash_refresh_token(raw_token)
+    """Logout: end the presented token's whole family, siblings included."""
+    stored = await _by_raw(db, raw_token)
+    if stored is None:
+        return
+    # Re-read under the lineage lock, so a rotation that won the race has its
+    # new family (and that family's lock) taken too.
+    await _lock_and_reload(db, stored)
+    now = datetime.now(timezone.utc)
+    if stored.family_id is None:
+        stored.ended_at = stored.ended_at or now
+        return
+    grace = timedelta(seconds=settings.REFRESH_REUSE_GRACE_SECONDS)
+    family = await db.execute(  # after the lock: sees a graced sibling
+        select(RefreshToken)
+        .where(
+            RefreshToken.family_id == stored.family_id,
+            RefreshToken.ended_at.is_(None),
+            RefreshToken.expires_at > now - grace,  # older rows are dead
         )
+        .execution_options(populate_existing=True)
     )
-    stored = result.scalar_one_or_none()
-    if stored is not None and stored.revoked_at is None:
-        stored.revoked_at = datetime.now(timezone.utc)
+    for token in family.scalars().all():
+        token.ended_at = now
 
 
 async def revoke_all_refresh_tokens(db: AsyncSession, user_id) -> None:
+    """Theft: end every token of the user that is live or still graceable.
+    Expired rows past any grace are already dead and are left alone."""
+    await _lock_user(db, user_id)  # a concurrent rotation's successor is seen
+    now = datetime.now(timezone.utc)
+    grace = timedelta(seconds=settings.REFRESH_REUSE_GRACE_SECONDS)
     result = await db.execute(
-        select(RefreshToken).where(
-            RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None)
+        select(RefreshToken)
+        .execution_options(populate_existing=True)
+        .where(
+            RefreshToken.user_id == user_id,
+            RefreshToken.ended_at.is_(None),
+            RefreshToken.expires_at > now - grace,
         )
     )
-    now = datetime.now(timezone.utc)
     for token in result.scalars().all():
-        token.revoked_at = now
+        token.ended_at = now
 
 
 async def authenticate_user(
