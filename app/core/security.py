@@ -257,8 +257,22 @@ async def revoke_refresh_token(db: AsyncSession, raw_token: str) -> None:
         )
     )
     stored = result.scalar_one_or_none()
-    if stored is not None:
-        _end(stored, datetime.now(timezone.utc))
+    if stored is None:
+        return
+    now = datetime.now(timezone.utc)
+    _end(stored, now)
+    # A predecessor still inside its grace window could mint a fresh token
+    # after logout; end every one of this user's still-graceable tokens too.
+    grace = timedelta(seconds=settings.REFRESH_REUSE_GRACE_SECONDS)
+    graceable = await db.execute(
+        select(RefreshToken).where(
+            RefreshToken.user_id == stored.user_id,
+            RefreshToken.revoked_at > now - grace,
+            RefreshToken.expires_at > now,
+        )
+    )
+    for token in graceable.scalars().all():
+        _end(token, now)
 
 
 def _end(token: RefreshToken, now: datetime) -> None:

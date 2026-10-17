@@ -160,6 +160,17 @@ class TestRefreshRotation:
         assert await rotate_refresh_token(async_session, rotated[1]) is None
 
     @pytest.mark.asyncio
+    async def test_logout_ends_the_graceable_predecessor(self, async_session, user):
+        """T0 -> T1, logout with T1 inside the window: T0 must not mint T2."""
+        t0 = await issue_refresh_token(async_session, user)
+        await async_session.commit()
+        _, t1 = await rotate_refresh_token(async_session, t0)
+        await async_session.commit()
+        await revoke_refresh_token(async_session, t1)
+        await async_session.commit()
+        assert await rotate_refresh_token(async_session, t0) is None
+
+    @pytest.mark.asyncio
     async def test_logout_and_theft_are_never_graced(self, async_session, user):
         raw = await issue_refresh_token(async_session, user)
         await async_session.commit()
