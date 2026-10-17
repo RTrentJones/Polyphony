@@ -275,16 +275,21 @@ async def revoke_refresh_token(db: AsyncSession, raw_token: str) -> None:
     stored = await _by_raw(db, raw_token)
     if stored is None:
         return
+    # The key rotation takes: the family, or a pre-0020 token's own id. Re-read
+    # under it, so a rotation that won the race has its new family ended too.
+    await _lock_lineage(db, stored.family_id or stored.id)
+    await db.refresh(stored)
     now = datetime.now(timezone.utc)
     if stored.family_id is None:
         stored.ended_at = stored.ended_at or now
         return
-    await _lock_lineage(db, stored.family_id)
+    grace = timedelta(seconds=settings.REFRESH_REUSE_GRACE_SECONDS)
     family = await db.execute(  # after the lock: sees a graced sibling
         select(RefreshToken)
         .where(
             RefreshToken.family_id == stored.family_id,
             RefreshToken.ended_at.is_(None),
+            RefreshToken.expires_at > now - grace,  # older rows are dead
         )
         .execution_options(populate_existing=True)
     )

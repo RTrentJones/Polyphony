@@ -263,6 +263,30 @@ class TestRefreshRotation:
         assert await rotate_refresh_token(async_session, t1) is None
 
     @pytest.mark.asyncio
+    async def test_logout_leaves_the_familys_expired_history_alone(
+        self, async_session, user
+    ):
+        t0 = await issue_refresh_token(async_session, user)
+        await async_session.commit()
+        _, t1 = await rotate_refresh_token(async_session, t0)
+        await async_session.commit()
+        old = (
+            await async_session.execute(
+                select(RefreshToken).where(
+                    RefreshToken.token_hash == _hash_refresh_token(t0)
+                )
+            )
+        ).scalar_one()
+        old.revoked_at = datetime.now(timezone.utc) - timedelta(days=40)
+        old.expires_at = datetime.now(timezone.utc) - timedelta(days=10)
+        await async_session.commit()
+        await revoke_refresh_token(async_session, t1)
+        await async_session.commit()
+        await async_session.refresh(old)
+        assert old.ended_at is None  # untouched
+        assert await rotate_refresh_token(async_session, t1) is None
+
+    @pytest.mark.asyncio
     async def test_logout_and_theft_are_never_graced(self, async_session, user):
         raw = await issue_refresh_token(async_session, user)
         await async_session.commit()

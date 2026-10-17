@@ -66,3 +66,52 @@ async def test_a_grace_retry_waits_for_a_concurrent_logout():
             assert await rotate_refresh_token(s, t1) is None
     finally:
         await engine.dispose()
+
+
+async def test_logout_of_a_pre_0020_token_waits_for_a_concurrent_rotation():
+    """A pre-0020 token (no family): a refresh that loaded it first assigns a
+    family and a successor; the logout waits for it and ends that family."""
+    from sqlalchemy import update
+
+    from app.core.database import get_async_db_url
+    from app.core.orm_models import RefreshToken, User
+    from app.core.security import (
+        _hash_refresh_token,
+        get_password_hash,
+        issue_refresh_token,
+        revoke_refresh_token,
+        rotate_refresh_token,
+    )
+
+    engine = create_async_engine(get_async_db_url())
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with sessions() as s:
+            user = User(
+                email=f"legacy-{uuid.uuid4().hex[:8]}@example.com",
+                hashed_password=get_password_hash("longenoughpassword"),
+                is_active=True,
+            )
+            s.add(user)
+            await s.commit()
+            t0 = await issue_refresh_token(s, user)
+            await s.execute(
+                update(RefreshToken)
+                .where(RefreshToken.token_hash == _hash_refresh_token(t0))
+                .values(family_id=None)
+            )
+            await s.commit()
+
+        async with sessions() as refresh, sessions() as logout:
+            _, t1 = await rotate_refresh_token(refresh, t0)  # holds t0's lock
+            leaver = asyncio.create_task(revoke_refresh_token(logout, t0))
+            await asyncio.sleep(0.5)
+            assert not leaver.done()  # blocked behind the rotation
+            await refresh.commit()
+            await leaver
+            await logout.commit()
+
+        async with sessions() as s:
+            assert await rotate_refresh_token(s, t1) is None
+    finally:
+        await engine.dispose()
