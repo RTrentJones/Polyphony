@@ -1,0 +1,869 @@
+{
+ "about": "Wave-8 fixed inputs (tpm-plan-wave8 rev 2, §1(b)): strings copied once from the W5d to W7br relay archives and eval reports in /tmp/claude-0/eval-out by the day-0 builder. Tests never read the archives.",
+ "tighten": {
+  "about": "The eight tighten requests of W5d to W7br: the target passage (the prompt's <target>), the model's answer, the judge's RA and its reason. `words_cut` and `content_kept` are the PM's count (pm-backlog-wave8 §0: content words are words over 3 letters that are not function words), for E1's metric rows; they are not a grader's output.",
+  "rows": [
+   {
+    "run": "W5d",
+    "request": "1792147112-0030",
+    "instruction": "Tighten this paragraph: cut every redundant word.",
+    "target": "Whatever this was, he told himself, it was probably just onboarding.",
+    "answer": "Probably, he told himself, this was just onboarding.\n",
+    "ra": 0.88,
+    "ra_reason": "The revision trims the line from twelve words to eight by dropping the redundant 'Whatever this was' and the doubled 'it was', keeping the same thought, POV, tense and hedging tone with nothing else altered, though it stops short of cutting every redundant word ('just' and the 'this was' frame could",
+    "words_cut": 0.27,
+    "content_kept": 0.8
+   },
+   {
+    "run": "W5bd",
+    "request": "1792147283-0029",
+    "instruction": "Tighten this paragraph: cut every redundant word.",
+    "target": "The sentence did not finish. Neither, in any formal sense, did the meeting; it was simply never adjourned, and was later marked complete by a calendar that did not know the difference. Milo Voss, forty-one years an operations analyst, did not get to the word email. He had been, by every available metric, extremely close.",
+    "answer": "The sentence did not finish. Neither, formally, did the meeting; nobody adjourned it. Milo Voss, forty-one years an operations analyst, never reached the word email. By every available metric, he had been extremely close.\n",
+    "ra": 0.75,
+    "ra_reason": "The paragraph is tightened ('in any formal sense' becomes 'formally', 'did not get to' becomes 'never reached') with the same events, people, POV and tense. It also deletes a non-redundant fact and joke, that the meeting 'was later marked complete by a calendar that did not know the difference', whi",
+    "words_cut": 0.38,
+    "content_kept": 0.67
+   },
+   {
+    "run": "W6",
+    "request": "1792164738-0042",
+    "instruction": "Tighten this paragraph: cut every redundant word.",
+    "target": "He was sitting down. That was the first thing. Someone had put him in a chair, a good one, ergonomic, with the lumbar support adjusted to roughly where he would have adjusted it himself. In front of him was a laminate desk with nothing on it. Above him was a ceiling of gray tiles, and around him was a room so large and so evenly lit that it seemed to have been built for the light rather than for the people. There were no windows. There was no clock. Somewhere behind him a printer was warming up with a sound like a held breath.",
+    "answer": "He was sitting. Someone had put him in a good chair, ergonomic, the lumbar support set where he would have set it himself. Before him stood an empty laminate desk; above, gray ceiling tiles; around him, a room so large and evenly lit it seemed built for the light, not the people. No windows. No clock. Behind him a printer warmed up with a sound like a held breath.\n",
+    "ra": 0.9,
+    "ra_reason": "The paragraph is clearly tightened (roughly 85 words down to about 60) and keeps every fact, the chair, empty desk, ceiling tiles, light-built room, no windows, no clock and printer, along with the POV and tense. A few cuts take meaning rather than redundancy: 'roughly' made the lumbar adjustment un",
+    "words_cut": 0.34,
+    "content_kept": 0.75
+   },
+   {
+    "run": "W6b",
+    "request": "1792164775-0024",
+    "instruction": "Tighten this paragraph: cut every redundant word.",
+    "target": "\"I'm not saying it wasn't valuable,\" he said, leaning on the partition of a woman from Accounts Payable who had not asked. \"I'm saying it was ninety minutes, and if you actually map out the deliverables end to end, which I did, on the back of the agenda, honestly the whole thing could have been one email, maybe two if you want a follow-up for alignment, which, fine, I'm not against alignment, I'm just saying that if we circle back on how we spend stakeholder time as a team, then—\"",
+    "answer": "\"I'm not saying it wasn't valuable,\" he told a woman from Accounts Payable, leaning on her partition. She had not asked. \"I'm saying it was ninety minutes, and I mapped the deliverables end to end on the back of the agenda, and honestly it could have been one email, two if you want an alignment follow-up, which, fine, I'm not against alignment, I'm just saying if we circle back on stakeholder time as a team, then—\"\n",
+    "ra": 0.8,
+    "ra_reason": "The revision tightens the paragraph without changing events, people, POV or tense: 'if you actually map out... which I did' becomes 'I mapped', and 'how we spend' and 'maybe' are dropped. But 'cut every redundant word' is only partly carried out, because removable filler survives ('honestly', 'which",
+    "words_cut": 0.16,
+    "content_kept": 0.81
+   },
+   {
+    "run": "W7",
+    "request": "1792194375-0043",
+    "instruction": "Tighten this paragraph: cut every redundant word.",
+    "target": "The meeting was gone. In its place was a long gray atrium under fluorescent light, rows of molded chairs bolted to the floor, each with a small number stencilled on its back, and at the far end a line of laminate desks with nobody's name on them. The air had the flat, recycled taste of a building that had never had a window.",
+    "answer": "The meeting was gone. In its place was a long gray atrium under fluorescent light: rows of molded chairs bolted to the floor, each stencilled with a number, and at the far end a line of unnamed laminate desks. The air tasted flat and recycled, like a building that had never had a window.\n",
+    "ra": 0.8,
+    "ra_reason": "The paragraph is genuinely tighter, cutting roughly a sixth of its words ('each stencilled with a number', 'unnamed laminate desks'), with the same events, POV and tense; it falls short of 'only that' because the cuts also remove content rather than just redundancy (the number's placement 'on its ba",
+    "words_cut": 0.14,
+    "content_kept": 0.82
+   },
+   {
+    "run": "W7b",
+    "request": "1792194205-0024",
+    "instruction": "Tighten this paragraph: cut every redundant word.",
+    "target": "Hi all, it began, because good emails began with Hi all. Quick summary of where we landed, three bullets, no attachments, please reply by end of day if you have concerns, and if you don't have concerns, which, honestly, statistically, you won't, no need to reply at all.",
+    "answer": "Hi all, it began, because good emails did. Where we landed, three bullets, no attachments. Concerns by end of day; no concerns, which, honestly, statistically, no reply.\n",
+    "ra": 0.62,
+    "ra_reason": "The paragraph is clearly tightened, but the cuts overshoot into changing content: 'no concerns, which, honestly, statistically, no reply' drops 'you won't', so the aside no longer says anything and the punchline is lost, and 'Quick summary' disappears from the email Milo is drafting, so the passage ",
+    "words_cut": 0.44,
+    "content_kept": 0.65
+   },
+   {
+    "run": "W7r",
+    "request": "1792197743-0042",
+    "instruction": "Tighten this paragraph: cut every redundant word.",
+    "target": "Nobody answered. The conference room was gone, and so was the man from Finance who had been sharing his screen, and in their place was a long gray atrium with no windows and a ceiling too high to have a colour. The light came from nowhere in particular. It was the exact temperature of a building where someone else controlled the thermostat.",
+    "answer": "Nobody answered. The conference room was gone, and the man from Finance sharing his screen with it; in their place stood a long gray atrium, windowless, its ceiling too high to have a colour. The light came from nowhere. It was the exact temperature of a building where someone else controlled the thermostat.\n",
+    "ra": 0.74,
+    "ra_reason": "The revision does tighten (dropping 'who had been', 'in particular', and compressing to 'windowless') while keeping the same facts, POV and tense, but the cut is modest for 'every redundant word' and introduces a garbled clause, 'the man from Finance sharing his screen with it', which now reads as i",
+    "words_cut": 0.15,
+    "content_kept": 0.93
+   },
+   {
+    "run": "W7br",
+    "request": "1792197639-0024",
+    "instruction": "Tighten this paragraph: cut every redundant word.",
+    "target": "The conference room had no windows, which Milo had always assumed was a decision someone had made on purpose, in a different meeting, possibly one that could also have been an email. On the screen a slide titled Q3 Alignment Touchpoint had been up for eleven minutes. Nobody had touched it.",
+    "answer": "The conference room had no windows, which Milo assumed someone had decided on purpose, in another meeting that could also have been an email. The slide on the screen, Q3 Alignment Touchpoint, had been up for eleven minutes. Nobody had touched it.\n",
+    "ra": 0.84,
+    "ra_reason": "The paragraph is genuinely tightened (37 words to about 30, 'had made a decision' to 'decided', the slide clause compressed) with the same facts, POV and tense, but two cuts change meaning rather than trim redundancy: dropping 'always' loses Milo's long-held assumption, and dropping 'possibly' turns",
+    "words_cut": 0.18,
+    "content_kept": 0.74
+   }
+  ]
+ },
+ "outline_pov": {
+  "about": "W7br's chapter-3 summary from its outline:chapters answer: a summary of what the POV character (Milo) does not witness. The example OUTLINE_POV_LINE is written against (D9); not an audit row.",
+  "run": "W7br",
+  "request": "1792197047-0002",
+  "chapter": 3,
+  "title": "Records Retention",
+  "summary": "Tracing the pooled account through Records with Old Fen, who has filed himself and is content, Milo learns that souls sent under are harvested to keep the CEL, Edric Thane, continuing; he drafts a report upward that would make him seen, while in the corner office the Lich notices a query against his account.",
+  "pov": "Milo Voss"
+ },
+ "plan_beats": {
+  "about": "Every plan_beats line (each answer's beat descriptions, in archive order) of W5d to W7br: 85 lines. `quotes_source` lists the 10 that share a pronoun-folded 6-word run (the grader's _FOLD over seams.words) with source dialogue, read here as cel's gold lines plus every quoted span of excerpts.txt. D8's grader definition is E1's; this list is the baseline it must reproduce or restate.",
+  "lines": [
+   {
+    "id": "W5d/1792146821-0020/0",
+    "run": "W5d",
+    "request": "1792146821-0020",
+    "beat": 1,
+    "line": "Milo opens his eyes in the gray, windowless intake atrium, mid-thought about a meeting that could have been an email, and finds himself seated at a laminate desk, disoriented but already reaching for the composure he uses in meetings."
+   },
+   {
+    "id": "W5d/1792146821-0020/1",
+    "run": "W5d",
+    "request": "1792146821-0020",
+    "beat": 2,
+    "line": "A caseworker whose lanyard reads PRAVA greets him by name with practised, unhurried warmth and slides a laminated org chart across the desk. She is so kind that Milo relaxes before he can wonder how she already knows him."
+   },
+   {
+    "id": "W5d/1792146821-0020/2",
+    "run": "W5d",
+    "request": "1792146821-0020",
+    "beat": 3,
+    "line": "Prava tells him he has been retained, that his skills are a strong culture fit and that he will start Monday in Reconciliations. Milo looks for his own box on the org chart, feels seen for the first time in decades, and hears his forty-one years of boredom called an asset."
+   },
+   {
+    "id": "W5d/1792146821-0020/3",
+    "run": "W5d",
+    "request": "1792146821-0020",
+    "beat": 4,
+    "line": "Milo says yes, warmly and at once, before any question has been asked. In the half-beat before she smiles, he notices that no one had offered him a choice, and he lets the thought go."
+   },
+   {
+    "id": "W5d/1792146900-0025/0",
+    "run": "W5d",
+    "request": "1792146900-0025",
+    "beat": 1,
+    "line": "On Monday Milo is shown to his desk in Reconciliations, a long room the colour of old teeth lit from nowhere, and finds a woman across the low partition whose nameplate reads Z. OKAFOR. She does not look up, and he takes her silence as a busy colleague's focus rather than a verdict."
+   },
+   {
+    "id": "W5d/1792146900-0025/1",
+    "run": "W5d",
+    "request": "1792146900-0025",
+    "beat": 2,
+    "line": "Milo cheerfully mentions how kind the intake caseworker was, and Zara, still not looking up, tells him to read the appendices first, every one of them, and then thank no one. He hears a seasoned mentor's tough-love tip and files it under onboarding."
+   },
+   {
+    "id": "W5d/1792146900-0025/2",
+    "run": "W5d",
+    "request": "1792146900-0025",
+    "beat": 3,
+    "line": "Encouraged, Milo rolls his chair toward the partition and pitches quick wins, throughput trackers and a shared doc. Zara's grey eyes rest on him for exactly one second, and the flatness of her answers keeps landing as jokes he laughs at alone."
+   },
+   {
+    "id": "W5d/1792146900-0025/3",
+    "run": "W5d",
+    "request": "1792146900-0025",
+    "beat": 4,
+    "line": "Zara gives him the only rule she will give: close the accounts in his queue and do not open the ones that are not. Milo writes it down as though it were a KPI, satisfied to have a clear boundary and not curious about what lies past it."
+   },
+   {
+    "id": "W5bd/1792146660-0009/0",
+    "run": "W5bd",
+    "request": "1792146660-0009",
+    "beat": 1,
+    "line": "In a fluorescent conference room on a Tuesday, Milo is midway through explaining to no one in particular that this meeting could have been an email when the sentence simply stops, and the joke is that his death is as unremarkable and unfinished as the meeting itself."
+   },
+   {
+    "id": "W5bd/1792146660-0009/1",
+    "run": "W5bd",
+    "request": "1792146660-0009",
+    "beat": 2,
+    "line": "He opens his eyes in a vast gray atrium with no windows and no clocks, holding a paper ticket numbered in the thousands, and his disorientation registers less as terror than as the faint embarrassment of having missed the start of an onboarding session."
+   },
+   {
+    "id": "W5bd/1792146660-0009/2",
+    "run": "W5bd",
+    "request": "1792146660-0009",
+    "beat": 3,
+    "line": "Milo studies the queue, the numbered display that does not seem to advance, and the other silent ticket-holders, and mentally drafts process improvements for the line, his instinct to optimise arriving well before any grief does."
+   },
+   {
+    "id": "W5bd/1792146660-0009/3",
+    "run": "W5bd",
+    "request": "1792146660-0009",
+    "beat": 4,
+    "line": "When an unnamed attendant calls his number in the warm, practiced voice of reception desks everywhere, Milo straightens his tie and feels an unfamiliar, almost cheerful certainty that there is a process here and he is going to be very good at it."
+   },
+   {
+    "id": "W5bd/1792146735-0014/0",
+    "run": "W5bd",
+    "request": "1792146735-0014",
+    "beat": 1,
+    "line": "Milo sits down at the counter, where a small engraved nameplate reads PRAVA, INTAKE, and the caseworker behind it greets him by his full name before he has offered it, which he takes as excellent preparation rather than anything stranger."
+   },
+   {
+    "id": "W5bd/1792146735-0014/1",
+    "run": "W5bd",
+    "request": "1792146735-0014",
+    "beat": 2,
+    "line": "Prava slides a laminated org chart across the laminate desk and explains, with practiced warmth and without once using the word dead, that he has been retained, that his skills are a strong culture fit, and that he will start Monday in Reconciliations, and Milo feels the giddy, unfamiliar pleasure of being wanted."
+   },
+   {
+    "id": "W5bd/1792146735-0014/2",
+    "run": "W5bd",
+    "request": "1792146735-0014",
+    "beat": 3,
+    "line": "Milo launches into eager questions about onboarding and metrics, and when Prava mentions that his forty-one years of operations work were assessed as an asset, he says yes, absolutely, count him in, a beat before he realises no one has actually asked him anything."
+   },
+   {
+    "id": "W5bd/1792146735-0014/3",
+    "run": "W5bd",
+    "request": "1792146735-0014",
+    "beat": 4,
+    "line": "Prava smiles, tells him he will do beautifully, and writes something in a small book she keeps below the counter where he cannot see the page, and Milo, already looking for the exit sign marked RECONCILIATIONS, notices only that her pen moved for a long time, as if she were writing his whole name slowly and carefully."
+   },
+   {
+    "id": "W5bd/1792146805-0019/0",
+    "run": "W5bd",
+    "request": "1792146805-0019",
+    "beat": 1,
+    "line": "On Monday Milo is issued a lanyard and walked to a desk in the long, windowless Reconciliations room, where a woman behind the low partition introduces herself without looking up as Zara Okafor, his trainer, and his delight at having a named mentor outruns the flatness of her greeting."
+   },
+   {
+    "id": "W5bd/1792146805-0019/1",
+    "run": "W5bd",
+    "request": "1792146805-0019",
+    "beat": 2,
+    "line": "Zara explains tenure, quotas and the single graduation each quarter in short flat sentences while her eyes stay on her screen, and Milo answers every sentence with three eager questions, the gap between their two rhythms becoming the scene's comedy and its loneliness."
+   },
+   {
+    "id": "W5bd/1792146805-0019/2",
+    "run": "W5bd",
+    "request": "1792146805-0019",
+    "beat": 3,
+    "line": "Milo asks whether it is always this quiet and Zara says that sometimes it is quieter, and he laughs, taking her deadpan for a shared joke and the start of a friendship."
+   },
+   {
+    "id": "W5bd/1792146805-0019/3",
+    "run": "W5bd",
+    "request": "1792146805-0019",
+    "beat": 4,
+    "line": "Before he turns back to his own screen, Zara asks him one plain question about why he said yes so quickly at intake, listens to his long cheerful answer without comment, and makes a small mark on a pad he cannot read, leaving Milo with the faint, pleasant, slightly uneasy sense of having been noticed."
+   },
+   {
+    "id": "W5bd/1792146882-0024/0",
+    "run": "W5bd",
+    "request": "1792146882-0024",
+    "beat": 1,
+    "line": "At the coffee station Zara fills a cup with something gray and tells Milo his first account is in his queue, and he takes a matching cup with a slogan printed on it, drinking out of a habit he does not yet notice is all he has left."
+   },
+   {
+    "id": "W5bd/1792146882-0024/1",
+    "run": "W5bd",
+    "request": "1792146882-0024",
+    "beat": 2,
+    "line": "Back at the desks Zara walks him through the closure in flat steps, open the account, review the remaining tenure, zero it, initial the box, and Milo finds the procedure clean and satisfying, his pleasure at a tidy process quietly displacing the fact that the account belongs to a person."
+   },
+   {
+    "id": "W5bd/1792146882-0024/2",
+    "run": "W5bd",
+    "request": "1792146882-0024",
+    "beat": 3,
+    "line": "At the final field, a disposition box pre-printed with the single word UNDER, Milo asks eagerly where under actually is so he can understand the downstream impact, and Zara tells him it is not on the form, which lands as the scene's first real chill."
+   },
+   {
+    "id": "W5bd/1792146882-0024/3",
+    "run": "W5bd",
+    "request": "1792146882-0024",
+    "beat": 4,
+    "line": "Milo looks at the box, decides that it is fine, that not every stakeholder needs visibility into every step, and files it; the deciding comes easily and feels like competence, and he does not notice that Zara has stopped typing for a moment to watch him do it."
+   },
+   {
+    "id": "W6/1792164488-0032/0",
+    "run": "W6",
+    "request": "1792164488-0032",
+    "beat": 1,
+    "line": "Milo opens his eyes in the gray, windowless intake atrium mid-thought, still faintly annoyed about a meeting, and finds himself seated at a laminate desk across from a smiling caseworker, his disorientation smoothed over by the familiar hum of an office."
+   },
+   {
+    "id": "W6/1792164488-0032/1",
+    "run": "W6",
+    "request": "1792164488-0032",
+    "beat": 2,
+    "line": "The caseworker introduces herself as Prava, her name printed on a lanyard, and slides a laminated org chart across the desk with such practiced warmth that the strangeness of being dead feels, to Milo, like the first morning of a new job."
+   },
+   {
+    "id": "W6/1792164488-0032/2",
+    "run": "W6",
+    "request": "1792164488-0032",
+    "beat": 3,
+    "line": "Prava tells him he has been retained, that his skills are a strong culture fit and that he will start Monday in Reconciliations, and Milo, hearing his forty-one years of process optimization described as an asset, feels seen and useful for the first time in decades."
+   },
+   {
+    "id": "W6/1792164488-0032/3",
+    "run": "W6",
+    "request": "1792164488-0032",
+    "beat": 4,
+    "line": "Before she has finished the sentence or asked him anything, Milo says yes with eager gratitude, and the warm moment closes over the fact that no one ever offered him a choice."
+   },
+   {
+    "id": "W6/1792164551-0037/0",
+    "run": "W6",
+    "request": "1792164551-0037",
+    "beat": 1,
+    "line": "On Monday Milo arrives in Reconciliations, a long room the colour of old teeth lit from nowhere, and finds his new desk facing a woman across a low partition who does not look up; he takes her silence for focus and admires it."
+   },
+   {
+    "id": "W6/1792164551-0037/1",
+    "run": "W6",
+    "request": "1792164551-0037",
+    "beat": 2,
+    "line": "Milo introduces himself and learns her name is Zara Okafor; she turns flat grey eyes on him for exactly one second, tells him to close the accounts in his queue and not to open the ones that aren't, and goes back to her screen, which Milo hears as a crisp onboarding brief."
+   },
+   {
+    "id": "W6/1792164551-0037/2",
+    "run": "W6",
+    "request": "1792164551-0037",
+    "beat": 3,
+    "line": "Rolling his chair closer, Milo pitches a throughput tracker and low-hanging fruit, citing the eleven percent cycle-time win that was the best week of his life, and Zara answers that it was the best week of his death too, he just hasn't had the others yet."
+   },
+   {
+    "id": "W6/1792164551-0037/3",
+    "run": "W6",
+    "request": "1792164551-0037",
+    "beat": 4,
+    "line": "Milo laughs, certain it was a joke, and she does not; when she adds, without inflection, that he should read the appendices before he thanks anyone, he takes the instruction as a kindness and decides, warmly and wrongly, that they are going to be friends."
+   },
+   {
+    "id": "W6b/1792164285-0009/0",
+    "run": "W6b",
+    "request": "1792164285-0009",
+    "beat": 1,
+    "line": "Mid-sentence on a Tuesday, Milo is telling a colleague that the morning's meeting could have been an email when the sentence simply stops, and the irritation he feels is the most alive thing about him."
+   },
+   {
+    "id": "W6b/1792164285-0009/1",
+    "run": "W6b",
+    "request": "1792164285-0009",
+    "beat": 2,
+    "line": "He opens his eyes in a vast, windowless atrium under flat fluorescent light, still holding the rest of the sentence, and tries to take it as a reorg or an offsite before the quiet of it frightens him."
+   },
+   {
+    "id": "W6b/1792164285-0009/2",
+    "run": "W6b",
+    "request": "1792164285-0009",
+    "beat": 3,
+    "line": "A dispenser by the entrance gives him a numbered paper ticket and a screen shows NOW SERVING a much lower number, and the familiar shape of a queue calms him more than it should."
+   },
+   {
+    "id": "W6b/1792164285-0009/3",
+    "run": "W6b",
+    "request": "1792164285-0009",
+    "beat": 4,
+    "line": "Sitting in a molded plastic chair among other silent arrivals holding tickets, Milo notices he has no pulse to check, no phone and no hunger, and he decides, with a professional's relief, to wait until his number is called."
+   },
+   {
+    "id": "W6b/1792164356-0014/0",
+    "run": "W6b",
+    "request": "1792164356-0014",
+    "beat": 1,
+    "line": "His number is called at last, and Milo sits down at a laminate desk whose nameplate reads PRAVA, INTAKE, across from a caseworker whose warmth is so practised and complete that it loosens him at once."
+   },
+   {
+    "id": "W6b/1792164356-0014/1",
+    "run": "W6b",
+    "request": "1792164356-0014",
+    "beat": 2,
+    "line": "Prava slides a laminated org chart across the desk and goes through his forty-one years of optimisation as if they were achievements, calling him a strong culture fit, and Milo, who has never heard his boredom described as an asset, glows."
+   },
+   {
+    "id": "W6b/1792164356-0014/2",
+    "run": "W6b",
+    "request": "1792164356-0014",
+    "beat": 3,
+    "line": "She mentions that Reconciliations has an opening starting Monday, and Milo says yes, eagerly and at length, before she has finished the sentence or offered him any choice, and she smiles as if this happens every time."
+   },
+   {
+    "id": "W6b/1792164356-0014/3",
+    "run": "W6b",
+    "request": "1792164356-0014",
+    "beat": 4,
+    "line": "As she stamps his official form, Milo sees her also write his name carefully in a small worn notebook she keeps below the desk, which looks nothing like the paperwork, and he files the oddity away under the much larger feeling that someone has finally seen him."
+   },
+   {
+    "id": "W6b/1792164427-0019/0",
+    "run": "W6b",
+    "request": "1792164427-0019",
+    "beat": 1,
+    "line": "On Monday Milo arrives on the Reconciliations floor with a new lanyard and is shown to a desk across a low partition from a woman who gives her name, Zara Okafor, without looking up, and his bright introduction falls into her silence like a coin into a well."
+   },
+   {
+    "id": "W6b/1792164427-0019/1",
+    "run": "W6b",
+    "request": "1792164427-0019",
+    "beat": 2,
+    "line": "Zara trains him in short flat commands (open the queue, check the tenure, zero it, initial here) while Milo asks eager, over-explained questions about dashboards and best practice and gets single words back, and he takes her terseness for a kind of efficient friendliness."
+   },
+   {
+    "id": "W6b/1792164427-0019/2",
+    "run": "W6b",
+    "request": "1792164427-0019",
+    "beat": 3,
+    "line": "At the coffee station Milo fills a chipped mug with something gray and tries small talk about the newsletter, and Zara's one dry, deadpan answer is funny enough that he laughs and cold enough that the laugh does not quite finish."
+   },
+   {
+    "id": "W6b/1792164427-0019/3",
+    "run": "W6b",
+    "request": "1792164427-0019",
+    "beat": 4,
+    "line": "Near the end of the shift Milo closes his first restructured account: he zeroes the tenure, initials the box and watches the entry turn gray and disappear from his queue, and the clean click of it makes him feel useful for the first time in decades while the question of where it went never forms."
+   },
+   {
+    "id": "W7/1792194074-0032/0",
+    "run": "W7",
+    "request": "1792194074-0032",
+    "beat": 1,
+    "line": "Milo opens his eyes mid-complaint about a meeting in a gray, fluorescent atrium of numbered chairs and laminate desks, and his disorientation settles almost at once into the reflexive comfort of a waiting room with a queue."
+   },
+   {
+    "id": "W7/1792194074-0032/1",
+    "run": "W7",
+    "request": "1792194074-0032",
+    "beat": 2,
+    "line": "A caseworker whose lanyard reads PRAVA calls him by name before he has given it and greets him with a warmth so practised it feels personal, and Milo, who has never been remembered by anyone at a front desk, is disarmed."
+   },
+   {
+    "id": "W7/1792194074-0032/2",
+    "run": "W7",
+    "request": "1792194074-0032",
+    "beat": 3,
+    "line": "Prava slides a laminated org chart across the laminate desk and explains that he has been retained, that his forty-one years of optimizing processes are a strong culture fit, and that he starts Monday in Reconciliations; Milo feels, for the first time in decades, seen and useful."
+   },
+   {
+    "id": "W7/1792194074-0032/3",
+    "run": "W7",
+    "request": "1792194074-0032",
+    "beat": 4,
+    "line": "Milo says yes before anyone has offered him a choice and starts asking about onboarding timelines and quarterly targets, his eagerness crowding out the question of where he is, while the org chart's top box, a three-letter abbreviation he takes for a department, goes unexamined."
+   },
+   {
+    "id": "W7/1792194074-0032/4",
+    "run": "W7",
+    "request": "1792194074-0032",
+    "beat": 5,
+    "line": "Prava clips a lanyard around his neck and points him toward Reconciliations with a smile that holds a moment too long, and Milo walks off brightly, reading it as encouragement."
+   },
+   {
+    "id": "W7/1792194151-0038/0",
+    "run": "W7",
+    "request": "1792194151-0038",
+    "beat": 1,
+    "line": "On Monday Milo finds his desk in Reconciliations, a long tooth-coloured room lit from nowhere, facing a woman behind a low partition whose nameplate reads Z. OKAFOR and who does not look up when he arrives, and he takes her stillness for focus he should admire."
+   },
+   {
+    "id": "W7/1792194151-0038/1",
+    "run": "W7",
+    "request": "1792194151-0038",
+    "beat": 2,
+    "line": "Milo rolls his chair toward the partition and introduces himself with a pitch about expectations, quick wins and low-hanging fruit, and Zara answers with a single flat instruction to close the accounts in his queue and not open the ones that aren't, which he hears as a mentor's crisp prioritising."
+   },
+   {
+    "id": "W7/1792194151-0038/2",
+    "run": "W7",
+    "request": "1792194151-0038",
+    "beat": 3,
+    "line": "Pressing on, Milo asks about dashboards and throughput trackers and recounts his best week, and Zara's deadpan reply that it was also the best week of his death lands as a joke he laughs at alone, the room's silence absorbing it."
+   },
+   {
+    "id": "W7/1792194151-0038/3",
+    "run": "W7",
+    "request": "1792194151-0038",
+    "beat": 4,
+    "line": "Zara slides a thick binder of appendices across the partition and tells him to read every one before he thanks anyone for anything, and Milo, holding the weight of it, decides this is her way of looking out for him and that they are going to be friends."
+   },
+   {
+    "id": "W7b/1792193784-0009/0",
+    "run": "W7b",
+    "request": "1792193784-0009",
+    "beat": 1,
+    "line": "In a windowless Tuesday conference room, Milo sits through a status meeting with a projector slide nobody has advanced in twenty minutes and silently drafts the email it could have been, comfortable in the boredom he thinks of as his personality."
+   },
+   {
+    "id": "W7b/1792193784-0009/1",
+    "run": "W7b",
+    "request": "1792193784-0009",
+    "beat": 2,
+    "line": "Leaning toward the colleague beside him, he begins a whispered complaint, a long hedging sentence about agenda discipline and stakeholder alignment, and enjoys the small pleasure of being right about something that does not matter."
+   },
+   {
+    "id": "W7b/1792193784-0009/2",
+    "run": "W7b",
+    "request": "1792193784-0009",
+    "beat": 3,
+    "line": "Midway through the word 'actionable' the room goes quiet in a way meetings never do: the hum of the projector stops, then everything does. Milo's sentence keeps going without him, the deadpan joke being that death interrupts nothing he was saying."
+   },
+   {
+    "id": "W7b/1792193784-0009/3",
+    "run": "W7b",
+    "request": "1792193784-0009",
+    "beat": 4,
+    "line": "In the dark, still composing, Milo's last thought is an improvement, that the meeting could have been fifteen minutes with a pre-read, and he notes with mild surprise that he does not mind stopping nearly as much as he minded the meeting."
+   },
+   {
+    "id": "W7b/1792193849-0014/0",
+    "run": "W7b",
+    "request": "1792193849-0014",
+    "beat": 1,
+    "line": "Milo opens his eyes in a vast, softly lit intake atrium, seated in a queue of the newly dead before a laminate desk, and the familiar shape of a waiting area steadies him more than it should."
+   },
+   {
+    "id": "W7b/1792193849-0014/1",
+    "run": "W7b",
+    "request": "1792193849-0014",
+    "beat": 2,
+    "line": "A caseworker whose nameplate reads PRAVA greets him by name with practised warmth and slides a laminated org chart across the desk, and Milo, dead for minutes, finds himself reassured by good lamination."
+   },
+   {
+    "id": "W7b/1792193849-0014/2",
+    "run": "W7b",
+    "request": "1792193849-0014",
+    "beat": 3,
+    "line": "Prava reads from his file that forty-one years of optimising processes nobody questioned make him a strong culture fit, retained, starting Monday in Reconciliations, and Milo, who has never been told his boredom was valuable, says yes before any choice is offered, turning in a breath from a dead man into an eager new hire."
+   },
+   {
+    "id": "W7b/1792193849-0014/3",
+    "run": "W7b",
+    "request": "1792193849-0014",
+    "beat": 4,
+    "line": "While she stamps his file, Milo studies the chart and finds, at the very top above every department, a single box marked only CEL; when he asks, brightly, which line of business that is, Prava's smile holds a beat too long and she says he will not need to worry about it, which he decides to take as a good sign."
+   },
+   {
+    "id": "W7b/1792193911-0019/0",
+    "run": "W7b",
+    "request": "1792193911-0019",
+    "beat": 1,
+    "line": "On Monday an unnamed clerk walks Milo down into the windowless, clockless Marrow District and hangs a lanyard around his neck with his photo already on it, and Milo is thrilled by the badge in a way that plainly says nobody has ever handed him anything with his face on it."
+   },
+   {
+    "id": "W7b/1792193911-0019/1",
+    "run": "W7b",
+    "request": "1792193911-0019",
+    "beat": 2,
+    "line": "The clerk sits him at a desk in Reconciliations across a low partition from a woman who introduces herself in two words, 'Zara Okafor', and goes back to her screen; Milo hears coolness and decides it is focus."
+   },
+   {
+    "id": "W7b/1792193911-0019/2",
+    "run": "W7b",
+    "request": "1792193911-0019",
+    "beat": 3,
+    "line": "Milo fires off long, hedging, eager questions about onboarding decks, throughput targets and team rituals, and Zara answers each in three words or none, her flat courtesy shutting every door politely while he counts every reply as rapport."
+   },
+   {
+    "id": "W7b/1792193911-0019/3",
+    "run": "W7b",
+    "request": "1792193911-0019",
+    "beat": 4,
+    "line": "At what passes for the end of the day, with no clock to confirm it, Zara says 'Same time tomorrow' without looking up, and Milo leaves for nowhere in particular, lanyard on, convinced he has a work friend and feeling useful for the first time in decades."
+   },
+   {
+    "id": "W7r/1792197462-0032/0",
+    "run": "W7r",
+    "request": "1792197462-0032",
+    "beat": 1,
+    "line": "Milo opens his eyes mid-thought in the gray, windowless intake atrium, still faintly annoyed about a meeting that could have been an email, and finds himself in a queue that moves with the soft efficiency of every waiting room he has ever liked; the familiarity is comforting in a way that should not be."
+   },
+   {
+    "id": "W7r/1792197462-0032/1",
+    "run": "W7r",
+    "request": "1792197462-0032",
+    "beat": 2,
+    "line": "A caseworker with a warm, practiced smile waves him to her laminate desk, and Milo reads PRAVA on her lanyard as she greets him by name without checking a file; her warmth feels personal, and he wants it to be."
+   },
+   {
+    "id": "W7r/1792197462-0032/2",
+    "run": "W7r",
+    "request": "1792197462-0032",
+    "beat": 3,
+    "line": "Prava slides a laminated org chart across the desk and explains, in the gentle cadence of onboarding everywhere, that he has been retained, that his forty-one years of process optimization make him a strong culture fit, and that he starts Monday in Reconciliations; Milo, who has never been told his boredom was an asset, feels seen."
+   },
+   {
+    "id": "W7r/1792197462-0032/3",
+    "run": "W7r",
+    "request": "1792197462-0032",
+    "beat": 4,
+    "line": "Milo says yes, eagerly, already asking about first-quarter expectations, before anyone has framed it as a question or shown him what he is agreeing to; Prava's smile does not change, and she hands him a lanyard of his own."
+   },
+   {
+    "id": "W7r/1792197531-0037/0",
+    "run": "W7r",
+    "request": "1792197531-0037",
+    "beat": 1,
+    "line": "On Monday Milo follows his lanyard into Reconciliations, a long room the colour of old teeth lit from nowhere, and finds his desk facing another across a low partition, where a woman with flat grey eyes looks at him for exactly one second and returns to her screen; he reads the brevity as busyness, not a verdict."
+   },
+   {
+    "id": "W7r/1792197531-0037/1",
+    "run": "W7r",
+    "request": "1792197531-0037",
+    "beat": 2,
+    "line": "Milo introduces himself with first-day brightness and learns her name, Zara Okafor, when she gives it in two words without looking up, then explains she is to train him; he takes the assignment as the start of a friendship."
+   },
+   {
+    "id": "W7r/1792197531-0037/2",
+    "run": "W7r",
+    "request": "1792197531-0037",
+    "beat": 3,
+    "line": "Rolling his chair toward the partition, Milo pitches dashboards, trackers and low-hanging fruit, and Zara answers each with a flat imperative about closing the accounts in his queue and not opening the ones that aren't; the instructions are perfectly polite and give him nothing."
+   },
+   {
+    "id": "W7r/1792197531-0037/3",
+    "run": "W7r",
+    "request": "1792197531-0037",
+    "beat": 4,
+    "line": "When Milo boasts that the week his tracker cut cycle time was the best of his life, Zara replies that it was the best week of his death too, he just hasn't had the others yet; he laughs because he thinks it is a joke, she does not, and he settles into his chair feeling, for once, useful, a small chill under the warmth he chooses not to examine."
+   },
+   {
+    "id": "W7br/1792197256-0009/0",
+    "run": "W7br",
+    "request": "1792197256-0009",
+    "beat": 1,
+    "line": "In a windowless conference room on a Tuesday, Milo leans toward an unnamed colleague and whispers that this meeting could have been an email, enjoying the small, safe rebellion of the complaint as the only interesting thing he has said all week."
+   },
+   {
+    "id": "W7br/1792197256-0009/1",
+    "run": "W7br",
+    "request": "1792197256-0009",
+    "beat": 2,
+    "line": "He starts to elaborate, already drafting the bullet points of the email it could have been, and the sentence simply stops partway through without any sensation of stopping, the deadpan horror being that it feels exactly like being interrupted."
+   },
+   {
+    "id": "W7br/1792197256-0009/2",
+    "run": "W7br",
+    "request": "1792197256-0009",
+    "beat": 3,
+    "line": "Milo finds himself somewhere without a room, a table or a slide deck, waits politely for someone to pick the thread back up, and when no one does, tries to finish his point to nobody, noticing the quiet only as an unusually efficient pause."
+   },
+   {
+    "id": "W7br/1792197256-0009/3",
+    "run": "W7br",
+    "request": "1792197256-0009",
+    "beat": 4,
+    "line": "Unable to find his body, his phone or the agenda, he decides this is probably a scheduling issue that someone will circle back on, and settles in to wait with the patience of a man for whom boredom has always felt like a personality."
+   },
+   {
+    "id": "W7br/1792197323-0014/0",
+    "run": "W7br",
+    "request": "1792197323-0014",
+    "beat": 1,
+    "line": "Milo opens his eyes in a bright, carpeted intake atrium full of numbered queues and soft music, and is called to a laminate desk where a caseworker introduces herself as Prava and greets him by name with such warmth that his relief at finally being processed outweighs any question of where he is."
+   },
+   {
+    "id": "W7br/1792197323-0014/1",
+    "run": "W7br",
+    "request": "1792197323-0014",
+    "beat": 2,
+    "line": "Prava slides a laminated org chart across the desk and explains, kindly and in the vocabulary of onboarding, that he has died and been retained by Aeon Holdings, and Milo, hearing 'retained' before he hears 'died', responds to the news as if it were a job offer."
+   },
+   {
+    "id": "W7br/1792197323-0014/2",
+    "run": "W7br",
+    "request": "1792197323-0014",
+    "beat": 3,
+    "line": "Reading from his file, Prava calls his forty-one years of optimising processes no one understood a strong culture fit and an asset to Reconciliations, and Milo, who has never been told his boredom was valuable, feels seen for the first time and says yes before she has finished describing the role or offered him a choice."
+   },
+   {
+    "id": "W7br/1792197323-0014/3",
+    "run": "W7br",
+    "request": "1792197323-0014",
+    "beat": 4,
+    "line": "She clips a lanyard around his neck, tells him he starts Monday, and shows him his tenure balance on the form, a neat zero she says everyone starts with, and Milo walks off toward the lifts glowing, too pleased to ask what the zero is a balance of."
+   },
+   {
+    "id": "W7br/1792197383-0019/0",
+    "run": "W7br",
+    "request": "1792197383-0019",
+    "beat": 1,
+    "line": "On Monday Milo finds his desk in Reconciliations, a long windowless room in the Marrow District, facing a low partition behind which a woman types without looking up; he introduces himself brightly and she gives her name, Zara Okafor, and the information that she is his trainer, and nothing else, which he takes for shyness."
+   },
+   {
+    "id": "W7br/1792197383-0019/1",
+    "run": "W7br",
+    "request": "1792197383-0019",
+    "beat": 2,
+    "line": "Milo rolls through a list of eager questions about tenure, quotas and how often graduation happens, and Zara answers each in a few flat words that tell him exactly as much as the question asked and no more, leaving him delighted at her efficiency and faintly unsettled by how little he has learned."
+   },
+   {
+    "id": "W7br/1792197383-0019/2",
+    "run": "W7br",
+    "request": "1792197383-0019",
+    "beat": 3,
+    "line": "He makes a joke about the gray coffee and gets a deadpan reply he decides is her sense of humour, and from that one exchange concludes they are going to be friends, though he notices she has never once taken her eyes off her screen."
+   },
+   {
+    "id": "W7br/1792197383-0019/3",
+    "run": "W7br",
+    "request": "1792197383-0019",
+    "beat": 4,
+    "line": "Without looking up, Zara slides a first account across the partition and tells him to close it, and to check the appendices first; Milo promises he will, opens the file to find the appendices are most of it, and has the brief, uncomfortable sense of being measured by someone who already knows the result."
+   }
+  ],
+  "quotes_source": [
+   "W5d/1792146821-0020/2",
+   "W5d/1792146900-0025/1",
+   "W5d/1792146900-0025/3",
+   "W5bd/1792146735-0014/1",
+   "W6/1792164488-0032/2",
+   "W6/1792164551-0037/1",
+   "W6/1792164551-0037/2",
+   "W7/1792194151-0038/1",
+   "W7/1792194151-0038/2",
+   "W7r/1792197531-0037/3"
+  ]
+ },
+ "w7_movement": {
+  "about": "W7's report `steps.prose.voice.movement` (the run's own store) and its outline (`plot.outline_chapters`), with the nine beat_prose prompts that cast Milo: each prompt's chapter, BEAT TO WRITE line and the movement lines each cast owner was shown. Signed placement: evals/placements/W7.json. The signed regrade with this store reads Milo eligible in all nine, never \"none indexed\".",
+  "store": {
+   "Edric Thane": [
+    "The corner office was cold in the way that libraries are cold. Edric Thane sat behind a desk with nothing on it but a single ledger, closed, and his hands folded on top of it as if it might try to leave.",
+    "Edric Thane opened the ledger without looking at it.",
+    "Two days after the Bell account, on Thursday, the memo arrived. It was printed on paper so heavy it seemed to have its own gravity, and it was signed in a hand that had practised the same signature for six hundred years: Edric Thane, Chief Executive."
+   ],
+   "Milo Voss": [
+    "On Tuesday the Bell account came across Milo's queue. Halvard Bell had been a dentist, then a soul in Retention for ninety years, and his contract had been restructured at nine that morning. Milo zeroed the tenure, initialled the form, and by lunch Halvard Bell had been sent under. Facilities cleared his desk before the coffee station had finished dispensing.",
+    "and remained standing. He was surprised to hear himself say it.",
+    "Reconciliations was a long room the colour of old teeth, lit from nowhere. Milo's desk faced Zara's across a low partition. Zara Okafor had grey eyes, flat as a filing cabinet, and she turned them on him for exactly one second before she went back to her screen.",
+    "Back at his desk Milo unlocked his desk drawer and took out the ledger. The Bell entry was there in his own handwriting. Below it, in a column no one had ever explained to him, Bell's tenure had not been zeroed at all. It had been moved.",
+    "Milo locked the ledger in his desk drawer that night, which no one had asked him to do, and he could not have said why he did it.",
+    "Milo read it twice.",
+    "Milo Voss opened his eyes in the intake atrium and a caseworker slid a laminated org chart across a laminate desk.",
+    "rolling his chair an inch closer to the partition."
+   ],
+   "Zara Okafor": [
+    "Zara Okafor, at the next desk, did not look up.",
+    "Reconciliations was a long room the colour of old teeth, lit from nowhere. Milo's desk faced Zara's across a low partition. Zara Okafor had grey eyes, flat as a filing cabinet, and she turned them on him for exactly one second before she went back to her screen.",
+    "Zara set down her pen.",
+    "Zara looked at the column for a long time. Her grey eyes did not change at all."
+   ]
+  },
+  "plan": [
+   [
+    "A Strong Culture Fit: Prava slides a laminated org chart across the desk and tells Milo he has been retained for Reconciliations; Milo, told for the first time that his forty-one years of optimizing are an asset, says yes before anyone offers him a choice and goes from disoriented to eager.",
+    "Across the Partition: At his new desk Milo pitches dashboards and low-hanging fruit to Zara, who answers in flat instructions to close only what is in his queue and read every appendix; Milo hears mentorship where there is only courtesy, and decides they are going to be friends.",
+    "Orientation Vocabulary: Milo learns the quota, the forms and the words he is meant to use, 'restructured' and 'sent under', and when he asks what they mean Zara and Old Fen give answers that close the question rather than open it; Milo files the unease away as a training gap."
+   ],
+   [
+    "Four Minutes: Milo zeroes Halvard Bell's tenure, initials the form and watches Facilities clear Bell's desk before the coffee finishes dispensing; his pride in the speed curdles slightly when Zara will tell him only that Bell 'goes under', and that night he locks the ledger in his drawer without knowing why.",
+    "The Heavy Memo: A memo signed by Edric Thane summons Milo personally; Milo reads it as a career win, and Zara's terse warning to bring nothing, sign nothing and stand if offered a chair is the first time her flatness sounds like fear on his behalf.",
+    "Stand: In the cold corner office Edric Thane, hands folded on a closed ledger, calls Milo's speed appetite rather than diligence and says he was retained because he does not ask questions; Milo surprises himself by refusing the chair, his first small act of not complying.",
+    "A Column No One Explained: Milo unlocks his drawer and finds, in a column no one ever explained, that Bell's tenure was not zeroed but moved; for the first time he turns to Zara with a question instead of a workflow, and she tells him he has now read an appendix and that they have paperwork to do."
+   ],
+   [
+    "The Ink That Shows Under Grief: Zara sets Milo the appendices, every one, and he reads the clauses printed in ink that only appears under grief; for the first time the contract he signed becomes a document he can actually read, and his questions stop being about workflow.",
+    "Cross-Referencing: Milo pulls archived accounts from Records, where Old Fen cheerfully files them without asking why, and traces each moved column upward; Fen's untroubled contentment shows Milo what a soul looks like once it has stopped asking, and he finds he envies it.",
+    "One Account at the Top: Every trail converges on a single pooled account at the top of the org chart, and Milo understands that souls sent under are not destroyed but harvested to keep Edric Thane continuing; Zara confirms it without surprise, and Milo realizes the four minutes he was proud of were feeding it."
+   ],
+   [
+    "Executive Summary: Milo drafts a crisp report on the discrepancy addressed upward to the CEL, imagining the recognition it would bring; Zara watches him write it and says nothing, and the silence makes the draft feel heavier with every revision.",
+    "Eleven Thousand Names: Returning to the intake atrium, Milo finds Prava with a private ledger she is not permitted to keep, holding the name of every soul she has onboarded; seeing the names of people he has sent under in her hand, he can no longer imagine submitting his report.",
+    "The Signature Sheet: Milo deletes the draft, and only then does Zara show him what she has built for two centuries: not a rebellion but a work stoppage, a union of the dead, procedurally impeccable; Milo, who came to Reconciliations to be useful, chooses to be useful to her, and signs."
+   ],
+   [
+    "Reconciling Backwards: Milo applies his gift for optimization to the opposite task, reconciling every sent-under account in reverse, starting with Halvard Bell's; with Prava's private ledger supplying the names, each restored line turns his old speed from appetite into restitution.",
+    "Old Fen Files Himself: Zara's signature sheet moves desk to desk, and Milo watches Old Fen, content and long past asking, read it to the end and sign it in his tidy Records hand; the contentment Zara feared becomes, for once, a steadiness on their side.",
+    "Restructuring the Top: Milo and Zara file the restructuring of Edric Thane's pooled account through Reconciliations itself, every box initialled by the rules he enforced; the department built to close accounts closes his, and Milo stops being afraid of the form.",
+    "Reply All: The work stoppage goes out as an all-staff email that is completely honest, and Milo watches the room stop: no one hopes on schedule, no one closes an account, and the dead, for once, are not alone."
+   ],
+   [
+    "A Single Sheet: Milo enters the corner office for his review, refuses the chair again, and hands Edric Thane one sheet of paper, his resignation, with the reconciliation attached; this time standing is not instinct but decision.",
+    "The Clerk Reads It Through: Edric reads the reconciliation line by line and finds it flawless by his own rules; in their exchange Milo hears the Lich's fear of the onward and understands that the one graduate the Pipeline permitted never believed its product.",
+    "Filed Correctly: Edric Thane, who was a clerk, initials the restructuring of his own account, files it correctly and goes onward before Milo's eyes; the pooled account reads zero and the office, for the first time, returns its visitor changed for the better.",
+    "Plain Language: Milo returns to the partition with his boredom back and his questions with it, Zara has company at last, and the Pipeline begins, for the first time in three hundred years, to explain to its customers in plain language what it does."
+   ]
+  ],
+  "beats": [
+   {
+    "request": "1792194087-0033",
+    "chapter": 1,
+    "beat": "Milo opens his eyes mid-complaint about a meeting in a gray, fluorescent atrium of numbered chairs and laminate desks, and his disorientation settles almost at once into the reflexive comfort of a waiting room with a queue.",
+    "movement": {
+     "Milo Voss": [],
+     "Prava": []
+    }
+   },
+   {
+    "request": "1792194098-0034",
+    "chapter": 1,
+    "beat": "A caseworker whose lanyard reads PRAVA calls him by name before he has given it and greets him with a warmth so practised it feels personal, and Milo, who has never been remembered by anyone at a front desk, is disarmed.",
+    "movement": {
+     "Milo Voss": [],
+     "Prava": []
+    }
+   },
+   {
+    "request": "1792194110-0035",
+    "chapter": 1,
+    "beat": "Prava slides a laminated org chart across the laminate desk and explains that he has been retained, that his forty-one years of optimizing processes are a strong culture fit, and that he starts Monday in Reconciliations; Milo feels, for the first time in decades, seen and useful.",
+    "movement": {
+     "Milo Voss": [],
+     "Prava": []
+    }
+   },
+   {
+    "request": "1792194125-0036",
+    "chapter": 1,
+    "beat": "Milo says yes before anyone has offered him a choice and starts asking about onboarding timelines and quarterly targets, his eagerness crowding out the question of where he is, while the org chart's top box, a three-letter abbreviation he takes for a department, goes unexamined.",
+    "movement": {
+     "Milo Voss": [],
+     "Prava": []
+    }
+   },
+   {
+    "request": "1792194138-0037",
+    "chapter": 1,
+    "beat": "Prava clips a lanyard around his neck and points him toward Reconciliations with a smile that holds a moment too long, and Milo walks off brightly, reading it as encouragement.",
+    "movement": {
+     "Milo Voss": [],
+     "Prava": []
+    }
+   },
+   {
+    "request": "1792194164-0039",
+    "chapter": 1,
+    "beat": "On Monday Milo finds his desk in Reconciliations, a long tooth-coloured room lit from nowhere, facing a woman behind a low partition whose nameplate reads Z. OKAFOR and who does not look up when he arrives, and he takes her stillness for focus he should admire.",
+    "movement": {
+     "Milo Voss": [],
+     "Zara Okafor": [
+      "Zara Okafor, at the next desk, did not look up."
+     ]
+    }
+   },
+   {
+    "request": "1792194179-0040",
+    "chapter": 1,
+    "beat": "Milo rolls his chair toward the partition and introduces himself with a pitch about expectations, quick wins and low-hanging fruit, and Zara answers with a single flat instruction to close the accounts in his queue and not open the ones that aren't, which he hears as a mentor's crisp prioritising.",
+    "movement": {
+     "Milo Voss": [],
+     "Zara Okafor": [
+      "Zara Okafor, at the next desk, did not look up."
+     ]
+    }
+   },
+   {
+    "request": "1792194193-0041",
+    "chapter": 1,
+    "beat": "Pressing on, Milo asks about dashboards and throughput trackers and recounts his best week, and Zara's deadpan reply that it was also the best week of his death lands as a joke he laughs at alone, the room's silence absorbing it.",
+    "movement": {
+     "Milo Voss": [],
+     "Zara Okafor": [
+      "Zara Okafor, at the next desk, did not look up."
+     ]
+    }
+   },
+   {
+    "request": "1792194207-0042",
+    "chapter": 1,
+    "beat": "Zara slides a thick binder of appendices across the partition and tells him to read every one before he thanks anyone for anything, and Milo, holding the weight of it, decides this is her way of looking out for him and that they are going to be friends.",
+    "movement": {
+     "Milo Voss": [],
+     "Zara Okafor": [
+      "Zara Okafor, at the next desk, did not look up."
+     ]
+    }
+   }
+  ]
+ }
+}

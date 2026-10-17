@@ -71,6 +71,10 @@ evidence quote is a run of the uploaded source (whitespace and quote marks
 normalised); reports ``lines`` {n, verbatim, stand_ins}: a run whose
 quotes were mostly dropped to stand-ins shows it.
 
+Wave 8: ``tighten_clause``  scene_revise: a request the revise step's report
+row marks ``kind: "tighten"`` carries ``TIGHTEN_CLAUSE`` (SPEC-59). Reported:
+``plan_quotes_source`` (SPEC-61). ``movement.ok`` is the gate (D4, SPEC-62).
+
 Each check reports ``{n, passed, rate, failures}``; a check with nothing to
 check (no such call in the archive) reports ``n == 0`` and ``rate = None``, so
 an archive from before a contract existed still grades.
@@ -99,6 +103,7 @@ from app.core.prompt_markers import (
     EARLIER_BEATS,
     EMOTIONAL_TONE_LABEL,
     EVIDENCE_ITEM,
+    EVIDENCE_NO_QUOTE,
     EVIDENCE_STAND_IN,
     INTRODUCED_LABEL,
     MOVEMENT_LABEL,
@@ -114,6 +119,7 @@ from app.core.prompt_markers import (
     SETTING_LABEL,
     STOP_AT_NEXT_BEAT,
     STORY_POSITION_RE,
+    TIGHTEN_CLAUSE,
     labelled_line,
 )
 from app.llm.json_utils import JSON_OBJECT
@@ -561,10 +567,13 @@ _EVIDENCE_ITEM = re.compile(
 )
 
 
-# The extractor's mark for a member with no quote left (W7-4 (a)): evidence
-# "marked as not" verbatim, so it is neither a quote nor a failure.
+# The extractor's marks for a member with no quote left (W7-4 (a), SPEC-64):
+# evidence "marked as not" verbatim, so neither a quote nor a failure.
 _STAND_IN = re.compile(
-    re.escape(EVIDENCE_STAND_IN).replace(re.escape("{part}"), r"\d+")
+    "|".join(
+        re.escape(m).replace(re.escape("{part}"), r"\d+")
+        for m in (EVIDENCE_STAND_IN, EVIDENCE_NO_QUOTE)
+    )
 )
 
 
@@ -911,6 +920,8 @@ CHECKS = (
     "json_mode_where_json",
     # wave 7
     "evidence_verbatim",
+    # wave 8
+    "tighten_clause",
 )
 
 NONE_INDEXED = "none indexed"  # D3a: a principal whose store is empty
@@ -927,14 +938,99 @@ _PRONOUNS = ("his her your my their", "he she you i they", "him me them")
 _FOLD = {w: f"<{n}>" for n, ws in enumerate(_PRONOUNS) for w in ws.split()}
 
 
+def folded6(text: str) -> set[tuple[str, ...]]:
+    """The pronoun-folded word 6-grams of `text`: the graders' one fold."""
+    return seams.grams([_FOLD.get(w, w) for w in seams.words(text)], 6)
+
+
+# The graders' one stemmer (wave 8, Could 2): content words are words over
+# three letters off this small list, with a common suffix cut. Its own list,
+# not the product's function-word list.
+_STOP = frozenset(
+    "that this with from have were they them their there then than what when "
+    "where which while would could should about into over just also some been "
+    "being does done each even ever here like more most much must only other "
+    "such very your will shall said says upon onto these those because after "
+    "before again still itself himself herself".split()
+)
+_SUFFIXES = ("ingly", "edly", "ings", "ing", "ies", "ied", "ers", "er", "es")
+_SUFFIXES += ("ed", "ly", "s")
+
+
+def stem(word: str) -> str:
+    for s in _SUFFIXES:
+        if word.endswith(s) and len(word) - len(s) >= 3:
+            return word[: -len(s)] + ("y" if s in ("ies", "ied") else "")
+    return word
+
+
+def content_stems(text: str) -> set[str]:
+    return {stem(w) for w in seams.words(text) if len(w) > 3 and w not in _STOP}
+
+
+def content_share(text: str, ref: str) -> float:
+    """The share of `text`'s stemmed content words that `ref` holds."""
+    own = content_stems(text)
+    return round(len(own & content_stems(ref)) / max(1, len(own)), 2)
+
+
+def tighten_cut(target: str, revised: str) -> float:
+    """W8-1, reported: the share of the target's words a tighten removed."""
+    n = len(seams.words(target))
+    return round(1 - len(seams.words(revised)) / n, 2) if n else 0.0
+
+
 def scripted_slot(sample: str, ref: str) -> dict:
     """D4, reported (B-4: not a gate): a pronoun-folded 6-word run shared with
     `ref` (beat line + brief), and the share of its content words `ref` holds."""
-    fold = [[_FOLD.get(w, w) for w in seams.words(t)] for t in (sample, ref)]
-    own, theirs = ({w for w in seams.words(t) if len(w) > 3} for t in (sample, ref))
-    six = bool(seams.grams(fold[0], 6) & seams.grams(fold[1], 6))
-    share = round(len(own & theirs) / max(1, len(own)), 2)
-    return {"folded6": six, "content_share": share}
+    six = bool(folded6(sample) & folded6(ref))
+    return {"folded6": six, "content_share": content_share(sample, ref)}
+
+
+def beat_ref(prompt: str) -> str:
+    """A beat prompt's beat line and scene brief (what a sample may script)."""
+    found = (r.search(prompt) for r in (_BEAT_TO_WRITE, _SCENE_DESCRIPTION))
+    return " ".join(m.group(1) for m in found if m)
+
+
+def voice_coverage(records: list[dict], aliases: dict, drop=None) -> float | None:
+    """§6.2: the share of beat_prose principal blocks (an `aliases` value) with
+    a voice sample; `drop(sample, ref)` hides a sample (evals/measure's bound)."""
+    flags = []
+    for p in (prompt_text(r) for r in records if purpose(r) == "beat_prose"):
+        ref = beat_ref(p)
+        said = {
+            _who(o, aliases)
+            for o, ss in voice_samples(p).items()
+            if any(not (drop and drop(s, ref)) for s in ss)
+        }
+        blocks = movement_blocks(characters_section(p) or "")
+        owners = [_who(o, aliases) for o, _ in blocks]
+        flags += [o in said for o in owners if o in aliases.values()]
+    return round(sum(flags) / len(flags), 4) if flags else None
+
+
+def source_dialogue(gold_lines: dict | None, excerpt: str) -> set:
+    """S-6: "source dialogue" is the corpus's gold lines plus the excerpt's
+    attributed speech (every quoted span), as folded 6-grams; once per run."""
+    lines = [
+        ln
+        for v in (gold_lines or {}).values()
+        for ln in [*(v.get("train") or []), *(v.get("test") or [])]
+    ]
+    lines += [a or b for a, b in re.findall(r'"([^"]+)"|“([^”]+)”', excerpt)]
+    return set().union(set(), *map(folded6, lines))
+
+
+def plan_lines(answer: str) -> list[str]:
+    """A plan_beats answer's beat descriptions, in order."""
+    items = _json_object(answer).get("items") or _json_array(answer)
+    return [str(i.get("description") or "") for i in items if isinstance(i, dict)]
+
+
+def check_tighten_clause(prompt: str) -> list[str]:
+    """W8-1 (b): a tighten request's prompt carries the cut clause."""
+    return [] if _squash(TIGHTEN_CLAUSE) in _squash(prompt) else ["no tighten clause"]
 
 
 def _median(values: list[int]) -> float | None:
@@ -961,6 +1057,7 @@ def grade(
     excerpt: str = "",
     movement_store: dict[str, list[str]] | None = None,
     source: str = "",
+    revise_rows: list[dict] | None = None,
 ) -> dict:
     """Run every check over an archive (see the module docstring).
 
@@ -975,8 +1072,9 @@ def grade(
     people a movement sample may not name outside its scene (wave 3).
     `excerpt_events` and the `excerpt` they index are the plot gold (wave 5).
     `movement_store` is each principal's indexed movement chunks (the prose
-    step's `voice.movement`): D6 reads it, else the lines shown in the run.
+    step's `voice.movement`); without it the movement result is null.
     `source` is the manuscript the run uploaded (wave 7, evidence_verbatim).
+    `revise_rows` are the revise step's report rows (wave 8, tighten_clause).
     The events are placed by the signed file in `plot.PLACEMENTS` (D4)."""
     gold = {
         who: [*(v.get("train") or []), *(v.get("test") or [])]
@@ -993,7 +1091,6 @@ def grade(
     ]
     movement = {n: 0 for n in principal_names}
     moving_blocks: list[bool] = []
-    voiced_blocks: list[bool] = []  # principal blocks with a voice sample
     tallies = {k: _Tally() for k in CHECKS}
     voice_counts = dict.fromkeys(
         ("samples", "own", "misattributed", "not_dialogue", "short"), 0
@@ -1023,12 +1120,19 @@ def grade(
     move = _Tally()
     ineligible: dict[str, set[int]] = {}  # owner: the gold paragraphs
     hindsight, scripted = [], []
-    shown: dict[str, set[str]] = {}  # every movement line each owner is shown
-    for rec in (r for r in records if purpose(r) == "beat_prose"):
-        for o, ls in movement_blocks(characters_section(prompt_text(rec)) or ""):
-            shown.setdefault(o, set()).update(ls)
-    if movement_store is not None:  # D3a reads what the store holds
-        shown = {_who(o, aliases): set(ls) for o, ls in movement_store.items()}
+    in_ch1: set[str] = set()  # D4: principals cast in a chapter-1 block
+    eligible_in: set[str] = set()  # principals eligible in some block
+    # W8-1 (b): a scene_revise prompt is a tighten when the harness's report
+    # row says so (`kind`), matched by that row's instruction.
+    tightens = {
+        r["instruction"]
+        for r in revise_rows or []
+        if r.get("kind") == "tighten" and "instruction" in r  # not a short scene
+    }
+    quoted = source_dialogue(gold_lines, excerpt)  # S-6, once per run
+    quoting, plan_n = [], 0
+    # D3a reads what the run's store holds, and nothing else (wave 8).
+    shown = {_who(o, aliases): set(ls) for o, ls in (movement_store or {}).items()}
 
     for rec in records:
         pur = purpose(rec)
@@ -1086,23 +1190,24 @@ def grade(
             )
             reasons, blocks = check_movement_in_scene(prompt, people, aliases)
             tallies["movement_names_in_scene"].add(rec, reasons)
-            said = {_who(o, aliases) for o, ss in voice_samples(prompt).items() if ss}
-            voiced_blocks += [o in said for o, _ in blocks if o in movement]
+            at = STORY_POSITION_RE.search(prompt)
             empty, eligible = [], 0
             for owner, n in ((o, n) for o, n in blocks if o in movement):
                 movement[owner] += n
                 moving_blocks.append(n > 0)
+                if at and int(at.group("n")) == 1:  # D4: cast in chapter 1
+                    in_ch1.add(owner)
                 lines = shown.get(owner) or ()
                 why = plot.only_plot(lines, chapter, pg, placed)
                 if lines and not why:  # D3a: eligible here
                     eligible += 1
+                    eligible_in.add(owner)
                     empty += [f"{owner}: eligible, no movement line"] * (not n)
                 else:  # no indexed movement is a reason too (S-5)
                     ineligible.setdefault(owner, set()).update(why or {NONE_INDEXED})
             if eligible:
                 move.add(rec, empty)
-            found = (r.search(prompt) for r in (_BEAT_TO_WRITE, _SCENE_DESCRIPTION))
-            ref = " ".join(m.group(1) for m in found if m)
+            ref = beat_ref(prompt)
             scripted += [
                 {"id": rec.get("id"), "who": o, **scripted_slot(s, ref)}
                 for o, ss in voice_samples(prompt).items()
@@ -1164,6 +1269,14 @@ def grade(
             reasons, shared = check_sample_lift(prompt, rec.get("answer") or "")
             tallies["sample_lift"].add(rec, reasons)
             lifts.append(shared)
+        if pur == "scene_revise" and any(
+            _squash(t) in _squash(prompt) for t in tightens
+        ):
+            tallies["tighten_clause"].add(rec, check_tighten_clause(prompt))
+        if pur == "plan_beats":
+            for i, line in enumerate(plan_lines(rec.get("answer") or "")):
+                plan_n += 1
+                quoting += [f"{rec.get('id')}/{i}"] * bool(folded6(line) & quoted)
         if pur == "scene_revise" and _REDO_BEAT.search(prompt):
             tallies["redo_sees_plan"].add(rec, check_redo_sees_plan(prompt))
         if gold and re.search(r"(?im)^\s*voice samples\b", prompt):
@@ -1173,27 +1286,34 @@ def grade(
             tallies["voice_dialogue"].add(rec, reasons)
 
     out = {k: t.as_dict() for k, t in tallies.items()}
+    # Reported beside score (§6.2 names the run's exemptions): checks with n = 0.
+    out["empty_checks"] = sorted(k for k in CHECKS if not out[k]["n"])
     short = voice_counts.pop("short")
     out["voice_dialogue"]["samples"] = voice_counts
     # Reported, not gated (§6.3): voice samples too short to carry a voice.
     out["voice_dialogue"]["short_samples"] = short
     # Gated >= 0.8 per run (§6.2): beat_prose principal blocks with a voice sample.
-    out["voice_dialogue"]["voice_coverage"] = (
-        round(sum(voiced_blocks) / len(voiced_blocks), 4) if voiced_blocks else None
-    )
+    out["voice_dialogue"]["voice_coverage"] = voice_coverage(records, aliases)
     out["plan_cast_from_beat"]["unmatched"] = plan_unmatched
     # Reported; gated >= 0.8 by the eval (B-2): principal blocks that move.
     out["movement_names_in_scene"]["movement_coverage"] = (
         round(sum(moving_blocks) / len(moving_blocks), 4) if moving_blocks else None
     )
     out["movement_names_in_scene"]["movement_lines"] = movement
-    # Gated (§6.2, D3a): n = 0 passes only with every principal listed with gold
-    # or "none indexed"; vacuous (fails) when no principal has a store at all.
     listed = {o: sorted(ps) for o, ps in sorted(ineligible.items())}
+    # D4 (wave 8): ok is the gate. Every principal cast in a chapter-1 block is
+    # eligible somewhere, and >= 0.8 of the eligible blocks move; a principal
+    # cast in no chapter-1 block is listed, not required.
+    unmet = sorted(in_ch1 - eligible_in)
+    not_cast = sorted(set(principal_names) - in_ch1)
     out["movement"] = move.as_dict() | {"ineligible": listed}
-    stored = any(ps != [NONE_INDEXED] for ps in listed.values())
-    out["movement"]["ok"] = move.passed == move.n if move.n else stored
+    out["movement"] |= {"not_eligible": unmet, "not_cast": not_cast}
+    out["movement"]["ok"] = bool(move.n) and not unmet and move.passed >= 0.8 * move.n
+    if movement_store is None:  # a movement grade needs the run's store
+        out["movement"], out["movement_reason"] = None, "no movement_store"
     out["hindsight"] = hindsight  # reported (W6-3)
+    # Reported (W8-3 (b), Q1): beat lines sharing a folded 6-gram with S-6's set.
+    out["plan_quotes_source"] = {"n": plan_n, "quoting": len(quoting), "ids": quoting}
     out["scripted_slots"] = scripted  # reported (D4)
     unplaced = plot.unplaced(pg["events"], signed) if signed else None
     out["samples_not_plot"].update(plotted, placed=placed, unplaced_events=unplaced)
@@ -1258,14 +1378,9 @@ def _source(book: str) -> str:
     return "\n\n".join(t.rstrip() for t in parts if t)
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("archive", help="the relay's answered/ directory")
-    ap.add_argument("--book", default="cel", help="corpus for gold lines + style")
-    ap.add_argument("--since", type=float, default=None)
-    ap.add_argument("--against", nargs="*", default=[], help="archives: replayed")
-    args = ap.parse_args()
-    corpus = Path(__file__).resolve().parent.parent / "corpora" / args.book
+def book_inputs(book: str) -> dict:
+    """grade()'s keyword arguments for a corpus, read from evals/corpora."""
+    corpus = Path(__file__).resolve().parent.parent / "corpora" / book
     gt = json.loads((corpus / "ground_truth.json").read_text(encoding="utf-8"))
     style_path = corpus / "style.json"
     style = (
@@ -1273,8 +1388,18 @@ def main() -> None:
         if style_path.exists()
         else {}
     )
+    return corpus_inputs(gt, style)
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("archive", help="the relay's answered/ directory")
+    ap.add_argument("--book", default="cel", help="corpus for gold lines + style")
+    ap.add_argument("--since", type=float, default=None)
+    ap.add_argument("--against", nargs="*", default=[], help="archives: replayed")
+    args = ap.parse_args()
     records = load_archive(args.archive, args.since)
-    result = grade(records, **corpus_inputs(gt, style))
+    result = grade(records, **book_inputs(args.book))
     if args.against:  # §6.1: answers another archive already gave
         old = [r for a in args.against for r in load_archive(a)]
         result["replayed"] = plot.replayed(records, old)

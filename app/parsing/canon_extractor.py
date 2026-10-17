@@ -52,6 +52,7 @@ from app.core.prompt_markers import (
     EVIDENCE_ITEM,
     EVIDENCE_STAND_IN,
     EVIDENCE_LABEL,
+    EVIDENCE_NO_QUOTE,
     NAME_HEADING,
     QUOTED_LINES_LABEL,
 )
@@ -562,7 +563,7 @@ def merge_characters(window_answers: list[tuple[int, dict]], text: str = "") -> 
     cands: list[dict] = []
     for w, ans in window_answers:
         for c in ans.get("characters", []):
-            ev = c["evidence"] or [EVIDENCE_STAND_IN.format(part=w + 1)]  # SPEC-56
+            ev = c["evidence"] or [EVIDENCE_NO_QUOTE.format(part=w + 1)]  # SPEC-64
             cands.append({**c, "evidence": ev, "window": w})
         for n in (ans.get("style_signals") or {}).get("narrators", []):
             cands.append(

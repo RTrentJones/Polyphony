@@ -107,3 +107,22 @@ async def test_an_unplanned_scene_sees_its_chapter_without_a_mark(monkeypatch):
     prompt = (await _plan(monkeypatch, _FIRST, "[]", ask, _PLAN))[0]
     assert CHAPTER_SCENES_HEADER not in prompt and "→" not in prompt
     assert "This chapter's planned scenes, in order:\n  1. Mid-Sentence: " in prompt
+
+
+_DESCRIBE = (
+    "Describe what people say; do not quote lines from the author's source or "
+    "samples."
+)  # (F) W8-3 (a), D8: the exact line
+
+
+@pytest.mark.parametrize(
+    "pov",
+    [Pov("third person limited", "Milo Voss"), Pov("third person omniscient"), _FIRST],
+)
+async def test_the_planner_describes_lines_instead_of_quoting_them(monkeypatch, pov):
+    """(F) SPEC-61 (D8): one unconditional line, on the line after the POV
+    line, in every mode."""
+    prompt = (await _plan(monkeypatch, pov))[0]
+    assert wf.DESCRIBE_NOT_QUOTE == _DESCRIBE and prompt.count(_DESCRIBE) == 1
+    pov_line = next(ln for ln in prompt.splitlines() if POV_LINE_RE.match(ln))
+    assert f"{pov_line}\n{_DESCRIBE}\n" in prompt

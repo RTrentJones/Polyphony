@@ -32,12 +32,12 @@ class TestStepRegistry:
             "extraction",
             "ingestion",
             "retrieval",
-            "attribution",
             "outline",
             "continuity",
             "prose",
             "revise",
             "ensemble",
+            "attribution",  # last (S-3)
         ]
         # embedding-only steps must not require the API (so they run keyless)
         assert get_step("retrieval").needs_api is False
@@ -100,6 +100,21 @@ class TestTracerExport:
         }
         out = report.tracer_export(run, model="m")
         assert out["passed"] is True and out["pass_rate"] == 1.0
+        # A reported step is trended as a case but never fails the run (SPEC-60).
+        run["steps"]["attribution"] = {"score": 0.4, "status": "reported"}
+        out = report.tracer_export(run, model="m")
+        assert len(out["cases"]) == 3 and out["passed"] is True
+        assert out["pass_rate"] == 1.0
+        assert "eval:attribution" not in {
+            c["name"] for c in report.greenlight_export(run | {"book": "b"})["checks"]
+        }
+
+    def test_a_reported_only_run_does_not_pass(self):
+        from evals.harness import report
+
+        run = {"steps": {"attribution": {"score": 0.9, "status": "reported"}}}
+        out = report.tracer_export(run, model="m")
+        assert (out["passed"], out["pass_rate"], len(out["cases"])) == (False, 0.0, 1)
 
     def test_scores_bounded_0_1_for_zod(self):
         # Tracer's zod caps case.score at [0,1]; the export must clamp so an
@@ -543,11 +558,20 @@ class TestHistory:
         assert lines[0].split() == [
             *("run", "pair", "redo_ra", "untouched_share", "rewording_note"),
             *("r2_mean", "r2_min", "attribution"),
+            *("tighten_ra_1", "tighten_ra_2", "tighten_ra_3"),  # W8-1, Could 4
         ]
-        assert [ln.split()[0] for ln in lines[1:10]] == [
-            *("W4b2", "W5", "W5b", "W5c", "W5bc", "W5d", "W5bd", "W6", "W6b")
+        assert [ln.split()[0] for ln in lines[1:14]] == [
+            *("W4b2", "W5", "W5b", "W5c", "W5bc", "W5d", "W5bd", "W6", "W6b"),
+            *("W7", "W7b", "W7r", "W7br"),
         ]
         assert lines[-2] == report.ACT_RULE
+        # (F) W8-2 (c): attribution pooled over W7, W7r and W8r, with its
+        # interval; the tighten act rule fires on both wave-7 pairs only.
+        assert lines[-3] == (
+            "Attribution pooled from W7 (Wilson 95%): Milo 9/16 (0.33, 0.77); "
+            "Zara 9/16 (0.33, 0.77); Edric 6/16 (0.18, 0.61)"
+        )
+        assert lines[-1].endswith("tighten RA (7), tighten RA (7r)")
 
     def test_the_act_rule_fires_only_on_both_draws_of_a_pair(self, tmp_path):
         from evals.harness import report

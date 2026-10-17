@@ -234,7 +234,7 @@ and the judge at a **separate** relay so the model under test never grades itsel
 ```bash
 EVAL_JUDGE_BASE_URL=http://127.0.0.1:8298/v1 EVAL_JUDGE_LABEL=claude-judge \
 LLM_TIMEOUT_SECONDS=1800 EVAL_POLL_SCALE=20 EVAL_RELAY_DIR=/tmp/relay-queue \
-python -m evals.run --book cel --steps extraction,attribution,outline,continuity,prose,revise
+python -m evals.run --book cel --steps extraction,outline,continuity,prose,revise,attribution
 ```
 
 `EVAL_POLL_SCALE` multiplies every harness poll timeout (default 1), because an agent
@@ -284,6 +284,10 @@ Draft one with `python -m evals.graders.plot draft <answered-dir> --run W7` (a w
 term match, written with `signed_by: null`). The signer corrects the cells and sets `signed_by`
 and `signed_at`. An unsigned file is not read. Without a signed file, the plot gates report
 `null` and `placement_signed: false` (SPEC-54).
+
+Regrade a run offline with `python -m evals.graders.plot regrade <run-dir>` (the dir holding its
+`eval-report-<book>.json` and `answered-archive/`). It grades with the movement store the run's own
+report holds (`steps.prose.voice.movement`); without one, `movement` is `null`.
 
 ## Adding a book — data only, no code
 

@@ -24,9 +24,18 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from app.parsing.names import match
-from evals.graders import attribution, continuity, extraction, plot, retrieval, rubrics
+from evals.graders import (
+    attribution,
+    continuity,
+    extraction,
+    plot,
+    prompt_contract,
+    retrieval,
+    rubrics,
+)
 from evals.harness import embed
 from evals.harness.vecmath import cosine
+from evals.measure.wilson import wilson
 from evals.steps.base import StepContext, step
 
 CORPORA = Path(__file__).resolve().parent.parent / "corpora"
@@ -487,12 +496,12 @@ async def step_retrieval(ctx: StepContext) -> dict:
     return {**score.as_dict(), "score": score.precision_at_k, "characters": list(gold)}
 
 
-# --- Step 3: voice attribution (real generation + embedding) ---------------
-# D13: probe draws per character; one draw is a coin flip (W5: 1/3, 2/3, 2/3).
-ATTRIBUTION_DRAWS = 3
+# --- Voice attribution (real generation + embedding), registered last -------
+# D13: probe draws per character; W8-2: ten, pooled and reported, never gated
+# (the fixed-input gate is SPEC-55's probe rows). Run it last (S-3).
+ATTRIBUTION_DRAWS = 10
 
 
-@step("attribution", needs_api=True)
 async def step_attribution(ctx: StepContext) -> dict:
     gold = ctx.ground_truth.get("gold_lines") or {}
     if not gold:
@@ -531,10 +540,16 @@ async def step_attribution(ctx: StepContext) -> dict:
             attribution.attribute(char, await embed.embed_one(line), ref_vecs)
         )
         probes.append(probe)
-    per = {  # D13: gated per character by majority
-        c: {"correct": k, "majority": k * 2 > ATTRIBUTION_DRAWS}
+    per = {  # W8-2: reported per character, with its Wilson interval
+        c: {"correct": k, "k": n, "accuracy": round(k / n, 4) if n else None}
+        | {"wilson95": wilson(k, n)}
         for c in gold
-        for k in [sum(r.correct for r in results if r.intended == c)]
+        for n, k in [
+            (
+                sum(r.intended == c for r in results),
+                sum(r.correct for r in results if r.intended == c),
+            )
+        ]
     }
 
     agg = attribution.accuracy(results)
@@ -547,6 +562,7 @@ async def step_attribution(ctx: StepContext) -> dict:
         "generated": len(results),
         "empty": empty,
         "per_character": per,
+        "status": "reported",
         "detail": [{**r.as_dict(), "probe": p} for r, p in zip(results, probes)],
     }
 
@@ -1263,22 +1279,28 @@ def _paragraph_spans(text: str) -> list[tuple[int, int]]:
     return out
 
 
-def tighten_request(draft: str, beats: list[dict]) -> dict | None:
-    """The longest paragraph of beat 1's prose with >= 30 words, so the redo of
-    beat 2 meets its own text; else the scene's longest such; else None."""
+SHORT_SCENE = "no paragraph of >= 30 words"
+TIGHTEN_INSTRUCTION = "Tighten this paragraph: cut every redundant word."
+TIGHTENS = 3  # D2: requested on distinct paragraphs; the first is accepted
+
+
+def tighten_requests(draft: str, beats: list[dict]) -> list[dict]:
+    """Up to TIGHTENS distinct paragraphs of >= 30 words: the longest of beat
+    1's prose first, so the redo of beat 2 meets its own text (else the
+    scene's longest), then the longest of the rest, in turn (D2)."""
     first = (beats[0].get("content") or "").strip() if beats else ""
     at = draft.find(first) if first else -1
     # W5b's five-word target came back unchanged (RA 0.55): >= 30 words.
     paras = [p for p in _paragraph_spans(draft) if len(draft[slice(*p)].split()) >= 30]
     inside = [p for p in paras if at >= 0 and at <= p[0] <= p[1] <= at + len(first)]
-    span = sorted(inside or paras, key=lambda p: p[0] - p[1])[:1]
-    instruction = "Tighten this paragraph: cut every redundant word."
-    return (
-        {"id": "tighten", "instruction": instruction}
-        | {"range": {"start": span[0][0], "end": span[0][1]}}
-        if span
-        else None
-    )
+    longest = sorted(paras, key=lambda p: p[0] - p[1])
+    spans = sorted(inside, key=lambda p: p[0] - p[1])[:1] or longest[:1]
+    spans += [p for p in longest if p not in spans][: TIGHTENS - len(spans)]
+    return [
+        {"id": "tighten" if i == 0 else f"tighten_{i + 1}", "kind": "tighten"}
+        | {"instruction": TIGHTEN_INSTRUCTION, "range": {"start": a, "end": b}}
+        for i, (a, b) in enumerate(spans)
+    ]
 
 
 def revise_requests(draft: str, has_beats: bool, colder: str = "Zara") -> list[dict]:
@@ -1387,13 +1409,14 @@ async def step_revise(ctx: StepContext) -> dict:
     canon = await _canon_block(ctx, scene["book_id"]) if scene.get("book_id") else ""
 
     async def run(req: dict) -> dict:
-        body = {k: v for k, v in req.items() if k != "id"}
+        body = {k: v for k, v in req.items() if k not in ("id", "kind")}
         return await ctx.client.revise(scene_id, body)
 
     from evals.harness.client import EvalClientError
 
     async def one(req: dict, draft: str) -> tuple[dict, dict]:
         row: dict = {"id": req["id"], "instruction": req["instruction"]}
+        row |= {"kind": req["kind"]} if "kind" in req else {}
         try:
             out = await ctx.cache.memo(
                 "revise", f"{gt['book']}|{req['id']}|{draft}", lambda: run(req)
@@ -1430,6 +1453,12 @@ async def step_revise(ctx: StepContext) -> dict:
             borrowed_phrase=plot.borrowed_phrase(checks["revised"], cast, owned),
             deterministic_failures=caps,
         )
+        if req.get("kind") == "tighten":  # W8-1 (c), reported: the grader's stems
+            target = base[start:end]
+            row["tighten_cut"] = prompt_contract.tighten_cut(target, checks["revised"])
+            row["content_kept"] = prompt_contract.content_share(
+                target, checks["revised"]
+            )
         before = base[max(0, start - 1200) : start]
         after = base[end : end + 1200]
         content = (
@@ -1447,11 +1476,20 @@ async def step_revise(ctx: StepContext) -> dict:
         row["score"] = rubrics.revise_score(_scores(judged))
         return row, prop
 
+    async def discarded(req: dict, draft: str) -> dict:
+        row, prop = await one(req, draft)
+        if prop.get("id") and prop.get("status") == "proposed":
+            try:
+                await ctx.client.discard_proposal(scene_id, prop["id"])
+            except Exception:  # noqa: BLE001 - tidy-up only
+                pass
+        return row
+
     cast, owned = scene.get("characters") or [], gt.get("owned_phrases") or {}
-    rows = []
-    tighten = tighten_request(draft, beats)
-    if tighten:  # accepted, and verified: the draft is now the proposal
-        row, prop = await one(tighten, draft)
+    rows, untightened = [], draft
+    tightens = tighten_requests(draft, beats)
+    if tightens:  # the first accepted, and verified: the draft is the proposal
+        row, prop = await one(tightens[0], draft)
         try:
             await ctx.client.accept_proposal(scene_id, prop["id"])
             draft = await ctx.client.revise_draft(scene_id)
@@ -1460,18 +1498,28 @@ async def step_revise(ctx: StepContext) -> dict:
             row.update(accepted=False, accept_error=str(e)[:300])
         rows.append(row)
     else:  # recorded: the tighten row says why, instead of being missing
-        rows.append({"id": "tighten", "error": "no paragraph of >= 30 words"})
+        rows.append({"id": "tighten", "kind": "tighten", "error": SHORT_SCENE})
+    # D2: the other tightens are asked of the accepted draft and discarded. The
+    # first left their paragraphs as they were, moved by its change in length.
+    for req in tightens[1:]:
+        a, b = req["range"]["start"], req["range"]["end"]
+        moved = len(draft) - len(untightened)
+        at = a if b <= tightens[0]["range"]["start"] else a + moved
+        if draft[at : at + b - a] != untightened[a:b]:
+            rows.append(req | {"error": "the paragraph changed with the first"})
+            continue
+        req |= {"range": {"start": at, "end": at + b - a}}
+        rows.append(await discarded(req, draft))
     for req in revise_requests(draft, bool(beats), colder):
-        row, prop = await one(req, draft)
-        if prop.get("id") and prop.get("status") == "proposed":
-            try:
-                await ctx.client.discard_proposal(scene_id, prop["id"])
-            except Exception:  # noqa: BLE001 - tidy-up only
-                pass
-        rows.append(row)
+        rows.append(await discarded(req, draft))
 
     scored = [r["score"] for r in rows if r.get("score") is not None]
     graded = [r for r in rows if "outside_identical" in r]
+    tighten_ras = [
+        ((r.get("rubrics") or {}).get("RA") or {}).get("score")
+        for r in rows
+        if r.get("kind") == "tighten"
+    ]
     return {
         "scene": how,
         "n_revisions": len(rows),
@@ -1490,6 +1538,10 @@ async def step_revise(ctx: StepContext) -> dict:
             for rid in rubrics.REVISE_RUBRICS
         },
         "revisions": rows,
+        # D2: the tightens requested and their RAs, which the act rule reads
+        # (history `tighten_ra_1..3`).
+        "tighten_n": len(tightens),
+        "tighten_ras": tighten_ras,
         "score": round(sum(scored) / len(scored), 4) if scored else None,
     }
 
@@ -1560,6 +1612,10 @@ async def step_ensemble(ctx: StepContext) -> dict:
     return out
 
 
+# Registered last so `--steps all` spends its draws after the scene steps (S-3).
+step("attribution", needs_api=True)(step_attribution)
+
+
 # --- Prompt contract over the relay archive ------------------------------------
 # Deterministic checks of what the app SENT the model during this run (the
 # relay's answered/ archive): beats block, prior paragraphs, dialogue-only voice
@@ -1568,9 +1624,10 @@ async def step_ensemble(ctx: StepContext) -> dict:
 # the whole run, so `evals.run` adds it after every pass when
 # EVAL_RELAY_ARCHIVE / EVAL_RELAY_DIR is set (reported as steps.prompt_contract).
 async def prompt_contract_result(
-    ctx: StepContext, movement_store: dict | None = None
+    ctx: StepContext,
+    movement_store: dict | None = None,
+    revise_rows: list[dict] | None = None,
 ) -> dict:
-    from evals.graders import prompt_contract
     from evals.harness.config import load as load_config
 
     archive = load_config().relay_archive
@@ -1590,5 +1647,6 @@ async def prompt_contract_result(
             records,
             **prompt_contract.corpus_inputs(ctx.ground_truth, load_style(ctx.book)),
             movement_store=movement_store,
+            revise_rows=revise_rows,
         ),
     }

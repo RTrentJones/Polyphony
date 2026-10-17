@@ -9,7 +9,9 @@ from app.planning.canon import build_canon
 from app.planning.fidelity import audit_outline
 
 pytestmark = pytest.mark.unit
-D9 = "Write each scene summary as what the chapter's POV character witnesses; never what they fail to notice or will later learn."  # (F) W6-4 (a)
+# (F) W8-5 (D9): the one outline POV line; it replaces W6-4's scene-only sentence.
+D9 = "Write each summary as what the chapter's POV character witnesses or learns; never what they fail to notice or will later learn."
+OLD_D9 = "Write each scene summary as what the chapter's POV character witnesses;"
 
 
 _PRINCIPALS = [
@@ -194,6 +196,8 @@ class TestStagedOrchestration:
         repair_prompt = fake.prompts["outline:chapters"][1]
         assert "Milo Voss" in repair_prompt and "Edric Thane" in repair_prompt
         assert "OMITTED" in repair_prompt  # the repair-feedback marker
+        for prompt in fake.prompts["outline:chapters"]:  # (F) D9, repair too
+            assert prompt.count(D9) == 1
         assert "Milo Voss" in nodes[0]["summary"]
         assert warnings == []  # repair recovered the cast
 
@@ -248,7 +252,8 @@ class TestBeatsStageSeesThePlan:
             assert "organises the afterlife's clerks" in prompt
             assert "Milo's union against Edric Thane's quotas" in prompt
             assert "authoritative" not in prompt  # not confirmed by the author
-            assert D9 in prompt
+            assert D9 in prompt and prompt.count(D9) == 1
+            assert OLD_D9 not in prompt
             assert "Do not reuse a chapter title as a scene title." in prompt
         assert "This is act 1 of 2: Onboarding" in act1
         assert "Act 1 goal: Milo learns the rules" in act1
@@ -258,6 +263,17 @@ class TestBeatsStageSeesThePlan:
         assert "Edric concedes" not in act1  # each act sees its own turn
         # stub markers (evals/stub_llm.py) survive
         assert "scene beats" in act1 and "mirroring the chapters" in act1
+
+    async def test_the_chapters_stage_prints_the_outline_pov_line(self, monkeypatch):
+        """(F) SPEC-63 (D9): one line, after the cast rules, before the JSON
+        ask; written against W7br ch 3, whose summary says what Milo cannot
+        witness ("in the corner office the Lich notices a query")."""
+        fake = await self._run(monkeypatch)
+        (chapters,) = fake.prompts["outline:chapters"]
+        assert so.OUTLINE_POV_LINE == D9 and chapters.count(D9) == 1
+        assert OLD_D9 not in chapters
+        at = chapters.index
+        assert at("Break the acts into chapters.") < at(D9) < at("Return ONLY")
 
     async def test_acts_are_numbered_from_one(self, monkeypatch):
         fake = await self._run(monkeypatch)

@@ -5,8 +5,8 @@ and 10a · **Size**: S · **Depends on**: wave-6 day-0 (`json_utils.JSON_OBJECT`
 
 ## The outline:beats prompt (D9)
 
-It adds "Write each scene summary as what the chapter's POV character witnesses; never what they
-fail to notice or will later learn." and "Do not reuse a chapter title as a scene title." (the
+It adds the POV line (replaced by SPEC-63's `OUTLINE_POV_LINE`, printed by both outline stages)
+and "Do not reuse a chapter title as a scene title." (the
 whole-book block already lists every title). One call plans chapters with different POVs, so the
 line names no one. The permission to plan another's hidden intent stays in `pov.py` alone.
 

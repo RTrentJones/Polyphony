@@ -167,6 +167,8 @@ async def test_an_exhausted_chain_is_judge_unavailable_and_steps_keep_metrics(
         },
     }
     assert "n/a" in scorecard(run)
+    pc = {"prompt_contract": {"score": 1.0, "empty_checks": ["a", "b"]}}
+    assert "1.000   empty=[a, b]" in scorecard({**run, "steps": pc})
     assert tracer_export(run, model="m")["cases"] == []
     assert greenlight_export(run)["checks"] == []
 

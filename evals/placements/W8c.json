@@ -1,0 +1,40 @@
+{
+  "run": "W8c",
+  "outline_hash": "c13e16f975661251dd187bbb5a545daea370dca74ed516831fa221103d6aa2b6",
+  "signed_by": "PM",
+  "signed_at": "2026-10-17T17:36:32Z",
+  "placements": {
+    "intake": {
+      "chapter": 1,
+      "line": "The Laminated Org Chart: Prava explains tenure, the faint hope of graduation and that he has been retained as a strong culture fit for Reconciliations; told for the first time that his forty-one years of pointless optimizing are an asset, Milo says yes before any choice is offered, and his loneliness turns into eagerness."
+    },
+    "training": {
+      "chapter": null,
+      "line": null
+    },
+    "partition": {
+      "chapter": 1,
+      "line": "Desk Neighbour: Milo is given a lanyard and the desk beside Zara Okafor, who trains him in terse instructions without looking up; his chatty questions meet flat answers he takes for friendship, and he leaves his first shift believing he has found a mentor and a place."
+    },
+    "bell": {
+      "chapter": 2,
+      "line": "Quota: Zara shows Milo how to review a restructured soul's remaining tenure, zero it out and file it under the department code the style guide will not spell out; he hits his quota in a day, then doubles it, and discovers he loves being good at this."
+    },
+    "drawer": {
+      "chapter": null,
+      "line": null
+    },
+    "summons": {
+      "chapter": 5,
+      "line": "Calendar Invitation: As the last line reconciles, a meeting request arrives from the office at the top: Quarterly Review, Mr. Voss, attendance mandatory; Zara reads it over his shoulder and tells him to bring the file."
+    },
+    "corner office": {
+      "chapter": 6,
+      "line": "The Corner Office: Milo enters the office no employee returns from unchanged and is reviewed by Edric Thane in long, formal sentences; the Lich praises his numbers, tells him he was once exactly such a clerk, and offers him the climb, and Milo sees his own future sitting across the desk."
+    },
+    "discrepancy": {
+      "chapter": 2,
+      "line": "Does Not Reconcile: Closing a routine restructured account, Milo finds the soul's tenure draining faster than any labor could explain; following the transfers, he sees every one of them flowing upward into a single pooled account at the top of the org chart, and his pleasure in the work stops."
+    }
+  }
+}

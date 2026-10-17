@@ -213,19 +213,49 @@ def replayed(records: list[dict], against: list[dict]) -> dict[str, dict]:
     return {p: {**r, "rate": round(r["replayed"] / r["n"], 4)} for p, r in out.items()}
 
 
+def regrade(run_dir: str | Path) -> dict:
+    """The signed regrade of one eval run (a dir holding its
+    eval-report-<book>.json and answered-archive/): its model archive graded
+    with the movement store its own report holds (`steps.prose.voice.movement`).
+    A principal read as "none indexed" while that store holds lines for them is
+    an error, not a result (wave 8)."""
+    from evals.graders import prompt_contract as pc
+
+    run = Path(run_dir)
+    reports = sorted(run.glob("eval-report-*.json"))
+    if len(reports) != 1:
+        raise ValueError(f"{run}: want one eval-report-*.json, found {len(reports)}")
+    doc = json.loads(reports[0].read_text(encoding="utf-8"))
+    store = ((doc["steps"].get("prose") or {}).get("voice") or {}).get("movement")
+    records = pc.load_archive(run / "answered-archive" / "model" / "answered")
+    rows = (doc["steps"].get("revise") or {}).get("revisions")  # tighten_clause
+    out = pc.grade(
+        records, **pc.book_inputs(doc["book"]), movement_store=store, revise_rows=rows
+    )
+    for who, why in ((out.get("movement") or {}).get("ineligible") or {}).items():
+        if (store or {}).get(who) and pc.NONE_INDEXED in why:
+            raise ValueError(f"{who}: read as none indexed; the store holds lines")
+    return out
+
+
 def main(argv: list[str] | None = None) -> None:
     """`python -m evals.graders.plot draft <answered-dir> [--run W7] [--book cel]`:
-    an unsigned placement file for the PM to read and sign (evals/README.md)."""
+    an unsigned placement file for the PM to read and sign (evals/README.md).
+    `python -m evals.graders.plot regrade <run-dir>`: the run's signed regrade
+    with its own movement store (`regrade`)."""
     import argparse
 
     from evals.graders.prompt_contract import load_archive
 
     ap = argparse.ArgumentParser(description=main.__doc__)
-    ap.add_argument("command", choices=["draft"])
-    ap.add_argument("archive", help="the relay's answered/ directory")
+    ap.add_argument("command", choices=["draft", "regrade"])
+    ap.add_argument("archive", help="the relay's answered/ dir (regrade: the run's)")
     ap.add_argument("--run", default=None, help="the run's name, e.g. W7")
     ap.add_argument("--book", default="cel")
     args = ap.parse_args(argv)
+    if args.command == "regrade":
+        print(json.dumps(regrade(args.archive), indent=2, ensure_ascii=False))
+        return
     corpus = Path(__file__).resolve().parent.parent / "corpora" / args.book
     gt = json.loads((corpus / "ground_truth.json").read_text(encoding="utf-8"))
     records = load_archive(args.archive)

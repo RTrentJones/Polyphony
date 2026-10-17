@@ -35,6 +35,7 @@ from evals.steps import pipeline
 from tests.unit.factories import add_chapter, add_scene, add_scene_beats
 
 pytestmark = pytest.mark.unit
+TIGHTEN = pipeline.TIGHTEN_INSTRUCTION
 
 
 class CapturingLLM:
@@ -284,6 +285,20 @@ async def test_the_apps_prompts_pass_every_contract_check(
         }
     )
     assert fake.records[-1]["purpose"] == "scene_revise"
+    # 3c. A tighten of the scene's first paragraph (W8-1: tighten_clause).
+    await async_session.refresh(scene)
+    para = scene.draft.split("\n\n")[0]
+    await revise_job.run(
+        {
+            "scene_id": str(scene.id),
+            "book_id": str(test_book.id),
+            "user_id": str(test_book.user_id),
+            "base_text_hash": rv.text_hash(scene.draft),
+            "instruction": TIGHTEN,
+            "range": [0, len(para)],
+        }
+    )
+    assert fake.records[-1]["purpose"] == "scene_revise"
 
     # 4. Extraction over the cel excerpt, for the reduce prompt.
     await extract_canon(pipeline.load_corpus("cel")[0])
@@ -315,6 +330,7 @@ async def test_the_apps_prompts_pass_every_contract_check(
         # This run confirmed no premise: the skeleton's own is the one to carry.
         **{**pc.corpus_inputs(gt, style), "premise_edit": None},
         movement_store=held,
+        revise_rows=[{"id": "tighten", "kind": "tighten", "instruction": TIGHTEN}],
     )
     # W7-2 (S-4): unsigned, the plot values are null and the run says so.
     monkeypatch.setattr(plot, "PLACEMENTS", tmp_path / "placements")
@@ -340,11 +356,15 @@ async def test_the_apps_prompts_pass_every_contract_check(
     assert out["samples_not_plot"]["later_plot_slots"] == 0
     assert out["voice_dialogue"]["voice_coverage"] >= 0.8, out["voice_dialogue"]
     assert not failing, json.dumps(failing, indent=1)[:4000]
-    assert set(ran) == set(pc.CHECKS)  # 23, each n > 0, json_mode_where_json strict
+    assert set(ran) == set(pc.CHECKS)  # 24, each n > 0, json_mode_where_json strict
     assert out["plan_cast_from_beat"]["unmatched"] == []
     assert out["voice_dialogue"]["short_samples"] == 0
     assert out["sample_lift"]["max_shared"] == 0
     # D3a: Milo's intake is eligible (the stub plans no intake) and moves; Zara
     # is listed with the partition glance (3) and the look past the tail (29).
     move = out["movement"]
-    assert move["ok"] and move["n"] and move["ineligible"]["Zara Okafor"] == [3, 29]
+    assert move["n"] and move["passed"] == move["n"]
+    assert move["ineligible"]["Zara Okafor"] == [3, 29]
+    # D4 (wave 8): Zara (only plot lines stored) and Edric (none stored) are
+    # cast in chapter 1 and never eligible, so the gate reads false, naming them.
+    assert (move["ok"], move["not_eligible"]) == (False, ["Edric Thane", "Zara Okafor"])

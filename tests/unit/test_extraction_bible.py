@@ -241,7 +241,8 @@ def test_every_archived_evidence_line_is_kept_repaired_or_dropped():
 
 
 async def test_the_map_keeps_only_the_authors_text(monkeypatch):
-    """(F) Through the map call; a member left with nothing narrates its part."""
+    """(F) Through the map call; a member left with nothing has no verbatim
+    quote in its part (SPEC-64), never "narrates"."""
     raw = {
         "characters": [
             {"name": "Edric Thane", "evidence": ["Mr. Voss, do sit.", "I am kind."]},
@@ -255,7 +256,24 @@ async def test_the_map_keeps_only_the_authors_text(monkeypatch):
     monkeypatch.setattr(ce, "_json_call", answer)
     (win,), _ = await ce._map_one(W6["windows"]["cel_excerpt"], "1", 1, None, {})
     merged = {g["name"]: g["evidence"] for g in ce.merge_characters([(0, win)])}
-    assert merged == {"Edric Thane": [(0, VOSS)], "Old Fen": [(0, "narrates part 1")]}
+    assert merged == {
+        "Edric Thane": [(0, VOSS)],
+        "Old Fen": [(0, "no verbatim quote in part 1")],
+    }
+
+
+def test_narrates_part_n_is_the_narrator_paths_alone():
+    """(R) SPEC-64: a `style_signals.narrators` member keeps "narrates part N";
+    (F) a quoteless character in the same window does not."""
+    ans = {
+        "characters": [_cand("Lucy", evidence=[])],
+        "style_signals": {"narrators": ["Jon"]},
+    }
+    merged = {g["name"]: g["evidence"] for g in ce.merge_characters([(2, ans)])}
+    assert merged == {
+        "Jon": [(2, "narrates part 3")],
+        "Lucy": [(2, "no verbatim quote in part 3")],
+    }
 
 
 # --- reduce input (P10) --------------------------------------------------------
