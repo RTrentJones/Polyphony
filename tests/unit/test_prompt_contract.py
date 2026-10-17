@@ -816,6 +816,7 @@ def test_the_regrade_reads_the_runs_own_store(tmp_path, capsys):
     plot.main(["regrade", str(run)])
     move = json.loads(capsys.readouterr().out)["movement"]
     assert (move["n"], move["passed"], move["ineligible"]) == (9, 0, {})
+    assert move["ok"] is False and move["not_cast"] == ["Edric Thane"]  # D4
     assert {r for f in move["failures"] for r in f["reasons"]} == {
         "Milo Voss: eligible, no movement line"
     }
@@ -897,16 +898,10 @@ def test_plan_quotes_source_reproduces_10_of_85(tmp_path):
 
 def test_movement_ok_is_the_gate(tmp_path, monkeypatch):
     """(F) D4: ok needs every principal cast in a chapter-1 block eligible and
-    >= 0.8 of the eligible blocks moving. W7 (Milo eligible in 9 blocks, never
-    moving) reads false; the same run with his lines shown reads true. Edric is
-    cast in no block: listed `not cast`, not required."""
+    >= 0.8 of the eligible blocks moving. W7 with Milo's lines shown reads true
+    (W7 itself reads false, above). Edric is cast in no block: listed
+    `not cast`, not required."""
     fx = copy.deepcopy(W7_ARCHIVES["w7_movement"])
-    out = plot.regrade(_w7_run(tmp_path / "w7", fx["store"]))["movement"]
-    assert (out["ok"], out["not_eligible"], out["not_cast"]) == (
-        False,
-        [],
-        ["Edric Thane"],
-    )
     for b in fx["beats"]:  # W7r's shape: Milo's stored lines reach the prose
         b["movement"] = {**b["movement"], "Milo Voss": fx["store"]["Milo Voss"][:1]}
     monkeypatch.setitem(W7_ARCHIVES, "w7_movement", fx)

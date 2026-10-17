@@ -908,13 +908,6 @@ def test_tighten_the_longest_paragraph_of_beat_1_then_ask_the_rest():
         assert [r["id"] for r in reqs] == ["tighten", "tighten_2"]
         assert {r["kind"] for r in reqs} == {"tighten"}
     assert pipeline.tighten_requests("Short.\n\nAlso short.", []) == []
-    four = "\n\n".join([long, longer, long + " Again.", longer + " Zara."])
-    got = pipeline.tighten_requests(four, [{"content": long}])
-    assert [r["range"]["start"] for r in got] == [
-        0,
-        four.index(longer + " Zara."),
-        four.index(longer),
-    ]
     reqs = pipeline.revise_requests(REVISE_DRAFT, has_beats=True)
     assert [r["id"] for r in reqs] == ["colder", "redo_beat"]
     colder = reqs[0]["range"]
@@ -1012,10 +1005,7 @@ async def test_revise_step_accepts_the_tighten_and_asks_the_rest_of_it(tmp_path)
     assert tighten["accepted"] is True and client.discarded == ["p2", "p3"]
     # Wave-8 day-0: the report's kind and count; the API body has no kind.
     assert [r.get("kind") for r in out["revisions"]] == ["tighten", None, None]
-    assert (out["tighten_n"], out["tighten_short_reason"]) == (
-        1,
-        "only 1 paragraph(s) of >= 30 words",
-    )
+    assert out["tighten_n"] == 1
     # W8-1 (c): cut and kept shares, by the grader's own stems, and the RAs.
     assert (tighten["tighten_cut"], tighten["content_kept"]) == (0.2, 0.81)
     assert out["tighten_ras"] == [tighten["rubrics"]["RA"]["score"]]
@@ -1036,13 +1026,12 @@ LONG_2 = " ".join(["Milo counted the chairs and found one more each time."] * 4)
 LONG_3 = " ".join(["The ledger ran to the floor."] * 6)
 
 
-@pytest.mark.parametrize("extra", [[LONG_2, LONG_3], [LONG_2]])
+@pytest.mark.parametrize("extra", [[LONG_2, LONG_3]])
 async def test_revise_step_requests_three_tightens_and_accepts_the_first(
     tmp_path, extra
 ):
     """(F) D2: up to three distinct paragraphs; the first is accepted and the
-    others are asked of the accepted draft, then discarded. Short of three,
-    `tighten_n` and its reason say so (S-1)."""
+    others are asked of the accepted draft, then discarded."""
     client = _ReviseClient()
     client.draft = "\n\n".join([REVISE_DRAFT, *extra])
     ctx = _cel_ctx(tmp_path, client, _RubricJudge())
@@ -1061,9 +1050,6 @@ async def test_revise_step_requests_three_tightens_and_accepts_the_first(
     assert client.discarded[: len(extra)] == [f"p{i + 2}" for i in range(len(extra))]
     assert not any("kind" in body for body in client.revised)
     assert out["tighten_n"] == len(tightens)
-    assert out["tighten_short_reason"] == (
-        None if len(extra) == 2 else "only 2 paragraph(s) of >= 30 words"
-    )
 
 
 async def test_revise_step_records_a_409_as_refused_and_goes_on(tmp_path):

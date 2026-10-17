@@ -1539,20 +1539,10 @@ async def step_revise(ctx: StepContext) -> dict:
             for rid in rubrics.REVISE_RUBRICS
         },
         "revisions": rows,
-        # D2: the tightens requested and, when short of TIGHTENS, why (S-1);
-        # their RAs, which the act rule reads (history `tighten_ra_1..3`).
+        # D2: the tightens requested and their RAs, which the act rule reads
+        # (history `tighten_ra_1..3`).
         "tighten_n": len(tightens),
-        "tighten_short_reason": (
-            None
-            if len(tightens) == TIGHTENS
-            else (
-                f"only {len(tightens)} paragraph(s) of >= 30 words"
-                if tightens
-                else SHORT_SCENE
-            )
-        ),
         "tighten_ras": tighten_ras,
-        "tighten_ra_mean": _mean_or_none([r for r in tighten_ras if r is not None]),
         "score": round(sum(scored) / len(scored), 4) if scored else None,
     }
 

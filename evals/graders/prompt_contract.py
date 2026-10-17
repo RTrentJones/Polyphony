@@ -1296,8 +1296,6 @@ def grade(
         round(sum(moving_blocks) / len(moving_blocks), 4) if moving_blocks else None
     )
     out["movement_names_in_scene"]["movement_lines"] = movement
-    # Gated (§6.2, D3a): n = 0 passes only with every principal listed with gold
-    # or "none indexed"; vacuous (fails) when no principal has a store at all.
     listed = {o: sorted(ps) for o, ps in sorted(ineligible.items())}
     # D4 (wave 8): ok is the gate. Every principal cast in a chapter-1 block is
     # eligible somewhere, and >= 0.8 of the eligible blocks move; a principal

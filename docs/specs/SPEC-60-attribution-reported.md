@@ -15,7 +15,6 @@
 | Zara | 1 "Don't thank her. Read the appendices first…"; 2 "Close the accounts in your queue…"; 3 "It was the best week of your death, too…" | 1 only |
 | Edric | 1 "Every clerk likes a clean ledger…"; 2 "Mr. Voss. Do sit…"; 3 "You closed the Bell account in under four minutes…" | 1 only |
 
-At 0.2 each speaker sees only their top line; Edric's is the one the classifier reads as Milo (SPEC-55).
-An accuracy delta between thresholds must be read against this. The threshold stays 0.
-**Tests**: `test_evals_measure.py` (Wilson rows, `lines_shown` at both thresholds), `test_evals_steps.py`
-(k = 10, `status`), `test_evals_graders.py` (history columns, pooled line, tighten act rule).
+At 0.2 each speaker sees only their top line; Edric's is the one the classifier reads as Milo (SPEC-55). An accuracy delta
+between thresholds must be read against this. The threshold stays 0. **Tests**: `test_evals_measure.py` (Wilson rows),
+`test_evals_steps.py` (k = 10, `status`), `test_evals_graders.py` (history columns, pooled line, tighten act rule).

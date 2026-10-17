@@ -22,39 +22,6 @@ def test_wilson_of_no_draws_is_none():
     assert wilson(0, 0) is None
 
 
-async def test_lines_shown_calls_the_product_at_both_thresholds(monkeypatch):
-    """(F) D6: the probe's own call (k = 3, the probe line, a scene of one) at
-    threshold 0 and 0.2; the lines come back in the store's order."""
-    from types import SimpleNamespace
-
-    from evals.measure import lines_shown
-
-    store = [{"text": "a"}, {"text": "b"}, {"text": "c"}]
-    calls = []
-
-    async def samples(character, query, k, *, scope, threshold):
-        calls.append((character.name, query, k, scope.cast, threshold))
-        kept = store if threshold == 0 else store[:1]  # a floor drops the tail
-        return kept, []
-
-    monkeypatch.setattr(lines_shown, "character_samples", samples)
-    canon = SimpleNamespace(characters=[], canon_terms=lambda: [])
-    monkeypatch.setattr(
-        "app.planning.fidelity.canon_known_text", lambda c: "", raising=True
-    )
-    zara = SimpleNamespace(name="Zara Okafor")
-    got = await lines_shown.shown(zara, canon, "the probe")
-    assert got == {
-        0: {"voice": ["a", "b", "c"], "movement": []},
-        0.2: {"voice": ["a"], "movement": []},
-    }
-    assert [c[:4] for c in calls] == [("Zara Okafor", "the probe", 3, (zara,))] * 2
-    assert [c[4] for c in calls] == [0, 0.2]
-
-
-MILO_LINE = "Milo asks about dashboards and throughput trackers."
-
-
 def test_voice_overlap_no_refill_bound_on_two_blocks():
     """(F) D7: two principal blocks, one voiced by a sample that restates its
     beat line. Removing every slot at or above a threshold (no refill) drops

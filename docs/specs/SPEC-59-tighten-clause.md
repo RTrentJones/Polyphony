@@ -16,4 +16,5 @@ The list is the product's rule; no grader reads it (the grader reads `kind: "tig
 | "Redo beat 2: cut the aside" | yes | `REDO_CHANGE` |
 | "Make Zara colder", "Redo beat 2.", "Add a cutting remark." | no | `REDO_DIRECTION` on the redo |
 
-Other prompts are byte-identical. **Tests**: `test_scene_revise.py`.
+Other prompts are byte-identical. `tighten_n` < 3 means the scene had only that many paragraphs of
+≥ 30 words (S-1); it carries the reason, so the step reports no separate one. **Tests**: `test_scene_revise.py`.

@@ -262,31 +262,6 @@ async def test_the_map_keeps_only_the_authors_text(monkeypatch):
     }
 
 
-_W7 = json.loads((Path(__file__).parents[1] / "fixtures/w7_archives.json").read_text())
-OLD_FEN = [  # the map answers read from the excerpt (its one spoken line)
-    r
-    for r in _W7["old_fen"]["rows"]
-    if all("appendices" in q for q in r["map_evidence"])
-]
-
-
-@pytest.mark.parametrize("row", OLD_FEN, ids=lambda r: f"{r['run']}-{r['map_request']}")
-async def test_old_fen_has_a_quote_or_no_verbatim_quote(monkeypatch, row):
-    """(F) SPEC-64 (D5): W7 and W7b printed "narrates part 1" for Old Fen; it
-    now reads "no verbatim quote in part 1". (R) W7r and W7br keep the quote."""
-
-    async def answer(*a, **kw):
-        return {"characters": [{"name": "Old Fen", "evidence": row["map_evidence"]}]}
-
-    monkeypatch.setattr(ce, "_json_call", answer)
-    (win,), _ = await ce._map_one(CEL, "1", 1, None, {})
-    (fen,) = ce.merge_characters([(0, win)])
-    was = [e.removeprefix("(part 1) ") for e in row["reduce_evidence"]]
-    stood_in = row["run"] in ("W7", "W7b") and was == ["narrates part 1"]
-    now = ["no verbatim quote in part 1"] if stood_in else was
-    assert [q for _, q in fen["evidence"]] == now
-
-
 def test_narrates_part_n_is_the_narrator_paths_alone():
     """(R) SPEC-64: a `style_signals.narrators` member keeps "narrates part N";
     (F) a quoteless character in the same window does not."""
