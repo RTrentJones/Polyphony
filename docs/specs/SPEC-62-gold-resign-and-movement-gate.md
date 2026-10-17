@@ -17,4 +17,4 @@
 **G1 moves nothing** (values, failures, `ineligible`, `voice_coverage` identical): no shown sample sits in p1/p15/p20/p28; the p15
 (Milo) and p20 (Edric) store lines (W7–W7br) change no eligibility, as Milo is already eligible and Edric is `not cast` in every
 stored run. ¹ D4, not G1: Milo and Zara are cast in chapter 1 with every stored line plot there; the old rule passed on the
-listing alone. **Tests**: `test_prompt_contract.py` (W7 false; Milo moving, true; Edric `not cast`; W5 rows rewired), round trip.
+listing alone. **Tests**: `test_prompt_contract.py` (W7 false; Milo moving, true; Edric `not cast`; W5 rows rewired), round trip. Wave-8 gate record: SPEC-66.

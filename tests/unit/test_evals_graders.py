@@ -550,11 +550,11 @@ class TestHistory:
             *("W7", "W7b", "W7r", "W7br"),
         ]
         assert lines[-2] == report.ACT_RULE
-        # (F) W8-2 (c): attribution pooled over W7 and W7r, with its interval;
-        # the tighten act rule fires on both wave-7 pairs.
+        # (F) W8-2 (c): attribution pooled over W7, W7r and W8r, with its
+        # interval; the tighten act rule fires on both wave-7 pairs only.
         assert lines[-3] == (
-            "Attribution pooled from W7 (Wilson 95%): Milo 4/6 (0.3, 0.9); "
-            "Zara 3/6 (0.19, 0.81); Edric 3/6 (0.19, 0.81)"
+            "Attribution pooled from W7 (Wilson 95%): Milo 9/16 (0.33, 0.77); "
+            "Zara 9/16 (0.33, 0.77); Edric 6/16 (0.18, 0.61)"
         )
         assert lines[-1].endswith("tighten RA (7), tighten RA (7r)")
 
