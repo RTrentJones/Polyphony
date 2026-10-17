@@ -1,0 +1,40 @@
+{
+  "run": "W8r",
+  "outline_hash": "c4116ecce8352a6ba666f25c22f06850971a6c39a3579d08d54d5e8c9ca8d00a",
+  "signed_by": "PM",
+  "signed_at": "2026-10-17T17:09:24Z",
+  "placements": {
+    "intake": {
+      "chapter": 1,
+      "line": "The Laminated Org Chart: Prava slides a laminated org chart across the desk and tells Milo he has been retained as a strong culture fit. Milo, who has never been told his boredom was valuable, agrees before anyone offers him a choice, and his death becomes a job."
+    },
+    "training": {
+      "chapter": null,
+      "line": null
+    },
+    "partition": {
+      "chapter": 1,
+      "line": "Read the Appendices: At the desk across the partition, Zara tells Milo not to thank anyone until he has read the appendices. He takes it for hazing, but learns there is a contract he was never shown, and that his trainer is not going to be his friend in the way he hoped."
+    },
+    "bell": {
+      "chapter": 2,
+      "line": "The Bell Account: Milo zeroes Halvard Bell's tenure and initials the form, and Bell is sent under by lunch while his desk is cleared before the coffee finishes. When Milo asks where Bell actually goes, Zara tells him to write 'under' and nothing else. That night, without knowing why, he locks the ledger in his drawer."
+    },
+    "drawer": {
+      "chapter": 2,
+      "line": "The Bell Account: Milo zeroes Halvard Bell's tenure and initials the form, and Bell is sent under by lunch while his desk is cleared before the coffee finishes. When Milo asks where Bell actually goes, Zara tells him to write 'under' and nothing else. That night, without knowing why, he locks the ledger in his drawer."
+    },
+    "summons": {
+      "chapter": 2,
+      "line": "Heavy Paper: A memo signed by Edric Thane summons Milo personally. He reads it as a career win; Zara tells him it is not normal and gives him three rules: bring nothing, sign nothing, stand. For the first time Milo is afraid of being noticed."
+    },
+    "corner office": {
+      "chapter": 2,
+      "line": "The Chair: In the cold corner office the Lich offers a chair, calls Milo's four-minute close 'appetite', and warns that he was retained for not asking questions. Milo stays standing, his first refusal, and comes away knowing that the CEL is watching him personally."
+    },
+    "discrepancy": {
+      "chapter": 2,
+      "line": "The Column No One Explained: Milo unlocks the ledger and finds that Bell's tenure was not zeroed but moved. He takes the discrepancy to Zara, and her answer, 'Now you've read an appendix', tells him she has been waiting for exactly this."
+    }
+  }
+}
