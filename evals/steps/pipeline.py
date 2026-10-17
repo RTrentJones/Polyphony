@@ -502,7 +502,6 @@ async def step_retrieval(ctx: StepContext) -> dict:
 ATTRIBUTION_DRAWS = 10
 
 
-@step("attribution", needs_api=True)
 async def step_attribution(ctx: StepContext) -> dict:
     gold = ctx.ground_truth.get("gold_lines") or {}
     if not gold:
@@ -1611,6 +1610,10 @@ async def step_ensemble(ctx: StepContext) -> dict:
         else None
     )
     return out
+
+
+# Registered last so `--steps all` spends its draws after the scene steps (S-3).
+step("attribution", needs_api=True)(step_attribution)
 
 
 # --- Prompt contract over the relay archive ------------------------------------

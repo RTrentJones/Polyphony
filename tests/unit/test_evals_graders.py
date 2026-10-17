@@ -32,12 +32,12 @@ class TestStepRegistry:
             "extraction",
             "ingestion",
             "retrieval",
-            "attribution",
             "outline",
             "continuity",
             "prose",
             "revise",
             "ensemble",
+            "attribution",  # last (S-3)
         ]
         # embedding-only steps must not require the API (so they run keyless)
         assert get_step("retrieval").needs_api is False
@@ -100,6 +100,14 @@ class TestTracerExport:
         }
         out = report.tracer_export(run, model="m")
         assert out["passed"] is True and out["pass_rate"] == 1.0
+        # A reported step is trended as a case but never fails the run (SPEC-60).
+        run["steps"]["attribution"] = {"score": 0.4, "status": "reported"}
+        out = report.tracer_export(run, model="m")
+        assert len(out["cases"]) == 3 and out["passed"] is True
+        assert out["pass_rate"] == 1.0
+        assert "eval:attribution" not in {
+            c["name"] for c in report.greenlight_export(run | {"book": "b"})["checks"]
+        }
 
     def test_scores_bounded_0_1_for_zod(self):
         # Tracer's zod caps case.score at [0,1]; the export must clamp so an

@@ -870,6 +870,8 @@ def test_tighten_clause_eligibility_is_the_report_rows_kind(tmp_path):
     }
     assert graded([{**rows[0], "kind": None}])["tighten_clause"]["n"] == 0
     assert graded(None)["tighten_clause"]["n"] == 0
+    # A short scene's row asks nothing (no instruction): no eligible prompt.
+    assert graded([{"kind": "tighten", "error": "short"}])["tighten_clause"]["n"] == 0
     assert "tighten_clause" in graded(None)["empty_checks"]
 
 

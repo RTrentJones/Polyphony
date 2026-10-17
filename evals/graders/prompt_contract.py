@@ -1125,7 +1125,9 @@ def grade(
     # W8-1 (b): a scene_revise prompt is a tighten when the harness's report
     # row says so (`kind`), matched by that row's instruction.
     tightens = {
-        r["instruction"] for r in revise_rows or [] if r.get("kind") == "tighten"
+        r["instruction"]
+        for r in revise_rows or []
+        if r.get("kind") == "tighten" and "instruction" in r  # not a short scene
     }
     quoted = source_dialogue(gold_lines, excerpt)  # S-6, once per run
     quoting, plan_n = [], 0

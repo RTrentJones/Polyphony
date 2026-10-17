@@ -201,8 +201,12 @@ def tracer_export(
                 "judge_rationale": (res.get("judge_explanation") or "")[:16000] or None,
             }
         )
-    n = len(cases)
-    n_pass = sum(1 for c in cases if c["passed"])
+    # A reported step (attribution, SPEC-60) is trended, never gated.
+    gated = [
+        c for c in cases if run["steps"][c["name"][5:]].get("status") != "reported"
+    ]
+    n = len(gated)
+    n_pass = sum(1 for c in gated if c["passed"])
     return {
         "tool": "polyphony",
         "model": model,
@@ -248,8 +252,11 @@ def greenlight_export(run: dict) -> dict:
     """Shape results as greenlight eval checks[] (score in 0..1)."""
     checks = []
     for name, res in run["steps"].items():
-        # A judge-less step (score None) has no 0..1 eval score to export.
+        # A judge-less step (score None) has no 0..1 eval score to export, and a
+        # reported one (SPEC-60) is not a check.
         if res.get("skipped") or "error" in res or res.get("score") is None:
+            continue
+        if res.get("status") == "reported":
             continue
         checks.append(
             {
