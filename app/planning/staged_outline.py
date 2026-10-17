@@ -158,6 +158,14 @@ def _act_brief(skeleton: Optional[dict], act_index: int) -> str:
     return "\n".join(lines)
 
 
+# Both outline stages print it (SPEC-63); `pov.py` alone says what a brief may
+# carry about other people. One call plans several POVs, so it names no one.
+OUTLINE_POV_LINE = (
+    "Write each summary as what the chapter's POV character witnesses or learns; "
+    "never what they fail to notice or will later learn."
+)
+
+
 async def _stage_chapters(
     canon: Canon, skeleton: dict, user_id, repair_missing: Optional[list[str]] = None
 ) -> list[dict]:
@@ -181,6 +189,7 @@ Acts, numbered from 1 (each chapter's act_index is its act's 0-based index):
 
 Break the acts into chapters.
 {_cast_rules(canon)}{repair}
+{OUTLINE_POV_LINE}
 
 Return ONLY a JSON object whose "items" are the chapters:
 {{"items": [
@@ -271,7 +280,7 @@ end on its turn. Give each beat its own `people`: everyone named in THAT beat
 (not the whole chapter's), plus `setting` where it happens and `tone` its
 emotional tone. A functional figure the canon does not name (a clerk, a guard)
 stays unnamed.
-Write each scene summary as what the chapter's POV character witnesses; never what they fail to notice or will later learn.
+{OUTLINE_POV_LINE}
 Do not reuse a chapter title as a scene title.
 
 Return ONLY a JSON object, its "items" mirroring the chapters, each with its
