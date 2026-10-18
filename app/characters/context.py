@@ -22,7 +22,12 @@ from app.core.config import settings
 from app.core.database import get_async_session
 from app.core.llm_text import as_quoted_block, clean_for_llm
 from app.core.orm_models import Character
-from app.core.prompt_markers import MOVEMENT_LABEL, NAME_HEADING, VOICE_SAMPLES_LABEL
+from app.core.prompt_markers import (
+    MOVEMENT_LABEL,
+    NAME_HEADING,
+    VOICE_SAMPLES_LABEL,
+    WITHHELD_MORE,
+)
 from app.parsing.character_extractor import SPEECH_MIN_WORDS, source_location
 from app.rag.store import get_chunk_store
 
@@ -33,6 +38,9 @@ from app.rag.store import get_chunk_store
 GROUNDING_EXCERPT_CHARS = 300
 NO_SAMPLES_REASON = "no indexed voice samples"
 CONTEXT_ONLY_REASON = "context only"
+# A block records at most this many withheld lines per owner, the store's
+# nearest first; the last entry counts the rest under WITHHELD_MORE (SPEC-69).
+WITHHELD_CAP = 8
 
 
 class SceneScope(NamedTuple):
@@ -490,7 +498,8 @@ async def character_samples(
     Neither block shows a sample from its source's later plot
     (`scope.later_from`). `threshold` is
     the store's score floor (`score_threshold`), which every caller passes.
-    `withheld` (an out-sink) gets a grounding entry per movement row withheld.
+    `withheld` (an out-sink) gets a grounding entry per movement row withheld,
+    at most WITHHELD_CAP of them.
     """
     k_voice, k_move = k, min(_MOVEMENT_SAMPLES, k)
     allowed = set(chunk_types) if chunk_types else None
@@ -545,11 +554,17 @@ async def character_samples(
     own = [s for s in body if _own_narration(s) and not scripted(s)]
     words += own[: max(0, k_voice - len(words))]
     if withheld is not None:
-        withheld.extend(
+        ranked = sorted(
+            withheld_rows.items(), key=lambda r: -(r[1][0].get("score") or 0)
+        )
+        entries = [
             {"character_id": str(character.id), "chunk_id": i, "withheld": rule}
             | {"excerpt": grounding_excerpt(s.get("text"))}
-            for i, (s, rule) in withheld_rows.items()
-        )
+            for i, (s, rule) in ranked[:WITHHELD_CAP]
+        ]
+        if len(ranked) > WITHHELD_CAP:
+            entries[-1][WITHHELD_MORE] = len(ranked) - WITHHELD_CAP
+        withheld.extend(entries)
     return words, [s for s in body if not _own_narration(s)][:k_move]
 
 

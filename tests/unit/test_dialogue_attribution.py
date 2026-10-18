@@ -1201,3 +1201,24 @@ async def test_a_withheld_line_is_recorded_once(monkeypatch, text, at, rule):
     assert got == ([], []) == await ctx.character_samples(by["Milo"], "x", 3, **kw)
     entry = {"character_id": str(by["Milo"].id), "chunk_id": "a1", "withheld": rule}
     assert sink == [{**entry, "excerpt": text}]
+
+
+async def test_a_full_manuscript_withheld_record_is_bounded(monkeypatch):
+    """(F) W10-4: 60 rows, all past the cut: the 8 nearest are recorded and the
+    last counts the rest, under 8 KB (25.7 KB uncapped). (R) W8c above: 4 lines."""
+    import app.characters.context as ctx
+    from app.core.prompt_markers import WITHHELD_MORE
+
+    syn = json.loads(
+        (Path(__file__).parents[1] / "fixtures/w9_archives.json").read_text()
+    )
+    syn, (canon, by) = syn["synthetic_store"], _cel()
+    monkeypatch.setattr(ctx, "get_chunk_store", lambda: TypedStore(syn["rows"]))
+    scope = ctx.SceneScope.of(canon, [by["Milo"]], (), (), syn["later_from"])
+    rec = []
+    await ctx.build_character_context(by["Milo"], "", "x", scope=scope, grounding=rec)
+    withheld = [e for e in rec if "withheld" in e]
+    nearest = sorted(syn["rows"], key=lambda r: -r["score"])[: ctx.WITHHELD_CAP]
+    assert [e["chunk_id"] for e in withheld] == [r["id"] for r in nearest]
+    assert withheld[-1][WITHHELD_MORE] == len(syn["rows"]) - 8
+    assert len(json.dumps(rec)) < 8 * 1024

@@ -30,6 +30,7 @@ from app.core.orm_models import (
     SceneBeat as SceneBeatORM,
     User as UserORM,
 )
+from app.core.prompt_markers import WITHHELD_MORE
 from app.core.security import get_current_active_user
 from app.rag.store import get_chunk_store
 
@@ -121,6 +122,8 @@ async def get_scene_grounding(
                 chunk = None  # an id that is not this character's is not grounding
             text = chunk["text"] if chunk else None
             if e.get("withheld"):
+                if e.get(WITHHELD_MORE):  # past the record's cap (SPEC-69)
+                    group[WITHHELD_MORE] = e[WITHHELD_MORE]
                 group.setdefault("withheld", []).append(
                     {
                         "chunk_id": chunk_id,

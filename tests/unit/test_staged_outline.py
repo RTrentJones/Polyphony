@@ -1,12 +1,18 @@
 """Staged canon-grounded outline + fidelity gate (Phase 5)."""
 
+import json
 import types
+from pathlib import Path
 
 import pytest
 
+from app.core.prompt_markers import OUTLINE_SOURCE_WARNING
+from app.llm.json_utils import JSON_OBJECT
+from app.planning import continuity
 from app.planning import staged_outline as so
 from app.planning.canon import build_canon
 from app.planning.fidelity import audit_outline
+from evals.steps import pipeline
 
 pytestmark = pytest.mark.unit
 # (F) W8-5 (D9): the one outline POV line; it replaces W6-4's scene-only sentence.
@@ -420,3 +426,75 @@ async def test_each_outline_and_plan_call_asks_the_provider_for_json(monkeypatch
     assert len(fake.calls) == 5
     for purpose in ("outline:chapters", "outline:beats", "plan_beats"):
         assert '{"items": [' in fake.prompts[purpose][0], purpose
+
+
+# --- SPEC-73: the outline against the book's sources (W10-1 (b)) -------------------
+W9 = json.loads((Path(__file__).parents[1] / "fixtures/w9_archives.json").read_text())
+W9B, CEL, NONE = W9["w9b_outline"]["nodes"], [pipeline.load_excerpts("cel")], "{}"
+# A canned model answer: the gold fact, quoting W9b's "Wellness Check".
+FACT = pipeline.load_corpus("cel")[1]["source_facts"][0]["fact"]
+WELLNESS = next(b for c in W9B for b in c["children"] if b["title"] == "Wellness Check")
+QUOTE = WELLNESS["summary"].split("; ")[1][:90]
+FOUND = json.dumps({"findings": [{"detail": f"Source: {FACT}.", "quote": QUOTE}]})
+
+
+async def _check(monkeypatch, nodes, sources, reply=NONE, checkpoint=None):
+    fake, saved = FakeLLM({"continuity": reply}), []
+
+    async def save(ck):
+        saved.append(ck)
+
+    monkeypatch.setattr(continuity, "get_llm_client", lambda: fake)
+    kw = dict(user_id=None, checkpoint=checkpoint, save_checkpoint=save)
+    return await so.check_against_sources(nodes, sources, **kw), fake, saved
+
+
+async def test_the_w9b_outline_contradicts_the_source_at_wellness_check(monkeypatch):
+    """(F) W10-1: one JSON call, the sentence over the fenced source; the warning
+    is prefixed and its quote locates to "Wellness Check"."""
+    (warning,), fake, _ = await _check(monkeypatch, W9B, CEL, FOUND)
+    assert fake.calls == ["continuity"] and fake.formats == {str(JSON_OBJECT)}
+    assert continuity.source_fact_sheet(CEL) in fake.prompts["continuity"][0]
+    assert warning == f'{OUTLINE_SOURCE_WARNING}Source: {FACT}. ("{QUOTE}")'
+    found = continuity.validate_findings(
+        json.loads(FOUND), continuity.outline_chunk(W9B)
+    )
+    assert found[0]["scene_id"] == "Wellness Check"
+
+
+async def test_a_book_with_no_source_makes_no_call(monkeypatch):
+    """(R) No source, no call, nothing checkpointed."""
+    warnings, fake, saved = await _check(monkeypatch, W9B, [])
+    assert (warnings, fake.calls, saved) == ([], [], [])
+
+
+UNLOCATED = '{"findings": [{"detail": "Bell lives.", "quote": "Bell waves"}]}'
+
+
+@pytest.mark.parametrize(
+    "reply, sources, calls, want",
+    [
+        (UNLOCATED, ["s"], 1, 'Bell lives. (could not locate "Bell waves" in'),
+        ("not json", ["s"], 2, "Outline not checked against your source"),
+        (NONE, ["x" * 800_001], 0, "Outline not checked against your source: too long"),
+    ],
+)
+async def test_a_check_that_cannot_locate_or_run_says_so(
+    monkeypatch, reply, sources, calls, want
+):
+    """(F) SPEC-31's "could not locate"; an unparsed or over-long check is never clean."""
+    warnings, fake, _ = await _check(monkeypatch, W9B, sources, reply)
+    assert len(warnings) == 1 and want in warnings[0] and len(fake.calls) == calls
+
+
+async def test_a_resumed_outline_job_never_repeats_the_check(monkeypatch):
+    """(F) `source_check` rides the job checkpoint: a resume reuses it; another
+    outline is checked again."""
+    first, _, (ck,) = await _check(monkeypatch, W9B, CEL, FOUND, {"canon_hash": "h"})
+    assert ck["canon_hash"] == "h" and ck["source_check"]["warnings"] == first
+    again, fake, _ = await _check(monkeypatch, W9B, CEL, checkpoint=ck)
+    assert again == first and fake.calls == []
+    _, fake, _ = await _check(
+        monkeypatch, W9["w9_outline"]["nodes"], CEL, checkpoint=ck
+    )
+    assert fake.calls == ["continuity"]

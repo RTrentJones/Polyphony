@@ -18,3 +18,7 @@
 - **16-archive regrade (G3)**, 841c98b vs after (W8r from its no-ensemble copy): every value identical but the three new
   reported keys. Movement: W4b2, W5, W5b null (no store); W5bc–W6b 0/0 false; W7 0/9 false; W7b 1/12 false; W7br 12/12,
   W7r 8/8, W8r 12/12 true; W8b 0/12 false; **W8c 10/14 false** (no signed archive holds an export; the flip is the fixture's).
+- **Amendment, wave 10 (W10-4).** `character_samples` records at most `WITHHELD_CAP = 8` withheld lines per owner per block,
+  nearest first by store score; the last entry carries `withheld_more` (`WITHHELD_MORE`), the count dropped, which the
+  grounding API copies onto the owner's group. The synthetic 60-row store (`w9_archives.json`) goes from 25.8 KB to 3.6 KB;
+  the W8c record (4 lines a beat) is unchanged. A block with `withheld_more > 0` is never `carried` (E1's grader row).
