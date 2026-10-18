@@ -662,12 +662,10 @@ def test_an_eligible_principal_with_an_empty_block_fails(tmp_path):
     assert (grade(movement_store={})["n"], grade(movement_store={})["ok"]) == (0, False)
     move = grade(movement_store={"Milo Voss": store["Milo Voss"]})  # (R) S-5
     assert move["ineligible"]["Zara Okafor"] == ["none indexed"]
-    # D4: nobody is cast in chapter 1, but no eligible block is no gate (n = 0).
-    assert (move["n"], move["ok"], move["not_cast"]) == (
-        0,
-        False,
-        ["Edric Thane", "Milo Voss", "Zara Okafor"],
-    )
+    # D4 (W10-3 (b)): chapter 3 is drawn, so Milo and Zara are cast in it and
+    # neither is eligible; no eligible block is no gate (n = 0).
+    assert (move["n"], move["ok"], move["not_cast"]) == (0, False, ["Edric Thane"])
+    assert move["not_eligible"] == ["Milo Voss", "Zara Okafor"]
 
 
 def test_json_mode_where_json_reads_the_recorded_response_format(tmp_path):
@@ -1012,3 +1010,49 @@ def test_shown_movement_still_passes(tmp_path, run):
     assert move["ok"] is True and move["per_principal"]["Zara Okafor"]["shown"]
     if run == "W8r":
         assert {k: move[k] for k in fx["regrade"]} == fx["regrade"]
+
+
+# --- wave 10: the gate definitions (tpm-plan-wave10 D4; SPEC-75) ----------------
+
+W9X = json.loads(
+    (Path(__file__).parents[1] / "fixtures" / "w9_archives.json").read_text()
+)
+
+
+def test_movement_reads_the_drawn_chapters_cast():
+    """(F) W10-3 (b): W9b's prose drew chapter 2, where no block was "in
+    chapter 1", so the cast rule passed vacuously. Cast is now a block of the
+    drawn chapter: Zara is cast there with no line of her own indexed."""
+    rec = W9X["w9b_beat_prose"]["record"]
+    store = {"Milo Voss": ["Milo straightened the stapler."]}
+    move = pc.grade([rec], principals=PRINCIPALS, movement_store=store)["movement"]
+    assert move["not_cast"] == ["Edric Thane"] and move["ok"] is False
+    assert move["not_eligible"] == ["Zara Okafor"]
+
+
+def test_beat_prose_spanning_two_chapters_has_no_drawn_chapter(tmp_path):
+    """(F) W10-3 (b): the drawn chapter is unique, or the grade raises."""
+    for n in (1, 2):
+        _write(tmp_path, _rec(f"b{n}", "beat_prose", _beat(n, {}), created=n))
+    with pytest.raises(ValueError, match=r"spans chapters \[1, 2\]"):
+        pc.grade(pc.load_archive(tmp_path), principals=PRINCIPALS)
+
+
+@pytest.mark.parametrize(
+    "people, exempt",
+    [  # (F) the drawn plan names principals only: exempt, the condition quoted
+        (["Milo", "Zara Okafor"], pc.SECONDARY_EXEMPT),
+        (["Milo", "Prava"], None),  # (R) it names Prava: n = 0 stays a failure
+    ],
+)
+def test_secondary_has_context_is_exempt_only_on_a_quiet_plan(tmp_path, people, exempt):
+    """W10-3 (c): no "Also named" line is exempt only when the drawn chapter's
+    archived plan (its outline:beats nodes) names no secondary."""
+    chapter = {**CHAPTER, "people": ["Milo Voss"], "children": [{"people": people}]}
+    _write(tmp_path, _rec("o", "outline:beats", "p", json.dumps([chapter]), 0.0))
+    prompt = f"<chapter>\n{CHAPTER['summary']}\n</chapter>\n{_beat(1, {})}"
+    _write(tmp_path, _rec("b", "beat_prose", prompt, created=1.0))
+    out = pc.grade(pc.load_archive(tmp_path), principals=PRINCIPALS)
+    assert out["secondary_has_context"]["n"] == 0
+    assert out["secondary_has_context"]["exempt"] == exempt
+    assert exempt is None or exempt == "the drawn chapter's plan names no secondary"
