@@ -1,0 +1,125 @@
+{
+ "about": "run-W9a2's 30 dialogue answers, raw as archived, with the character each prompt asked for (in the report's `attribution.detail` order; the model wrote three distinct registers): W10-2's reported score. The product strips surrounding quotes before scoring.",
+ "answers": [
+  {
+   "intended": "Milo Voss",
+   "answer": "Honestly? I think it's directionally right, I just want to make sure I'm aligned on the why before I fully onboard it. Like, is this a compliance thing or a throughput thing, because if it's throughput I've got some thoughts on the intake side.\n"
+  },
+  {
+   "intended": "Milo Voss",
+   "answer": "Okay, so, quick gut check. I like it in principle, but I'm a little worried nobody's mapped what it does to the backlog, because if we're adding a step at intake, that friction lands somewhere, right?\n"
+  },
+  {
+   "intended": "Milo Voss",
+   "answer": "I mean, I'm on board, I'm totally on board. I just think there's a quick win nobody's talking about, which is if we standardize the naming convention at the same time, we basically get two process improvements for the price of one, you know?\n"
+  },
+  {
+   "intended": "Milo Voss",
+   "answer": "So, okay, full transparency, I read the memo twice and I still can't tell who owns the exceptions. Is that us? Because if it's us, I'd love to get ahead of it with a quick decision tree or something.\n"
+  },
+  {
+   "intended": "Milo Voss",
+   "answer": "Love that you asked, actually, because I've been sitting on some feedback. It's a solid rule, but the rollout felt a little top-down, and I think if we'd had a quick sync with the people actually doing the filing, we'd have caught the edge cases earlier.\n"
+  },
+  {
+   "intended": "Milo Voss",
+   "answer": "Wait, is that the one about routing everything through the third-floor bin? Because I had a question about that, not in a pushback way, I'm just genuinely not sure where the files go after the bin, and that feels like a pretty important piece of the pipeline.\n"
+  },
+  {
+   "intended": "Milo Voss",
+   "answer": "Honestly, I'm a fan. I've already built a little tracker for it, nothing crazy, just a shared sheet, but I think it could really move the needle on turnaround if we get buy-in from the other desks.\n"
+  },
+  {
+   "intended": "Milo Voss",
+   "answer": "Can I be honest? I think it's fine, but I flagged something in the old files that the new rule kind of buries, and I'm not totally sure if that's a bug or a feature. Who would I even escalate that to?\n"
+  },
+  {
+   "intended": "Milo Voss",
+   "answer": "Big picture, I think it's a net positive. My only concern is bandwidth, because if we're all doing the extra cross-reference step, somebody should probably own the metrics on whether it's actually reducing errors, and I'm happy to raise my hand for that.\n"
+  },
+  {
+   "intended": "Milo Voss",
+   "answer": "Okay, real talk, I think it solves a problem we had last year, which is great. I'm just not sure it solves the problem we have now, and I'd love to get fifteen minutes with whoever wrote it to pressure-test that.\n"
+  },
+  {
+   "intended": "Zara Okafor",
+   "answer": "I think it was written by someone who has never filed anything. Follow it to the letter. Keep a copy of everything you follow it with.\n"
+  },
+  {
+   "intended": "Zara Okafor",
+   "answer": "It's the old rule with a new date on it. Last time, they changed it back in March. Don't throw out your old forms.\n"
+  },
+  {
+   "intended": "Zara Okafor",
+   "answer": "What I think doesn't matter. What matters is who signed it. Find out, and file under that name.\n"
+  },
+  {
+   "intended": "Zara Okafor",
+   "answer": "Read clause nine. Then read it again slowly. It isn't about filing.\n"
+  },
+  {
+   "intended": "Zara Okafor",
+   "answer": "I think it's a good rule. Good rules are the ones they enforce. So be careful.\n"
+  },
+  {
+   "intended": "Zara Okafor",
+   "answer": "You're the third person to ask me today. That's what I think of it. Nobody asks about a rule that's harmless.\n"
+  },
+  {
+   "intended": "Zara Okafor",
+   "answer": "Don't ask me here. Ask me at lunch. Outside.\n"
+  },
+  {
+   "intended": "Zara Okafor",
+   "answer": "It's shorter than the last one. That's the problem. Everything they took out, they took out on purpose.\n"
+  },
+  {
+   "intended": "Zara Okafor",
+   "answer": "I think you should stop calling it new. It came in a box dated nineteen years ago. Somebody just opened the box.\n"
+  },
+  {
+   "intended": "Zara Okafor",
+   "answer": "It's fine for living files. Not for the others. Ask which kind yours are before you touch them.\n"
+  },
+  {
+   "intended": "Edric Thane",
+   "answer": "The new rule. Yes. One has seen a great many new rules, and I have observed that each arrives promising order and departs having merely relocated the disorder to a cabinet no one opens; I should like to know, before I admire this one, which cabinet it has chosen.\n"
+  },
+  {
+   "intended": "Edric Thane",
+   "answer": "What do I think of it? I think it is admirably brief. In my experience, a rule that fits upon a single page is a rule whose author has placed the remaining pages somewhere else, and it is the somewhere else, rather than the page, that one ought to read.\n"
+  },
+  {
+   "intended": "Edric Thane",
+   "answer": "I drafted its predecessor, as it happens, in a year when the ink was still made from oak galls. One does not resent being replaced; one merely notes, with a certain professional interest, that the new rule forgets precisely the thing the old one was written to remember.\n"
+  },
+  {
+   "intended": "Edric Thane",
+   "answer": "You ask what I think, which is courteous, though I suspect you came to learn whether I intend to obey it. I shall obey it exactly, as one obeys a tide; it is the clerks who obey it eagerly whom I shall be watching.\n"
+  },
+  {
+   "intended": "Edric Thane",
+   "answer": "A rule about filing is never about filing. It is about what will be easy to find, and therefore, by the plainest arithmetic, about what will become rather difficult to find; I should be glad to know which of your accounts falls in the second column.\n"
+  },
+  {
+   "intended": "Edric Thane",
+   "answer": "I think it is very well typed. I have read it three times now, which is twice more than its author did, and on each reading the word \"permanent\" has appeared in a slightly different place.\n"
+  },
+  {
+   "intended": "Edric Thane",
+   "answer": "Ah. You have the look of someone who has been asked to have an opinion by someone above you, and has come to borrow mine. You may have it on loan: the rule is sound, the timing is not, and one does not change the shelving in a library the very week a book has gone missing.\n"
+  },
+  {
+   "intended": "Edric Thane",
+   "answer": "I think it will be followed for eleven days with tremendous enthusiasm, and then, quietly, by one person. I have generally found it worthwhile to be acquainted with that one person, and rather less worthwhile to be them.\n"
+  },
+  {
+   "intended": "Edric Thane",
+   "answer": "It requires two signatures where formerly there was one. One is inclined to call that prudence, until one recalls that a second signature is chiefly useful for knowing whom to blame, and that the rule, curiously, does not say which of the two it shall be.\n"
+  },
+  {
+   "intended": "Edric Thane",
+   "answer": "Sit, if you mean to discuss it properly; a filing rule is not a matter for the doorway. I will tell you only this much standing: I have outlived four such rules, and not one of them was abolished, they were merely superseded, which is the bureaucratic word for buried with honors.\n"
+  }
+ ]
+}

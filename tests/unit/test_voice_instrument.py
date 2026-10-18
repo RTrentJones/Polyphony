@@ -1,5 +1,8 @@
 """W10-2 (a), D5: the leave-one-out voice instrument (SPEC-74)."""
 
+import json
+from pathlib import Path
+
 import pytest
 
 from evals.measure import voice_instrument as vi
@@ -25,3 +28,15 @@ async def test_train_references_and_the_18_of_22_verdict(bt_side, ok):
     want = (22, 18 + 3 * ok, ok, f"{3 * ok}/4", 1)
     got = (out["n"], out["correct"], out["validated"], out["per_principal"]["B"])
     assert (*got, out["w9a2_answers"]["correct"]) == want
+
+
+def test_the_w9a2_answers_are_read_from_the_corpora():
+    """(F) Wave-11 day-0: the instrument's W9a2 answers live in evals/corpora,
+    not tests/ (evals/ reads no tests/ path): 30, each for a gold speaker."""
+    from evals.steps.pipeline import load_corpus
+
+    evals_dir = Path(vi.__file__).resolve().parents[1]
+    assert vi.ANSWERS.resolve().relative_to(evals_dir).parts[0] == "corpora"
+    answers = json.loads(vi.ANSWERS.read_text())["answers"]
+    assert len(answers) == 30
+    assert {a["intended"] for a in answers} <= set(load_corpus("cel")[1]["gold_lines"])

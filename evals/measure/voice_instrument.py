@@ -12,6 +12,8 @@ from pathlib import Path
 from evals.graders import attribution
 from evals.measure.wilson import wilson
 
+ANSWERS = Path(__file__).parents[1] / "corpora" / "cel" / "w9a2_answers.json"
+
 
 def references(gold: dict, held: tuple[str, int] | None) -> dict[str, list[str]]:
     """Each speaker's train lines, less the held-out train line `held`."""
@@ -51,8 +53,7 @@ if __name__ == "__main__":
     from evals.steps.pipeline import _forms, load_corpus
 
     gt = load_corpus("cel")[1]
-    fixture = Path(__file__).parents[2] / "tests" / "fixtures" / "w9_archives.json"
-    answers = json.loads(fixture.read_text())["w9a2_answers"]["answers"]
+    answers = json.loads(ANSWERS.read_text())["answers"]
     forms = {n: [n] for n in gt["cast"]} | _forms(gt)  # step_attribution's
     result = score(gt["gold_lines"], forms, embed.embed_many, answers)
     print(json.dumps(asyncio.run(result), indent=2))
