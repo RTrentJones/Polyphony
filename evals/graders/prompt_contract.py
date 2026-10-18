@@ -120,6 +120,7 @@ from app.core.prompt_markers import (
     STOP_AT_NEXT_BEAT,
     STORY_POSITION_RE,
     TIGHTEN_CLAUSE,
+    WITHHELD_MORE,
     WITHHELD_RULES,
     labelled_line,
 )
@@ -794,6 +795,7 @@ def _block(owner, n, lines, rules, ref, chapter, pg, placed) -> tuple:
     told = any(i in e["narrated"] for i in at if i is not None for e in pg["events"])
     if (
         rules
+        and not rules.get(WITHHELD_MORE)  # W10-4: a capped record proves nothing
         and not told
         and all(rules.get(ln) == WITHHELD_RULES[-1] for ln in eligible)
         and all(content_share(ln, ref) >= CARRIED_SHARE for ln in eligible)
@@ -810,8 +812,9 @@ LIFT_N = 8  # a shared run this long is a copied phrase, not a shared idiom
 
 def match_withheld(records: list[dict], rows, aliases: dict) -> tuple[dict, int]:
     """W9-1 (b): the run's `voice.withheld` export as {(record id, owner):
-    {line: rule}}, each row matched to the one beat_prose record whose BEAT TO
-    WRITE line is its beat; two such records raise, none is counted."""
+    {line: rule, WITHHELD_MORE: the count past the record's cap}}, each row
+    matched to the one beat_prose record whose BEAT TO WRITE line is its beat;
+    two such records raise, none is counted."""
     by_beat: dict[str, list] = {}
     for rec in (r for r in records if purpose(r) == "beat_prose"):
         if m := _BEAT_TO_WRITE.search(prompt_text(rec)):
@@ -824,6 +827,7 @@ def match_withheld(records: list[dict], rows, aliases: dict) -> tuple[dict, int]
         unmatched += not ids
         for rid in ids:
             rules = {ln["text"]: ln["rule"] for ln in row["lines"]}
+            rules |= {WITHHELD_MORE: row.get(WITHHELD_MORE, 0)}
             held.setdefault((rid, _who(row["owner"], aliases)), {}).update(rules)
     return held, unmatched
 

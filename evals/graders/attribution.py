@@ -88,6 +88,9 @@ def accuracy(results: list[AttributionResult]) -> dict:
 
 MASK = "⟨NAME⟩"
 _HONORIFIC = r"(?:(?:Mr|Mrs|Ms|Dr)\.\s+|Miss\s+)?"
+# W10-5 (D8): a name's first token that is also a word is masked only within
+# the whole name ("Old Fen"), never alone ("Old habits"). Grader-local.
+_WORD_FIRST = {"Old", "The", "Mr", "Mrs", "Ms", "Dr", "Miss"}
 
 
 def mask(text: str, forms: dict[str, list[str]]) -> str:
@@ -95,7 +98,8 @@ def mask(text: str, forms: dict[str, list[str]]) -> str:
     first and last token, whole-word and case-sensitive with an optional
     honorific, replaced by MASK, so a vocative is no speaker label. An alias
     is masked whole, never token by token ("Chief Executive Lich")."""
-    words = {w for n, fs in forms.items() for w in (*fs, n.split()[0], n.split()[-1])}
+    tokens = (t for n in forms for t in (n.split()[0], n.split()[-1]))
+    words = {*(f for fs in forms.values() for f in fs), *(set(tokens) - _WORD_FIRST)}
     alts = "|".join(re.escape(w) for w in sorted(words, key=len, reverse=True))
     return (
         text

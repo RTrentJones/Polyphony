@@ -15,3 +15,7 @@
 - **Tests.** (F) one situation × 10 for each character, masked on both sides, `w9_9_p0` false when Milo's bound is 0.72;
   (F) "Mr. Voss, do sit." and "Zara, do sit." both mask to "⟨NAME⟩, do sit." and classify identically; (R) "chief" unchanged.
 - **Result (run-W9a2).** 11/30 (chance 0.33): Milo 5/10 (0.24–0.76), Zara 5/10 (0.24–0.76), Edric 1/10 (0.02–0.40). No lower bound clears 0.33, so W9-9 is wave-10 P0, starting by validating the classifier on known-distinct lines.
+- **Amendment (W10-5, wave 10).** A name's first token that is also a word (`Old`, `The`, `Mr`, `Mrs`, `Ms`, `Dr`, `Miss`;
+  grader-local, since `app.parsing.names` is banned in `attribution.py`) is masked only inside the whole form: "Old Fen said"
+  masks, and a sentence-initial "Old habits" is left as it is. Last tokens and whole forms are unchanged. (F) "Old habits.
+  Fen?" masks only "Fen"; (R) "Old Fen said so." masks the whole name.

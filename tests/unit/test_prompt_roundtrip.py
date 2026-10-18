@@ -21,7 +21,7 @@ fix the prompt (or the marker), never soften the check.
 import json
 import types
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -368,3 +368,22 @@ async def test_the_apps_prompts_pass_every_contract_check(
     # D4 (wave 8): Zara (only plot lines stored) and Edric (none stored) are
     # cast in chapter 1 and never eligible, so the gate reads false, naming them.
     assert (move["ok"], move["not_eligible"]) == (False, ["Edric Thane", "Zara Okafor"])
+
+
+async def test_the_source_leaves_the_outline_prompts_byte_identical(
+    async_session, test_book, monkeypatch
+):
+    """(R) G3 (W10-1 (a), D3): the excerpt as a live source changes no prompt."""
+    from app.planning.canon import build_canon
+    from app.planning.staged_outline import generate_staged_outline
+
+    *_, source_id = await _cel_book(async_session, test_book)
+    sent = []
+    for live in (True, False):
+        if not live:
+            await async_session.delete(await async_session.get(Source, UUID(source_id)))
+        monkeypatch.setattr(llm_client, "_client", fake := CapturingLLM())
+        canon = await build_canon(async_session, test_book.id)
+        await generate_staged_outline(canon, chapters_target=6)
+        sent.append([(r["purpose"], pc.prompt_text(r)) for r in fake.records])
+    assert sent[0] == sent[1] and {p for p, _ in sent[0]} >= {"outline:beats"}

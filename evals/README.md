@@ -304,7 +304,12 @@ report holds (`steps.prose.voice.movement`); without one, `movement` is `null`. 
 report's `steps.prose.voice.withheld` (each scene's grounding API `withheld` lines, per beat and
 owner), so a block the product withheld because the plan carries it is `carried`, not starved,
 and a starved block names the product's rule. `movement.per_principal` and
-`unmatched_withheld` are reported; a row matching two beats is an error (SPEC-69).
+`unmatched_withheld` are reported; a row matching two beats is an error (SPEC-69). A row whose
+`withheld_more` is above 0 (the record was capped) is never `carried` (W10-4). The regrade also
+reports `outline_source_conflicts` (the outline step's "Outline vs your source: " warnings, with
+their outline quotes) and `source_fact_hits` (per cel `source_facts` row: the signed placement's
+`contradicted` cell, and whether a conflict names the fact; SPEC-73).
+The voice instrument runs offline with `python -m evals.measure.voice_instrument` (SPEC-74).
 
 ## Adding a book — data only, no code
 

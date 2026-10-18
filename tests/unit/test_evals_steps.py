@@ -636,8 +636,13 @@ async def test_outline_confirms_the_authors_premise_and_caps_r1(tmp_path):
 
 
 async def test_outline_score_is_r1_times_mean_r6_r3(tmp_path):
-    out = await pipeline.step_outline(_cel_ctx(tmp_path, _ProductClient()))
+    out = await pipeline.step_outline(_cel_ctx(tmp_path, client := _ProductClient()))
     assert out["cast_fidelity"] == 1.0 and out["deterministic_failures"] == {}
+    # (F) W10-1 (a): the excerpt is the outline book's source before its outline.
+    calls = [c[0] for c in client.calls]
+    assert (
+        calls.index("commit") < calls.index("outline") and out["source"] == "ingested"
+    )
     assert out["score"] == pytest.approx(1.0 * (0.5 + 0.6) / 2)
 
 
@@ -1122,11 +1127,11 @@ def test_the_withheld_export_is_built_from_the_grounding_body():
     """(F) W9-1 (b): each character group holding `withheld` lines becomes one
     `voice.withheld` row under its beat's description (SPEC-69)."""
     held = [{"chunk_id": "c", "rule": "restates", "text": "p2", "excerpt": "p"}]
-    zara = {"name": "Zara Okafor", "samples": [], "withheld": held}
+    zara = {"name": "Zara Okafor", "samples": [], "withheld": held, "withheld_more": 3}
     milo = {"name": "Milo Voss", "samples": [{"chunk_id": "m", "text": "m"}]}
     body = {"beats": [{"description": "Beat one.", "characters": [zara, milo]}]}
     body["beats"].append({"description": "Beat two.", "characters": []})
     assert pipeline.withheld_rows(body) == [
         {"beat": "Beat one.", "owner": "Zara Okafor"}
-        | {"lines": [{"text": "p2", "rule": "restates"}]}
+        | {"lines": [{"text": "p2", "rule": "restates"}], "withheld_more": 3}
     ]

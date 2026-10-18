@@ -23,6 +23,7 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 
+from app.core.prompt_markers import WITHHELD_MORE
 from app.parsing.names import match
 from evals.graders import (
     attribution,
@@ -699,8 +700,9 @@ def portable_outline(
 
 
 # Bumped when the outline book's canon changes (v1: the minor secondaries;
-# v2: they port as secondary names; v3: described by their introduction).
-OUTLINE_CACHE_KEY = "minor-v3"
+# v2: they port as secondary names; v3: described by their introduction; v4:
+# the excerpt is the book's source, W10-1 (a)).
+OUTLINE_CACHE_KEY = "sourced-v4"
 
 
 @step("outline", needs_api=True)
@@ -725,11 +727,14 @@ async def step_outline(ctx: StepContext) -> dict:
     edit = gt.get("premise_edit")
     chapters_target = len(gt["canonical_beats"])
 
-    out = await ctx.cache.memo(
-        "outline",
-        f"{gt['synopsis']}|{OUTLINE_CACHE_KEY}",
-        lambda: _generate_outline(ctx, book, minor),
-    )
+    async def gen():  # W10-1 (a): the author imported chapter one first (D3);
+        # a corpus with `source_facts` (cel) is read against its source
+        ids = list(book["character_ids"])
+        voice = gt.get("source_facts") and await _index_voice(ctx, book["id"], ids)
+        sourced = voice and (voice.get("error") or "ingested")
+        return await _generate_outline(ctx, book, minor) | {"sourced": sourced}
+
+    out = await ctx.cache.memo("outline", f"{gt['synopsis']}|{OUTLINE_CACHE_KEY}", gen)
     if not isinstance(out, dict):  # back-compat: a bare content list
         out = {"content": out or []}
     nodes = out.get("content") or []
@@ -740,6 +745,9 @@ async def step_outline(ctx: StepContext) -> dict:
         "structural_ok": structural,
         "plan_status": out.get("status"),
         "app_warnings": out.get("warnings"),
+        "source": out.get("sourced"),
+        # W10-1 (c), reported: the product's outline-vs-source warnings.
+        "outline_source_conflicts": plot.outline_source_conflicts(out.get("warnings")),
         "premise_edited": bool(edit),
     }
 
@@ -1109,10 +1117,12 @@ def cast_from_beat(scene: dict, beat: dict | None, chapter: dict) -> bool | None
 
 
 def withheld_rows(body: dict) -> list[dict]:
-    """One scene's grounding API body as `voice.withheld` export rows."""
+    """One scene's grounding API body as `voice.withheld` export rows, with the
+    count past the record's cap (`withheld_more`, W10-4)."""
     return [
         {"beat": b["description"], "owner": g["name"]}
         | {"lines": [{"text": w["text"], "rule": w["rule"]} for w in g["withheld"]]}
+        | {WITHHELD_MORE: g.get(WITHHELD_MORE, 0)}
         for b in body.get("beats") or []
         for g in b["characters"]
         if g.get("withheld")

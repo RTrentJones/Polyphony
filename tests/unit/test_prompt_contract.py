@@ -1056,3 +1056,10 @@ def test_secondary_has_context_is_exempt_only_on_a_quiet_plan(tmp_path, people, 
     assert out["secondary_has_context"]["n"] == 0
     assert out["secondary_has_context"]["exempt"] == exempt
     assert exempt is None or exempt == "the drawn chapter's plan names no secondary"
+
+
+def test_a_capped_withheld_record_is_not_carried(tmp_path):
+    """(F) W10-4 (D7): the W8c chain past the cap: Zara is starved, not carried."""
+    rows = [{**r, "withheld_more": 2} for r in W8["w8c_withheld"]]
+    move = _w9_regrade(tmp_path, W8["w8c_movement"], "W8c", None, rows)
+    assert move["per_principal"]["Zara Okafor"]["starved"] == 4 and not move["ok"]

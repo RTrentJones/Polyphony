@@ -127,3 +127,16 @@ async def test_the_probe_block_holds_each_speakers_own_lines(probe, monkeypatch,
     beat = await ctx.build_character_context(member, who, "A beat.", scope=scope)
     for text, n in ((probe[2]["dialogue"], 3), (beat, 1)):
         assert [t for _c, t in best if f'- "{t}"' in text] == [t for _c, t in best[:n]]
+
+
+async def test_the_probe_states_one_length_limit(probe):
+    """(F) W10-2 (b): the situation and the template ask one length, one way."""
+    from evals.steps.pipeline import load_corpus
+
+    milo, scope, prompts = probe
+    situation = load_corpus("cel")[1]["voice_situation"]
+    await dialogue.generate_dialogue(
+        character=milo, prompt=situation, context="", scope=scope
+    )
+    text = prompts["dialogue"]
+    assert text.count(" sentences") == text.count("one to three sentences") == 2
