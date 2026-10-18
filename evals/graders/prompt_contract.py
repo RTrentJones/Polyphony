@@ -639,6 +639,12 @@ class OutlineIndex:
                 "summary": _squash(str(ch.get("summary") or "")),
                 "pov": str(ch.get("pov") or "").strip(),
                 "people": self._people(ch),
+                "named": [  # W10-3 (c): every person the chapter's plan names
+                    n
+                    for node in [ch, *(ch.get("children") or [])]
+                    if isinstance(node, dict)
+                    for n in [*self._people(node), *(node.get("secondary_names") or [])]
+                ],
                 "titles": [
                     str(c["title"])
                     for c in ch.get("children") or []
@@ -969,6 +975,7 @@ CHECKS = (
 )
 
 NONE_INDEXED = "none indexed"  # D3a: a principal whose store is empty
+SECONDARY_EXEMPT = "the drawn chapter's plan names no secondary"  # §6.2 (W10-3 (c))
 # The calls whose prompt asks for JSON only (W6-6): a literal list.
 JSON_PURPOSES = (
     *("outline:skeleton", "outline:chapters", "outline:beats", "plan_beats"),
@@ -1166,7 +1173,8 @@ def grade(
     move = _Tally()
     ineligible: dict[str, set[int]] = {}  # owner: the gold paragraphs
     hindsight, scripted = [], []
-    in_ch1: set[str] = set()  # D4: principals cast in a chapter-1 block
+    in_drawn: set[str] = set()  # D4: principals cast in a drawn-chapter block
+    drawn_plans: list[dict] = []  # the drawn chapter's outline nodes (W10-3 (c))
     eligible_in: set[str] = set()  # principals eligible in some block
     # W8-1 (b): a scene_revise prompt is a tighten when the harness's report
     # row says so (`kind`), matched by that row's instruction.
@@ -1183,6 +1191,15 @@ def grade(
     per = {
         n: dict.fromkeys(("shown", "carried", "starved"), 0) for n in principal_names
     }
+
+    drawn = {  # W10-3 (b): the run's beat_prose is one chapter's, or no grade
+        int(m.group("n"))
+        for r in records
+        if purpose(r) == "beat_prose"
+        and (m := STORY_POSITION_RE.search(prompt_text(r)))
+    }
+    if len(drawn) > 1:
+        raise ValueError(f"beat_prose spans chapters {sorted(drawn)}: no drawn chapter")
 
     for rec in records:
         pur = purpose(rec)
@@ -1231,6 +1248,8 @@ def grade(
                 tallies["story_position_line"].add(rec, check_story_position(prompt))
         if pur == "beat_prose":
             beat_prompt_chars.append(len(prompt))
+            if (planned_ch := outline.chapter_for(prompt)) is not None:
+                drawn_plans.append(planned_ch)
             if _ALSO_NAMED.search(prompt):
                 tallies["secondary_has_context"].add(
                     rec, check_secondary_has_context(prompt)
@@ -1245,8 +1264,8 @@ def grade(
             for owner, n in ((o, n) for o, n in blocks if o in movement):
                 movement[owner] += n
                 moving_blocks.append(n > 0)
-                if at and int(at.group("n")) == 1:  # D4: cast in chapter 1
-                    in_ch1.add(owner)
+                if at:  # D4 (W10-3 (b)): cast in a block of the drawn chapter
+                    in_drawn.add(owner)
                 lines = shown.get(owner) or ()
                 why = plot.only_plot(lines, chapter, pg, placed)
                 if lines and not why:  # D3a: eligible here
@@ -1349,6 +1368,12 @@ def grade(
     out = {k: t.as_dict() for k, t in tallies.items()}
     # Reported beside score (§6.2 names the run's exemptions): checks with n = 0.
     out["empty_checks"] = sorted(k for k in CHECKS if not out[k]["n"])
+    # W10-3 (c): no "Also named" anywhere is exempt only when the drawn
+    # chapter's plan names nobody outside the principals; `exempt` quotes it.
+    named = {n for ch in drawn_plans for n in ch["named"]}
+    plan_quiet = drawn_plans and all(_squash(n).lower() in aliases for n in named)
+    sec = out["secondary_has_context"]
+    sec["exempt"] = SECONDARY_EXEMPT if plan_quiet and not sec["n"] else None
     short = voice_counts.pop("short")
     out["voice_dialogue"]["samples"] = voice_counts
     # Reported, not gated (§6.3): voice samples too short to carry a voice.
@@ -1362,19 +1387,19 @@ def grade(
     )
     out["movement_names_in_scene"]["movement_lines"] = movement
     listed = {o: sorted(ps) for o, ps in sorted(ineligible.items())}
-    # D4 (wave 8): ok is the gate. Every principal cast in a chapter-1 block is
-    # eligible somewhere, and >= 0.8 of the eligible blocks move; a principal
-    # cast in no chapter-1 block is listed, not required.
-    unmet = sorted(in_ch1 - eligible_in)
-    not_cast = sorted(set(principal_names) - in_ch1)
+    # D4 (wave 8): ok is the gate. Every principal cast in a block of the drawn
+    # chapter (W10-3 (b)) is eligible somewhere, and >= 0.8 of the eligible
+    # blocks move; a principal cast in no such block is listed, not required.
+    unmet = sorted(in_drawn - eligible_in)
+    not_cast = sorted(set(principal_names) - in_drawn)
     out["movement"] = move.as_dict() | {"ineligible": listed}
     out["movement"] |= {"not_eligible": unmet, "not_cast": not_cast}
     carried = sum(t["carried"] for t in per.values())
     out["movement"] |= {"per_principal": per, "unmatched_withheld": unmatched}
     out["movement"]["all_carried"] = bool(carried) and not move.n  # coverage null
-    # D2 (wave 9): every principal cast in chapter 1 moves or is carried by the
-    # plan somewhere, and >= 0.8 of the remaining eligible blocks move.
-    moved = all(per[o]["shown"] + per[o]["carried"] for o in in_ch1)
+    # D2 (wave 9): every principal cast in the drawn chapter moves or is carried
+    # by the plan somewhere, and >= 0.8 of the remaining eligible blocks move.
+    moved = all(per[o]["shown"] + per[o]["carried"] for o in in_drawn)
     cover = move.passed >= 0.8 * move.n if move.n else bool(carried)
     out["movement"]["ok"] = moved and cover
     if movement_store is None:  # a movement grade needs the run's store

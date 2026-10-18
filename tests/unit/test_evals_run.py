@@ -1,5 +1,7 @@
 """Unit tests for evals.run helpers — quota short-circuit classification."""
 
+import json
+
 import pytest
 
 from evals.run import _is_quota_error
@@ -43,3 +45,18 @@ def test_preflight_declares_exactly_three_runs():
         "attribution": ("attribution", True, 40_000),
     }
     assert {s for r in RUNS.values() for s in r.steps} <= set(all_steps())
+
+
+def test_both_draws_exempt_is_not_exercised(tmp_path):
+    """(F) W10-3 (c): an exemptible check must run (n > 0) in one of the two
+    gated draws; both exempt fails as "not exercised", and the CLI exits 1."""
+    from evals.gate import exercised, main
+
+    shc = [
+        {"steps": {"prompt_contract": {"secondary_has_context": {"n": n}}}}
+        for n in (0, 0, 3)
+    ]
+    assert exercised(shc[:2]) == ["secondary_has_context: not exercised"]
+    assert exercised(shc[1:]) == []
+    (path := tmp_path / "r.json").write_text(json.dumps(shc[0]))
+    assert main(["exercised", str(path), str(path)]) == 1
