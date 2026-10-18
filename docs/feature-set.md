@@ -90,7 +90,7 @@ product's whole history.
 | Per-character proposals | — | ✅ | |
 | Collapsed cross-character review | — | ✅ | One editor call per round |
 | Characters narrate **actions** | R6.1 | ✅ | `actions` required, non-empty |
-| Action grounding retrieved separately | R6.2 | ✅ | `<voice>` + `<physicality>` per agent (SPEC-14); `<voice>` is their own words and never falls back, `<physicality>` falls back to untyped retrieval (SPEC-17) |
+| Action grounding retrieved separately | R6.2 | ✅ | `<voice>` + `<physicality>` per agent (SPEC-14); `<voice>` is their own words and never falls back, `<physicality>` falls back to untyped retrieval (SPEC-17). Each withheld movement line is recorded with the rule that withheld it in the scene's grounding (SPEC-69); the cast header says "matching their voice samples" only when a sample is shown (SPEC-70) |
 | Editor verifies every present character acted | R6.3 | ✅ | Missing actors become blocking objections in code |
 | Measured convergence (explicit `satisfied` booleans) | — | ✅ | |
 | Anti-oscillation | — | ✅ | |
@@ -175,6 +175,7 @@ product's whole history.
 | Eval harness v3 | — | ✅ | Scene R1 caps only a planned principal neither named nor the attributed speaker of a quoted line (unnamed speech is a warning); prompt-contract checks for P1–P10 (secondaries, beat fields, beat cast, available-not-exact, blank setting, neutral tone, POV line, last beat in POV, single bible, no doubled label, reduce evidence), `rate: None` when no call was checked; extraction depth and mention order; outline secondaries; cast-from-beat; a `revise` step (RA + R5); `python -m evals.harness.rescore` re-grades a finished run (SPEC-28) |
 | Eval harness v4 | — | ✅ | Extraction precision counts the corpus' `secondary_cast`; `principal_mentions_min` ≥ 10 replaces the mention-order check; attribution reports `gap` / `mean_gap` with an in-world probe; the continuity control is graded against the corpus canon; prompt-contract checks `secondary_has_context`, `story_position_line` and `movement_names_in_scene` (with `movement_coverage` ≥ 0.8) (SPEC-29, SPEC-30, SPEC-33) |
 | Eval harness v5 | — | ✅ | No fallback scene (`path: "failed"`, never cached); every planned scene judged, up to five; prose reports `queued`, `deferred` and `estimate_over_actual`; per-role voice probes; whole gold utterances; the outline book commits its secondaries as minor; prompt-contract checks `sample_lift` (gated 0 / 0; W3 baseline 2/20 under the wave-4 label) and `beats_see_whole_outline` (header only on a resumed outline) (SPEC-39) |
+| Eval harness, wave 9 | — | ✅ | Declared runs are preflighted (step list, relay archive, fresh cache and `answered/`, daily limit ≥ the run's measured minimum) and the harness logs in again on a 401 (SPEC-68); movement credits a block whose eligible lines the product withheld as plan-restating, read from the scene's grounding `withheld` record, with rule-named starved reasons and a per-principal line (SPEC-69); attribution is one symmetric situation with names masked, reported with Wilson intervals (SPEC-67) |
 
 ## 10. Platform
 
