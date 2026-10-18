@@ -14,4 +14,4 @@
 - **Unchanged.** SPEC-55's fixed-input probe rows (the product's probe-block selection) and the cel `voice_probe` data.
 - **Tests.** (F) one situation × 10 for each character, masked on both sides, `w9_9_p0` false when Milo's bound is 0.72;
   (F) "Mr. Voss, do sit." and "Zara, do sit." both mask to "⟨NAME⟩, do sit." and classify identically; (R) "chief" unchanged.
-- **Result.** Recorded here after run-W9a (the orchestrator's run).
+- **Result (run-W9a2).** 11/30 (chance 0.33): Milo 5/10 (0.24–0.76), Zara 5/10 (0.24–0.76), Edric 1/10 (0.02–0.40). No lower bound clears 0.33, so W9-9 is wave-10 P0, starting by validating the classifier on known-distinct lines.
