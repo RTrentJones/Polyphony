@@ -21,6 +21,9 @@ What changed, and why (docs/specs/SPEC-02-continuity-v2.md):
 
 Located findings (SPEC-31): chunks hold whole scenes under `SCENE_MARKER`s;
 the model quotes the prose and the server finds the quote's scene.
+
+The outline against the sources (SPEC-73): the same `check_chunk`, the outline
+as one chunk, the sources as the fact sheet under `SOURCE_FACTS_NOTE`.
 """
 
 from __future__ import annotations
@@ -40,6 +43,7 @@ from app.core.llm_text import (
     clean_for_llm,
 )
 from app.core.logging_config import setup_logging
+from app.core.prompt_markers import OUTLINE_SOURCE_WARNING
 from app.exports.builder import scene_text
 from app.llm.client import get_llm_client
 from app.llm.json_utils import JSON_OBJECT, extract_json_array, extract_json_object
@@ -409,6 +413,57 @@ def _input_hash(chunks: list[Chunk], fact_sheet: str) -> str:
 
     texts = "\x00".join(c.text for c in chunks)
     return hashlib.sha256(f"{fact_sheet}\x00{texts}".encode("utf-8")).hexdigest()[:16]
+
+
+# SPEC-73: the caller's one sentence over the sources; SPEC-31's prompt is unchanged.
+SOURCE_FACTS_NOTE = (
+    "The author's own pages: what they establish is fact. For each "
+    "contradiction, say in the detail which fact of these pages the outline "
+    "contradicts."
+)
+SOURCE_UNCHECKED = "Outline not checked against your source"
+SOURCE_TOO_LONG = f"{SOURCE_UNCHECKED}: too long"
+
+
+async def source_texts(session: AsyncSession, book_id: UUID) -> list[str]:
+    """The text of the book's live sources, oldest first (SPEC-73)."""
+    from app.core.orm_models import Source
+
+    query = _live(select(Source.content_text), Source).where(Source.book_id == book_id)
+    rows = await session.execute(query.order_by(Source.uploaded_at, Source.id))
+    return [t for t in rows.scalars() if t and t.strip()]
+
+
+def source_fact_sheet(texts: list[str]) -> str:
+    """The sources, fenced, under the one sentence: the outline check's facts."""
+    return f"{SOURCE_FACTS_NOTE}\n" + as_quoted_block("\n\n".join(texts), "source")
+
+
+def outline_chunk(nodes: list[dict]) -> Optional[Chunk]:
+    """The outline's chapter and scene summaries as one chunk, each under its
+    SCENE_MARKER (a chapter's own summary is its scene 0). A quote locates to
+    its node's title: the line the author would edit."""
+    scenes = []
+    for n, ch in enumerate(nodes, 1):
+        title = str(ch.get("title") or "")
+        scenes.append(
+            ProseScene(title, n, title, 0, title, str(ch.get("summary") or ""))
+        )
+        for i, b in enumerate(ch.get("children") or [], 1):
+            name = str(b.get("title") or "")
+            scenes.append(
+                ProseScene(name, n, title, i, name, str(b.get("summary") or ""))
+            )
+    chunks = chunk_scenes([s for s in scenes if s.text.strip()], chunk_words=10**9)
+    return chunks[0] if chunks else None
+
+
+def source_warning(finding: dict) -> str:
+    """A warn-only outline warning, located by its quote in the outline."""
+    head = f"{OUTLINE_SOURCE_WARNING}{finding['detail']}"
+    if finding["scene_id"] is None:
+        return f'{head} (could not locate "{finding["quote"]}" in the outline)'
+    return f'{head} ("{finding["quote"]}")'
 
 
 async def run_continuity_check(

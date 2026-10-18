@@ -329,20 +329,22 @@ async def generate_plan(
     # job, and refuse outright when even that does not fit. The estimator is
     # the one EstimateHint shows, so the refusal matches the number displayed.
     from app.core import estimates
+    from app.planning.continuity import source_texts
 
     tier = get_tier()
-    canon_chars = len(book.synopsis or "") + len(bible)
+    sized = dict(
+        canon_chars=len(book.synopsis or "") + len(bible),
+        source_chars=sum(map(len, await source_texts(db, book.id))),
+    )
     staged = False
     if payload.kind == "outline" and tier.allow_staged_outline:
         assessed = await estimates.assess(
-            db, current_user.id, estimates.outline(canon_chars=canon_chars)
+            db, current_user.id, estimates.outline(**sized)
         )
         staged = assessed["allowed"]
     if not staged:
         assessed = await estimates.assess(
-            db,
-            current_user.id,
-            estimates.outline(canon_chars=canon_chars, staged=False),
+            db, current_user.id, estimates.outline(**sized, staged=False)
         )
         if not assessed["allowed"]:
             raise HTTPException(
@@ -456,12 +458,16 @@ async def confirm_premise(
     # spent their budget since the skeleton finished.
     from app.core import estimates
     from app.planning.canon import build_canon
+    from app.planning.continuity import source_texts
 
     canon = await build_canon(db, book.id)
+    source_chars = sum(map(len, await source_texts(db, book.id)))
     assessed = await estimates.assess(
         db,
         current_user.id,
-        estimates.outline(canon_chars=len(canon.full_block())),
+        estimates.outline(
+            canon_chars=len(canon.full_block()), source_chars=source_chars
+        ),
     )
     if not assessed["allowed"]:
         raise HTTPException(

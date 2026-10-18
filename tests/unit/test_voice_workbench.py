@@ -327,7 +327,9 @@ async def test_grounding_endpoint_resolves_live_and_marks_deleted(
                     {"character_id": zara, "chunk_id": "gone-1", "score": 0.33},
                     # (F) wave-9 day-0: withheld movement lines, with their rule
                     {"character_id": zara, "chunk_id": "z-2", "withheld": "restates"},
-                    {"character_id": zara, "chunk_id": "z-3", "withheld": "later_plot"},
+                    # (F) W10-4: the capped record's count of lines dropped
+                    {"character_id": zara, "chunk_id": "z-3", "withheld": "later_plot"}
+                    | {"withheld_more": 3},
                 ],
                 "1": [{"character_id": milo, "chunk_id": "foreign", "score": 0.2}],
             },
@@ -385,6 +387,7 @@ async def test_grounding_endpoint_resolves_live_and_marks_deleted(
         {"chunk_id": "z-2", **held},
         {"chunk_id": "z-3", "rule": "later_plot", "text": None, "excerpt": None},
     ]
+    assert by_char[zara]["withheld_more"] == 3
     # (R) A group with nothing withheld keeps its keys: no `withheld`.
     assert set(by_char[milo]) == {"character_id", "name", "samples", "reason"}
     assert second["characters"][0]["samples"][0]["deleted"] is True
