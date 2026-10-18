@@ -1,0 +1,40 @@
+{
+  "run": "W9",
+  "outline_hash": "9c5399a71f400332eb95d770a384160066303d80071acf9ce6c3f0b43fdaebfc",
+  "signed_by": "PM",
+  "signed_at": "2026-10-18T06:50:56Z",
+  "placements": {
+    "intake": {
+      "chapter": 1,
+      "line": "Laminated: Milo opens his eyes in the intake atrium, and Prava slides a laminated org chart across the desk and tells him he has been retained as a strong culture fit. He says yes before anyone offers a choice, and feels useful for the first time in decades."
+    },
+    "training": {
+      "chapter": null,
+      "line": null
+    },
+    "partition": {
+      "chapter": 1,
+      "line": "Across the Partition: In Reconciliations, Milo pitches his hit-the-ground-running energy to Zara. She gives him one flat instruction, to close what is in his queue and open nothing else, and tells him to read the appendices and thank no one. He mistakes her courtesy for the start of a friendship."
+    },
+    "bell": {
+      "chapter": 2,
+      "line": "Under Four Minutes: The Bell account comes across Milo's queue. He zeroes Halvard Bell's tenure, initials the form and sends him under by lunch, and Facilities clears the desk before the coffee finishes. When he asks where Bell goes, Zara tells him to write 'under' and nothing else, and Milo locks the ledger in his drawer without knowing why."
+    },
+    "drawer": {
+      "chapter": 2,
+      "line": "Under Four Minutes: The Bell account comes across Milo's queue. He zeroes Halvard Bell's tenure, initials the form and sends him under by lunch, and Facilities clears the desk before the coffee finishes. When he asks where Bell goes, Zara tells him to write 'under' and nothing else, and Milo locks the ledger in his drawer without knowing why."
+    },
+    "summons": {
+      "chapter": 2,
+      "line": "Heavy Paper: A memo signed by Edric Thane summons Milo, who reads it as a career signal. Zara tells him to bring nothing, sign nothing, and stand if he is offered a chair. For the first time her flat calm sounds like a warning, not a habit."
+    },
+    "corner office": {
+      "chapter": 2,
+      "line": "The Corner Office: In the cold corner office Milo stays standing and surprises himself. Edric calls his four-minute closure appetite rather than diligence, and tells him he was retained for not asking questions but should not mistake that for the reason he will be kept. Milo leaves knowing the Lich is watching him in particular."
+    },
+    "discrepancy": {
+      "chapter": 2,
+      "line": "The Unexplained Column: Milo unlocks the ledger and finds that in a column no one ever explained, Bell's tenure was not zeroed but moved. He brings the discrepancy to Zara. She looks at it for a long time and tells him that now he has read an appendix and they have a great deal of paperwork to do: the discrepancy is real, and something at the top is drinking from it."
+    }
+  }
+}
