@@ -115,8 +115,10 @@ so an archive from before the F8 fixture edit still grades.
   counts the corpus' `secondary_cast` as hits and lists them as `secondary_found`; recall stays
   over the principals (SPEC-33).
 - `attribution`: per line `gap` (top-1 minus top-2 score) and `mean_gap`; `margin` is kept for
-  misses. The probe is the corpus' in-world `voice_probe` for that character, in their own role
-  (SPEC-39); the step reports each row's probe.
+  misses. Every character gets the corpus' one symmetric `voice_situation`, k = 10 draws each,
+  and every cast name form is masked to `⟨NAME⟩` in the generated and gold lines before
+  embedding; per character a Wilson interval, and `w9_9_p0` when no lower bound beats 0.33
+  (SPEC-67). Reported, never gated; the step reports each row's probe.
 - `outline`: `outline_names_synopsis_secondaries` ("k/2", from the outline text and any
   `secondary_names`) and `outline_secondaries_named`. `extraction` also reports
   `canonical_names_ok` ("k/n" over the principals with a title alias, such as Edric's "Chief
@@ -242,6 +244,16 @@ answers far slower than a vendor. The eval process also needs an `LLM_TIMEOUT_SE
 long enough for an agent-paced judge. `EVAL_RELAY_DIR` here is the **model's** queue,
 whose archive the prompt-contract grader reads.
 
+**Declared runs are preflighted (SPEC-68).** A gated draw names its run, `--run gated-full |
+gated-scenes | attribution` (`evals/preflight.py` `RUNS`), and `evals.run` checks it before the
+first step. It stops with the reason if `--steps` is not that run's list, if `EVAL_RELAY_DIR` is
+unset, if the relay's `answered/` or `EVAL_CACHE_DIR` holds a file, or if `GET /usage` reports a
+`daily_token_limit` below the run's minimum ("daily limit N: run needs ≥ M"). Check a stack
+before drawing with `python -m evals.preflight --run <name>`. There is no skip flag. A run
+without `--run` (e2e, CI) is not preflighted and is never gated; the scorecard says
+`run=undeclared`. The harness logs the eval user in again on a 401 and retries once, so the
+app's 30-minute token carries a long run; the scorecard counts `relogin`.
+
 ## Regenerating a corpus
 
 ```bash
@@ -281,13 +293,18 @@ the scene line the signer read. `outline_hash` is the SHA-256 of
 `json.dumps(outline_chapters(records), sort_keys=True)`, so whitespace in an answer is ignored.
 
 Draft one with `python -m evals.graders.plot draft <answered-dir> --run W7` (a word-boundary
-term match, written with `signed_by: null`). The signer corrects the cells and sets `signed_by`
+term match, written with `signed_by: null`). It refuses a directory with no `outline:beats`
+record, such as `answered-archive/` instead of `answered-archive/model/answered`. The signer corrects the cells and sets `signed_by`
 and `signed_at`. An unsigned file is not read. Without a signed file, the plot gates report
 `null` and `placement_signed: false` (SPEC-54).
 
 Regrade a run offline with `python -m evals.graders.plot regrade <run-dir>` (the dir holding its
 `eval-report-<book>.json` and `answered-archive/`). It grades with the movement store the run's own
-report holds (`steps.prose.voice.movement`); without one, `movement` is `null`.
+report holds (`steps.prose.voice.movement`); without one, `movement` is `null`. It also reads the
+report's `steps.prose.voice.withheld` (each scene's grounding API `withheld` lines, per beat and
+owner), so a block the product withheld because the plan carries it is `carried`, not starved,
+and a starved block names the product's rule. `movement.per_principal` and
+`unmatched_withheld` are reported; a row matching two beats is an error (SPEC-69).
 
 ## Adding a book — data only, no code
 

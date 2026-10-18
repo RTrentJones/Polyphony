@@ -18,7 +18,7 @@ from uuid import UUID
 
 from sqlalchemy import func, select
 
-from app.characters.context import SceneScope, build_cast_context
+from app.characters.context import SceneScope, build_cast_context, voice_clause
 from app.core.database import get_async_session
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.logging_config import log_business_event, log_error, setup_logging
@@ -442,7 +442,7 @@ faithful to the canon above: its people, places, terms, and its style guide
 {NAMING_RULE}{overrides}
 
 {plan}{CHARACTERS_SECTION} — write each one's dialogue in THEIR OWN voice,
-matching their voice samples:
+{voice_clause(cast_context + secondaries)}:
 
 {cast_context}{secondaries}
 

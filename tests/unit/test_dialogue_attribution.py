@@ -1135,3 +1135,69 @@ def test_the_cel_voice_chunks_are_unchanged():
         if x["chunk_type"] == ChunkType.DIALOGUE.value
     ]
     assert voice == PLANS["cel_voice"]["chunks"]
+
+
+# --- SPEC-69: the withheld record (W9-1 (a)) ------------------------------------------
+W8 = json.loads((Path(__file__).parents[1] / "fixtures/w8_archives.json").read_text())
+SC, P2 = W8["w8c_movement"]["scope"], ZARA_2[2]
+
+
+async def _zara(monkeypatch, plot, beat):
+    """Zara's movement lines and grounding record in `beat`, on her W8c rows."""
+    import app.characters.context as ctx
+
+    canon, by = _cel()
+    rows = [{**r, "score": 0.5} for r in SC["zara_rows"]]
+    monkeypatch.setattr(ctx, "get_chunk_store", lambda: TypedStore(rows))
+    cast, rec = [by["Milo"], by["Zara"]], []
+    scope = ctx.SceneScope.of(canon, cast, (), plot, SC["later_from"])
+    out = await ctx.build_character_context(
+        cast[1], "", beat, scope=scope, grounding=rec
+    )
+    return [ln[2:] for ln in _blocks(out)[1].splitlines()[1:]], rec
+
+
+async def test_the_w8c_chain_records_p2_as_restates(monkeypatch):
+    """(F) D10: the product's W8c export IS `w8c_withheld`; (R) p2 `restates`."""
+    text, export = {r["id"]: r["text"] for r in SC["zara_rows"]}, []
+    for b in W8["w8c_movement"]["beats"]:
+        move, rec = await _zara(monkeypatch, SC["plot"], b["beat"])
+        withheld = [e for e in rec if "withheld" in e]
+        lines = [{"text": text[e["chunk_id"]], "rule": e["withheld"]} for e in withheld]
+        export.append({"beat": b["beat"], "owner": "Zara Okafor", "lines": lines})
+        assert move == [] and {"text": P2, "rule": "restates"} in lines
+    assert export == W8["w8c_withheld"]
+
+
+async def test_w7br_shows_p2_and_its_entry_keeps_its_shape(monkeypatch):
+    """(R) W7br's plan does not carry the gesture: p2 shown, entry unchanged."""
+    w7br = W8["w7br_shown"]
+    plot = (*(ln for ch in w7br["plan"] for ln in ch), w7br["beats"][0]["beat"])
+    move, rec = await _zara(monkeypatch, plot, plot[-1])
+    assert move == w7br["beats"][0]["movement"]["Zara Okafor"] == [P2]
+    keys = [sorted(e) for e in rec if e["excerpt"] == P2]
+    assert keys == [["character_id", "chunk_id", "excerpt", "score"]]
+
+
+@pytest.mark.parametrize(
+    "text, at, rule",
+    [
+        ("Milo nodded to Prava.", 1, "names_outside_scene"),
+        ("Milo stamped the form.", 12, "later_plot"),
+        ("Zara crossed the floor past Milo.", 1, "not_centred"),
+        ("Milo nodded to Prava.", 12, "later_plot"),  # both: the first rule
+    ],
+)
+async def test_a_withheld_line_is_recorded_once(monkeypatch, text, at, rule):
+    """(F) D1: one entry per chunk (typed pass and fallback); (R) same samples."""
+    import app.characters.context as ctx
+
+    canon, by = _cel(synopsis=False)  # without the synopsis Prava is no one
+    store = TypedStore([_s("a1", text, "action", f"paragraph_{at}")])
+    monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
+    scope = ctx.SceneScope.of(canon, [by["Milo"], by["Zara"]], (), (), {None: 9})
+    kw, sink = dict(scope=scope, threshold=0), []
+    got = await ctx.character_samples(by["Milo"], "x", 3, withheld=sink, **kw)
+    assert got == ([], []) == await ctx.character_samples(by["Milo"], "x", 3, **kw)
+    entry = {"character_id": str(by["Milo"].id), "chunk_id": "a1", "withheld": rule}
+    assert sink == [{**entry, "excerpt": text}]

@@ -438,11 +438,10 @@ _MIN_USABLE_CHUNKS = 3
 
 @step("ingestion", needs_api=True)
 async def step_ingestion(ctx: StepContext) -> dict:
-    # Append a marker so the content hash differs from the extraction step's
-    # upload of the same corpus. Doesn't affect the chunking measured here.
-    content = (ctx.corpus_text + "\n\n[[eval-ingestion-copy]]\n").encode("utf-8")
+    # The corpus as-is: an upload without a book_id gets its own book, so the
+    # extraction step's copy of the same text is no duplicate (SPEC-68).
     up, _run = await ctx.client.extract_and_commit(
-        f"{ctx.book}-ing.txt", content, f"eval-ing-{ctx.book}"
+        f"{ctx.book}-ing.txt", ctx.corpus_text.encode("utf-8"), f"eval-ing-{ctx.book}"
     )
     chars = await ctx.client.wait_voice_indexed(up["id"])
     if not chars:
@@ -506,8 +505,14 @@ async def step_attribution(ctx: StepContext) -> dict:
     gold = ctx.ground_truth.get("gold_lines") or {}
     if not gold:
         return {"skipped": True, "reason": "corpus has no gold voice lines"}
+    # W9-2 (b): every name masked on both sides, so a vocative labels no one.
+    cast = {n: [n] for n in ctx.ground_truth.get("cast", [])}
+    forms = cast | _forms(ctx.ground_truth)
     # reference centroids from held-out TEST lines (never the indexed train lines).
-    ref_vecs = {c: await embed.embed_many(v["test"]) for c, v in gold.items()}
+    ref_vecs = {
+        c: await embed.embed_many([attribution.mask(t, forms) for t in v["test"]])
+        for c, v in gold.items()
+    }
 
     book = await ctx.client.create_book(
         title=f"eval-attr-{ctx.book}", synopsis=ctx.ground_truth.get("synopsis", "")
@@ -525,8 +530,8 @@ async def step_attribution(ctx: StepContext) -> dict:
     results, probes = [], []
     empty = 0
     for char, draw in ((c, d) for c in gold for d in range(ATTRIBUTION_DRAWS)):
-        # In-world (SPEC-33), each in their own role (M3, SPEC-39).
-        probe = ctx.ground_truth["voice_probe"][char]
+        # W9-2 (a): one symmetric situation for every character (SPEC-67).
+        probe = ctx.ground_truth["voice_situation"]
 
         async def gen(_char=char, _probe=probe):
             r = await ctx.client.test_dialogue(char_ids[_char], _probe)
@@ -537,7 +542,9 @@ async def step_attribution(ctx: StepContext) -> dict:
             empty += 1
             continue
         results.append(
-            attribution.attribute(char, await embed.embed_one(line), ref_vecs)
+            attribution.attribute(
+                char, await embed.embed_one(attribution.mask(line, forms)), ref_vecs
+            )
         )
         probes.append(probe)
     per = {  # W8-2: reported per character, with its Wilson interval
@@ -562,6 +569,8 @@ async def step_attribution(ctx: StepContext) -> dict:
         "generated": len(results),
         "empty": empty,
         "per_character": per,
+        # D4 (c): no lower bound above chance (0.33) makes W9-9 wave-10 P0.
+        "w9_9_p0": not any((r["wilson95"] or (0, 0))[0] > 0.33 for r in per.values()),
         "status": "reported",
         "detail": [{**r.as_dict(), "probe": p} for r, p in zip(results, probes)],
     }
@@ -1109,6 +1118,17 @@ def cast_from_beat(scene: dict, beat: dict | None, chapter: dict) -> bool | None
     return set(scene.get("characters") or []) == want
 
 
+def withheld_rows(body: dict) -> list[dict]:
+    """One scene's grounding API body as `voice.withheld` export rows."""
+    return [
+        {"beat": b["description"], "owner": g["name"]}
+        | {"lines": [{"text": w["text"], "rule": w["rule"]} for w in g["withheld"]]}
+        for b in body.get("beats") or []
+        for g in b["characters"]
+        if g.get("withheld")
+    ]
+
+
 @step("prose", needs_api=True)
 async def step_prose(ctx: StepContext) -> dict:
     from evals.harness.client import EvalClientError
@@ -1125,7 +1145,14 @@ async def step_prose(ctx: StepContext) -> dict:
             if gt.get("gold_lines")
             else None
         )
-        return {**await _planned_scenes(ctx, book), "voice": voice}
+        out = await _planned_scenes(ctx, book)
+        if voice:  # W9-1 (b): what the product withheld, per beat (SPEC-69)
+            voice["withheld"] = [
+                row
+                for sc in out.get("scenes") or []
+                for row in withheld_rows(await ctx.client.scene_grounding(sc["id"]))
+            ]
+        return {**out, "voice": voice}
 
     # A failure is not memoised (S5): the next run tries the planned path again.
     try:
@@ -1627,6 +1654,7 @@ async def prompt_contract_result(
     ctx: StepContext,
     movement_store: dict | None = None,
     revise_rows: list[dict] | None = None,
+    withheld: list[dict] | None = None,
 ) -> dict:
     from evals.harness.config import load as load_config
 
@@ -1648,5 +1676,6 @@ async def prompt_contract_result(
             **prompt_contract.corpus_inputs(ctx.ground_truth, load_style(ctx.book)),
             movement_store=movement_store,
             revise_rows=revise_rows,
+            withheld=withheld,
         ),
     }

@@ -185,6 +185,7 @@ async def build_character_context(
             scope=scope,
             threshold=settings.RAG_SCORE_THRESHOLD,
             chunk_types=chunk_types,
+            withheld=grounding,
         )
         if grounding is not None:
             grounding.extend(grounding_entries(character, [*words, *movement]))
@@ -207,6 +208,12 @@ def render_character(name: str, words: list, movement: list, bio=()) -> str:
         lines.append(MOVEMENT_LABEL)
         lines.extend(f"- {clean_for_llm(s['text'])}" for s in movement)
     return "\n".join(lines)
+
+
+def voice_clause(cast_context: str) -> str:
+    """The cast header's voice clause: samples only when a block shows some."""
+    shown = VOICE_SAMPLES_LABEL in cast_context  # SPEC-70
+    return "matching their voice samples" if shown else "as the canon describes it"
 
 
 def _bible_lines(character: Character) -> list[str]:
@@ -441,6 +448,24 @@ def _centres(
     return not any(_names_in(text, f) for f in others)
 
 
+def _withheld_by(s: dict, character, scope: SceneScope) -> Optional[str]:
+    """The first rule of WITHHELD_RULES withholding movement row `s`, or None:
+    the one place they are ordered (SPEC-69). Own narration meets only the first."""
+    text, name = s.get("text") or "", getattr(character, "name", "") or ""
+    aliases = getattr(character, "aliases", None) or []
+    if _later_plot(s, scope):
+        return "later_plot"
+    if _own_narration(s):
+        return None
+    if _location(s)[0] == "paragraph" and not _centres(text, name, scope.cast, aliases):
+        return "not_centred"
+    if names_outside_scene(text, character, scope):
+        return "names_outside_scene"
+    if any(restates(text, p) for p in scope.plot):
+        return "restates"
+    return None
+
+
 async def character_samples(
     character: Character,
     query: str,
@@ -449,6 +474,7 @@ async def character_samples(
     scope: SceneScope,
     threshold: float,
     chunk_types: Optional[Iterable[str]] = None,
+    withheld: Optional[list] = None,
 ) -> tuple[list[dict], list[dict]]:
     """(their own words, how they move) for one character, retrieved separately:
     up to `k` words and min(k, 3) movement samples. The one voice retrieval
@@ -464,6 +490,7 @@ async def character_samples(
     Neither block shows a sample from its source's later plot
     (`scope.later_from`). `threshold` is
     the store's score floor (`score_threshold`), which every caller passes.
+    `withheld` (an out-sink) gets a grounding entry per movement row withheld.
     """
     k_voice, k_move = k, min(_MOVEMENT_SAMPLES, k)
     allowed = set(chunk_types) if chunk_types else None
@@ -489,32 +516,19 @@ async def character_samples(
     if voice_types:
         words = await _retrieve(character, query, _POOL, voice_types, threshold, spoken)
         words = words[:k_voice]
-    aliases = getattr(character, "aliases", None) or []
-    name = getattr(character, "name", "") or ""
-
     voiced = {s.get("id") for s in words}
 
+    withheld_rows: dict = {}  # chunk id -> (row, rule), the rows evaluated
+
     def moves(s: dict) -> bool:  # movement eligibility, before the threshold
-        text = s.get("text") or ""
-        return (
+        typed = (
             s.get("id") not in voiced  # an untyped row can be a voice sample
             and s.get("chunk_type") != _DIALOGUE
             and (allowed is None or s.get("chunk_type") in allowed)
-            and not _later_plot(s, scope)
-            # First-person narration of their own section is their voice: it
-            # is admitted here and split off below.
-            and (
-                _own_narration(s)
-                or (
-                    (
-                        _location(s)[0] != "paragraph"
-                        or _centres(text, name, scope.cast, aliases)
-                    )
-                    and not names_outside_scene(text, character, scope)
-                    and not any(restates(text, p) for p in scope.plot)
-                )
-            )
         )
+        if rule := typed and _withheld_by(s, character, scope):
+            withheld_rows[s.get("id")] = (s, rule)
+        return typed and not rule
 
     body = (
         await _retrieve(character, query, _POOL, move_types, threshold, moves)
@@ -530,6 +544,12 @@ async def character_samples(
         ]
     own = [s for s in body if _own_narration(s) and not scripted(s)]
     words += own[: max(0, k_voice - len(words))]
+    if withheld is not None:
+        withheld.extend(
+            {"character_id": str(character.id), "chunk_id": i, "withheld": rule}
+            | {"excerpt": grounding_excerpt(s.get("text"))}
+            for i, (s, rule) in withheld_rows.items()
+        )
     return words, [s for s in body if not _own_narration(s)][:k_move]
 
 

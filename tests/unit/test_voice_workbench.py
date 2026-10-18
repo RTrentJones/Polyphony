@@ -325,6 +325,9 @@ async def test_grounding_endpoint_resolves_live_and_marks_deleted(
                 "0": [
                     {"character_id": milo, "chunk_id": "live-1", "score": 0.61},
                     {"character_id": zara, "chunk_id": "gone-1", "score": 0.33},
+                    # (F) wave-9 day-0: withheld movement lines, with their rule
+                    {"character_id": zara, "chunk_id": "z-2", "withheld": "restates"},
+                    {"character_id": zara, "chunk_id": "z-3", "withheld": "later_plot"},
                 ],
                 "1": [{"character_id": milo, "chunk_id": "foreign", "score": 0.2}],
             },
@@ -344,6 +347,7 @@ async def test_grounding_endpoint_resolves_live_and_marks_deleted(
             "chunk_type": "dialogue",
             "source": "manual",
         },
+        "z-2": {"character_id": zara, "text": "Zara did not look up."},
         # exists, but belongs to another character: not grounding for Milo
         "foreign": {
             "id": "foreign",
@@ -374,8 +378,15 @@ async def test_grounding_endpoint_resolves_live_and_marks_deleted(
         "source": "manual",
         "excerpt": None,  # recorded before excerpts were stored
     }
-    gone = by_char[zara]["samples"][0]
+    (gone,) = by_char[zara]["samples"]  # a withheld line is never a sample
     assert gone["deleted"] is True and gone["text"] is None
+    held = {"rule": "restates", "text": "Zara did not look up.", "excerpt": None}
+    assert by_char[zara]["withheld"] == [
+        {"chunk_id": "z-2", **held},
+        {"chunk_id": "z-3", "rule": "later_plot", "text": None, "excerpt": None},
+    ]
+    # (R) A group with nothing withheld keeps its keys: no `withheld`.
+    assert set(by_char[milo]) == {"character_id", "name", "samples", "reason"}
     assert second["characters"][0]["samples"][0]["deleted"] is True
 
 

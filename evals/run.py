@@ -24,6 +24,7 @@ from evals.harness.cache import Cache
 from evals.harness.client import PolyphonyClient
 from evals.harness.config import load as load_config
 from evals.harness.judge import Judge
+from evals.preflight import RUNS, preflight
 from evals.steps import pipeline  # noqa: F401 — registers the steps
 from evals.steps.base import StepContext, all_steps, get_step
 
@@ -135,7 +136,9 @@ def _aggregate(passes: list[dict]) -> dict:
     return out
 
 
-async def run(book: str, step_names: list[str], out: str, repeat: int = 1) -> dict:
+async def run(
+    book: str, step_names: list[str], out: str, repeat: int = 1, name: str | None = None
+) -> dict:
     cfg = load_config()
     text, gt = pipeline.load_corpus(book)
     started = time.time()
@@ -173,6 +176,7 @@ async def run(book: str, step_names: list[str], out: str, repeat: int = 1) -> di
             "endpoint": ctx.judge.endpoint,
         },
         "repeat": repeat,
+        "run": name,
         "steps": {},
     }
 
@@ -183,6 +187,8 @@ async def run(book: str, step_names: list[str], out: str, repeat: int = 1) -> di
         await ctx.client.bootstrap_eval_user(cfg.admin_email, cfg.admin_password)
 
     try:
+        if name:  # a declared run (SPEC-68) is preflighted before any draw
+            await preflight(name, step_names, ctx.client, cfg)
         passes = []
         for i in range(max(1, repeat)):
             # Salt the cache per pass so repeats actually re-generate (variance),
@@ -222,7 +228,10 @@ async def run(book: str, step_names: list[str], out: str, repeat: int = 1) -> di
                 voice = (result["steps"].get("prose") or {}).get("voice") or {}
                 revise = result["steps"].get("revise") or {}
                 contract = await pipeline.prompt_contract_result(
-                    ctx, voice.get("movement"), revise.get("revisions")
+                    ctx,
+                    voice.get("movement"),
+                    revise.get("revisions"),
+                    voice.get("withheld"),
                 )
             except Exception as e:  # a grader bug never loses the run's scores
                 contract = {"error": f"{type(e).__name__}: {e}"}
@@ -230,6 +239,7 @@ async def run(book: str, step_names: list[str], out: str, repeat: int = 1) -> di
         _record_judge_failover(result, ctx.judge)
     finally:
         if ctx.client:
+            result["relogin"] = ctx.client.relogins
             await ctx.client.aclose()
 
     report.write(result, out)
@@ -262,6 +272,7 @@ def main() -> None:
         help="run each step N times; report score mean +/- std (the noise band). "
         "Re-generates per pass, so N x the LLM cost — use for judge/generation steps.",
     )
+    ap.add_argument("--run", choices=list(RUNS), help="a declared run (SPEC-68)")
     ap.add_argument("--export", help="also write the greenlight eval-export JSON here")
     ap.add_argument(
         "--tracer",
@@ -275,7 +286,7 @@ def main() -> None:
         if args.steps == "all"
         else [s.strip() for s in args.steps.split(",")]
     )
-    result = asyncio.run(run(args.book, step_names, args.out, repeat=args.repeat))
+    result = asyncio.run(run(args.book, step_names, args.out, args.repeat, args.run))
     print(report.scorecard(result))
     print("\nhistory (reported, not gated)\n" + report.history(report.HISTORY))
     print(f"\nfull report -> {args.out}")

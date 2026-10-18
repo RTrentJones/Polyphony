@@ -216,7 +216,8 @@ def replayed(records: list[dict], against: list[dict]) -> dict[str, dict]:
 def regrade(run_dir: str | Path) -> dict:
     """The signed regrade of one eval run (a dir holding its
     eval-report-<book>.json and answered-archive/): its model archive graded
-    with the movement store its own report holds (`steps.prose.voice.movement`).
+    with the movement store and withheld export its own report holds
+    (`steps.prose.voice.movement`, `.withheld`).
     A principal read as "none indexed" while that store holds lines for them is
     an error, not a result (wave 8)."""
     from evals.graders import prompt_contract as pc
@@ -226,11 +227,15 @@ def regrade(run_dir: str | Path) -> dict:
     if len(reports) != 1:
         raise ValueError(f"{run}: want one eval-report-*.json, found {len(reports)}")
     doc = json.loads(reports[0].read_text(encoding="utf-8"))
-    store = ((doc["steps"].get("prose") or {}).get("voice") or {}).get("movement")
+    voice = (doc["steps"].get("prose") or {}).get("voice") or {}
+    store = voice.get("movement")
     records = pc.load_archive(run / "answered-archive" / "model" / "answered")
     rows = (doc["steps"].get("revise") or {}).get("revisions")  # tighten_clause
     out = pc.grade(
-        records, **pc.book_inputs(doc["book"]), movement_store=store, revise_rows=rows
+        records,
+        **pc.book_inputs(doc["book"]),
+        **{"movement_store": store, "revise_rows": rows},
+        withheld=voice.get("withheld"),  # W9-1: the run's export, or None
     )
     for who, why in ((out.get("movement") or {}).get("ineligible") or {}).items():
         if (store or {}).get(who) and pc.NONE_INDEXED in why:
@@ -245,7 +250,7 @@ def main(argv: list[str] | None = None) -> None:
     with its own movement store (`regrade`)."""
     import argparse
 
-    from evals.graders.prompt_contract import load_archive
+    from evals.graders.prompt_contract import load_archive, purpose
 
     ap = argparse.ArgumentParser(description=main.__doc__)
     ap.add_argument("command", choices=["draft", "regrade"])
@@ -259,6 +264,8 @@ def main(argv: list[str] | None = None) -> None:
     corpus = Path(__file__).resolve().parent.parent / "corpora" / args.book
     gt = json.loads((corpus / "ground_truth.json").read_text(encoding="utf-8"))
     records = load_archive(args.archive)
+    if not any(purpose(r) == "outline:beats" for r in records):  # SPEC-68
+        raise SystemExit(f"no outline:beats records in {args.archive}")
     cells = draft_placements(gt["excerpt_events"], outline_chapters(records))
     doc = {"run": args.run, "outline_hash": outline_hash(records)}
     doc |= {"signed_by": None, "signed_at": None, "placements": cells}

@@ -140,3 +140,19 @@ async def test_accept_posts_the_revision_and_a_409_raises():
     assert await c.voice_chunks("cid", "dialogue") == [{"id": "k"}]
     assert c._http.get.await_args.args[0] == "/api/v1/characters/cid/chunks"
     await c.aclose()
+
+
+async def test_a_401_logs_in_again_once_and_is_counted():
+    # W9-3 (a): the token expires mid-run (W8r): log in, retry once, count it.
+    from evals.harness.report import scorecard
+
+    c = PolyphonyClient("http://localhost:8000")
+    c._token, c._login_as = "old", ("eval@x", "pw")
+    c._http.put = AsyncMock(side_effect=[_resp(401), _resp(200, {"n": 3})])
+    c._http.post = AsyncMock(return_value=_resp(200, {"access_token": "new"}))
+    assert (await c._put("/c")).json() == {"n": 3} and c.relogins == 1
+    assert c._http.post.await_args.kwargs["data"]["password"] == "pw"
+    assert c._http.put.await_args.kwargs["headers"]["Authorization"] == "Bearer new"
+    run = {"book": "cel", "judge": {"provider": "r", "self": 0}, "steps": {}}
+    assert "run=undeclared  relogin=1" in scorecard(run | {"relogin": 1})
+    await c.aclose()

@@ -11,7 +11,10 @@ excerpts were recorded have none).
 
 A character no sample grounded (none indexed, or an ensemble context-only
 character) is stored as an entry with no chunk and a `reason`; it is listed
-with no samples and that reason, so the view names everyone in the beat.
+with no samples and that reason, so the view names everyone in the beat. A
+movement line the product withheld is stored with its rule (`withheld`, one of
+WITHHELD_RULES) and listed under the group's `withheld`, which is omitted when
+empty (SPEC-69).
 """
 
 from uuid import UUID
@@ -116,12 +119,23 @@ async def get_scene_grounding(
             chunk = live.get(chunk_id) if chunk_id else None
             if chunk is not None and chunk.get("character_id") != cid:
                 chunk = None  # an id that is not this character's is not grounding
+            text = chunk["text"] if chunk else None
+            if e.get("withheld"):
+                group.setdefault("withheld", []).append(
+                    {
+                        "chunk_id": chunk_id,
+                        "rule": e["withheld"],
+                        "text": text,
+                        "excerpt": e.get("excerpt"),
+                    }
+                )
+                continue
             group["samples"].append(
                 {
                     "chunk_id": chunk_id,
                     "score": e.get("score"),
                     "deleted": chunk is None,
-                    "text": chunk["text"] if chunk else None,
+                    "text": text,
                     "chunk_type": chunk["chunk_type"] if chunk else None,
                     "source": chunk["source"] if chunk else None,
                     # What the sample said when the scene was generated.

@@ -1,0 +1,831 @@
+{
+ "about": "Wave-9 fixed inputs (tpm-plan-wave9 rev 2, §1(b) and the principal's rev-2 delta): strings copied once from the W7br, W8b, W8c relay archives and eval reports in /tmp/claude-0/eval-out, the W8r no-ensemble copy (scratchpad/w8r-noens) and, read only, the polyphony_w8c database, by the day-0 builder. Tests never read the archives or the database. Day-0 writes no `withheld` record: E2 adds `w8c_withheld` from its product test (D10).",
+ "w8c_movement": {
+  "about": "W8c's report `steps.prose.voice.movement` (the run's own store), its outline (`plot.outline_chapters`) and the four Desk Neighbour beat_prose prompts that cast Zara (0022 to 0025): each prompt's chapter, BEAT TO WRITE line and the movement lines each cast owner was shown (Zara: none). `brief` is the scene's description. `regrade` is the signed regrade's movement result (10/14, ok False: the known misfire). Signed placement: evals/placements/W8c.json.",
+  "store": {
+   "Edric Thane": [
+    "Two days after the Bell account, on Thursday, the memo arrived. It was printed on paper so heavy it seemed to have its own gravity, and it was signed in a hand that had practised the same signature for six hundred years: Edric Thane, Chief Executive.",
+    "Edric Thane opened the ledger without looking at it.",
+    "The corner office was cold in the way that libraries are cold. Edric Thane sat behind a desk with nothing on it but a single ledger, closed, and his hands folded on top of it as if it might try to leave."
+   ],
+   "Milo Voss": [
+    "Milo Voss opened his eyes in the intake atrium and a caseworker slid a laminated org chart across a laminate desk.",
+    "On Tuesday the Bell account came across Milo's queue. Halvard Bell had been a dentist, then a soul in Retention for ninety years, and his contract had been restructured at nine that morning. Milo zeroed the tenure, initialled the form, and by lunch Halvard Bell had been sent under. Facilities cleared his desk before the coffee station had finished dispensing.",
+    "Back at his desk Milo unlocked his desk drawer and took out the ledger. The Bell entry was there in his own handwriting. Below it, in a column no one had ever explained to him, Bell's tenure had not been zeroed at all. It had been moved.",
+    "Milo read it twice.",
+    "Milo locked the ledger in his desk drawer that night, which no one had asked him to do, and he could not have said why he did it.",
+    "rolling his chair an inch closer to the partition.",
+    "Reconciliations was a long room the colour of old teeth, lit from nowhere. Milo's desk faced Zara's across a low partition. Zara Okafor had grey eyes, flat as a filing cabinet, and she turned them on him for exactly one second before she went back to her screen.",
+    "and remained standing. He was surprised to hear himself say it."
+   ],
+   "Zara Okafor": [
+    "Zara set down her pen.",
+    "Reconciliations was a long room the colour of old teeth, lit from nowhere. Milo's desk faced Zara's across a low partition. Zara Okafor had grey eyes, flat as a filing cabinet, and she turned them on him for exactly one second before she went back to her screen.",
+    "Zara Okafor, at the next desk, did not look up.",
+    "Zara looked at the column for a long time. Her grey eyes did not change at all."
+   ]
+  },
+  "plan": [
+   [
+    "Intake Atrium: Milo opens his eyes mid-complaint about a meeting and finds himself in a queue of the newly dead; Prava greets him by name and, with warmth that never slips, converts his bewilderment into a completed intake form before he has thought to ask where he is.",
+    "The Laminated Org Chart: Prava explains tenure, the faint hope of graduation and that he has been retained as a strong culture fit for Reconciliations; told for the first time that his forty-one years of pointless optimizing are an asset, Milo says yes before any choice is offered, and his loneliness turns into eagerness.",
+    "Desk Neighbour: Milo is given a lanyard and the desk beside Zara Okafor, who trains him in terse instructions without looking up; his chatty questions meet flat answers he takes for friendship, and he leaves his first shift believing he has found a mentor and a place."
+   ],
+   [
+    "Quota: Zara shows Milo how to review a restructured soul's remaining tenure, zero it out and file it under the department code the style guide will not spell out; he hits his quota in a day, then doubles it, and discovers he loves being good at this.",
+    "All-Hands: In the stone amphitheater under the Marrow District, Milo watches the quarter's single graduation celebrated with confetti that dissolves before it lands; he cheers, while Zara beside him does not clap, and he files that away as one of her quirks.",
+    "Coffee Station: Over gray coffee Milo floats an idea for the newsletter and Zara tells him to ask what 'sent under' means; he laughs it off as out of scope, but for the first time he has heard the question spoken aloud.",
+    "Does Not Reconcile: Closing a routine restructured account, Milo finds the soul's tenure draining faster than any labor could explain; following the transfers, he sees every one of them flowing upward into a single pooled account at the top of the org chart, and his pleasure in the work stops."
+   ],
+   [
+    "Request for Records: Milo files a polite records request about the pooled account and is sent, in person, down to Records, where Old Fen, half-indexed into his own cabinets, receives him with unhurried contentment; Milo realises the question cannot be answered from his desk and that somebody has always known where to look.",
+    "The Archive Trail: Fen walks Milo through six centuries of transfer slips, and the pooled account's earliest entries carry a clerk's initials that later become the letters CEL; Milo, who had pictured the CEL as a department, now holds proof it began as one person's account.",
+    "Contentment: Fen says he stopped wanting to leave long ago and is happy to be filed; Milo catches himself envying that peace and is frightened by how attractive it is.",
+    "What It Pipes: Back at his desk Milo lays the slips in front of Zara and asks his long hedged question; she answers in four flat sentences that the CEL is the Chief Executive Lich, a person named Edric Thane, and that every soul sent under is harvested to keep him continuing, and Milo can no longer pretend he does not know what his quota closes."
+   ],
+   [
+    "Draft for Management: Milo writes up the discrepancy as an efficiency finding, complete with stakeholder impact and a proposal to streamline the harvest, and sees that filing it would make him visible, promotable, exactly what Edric Thane once made himself.",
+    "Wellness Check: Halvard Bell of Retention drops by on a routine check and, with a former dentist's bedside cheer, urges Milo to file the report and keep hoping on schedule; Milo hears the despair under the pep talk and realises the Pipeline's best encouragers are its most hopeless souls.",
+    "Send: Milo's cursor hovers over the submit field for a whole unmeasured shift, and he cannot make himself send it; for the first time in his life or death he chooses not to be useful, and is left with nothing to do with his hands.",
+    "The Signature Sheet: Zara slides a single sheet across the partition: a work stoppage, a union of the dead, every clause cited to the contract's own appendices; Milo reads it to the end, understands she has been recruiting him all along, and signs, agreeing to bring down the Lich with paperwork."
+   ],
+   [
+    "Department by Department: Milo follows Zara through Records and Retention as she collects signatures; Old Fen signs without looking up, and Halvard Bell, after a long silence, signs and stops smiling, and Milo sees the stoppage become something real rather than an idea on one sheet.",
+    "Case File: Thane, E.: Milo opens a standard restructuring file on Edric Thane's pooled account using the department's own forms and begins reconciling every transfer back to the soul it came from; the work that once ground souls under now runs in reverse under his hands.",
+    "Eleven Thousand Names: When the official records run out, Prava brings Milo the private ledger she was never permitted to keep, every name she has onboarded written by hand; with it Milo can restore tenure to each soul by name, and he learns she has wept at every graduation.",
+    "Calendar Invitation: As the last line reconciles, a meeting request arrives from the office at the top: Quarterly Review, Mr. Voss, attendance mandatory; Zara reads it over his shoulder and tells him to bring the file."
+   ],
+   [
+    "The Corner Office: Milo enters the office no employee returns from unchanged and is reviewed by Edric Thane in long, formal sentences; the Lich praises his numbers, tells him he was once exactly such a clerk, and offers him the climb, and Milo sees his own future sitting across the desk.",
+    "One Sheet of Paper: Milo declines and hands over his resignation with the reconciliation attached, every soul sent under restored and the pooled account zeroed by the Pipeline's own rules; Edric reads it to the last appendix and finds no error.",
+    "Filed Correctly: Edric Thane, a clerk to the end, initials the box marked INITIAL HERE, files the restructuring of his own account and goes onward into what he had feared for six centuries, and Milo watches the office become only an office.",
+    "All-Staff: Back in the Marrow District an honest all-staff email announces the stoppage in plain language, and Milo sits down at his old desk beside Zara, bored again and glad of it, and this time she looks up."
+   ]
+  ],
+  "brief": "Desk Neighbour: Milo is given a lanyard and the desk beside Zara Okafor, who trains him in terse instructions without looking up; his chatty questions meet flat answers he takes for friendship, and he leaves his first shift believing he has found a mentor and a place.",
+  "beats": [
+   {
+    "request": "1792257872-0022",
+    "chapter": 1,
+    "beat": "He is seated across a low partition from a woman whose desk plate reads ZARA OKAFOR and who does not look up from her screen; she introduces herself only by telling him she is training him, and Milo, eager to make a good impression, takes her flatness for focus.",
+    "movement": {
+     "Milo Voss": [
+      "rolling his chair an inch closer to the partition."
+     ],
+     "Zara Okafor": []
+    }
+   },
+   {
+    "request": "1792257882-0023",
+    "chapter": 1,
+    "beat": "Zara trains him in short imperatives without explanation, open the queue, check the balance, initial here, file it, while Milo peppers her with hedged questions about dashboards, best practice and ramp-up, each answered in a word or not at all, and he finds the rhythm oddly companionable.",
+    "movement": {
+     "Milo Voss": [
+      "rolling his chair an inch closer to the partition."
+     ],
+     "Zara Okafor": []
+    }
+   },
+   {
+    "request": "1792257893-0024",
+    "chapter": 1,
+    "beat": "When he asks whether it is always this quiet she gives him a dry, deadpan reply that he laughs at as if they are already sharing jokes, though she does not smile, and he decides she simply has a very understated sense of humour.",
+    "movement": {
+     "Milo Voss": [
+      "rolling his chair an inch closer to the partition."
+     ],
+     "Zara Okafor": []
+    }
+   },
+   {
+    "request": "1792257903-0025",
+    "chapter": 1,
+    "beat": "At the end of the shift, with no clock to mark it, Zara tells him to come back tomorrow without looking up, and Milo walks out of Reconciliations certain he has found a mentor and, for the first time in a long while, a place where he belongs.",
+    "movement": {
+     "Milo Voss": [
+      "rolling his chair an inch closer to the partition."
+     ],
+     "Zara Okafor": []
+    }
+   }
+  ],
+  "regrade": {
+   "n": 14,
+   "passed": 10,
+   "rate": 0.7143,
+   "failures": [
+    {
+     "id": "1792257872-0022",
+     "reasons": [
+      "Zara Okafor: eligible, no movement line"
+     ]
+    },
+    {
+     "id": "1792257882-0023",
+     "reasons": [
+      "Zara Okafor: eligible, no movement line"
+     ]
+    },
+    {
+     "id": "1792257893-0024",
+     "reasons": [
+      "Zara Okafor: eligible, no movement line"
+     ]
+    },
+    {
+     "id": "1792257903-0025",
+     "reasons": [
+      "Zara Okafor: eligible, no movement line"
+     ]
+    }
+   ],
+   "ineligible": {},
+   "not_eligible": [],
+   "not_cast": [
+    "Edric Thane"
+   ],
+   "ok": false
+  },
+  "scope": {
+   "about": "Read once from polyphony_w8c through the product's own `scene_setup` (read-only transaction) for the Desk Neighbour scene, then the scene's five beat lines appended as prose.py does once beats are planned: `plot` is the `scope.plot` tuple every beat of the scene was grounded with (plot[0] is the brief; the last five are the scene's beats, of which 0022 to 0025 wrote beats 2 to 5). `later_from` is per source id; `cast` is the scene's, `book_cast` the book's, with aliases. `zara_rows` are Zara's voice_chunks rows in the prose book: id, chunk_type, text, `source` (source_location), source_id; a `paragraph_n` source is paragraph n (`source_location`).",
+   "plot": [
+    "Desk Neighbour: Milo is given a lanyard and the desk beside Zara Okafor, who trains him in terse instructions without looking up; his chatty questions meet flat answers he takes for friendship, and he leaves his first shift believing he has found a mentor and a place.",
+    "Intake Atrium: Milo opens his eyes mid-complaint about a meeting and finds himself in a queue of the newly dead; Prava greets him by name and, with warmth that never slips, converts his bewilderment into a completed intake form before he has thought to ask where he is.",
+    "The Laminated Org Chart: Prava explains tenure, the faint hope of graduation and that he has been retained as a strong culture fit for Reconciliations; told for the first time that his forty-one years of pointless optimizing are an asset, Milo says yes before any choice is offered, and his loneliness turns into eagerness.",
+    "Quota: Zara shows Milo how to review a restructured soul's remaining tenure, zero it out and file it under the department code the style guide will not spell out; he hits his quota in a day, then doubles it, and discovers he loves being good at this.",
+    "All-Hands: In the stone amphitheater under the Marrow District, Milo watches the quarter's single graduation celebrated with confetti that dissolves before it lands; he cheers, while Zara beside him does not clap, and he files that away as one of her quirks.",
+    "Coffee Station: Over gray coffee Milo floats an idea for the newsletter and Zara tells him to ask what 'sent under' means; he laughs it off as out of scope, but for the first time he has heard the question spoken aloud.",
+    "Does Not Reconcile: Closing a routine restructured account, Milo finds the soul's tenure draining faster than any labor could explain; following the transfers, he sees every one of them flowing upward into a single pooled account at the top of the org chart, and his pleasure in the work stops.",
+    "Request for Records: Milo files a polite records request about the pooled account and is sent, in person, down to Records, where Old Fen, half-indexed into his own cabinets, receives him with unhurried contentment; Milo realises the question cannot be answered from his desk and that somebody has always known where to look.",
+    "The Archive Trail: Fen walks Milo through six centuries of transfer slips, and the pooled account's earliest entries carry a clerk's initials that later become the letters CEL; Milo, who had pictured the CEL as a department, now holds proof it began as one person's account.",
+    "Contentment: Fen says he stopped wanting to leave long ago and is happy to be filed; Milo catches himself envying that peace and is frightened by how attractive it is.",
+    "What It Pipes: Back at his desk Milo lays the slips in front of Zara and asks his long hedged question; she answers in four flat sentences that the CEL is the Chief Executive Lich, a person named Edric Thane, and that every soul sent under is harvested to keep him continuing, and Milo can no longer pretend he does not know what his quota closes.",
+    "Draft for Management: Milo writes up the discrepancy as an efficiency finding, complete with stakeholder impact and a proposal to streamline the harvest, and sees that filing it would make him visible, promotable, exactly what Edric Thane once made himself.",
+    "Wellness Check: Halvard Bell of Retention drops by on a routine check and, with a former dentist's bedside cheer, urges Milo to file the report and keep hoping on schedule; Milo hears the despair under the pep talk and realises the Pipeline's best encouragers are its most hopeless souls.",
+    "Send: Milo's cursor hovers over the submit field for a whole unmeasured shift, and he cannot make himself send it; for the first time in his life or death he chooses not to be useful, and is left with nothing to do with his hands.",
+    "The Signature Sheet: Zara slides a single sheet across the partition: a work stoppage, a union of the dead, every clause cited to the contract's own appendices; Milo reads it to the end, understands she has been recruiting him all along, and signs, agreeing to bring down the Lich with paperwork.",
+    "Department by Department: Milo follows Zara through Records and Retention as she collects signatures; Old Fen signs without looking up, and Halvard Bell, after a long silence, signs and stops smiling, and Milo sees the stoppage become something real rather than an idea on one sheet.",
+    "Case File: Thane, E.: Milo opens a standard restructuring file on Edric Thane's pooled account using the department's own forms and begins reconciling every transfer back to the soul it came from; the work that once ground souls under now runs in reverse under his hands.",
+    "Eleven Thousand Names: When the official records run out, Prava brings Milo the private ledger she was never permitted to keep, every name she has onboarded written by hand; with it Milo can restore tenure to each soul by name, and he learns she has wept at every graduation.",
+    "Calendar Invitation: As the last line reconciles, a meeting request arrives from the office at the top: Quarterly Review, Mr. Voss, attendance mandatory; Zara reads it over his shoulder and tells him to bring the file.",
+    "The Corner Office: Milo enters the office no employee returns from unchanged and is reviewed by Edric Thane in long, formal sentences; the Lich praises his numbers, tells him he was once exactly such a clerk, and offers him the climb, and Milo sees his own future sitting across the desk.",
+    "One Sheet of Paper: Milo declines and hands over his resignation with the reconciliation attached, every soul sent under restored and the pooled account zeroed by the Pipeline's own rules; Edric reads it to the last appendix and finds no error.",
+    "Filed Correctly: Edric Thane, a clerk to the end, initials the box marked INITIAL HERE, files the restructuring of his own account and goes onward into what he had feared for six centuries, and Milo watches the office become only an office.",
+    "All-Staff: Back in the Marrow District an honest all-staff email announces the stoppage in plain language, and Milo sits down at his old desk beside Zara, bored again and glad of it, and this time she looks up.",
+    "Milo comes to mid-sentence, still complaining about a meeting that could have been an email, and finds he is standing in a slow, orderly queue of the newly dead under flat gray light; his first feeling is not fear but the familiar irritation of waiting, which steadies him more than it should.",
+    "He shuffles forward past velvet ropes and laminated signage in a cheerful corporate font, watching the souls ahead of him get processed one by one, and his old analyst's eye starts estimating throughput, a habit that keeps the question of where he is politely at bay.",
+    "At the front a caseworker with a nameplate reading PRAVA greets him by his full name before he gives it and introduces herself, her warmth so practiced and so seamless that Milo feels, absurdly, expected and welcome.",
+    "Prava walks him through the intake form one gentle question at a time, cause of death, last employer, preferred pronouns, and each time he starts to ask where he is she has already moved him kindly to the next box, so his bewilderment turns into a sense of being efficiently helped.",
+    "She stamps the completed form with a soft, final thunk and thanks him for his patience, and Milo, who has still not asked the obvious question, notices he is smiling, relieved to have done something correctly.",
+    "Prava slides a laminated org chart across the desk, a great branching tree of departments under the words AEON HOLDINGS, and Milo, who loves an org chart, leans in with real pleasure before he registers that it is laying out where the dead are sent to work.",
+    "In the same gentle tone she used for the form, Prava explains tenure, the currency earned by labor quarter by quarter, and graduation, the rare onward that tenure might one day buy, so that the fact of his death arrives to Milo wrapped in a benefits package and lands as something almost reassuring.",
+    "She tells him he has been retained, that his forty-one years of optimizing processes are a strong culture fit, and taps the box marked Reconciliations; Milo, who has never once been told his boredom was valuable, feels seen so suddenly that his throat goes tight.",
+    "Before Prava has phrased anything as a question he says yes, eagerly, asking what the first week looks like, and she smiles and stamps a second form, and the loneliness he carried in with him turns into the bright, anxious eagerness of a new hire.",
+    "On Monday an unnamed facilities clerk hands Milo a lanyard with his photo already on it and walks him down into the windowless Marrow District to Reconciliations, a long, sourceless-lit room of partitioned desks, and Milo clips the lanyard on with the pride of a first day.",
+    "He is seated across a low partition from a woman whose desk plate reads ZARA OKAFOR and who does not look up from her screen; she introduces herself only by telling him she is training him, and Milo, eager to make a good impression, takes her flatness for focus.",
+    "Zara trains him in short imperatives without explanation, open the queue, check the balance, initial here, file it, while Milo peppers her with hedged questions about dashboards, best practice and ramp-up, each answered in a word or not at all, and he finds the rhythm oddly companionable.",
+    "When he asks whether it is always this quiet she gives him a dry, deadpan reply that he laughs at as if they are already sharing jokes, though she does not smile, and he decides she simply has a very understated sense of humour.",
+    "At the end of the shift, with no clock to mark it, Zara tells him to come back tomorrow without looking up, and Milo walks out of Reconciliations certain he has found a mentor and, for the first time in a long while, a place where he belongs."
+   ],
+   "later_from": {
+    "76f89487-22d2-4cdc-8ea5-ca956436de83": 9
+   },
+   "cast": [
+    "Milo Voss",
+    "Zara Okafor"
+   ],
+   "book_cast": [
+    {
+     "name": "Edric Thane",
+     "aliases": [
+      "the CEL",
+      "Chief Executive Lich",
+      "the Lich"
+     ]
+    },
+    {
+     "name": "Milo Voss",
+     "aliases": [
+      "Milo"
+     ]
+    },
+    {
+     "name": "Zara Okafor",
+     "aliases": [
+      "Zara"
+     ]
+    }
+   ],
+   "secondary_names": [],
+   "zara_rows": [
+    {
+     "id": "9bf426c5-2d46-4c87-9fab-0622572fad87",
+     "chunk_type": "dialogue",
+     "text": "He goes under. Write that on the form. Nothing else.",
+     "source": "dialogue_11",
+     "source_id": "76f89487-22d2-4cdc-8ea5-ca956436de83"
+    },
+    {
+     "id": "9c36fa96-8711-4dc9-8a82-15ca11b8da35",
+     "chunk_type": "dialogue",
+     "text": "It is not normal. Bring nothing. Sign nothing. If he offers you a chair, stand.",
+     "source": "dialogue_16",
+     "source_id": "76f89487-22d2-4cdc-8ea5-ca956436de83"
+    },
+    {
+     "id": "fd313661-07db-4f9c-a4ca-debc9e6c2b39",
+     "chunk_type": "dialogue",
+     "text": "Close the accounts in your queue. Don't open the ones that aren't.",
+     "source": "dialogue_5",
+     "source_id": "76f89487-22d2-4cdc-8ea5-ca956436de83"
+    },
+    {
+     "id": "3e653ef6-8ed3-4646-814e-448105e9a795",
+     "chunk_type": "dialogue",
+     "text": "It was the best week of your death, too. You just haven't had the others yet.",
+     "source": "dialogue_7",
+     "source_id": "76f89487-22d2-4cdc-8ea5-ca956436de83"
+    },
+    {
+     "id": "076a7a5a-13d3-4696-bc29-4bc8e96743e7",
+     "chunk_type": "description",
+     "text": "Zara set down her pen.",
+     "source": "paragraph_11",
+     "source_id": "76f89487-22d2-4cdc-8ea5-ca956436de83"
+    },
+    {
+     "id": "6b52d344-5ac3-4ee8-83c0-9a875b50f62c",
+     "chunk_type": "description",
+     "text": "Zara Okafor, at the next desk, did not look up.",
+     "source": "paragraph_2",
+     "source_id": "76f89487-22d2-4cdc-8ea5-ca956436de83"
+    },
+    {
+     "id": "82643fc7-87ec-499e-8d68-559561761e5f",
+     "chunk_type": "action",
+     "text": "Zara looked at the column for a long time. Her grey eyes did not change at all.",
+     "source": "paragraph_29",
+     "source_id": "76f89487-22d2-4cdc-8ea5-ca956436de83"
+    },
+    {
+     "id": "6631ca1a-bf68-4f38-a005-539214d31197",
+     "chunk_type": "action",
+     "text": "Reconciliations was a long room the colour of old teeth, lit from nowhere. Milo's desk faced Zara's across a low partition. Zara Okafor had grey eyes, flat as a filing cabinet, and she turned them on him for exactly one second before she went back to her screen.",
+     "source": "paragraph_3",
+     "source_id": "76f89487-22d2-4cdc-8ea5-ca956436de83"
+    }
+   ]
+  }
+ },
+ "w7br_shown": {
+  "about": "W7br's report store and outline with its first beat_prose block that cast Zara (0020): p2 (\"Zara Okafor, at the next desk, did not look up.\") shown, because W7br's plan did not carry the gesture. Signed placement: evals/placements/W7br.json.",
+  "store": {
+   "Edric Thane": [
+    "The corner office was cold in the way that libraries are cold. Edric Thane sat behind a desk with nothing on it but a single ledger, closed, and his hands folded on top of it as if it might try to leave.",
+    "Two days after the Bell account, on Thursday, the memo arrived. It was printed on paper so heavy it seemed to have its own gravity, and it was signed in a hand that had practised the same signature for six hundred years: Edric Thane, Chief Executive.",
+    "Edric Thane opened the ledger without looking at it."
+   ],
+   "Milo Voss": [
+    "rolling his chair an inch closer to the partition.",
+    "Back at his desk Milo unlocked his desk drawer and took out the ledger. The Bell entry was there in his own handwriting. Below it, in a column no one had ever explained to him, Bell's tenure had not been zeroed at all. It had been moved.",
+    "Milo read it twice.",
+    "and remained standing. He was surprised to hear himself say it.",
+    "Milo Voss opened his eyes in the intake atrium and a caseworker slid a laminated org chart across a laminate desk.",
+    "On Tuesday the Bell account came across Milo's queue. Halvard Bell had been a dentist, then a soul in Retention for ninety years, and his contract had been restructured at nine that morning. Milo zeroed the tenure, initialled the form, and by lunch Halvard Bell had been sent under. Facilities cleared his desk before the coffee station had finished dispensing.",
+    "Milo locked the ledger in his desk drawer that night, which no one had asked him to do, and he could not have said why he did it.",
+    "Reconciliations was a long room the colour of old teeth, lit from nowhere. Milo's desk faced Zara's across a low partition. Zara Okafor had grey eyes, flat as a filing cabinet, and she turned them on him for exactly one second before she went back to her screen."
+   ],
+   "Zara Okafor": [
+    "Zara looked at the column for a long time. Her grey eyes did not change at all.",
+    "Zara Okafor, at the next desk, did not look up.",
+    "Reconciliations was a long room the colour of old teeth, lit from nowhere. Milo's desk faced Zara's across a low partition. Zara Okafor had grey eyes, flat as a filing cabinet, and she turned them on him for exactly one second before she went back to her screen.",
+    "Zara set down her pen."
+   ]
+  },
+  "plan": [
+   [
+    "A Meeting That Could Have Been an Email: Milo dies mid-sentence on a Tuesday, still complaining about the meeting, and the complaint ends without him; the change is total and he does not quite notice it, which is the first thing about him we learn.",
+    "Retained: In the intake atrium Prava slides a laminated org chart across a laminate desk, calls his forty-one years of pointless optimisation an asset, and Milo, seen for the first time, says yes to Reconciliations before anyone offers him a choice; he leaves with a lanyard and a balance of zero tenure.",
+    "Desk Neighbour: At his new desk in the Marrow District Milo meets Zara Okafor, his trainer, who answers each of his eager questions about tenure, quotas and graduation in as few words as possible; he mistakes her flat courtesy for friendship, and she, without looking up, hands him a first account and tells him to check the appendices."
+   ],
+   [
+    "Top of the Curve: Milo closes accounts faster than anyone in Reconciliations and his calibrated review comes back glowing; he finds he likes zeroing out tenure and filing souls under, and the liking is the change, while Zara only says 'Good' and asks whether he read the appendix.",
+    "Confetti That Does Not Land: At the all-hands in the bedrock amphitheatre the quarter's single graduation is announced, confetti dissolving before it lands; at the coffee station afterwards Halvard Bell of Retention reads the newsletter aloud with relentless cheer, and Milo, for the first time, wonders why it is always exactly one.",
+    "Does Not Tie Out: Closing a routine restructured account the long way Zara taught him, line by line through the appendices, Milo finds tenure leaving the ledger faster than labor can explain; he follows the transfers and watches them converge on a single pooled account at the very top of the org chart, and he cannot make the numbers reconcile."
+   ],
+   [
+    "The Stacks: Milo takes his unreconciled account down to Records and finds Old Fen, who has been there so long he has begun to file himself and is entirely content; Fen pulls the transfer histories without asking why, and Milo, envying that contentment, sees that every restructured soul's tenure has gone to the same pooled account for six hundred years.",
+    "Sent Under: Reading the pooled account's beneficiary line in an appendix printed in ink that only shows under grief, Milo learns that souls sent under are not destroyed but harvested, their hope funnelled upward to keep the CEL, Edric Thane, continuing; the Pipeline's monstrous side effect turns out to be the business itself.",
+    "Escalation Path: Back at his desk Milo drafts a crisp report upward flagging the discrepancy, the kind of report that would get a clerk seen and promoted; Zara reads it over the partition, says only 'Accurate,' and does not stop him, and that is worse than if she had.",
+    "Acknowledged: Before Milo can send anything, an interoffice memo arrives on his desk from the office of the CEL, addressed to 'Mr. Voss', noting with formal courtesy that a query has been run against a protected account and inviting him to circle it through proper channels; Milo understands that the Lich is watching the numbers, and now watching him."
+   ],
+   [
+    "Retention Call: Halvard Bell of Retention, sent to check on a wavering analyst, talks Milo back onto the schedule with ninety years of practised cheer that is so obviously despairing that Milo hears, for the first time, what he himself sounds like; the pep talk works on paper and fails in him.",
+    "Eleven Thousand Names: Prava takes Milo after hours to the intake atrium and shows him the private ledger she is not permitted to have, eleven thousand names including his own, some of them marked under in her careful hand; Milo stops thinking of the restructured accounts as accounts.",
+    "Sit With It: Zara leaves the unsent report on Milo's desk and says nothing for a whole unclocked shift while he stares at it and recognises in it the shape of Edric Thane's climb; when he finally asks what he should do, she tells him she won't tell him.",
+    "Signature Sheet: Milo deletes the report and asks Zara what she has been building; she slides a signature sheet across the partition and lays out a union of the dead and a work stoppage done entirely as paperwork, routed through Reconciliations, and Milo signs first, choosing the harder turn."
+   ],
+   [
+    "Rounds: Milo walks the departments behind Zara as she collects signatures: Prava signs at the intake desk and adds a column to her ledger for the names she means to see restored, Old Fen signs because the form is correctly formatted, and Halvard Bell signs last in Retention, the first time in ninety years he has stopped selling the schedule; the dead stop being alone, one line at a time.",
+    "Line by Line: Through unclocked shifts Milo reconciles every soul the Pipeline ever sent under, restoring tenure entry by entry against the pooled account, and opens the final file: Edric Thane's own account, which he routes, correctly, through Reconciliations, the department built to close accounts; his gift for not asking questions becomes a gift for answering them.",
+    "Reply All: Zara drafts the all-staff email announcing the work stoppage and hands Milo the keyboard to send it; it says, in plain language, what the Pipeline pipes, and as it lands the Marrow District goes silent desk by desk until even the coffee station stops dispensing, and a summons arrives for Milo from the office at the top."
+   ],
+   [
+    "The Corner Office: Milo enters the one office no employee returns from unchanged and finds Edric Thane, formal and thorough, who addresses him as Mr. Voss and calmly offers him a path up, a pooled account of his own; Milo recognises his own forty-one years in the offer and declines it.",
+    "A Single Sheet of Paper: Milo hands over his resignation with the reconciliation attached; Edric reads it the way a clerk reads, finds no error, and admits he stayed because he feared the onward; the most powerful being in the afterlife understands that he has been closed according to his own terms of service.",
+    "Filed Correctly: Edric initials the form in the box marked INITIAL HERE, files it correctly, and goes onward while Milo watches the pooled account zero out on the ledger and restored tenure begin to flow back to the souls sent under; the office is, for the first time, only an office.",
+    "Sometimes It's Quieter: Milo returns to his desk beside Zara as the first plain-language notice from the Pipeline to its customers goes out; she does not look up, and then, briefly, she does, and Milo understands his boredom was a wound where his questions used to be and that neither of them is alone now."
+   ]
+  ],
+  "beats": [
+   {
+    "request": "1792197398-0020",
+    "chapter": 1,
+    "beat": "On Monday Milo finds his desk in Reconciliations, a long windowless room in the Marrow District, facing a low partition behind which a woman types without looking up; he introduces himself brightly and she gives her name, Zara Okafor, and the information that she is his trainer, and nothing else, which he takes for shyness.",
+    "movement": {
+     "Milo Voss": [
+      "rolling his chair an inch closer to the partition."
+     ],
+     "Zara Okafor": [
+      "Zara Okafor, at the next desk, did not look up."
+     ]
+    }
+   }
+  ]
+ },
+ "w8r_movement": {
+  "about": "W8r's gated movement inputs from its no-ensemble copy (scratchpad/w8r-noens): the report store, the outline and every beat_prose block (chapter, BEAT TO WRITE line, movement shown per owner). `regrade` is that copy's signed regrade movement result (12/12, ok True). Signed placement: evals/placements/W8r.json.",
+  "store": {
+   "Edric Thane": [
+    "The corner office was cold in the way that libraries are cold. Edric Thane sat behind a desk with nothing on it but a single ledger, closed, and his hands folded on top of it as if it might try to leave.",
+    "Edric Thane opened the ledger without looking at it.",
+    "Two days after the Bell account, on Thursday, the memo arrived. It was printed on paper so heavy it seemed to have its own gravity, and it was signed in a hand that had practised the same signature for six hundred years: Edric Thane, Chief Executive."
+   ],
+   "Milo Voss": [
+    "Reconciliations was a long room the colour of old teeth, lit from nowhere. Milo's desk faced Zara's across a low partition. Zara Okafor had grey eyes, flat as a filing cabinet, and she turned them on him for exactly one second before she went back to her screen.",
+    "rolling his chair an inch closer to the partition.",
+    "Milo read it twice.",
+    "Back at his desk Milo unlocked his desk drawer and took out the ledger. The Bell entry was there in his own handwriting. Below it, in a column no one had ever explained to him, Bell's tenure had not been zeroed at all. It had been moved.",
+    "On Tuesday the Bell account came across Milo's queue. Halvard Bell had been a dentist, then a soul in Retention for ninety years, and his contract had been restructured at nine that morning. Milo zeroed the tenure, initialled the form, and by lunch Halvard Bell had been sent under. Facilities cleared his desk before the coffee station had finished dispensing.",
+    "Milo locked the ledger in his desk drawer that night, which no one had asked him to do, and he could not have said why he did it.",
+    "and remained standing. He was surprised to hear himself say it.",
+    "Milo Voss opened his eyes in the intake atrium and a caseworker slid a laminated org chart across a laminate desk."
+   ],
+   "Zara Okafor": [
+    "Zara looked at the column for a long time. Her grey eyes did not change at all.",
+    "Zara Okafor, at the next desk, did not look up.",
+    "Zara set down her pen.",
+    "Reconciliations was a long room the colour of old teeth, lit from nowhere. Milo's desk faced Zara's across a low partition. Zara Okafor had grey eyes, flat as a filing cabinet, and she turned them on him for exactly one second before she went back to her screen."
+   ]
+  },
+  "plan": [
+   [
+    "The Laminated Org Chart: Prava slides a laminated org chart across the desk and tells Milo he has been retained as a strong culture fit. Milo, who has never been told his boredom was valuable, agrees before anyone offers him a choice, and his death becomes a job.",
+    "Read the Appendices: At the desk across the partition, Zara tells Milo not to thank anyone until he has read the appendices. He takes it for hazing, but learns there is a contract he was never shown, and that his trainer is not going to be his friend in the way he hoped.",
+    "Best Week of Your Death: Milo pitches a throughput tracker and asks what a great first quarter looks like; Zara answers with one rule, close what is in your queue and open nothing else. He closes his first accounts fast and gladly. When Old Fen mutters that nobody reads the appendices, Milo laughs, still thinking it is all a joke."
+   ],
+   [
+    "The Bell Account: Milo zeroes Halvard Bell's tenure and initials the form, and Bell is sent under by lunch while his desk is cleared before the coffee finishes. When Milo asks where Bell actually goes, Zara tells him to write 'under' and nothing else. That night, without knowing why, he locks the ledger in his drawer.",
+    "Heavy Paper: A memo signed by Edric Thane summons Milo personally. He reads it as a career win; Zara tells him it is not normal and gives him three rules: bring nothing, sign nothing, stand. For the first time Milo is afraid of being noticed.",
+    "The Chair: In the cold corner office the Lich offers a chair, calls Milo's four-minute close 'appetite', and warns that he was retained for not asking questions. Milo stays standing, his first refusal, and comes away knowing that the CEL is watching him personally.",
+    "The Column No One Explained: Milo unlocks the ledger and finds that Bell's tenure was not zeroed but moved. He takes the discrepancy to Zara, and her answer, 'Now you've read an appendix', tells him she has been waiting for exactly this."
+   ],
+   [
+    "After Hours in Reconciliations: Zara shows Milo how to read the unexplained column, and together they pull the restructured accounts that followed Bell's. The discrepancy stops being a one-off error and becomes a pattern that Milo, the analyst, cannot leave unfinished.",
+    "One Account at the Top: Every thread of moved tenure ends in one pooled account at the top of the org chart. Milo realizes the CEL is not a department but Edric Thane, and that the souls sent under are not destroyed but spent to keep him continuing.",
+    "A Hundred Years: Zara admits flatly that she has known for a century, and that what she has lacked is not proof but leverage. Milo understands that her training was recruitment, and that he is the leverage."
+   ],
+   [
+    "Draft Memo to Management: Milo writes a crisp report of the discrepancy, imagining the promotion it could earn him; Zara reads over the partition and says nothing. The temptation takes shape: he could be useful, seen and promoted, just as Edric once was.",
+    "Confetti That Dissolves: At the all-hands graduation, Milo sees Prava weeping silently off the clock and learns of her private ledger of eleven thousand names. He realizes the hope that the souls he sends under are spending has names.",
+    "Content in Records: Milo visits Old Fen, who has filed himself into peace, and then sits in on the Retention team cheerfully talking a wavering soul back onto schedule. He sees two futures, contentment and despair dressed as cheer, and wants neither.",
+    "A Signature Sheet: Milo tears up the memo and asks Zara what she has been building toward. She slides him a signature sheet for a union of the dead and a documented work stoppage, and he signs it, turning from the Lich's path to hers."
+   ],
+   [
+    "Signatures, Department by Department: Milo follows Zara through Records, Retention and Intake as she collects signatures in quiet one-on-ones; even Old Fen signs, carefully, in the correct box. Milo learns that solidarity among the dead is built one soul at a time, on paper.",
+    "Eleven Thousand Names: Prava brings Milo her forbidden private ledger, and its names let him match every harvested account to a soul. The reconciliation becomes complete and human, and Prava risks herself for the first time.",
+    "Restructuring the Account at the Top: Using the Pipeline's own forms, Milo reconciles every soul ever sent under and files the restructuring of Edric Thane's pooled account through Reconciliations, a filing the rules cannot refuse. His gift for clean ledgers finally serves a question rather than avoiding one.",
+    "All-Staff, Completely Honest: Zara sends the all-staff email announcing the work stoppage in plain language, and across the Marrow District the dead stop hoping on schedule. The machine falls quiet, and Milo realizes there is no taking it back."
+   ],
+   [
+    "No One Returns Unchanged: Summoned for his quarterly review, Milo walks to the corner office carrying a single sheet of paper. Zara sends him off with the same rules as before, but this time he is bringing something and asking for a signature.",
+    "A Single Sheet: Milo, still standing, hands Edric Thane his resignation with the reconciliation of every soul attached. The Lich reads it and recognizes the procedurally flawless work of a clerk who was once himself, and Milo watches six centuries of certainty meet a correctly filed contradiction.",
+    "Filed Correctly: Edric, afraid of the onward but bound by the rules he enforced, countersigns, files the restructuring of his own account and goes. Milo sees the clerk in him at the very end and is the only witness to his leaving.",
+    "Plain Language: Back in Reconciliations, Milo sits beside Zara, bored again and knowing the boredom for the wound where his questions used to be, while Aeon issues its first plain-language explanation of what it does. Zara, for once, has company."
+   ]
+  ],
+  "beats": [
+   {
+    "request": "1792255519-0018",
+    "chapter": 1,
+    "beat": "Milo opens his eyes mid-thought in a bright, humming intake atrium, still half-composing a complaint about a meeting, and finds himself seated at a laminate desk across from a smiling caseworker; the strangeness registers less than the familiar comfort of an office.",
+    "movement": {
+     "Milo Voss": [
+      "rolling his chair an inch closer to the partition."
+     ],
+     "Prava": []
+    }
+   },
+   {
+    "request": "1792255533-0019",
+    "chapter": 1,
+    "beat": "The caseworker introduces herself as Prava, reads his name off a form, and slides a laminated org chart toward him; Milo is soothed by her practiced warmth and the reassuring geometry of boxes and lines, even though he cannot find his own box on it.",
+    "movement": {
+     "Milo Voss": [
+      "rolling his chair an inch closer to the partition."
+     ],
+     "Prava": []
+    }
+   },
+   {
+    "request": "1792255549-0020",
+    "chapter": 1,
+    "beat": "Prava explains, in the bright cadence of onboarding, that he has been retained, that his years of optimization make him a strong culture fit, and that he starts Monday in Reconciliations; Milo feels something he has not felt in decades, the dizzy pleasure of being called valuable.",
+    "movement": {
+     "Milo Voss": [
+      "rolling his chair an inch closer to the partition."
+     ],
+     "Prava": []
+    }
+   },
+   {
+    "request": "1792255565-0021",
+    "chapter": 1,
+    "beat": "Before she can phrase it as a question, Milo says yes, and Prava stamps the form with the same smile; as she hands him a lanyard, he notices only in passing that no one ever asked him whether he wanted the job, and decides that this too is a good sign.",
+    "movement": {
+     "Milo Voss": [
+      "rolling his chair an inch closer to the partition."
+     ],
+     "Prava": []
+    }
+   },
+   {
+    "request": "1792255593-0023",
+    "chapter": 1,
+    "beat": "On Monday Milo finds his assigned desk in Reconciliations, a long room the colour of old teeth, lit from nowhere, and sets out his lanyard and a fresh pen with first-day optimism, glad to have a place in the machine.",
+    "movement": {
+     "Milo Voss": [
+      "rolling his chair an inch closer to the partition."
+     ]
+    }
+   },
+   {
+    "request": "1792255608-0024",
+    "chapter": 1,
+    "beat": "Across the low partition a woman works without looking up; a nameplate reads ZARA OKAFOR, and Milo cheerfully introduces himself and thanks her in advance for training him, hoping for the instant rapport of a good desk neighbor.",
+    "movement": {
+     "Milo Voss": [
+      "rolling his chair an inch closer to the partition."
+     ],
+     "Zara Okafor": [
+      "Zara Okafor, at the next desk, did not look up."
+     ]
+    }
+   },
+   {
+    "request": "1792255625-0025",
+    "chapter": 1,
+    "beat": "Without raising her eyes, Zara tells him not to thank her, or anyone, until he has read the appendices to his contract, all of them; Milo laughs, assuming it is the department's hazing ritual, and plays along.",
+    "movement": {
+     "Milo Voss": [
+      "rolling his chair an inch closer to the partition."
+     ],
+     "Zara Okafor": [
+      "Zara Okafor, at the next desk, did not look up."
+     ]
+    }
+   },
+   {
+    "request": "1792255640-0026",
+    "chapter": 1,
+    "beat": "When he admits, still smiling, that he doesn't remember being given a contract, Zara looks at him for exactly one second with flat grey eyes and returns to her screen, and Milo understands two things at once: there is a document he signed without seeing, and his trainer is not going to be his friend the way he hoped.",
+    "movement": {
+     "Milo Voss": [
+      "rolling his chair an inch closer to the partition."
+     ],
+     "Zara Okafor": [
+      "Zara Okafor, at the next desk, did not look up."
+     ]
+    }
+   },
+   {
+    "request": "1792255670-0028",
+    "chapter": 1,
+    "beat": "Recovering his enthusiasm, Milo rolls his chair toward the partition and pitches Zara a shared throughput tracker, asking what a great first quarter looks like; he is trying to win her over with the only currency he has ever had.",
+    "movement": {
+     "Milo Voss": [
+      "rolling his chair an inch closer to the partition."
+     ],
+     "Zara Okafor": [
+      "Zara Okafor, at the next desk, did not look up."
+     ],
+     "Old Fen": []
+    }
+   },
+   {
+    "request": "1792255685-0029",
+    "chapter": 1,
+    "beat": "Zara gives him a single rule, to close what is in his own queue and open nothing that isn't, and answers his tracker story with a deadpan remark about his death that he takes as a joke, though she does not smile.",
+    "movement": {
+     "Milo Voss": [
+      "rolling his chair an inch closer to the partition."
+     ],
+     "Zara Okafor": [
+      "Zara Okafor, at the next desk, did not look up."
+     ],
+     "Old Fen": []
+    }
+   },
+   {
+    "request": "1792255700-0030",
+    "chapter": 1,
+    "beat": "Milo opens his queue and closes his first accounts quickly and neatly, initialling each form in the box he has been shown; the rhythm of the work fills him with the old, clean satisfaction of being good at something, and he does not stop to wonder what the closed accounts mean.",
+    "movement": {
+     "Milo Voss": [
+      "rolling his chair an inch closer to the partition."
+     ],
+     "Old Fen": []
+    }
+   },
+   {
+    "request": "1792255715-0031",
+    "chapter": 1,
+    "beat": "At the coffee station, pouring a cup of gray liquid out of habit, Milo meets a stooped man from Records who introduces himself as Old Fen and, without looking up from the folder he carries, mutters that nobody reads the appendices because that is their purpose; Milo laughs, certain that the whole building is in on the same running joke.",
+    "movement": {
+     "Milo Voss": [
+      "rolling his chair an inch closer to the partition."
+     ],
+     "Old Fen": []
+    }
+   }
+  ],
+  "regrade": {
+   "n": 12,
+   "passed": 12,
+   "rate": 1.0,
+   "failures": [],
+   "ineligible": {},
+   "not_eligible": [],
+   "not_cast": [
+    "Edric Thane"
+   ],
+   "ok": true
+  }
+ },
+ "w8b_empty_store": {
+  "about": "W8b's beat_prose 0022 (Milo and Zara, no voice store ingested): the prompt's CHARACTERS IN THIS BEAT section up to the prior prose, whose header still says \"matching their voice samples\" over blocks with none (W9-5 (a)).",
+  "request": "1792254276-0022",
+  "header": "CHARACTERS IN THIS BEAT — write each one's dialogue in THEIR OWN voice,",
+  "characters_section": "CHARACTERS IN THIS BEAT — write each one's dialogue in THEIR OWN voice,\nmatching their voice samples:\n\n<character>\n### Milo Voss\n</character>\n\n<character>\n### Zara Okafor\n</character>\n\nPhrases only their owner says (no one in this beat may say them):\n<owned>\nEdric Thane: 'Mr. Voss'\n</owned>"
+ },
+ "synthetic": {
+  "about": "Hand-made movement blocks on W8c's inputs (`w8c_movement.store`, `.plan`, signed placement W8c): each is W8c's block 0022 (chapter 1, its BEAT TO WRITE line, Milo shown his one line, Zara none) with a made-up report export `withheld` (the `steps.prose.voice.withheld` shape, tpm-plan-wave9 §1(a)). `expect` is the plan's expected grade (D2, D3, change 9), not a grader's output.",
+  "names_outside_scene": {
+   "about": "Zara's only eligible line (p2) withheld by `names_outside_scene`: starved, the rule named.",
+   "beats": [
+    {
+     "request": "syn-nos-1",
+     "chapter": 1,
+     "beat": "He is seated across a low partition from a woman whose desk plate reads ZARA OKAFOR and who does not look up from her screen; she introduces herself only by telling him she is training him, and Milo, eager to make a good impression, takes her flatness for focus.",
+     "movement": {
+      "Milo Voss": [
+       "rolling his chair an inch closer to the partition."
+      ],
+      "Zara Okafor": []
+     }
+    }
+   ],
+   "withheld": [
+    {
+     "beat": "He is seated across a low partition from a woman whose desk plate reads ZARA OKAFOR and who does not look up from her screen; she introduces herself only by telling him she is training him, and Milo, eager to make a good impression, takes her flatness for focus.",
+     "owner": "Zara Okafor",
+     "lines": [
+      {
+       "text": "Zara Okafor, at the next desk, did not look up.",
+       "rule": "names_outside_scene"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "reason": "Zara Okafor: eligible, withheld (names_outside_scene)"
+   }
+  },
+  "neither": {
+   "about": "No movement line shown and no export row: starved, the plain reason.",
+   "beats": [
+    {
+     "request": "syn-none-1",
+     "chapter": 1,
+     "beat": "He is seated across a low partition from a woman whose desk plate reads ZARA OKAFOR and who does not look up from her screen; she introduces herself only by telling him she is training him, and Milo, eager to make a good impression, takes her flatness for focus.",
+     "movement": {
+      "Milo Voss": [
+       "rolling his chair an inch closer to the partition."
+      ],
+      "Zara Okafor": []
+     }
+    }
+   ],
+   "withheld": [],
+   "expect": {
+    "reason": "Zara Okafor: eligible, no movement line"
+   }
+  },
+  "ambiguous": {
+   "about": "Two beat_prose records with the same BEAT TO WRITE line and one export row for it: the match is ambiguous, so the regrade raises.",
+   "beats": [
+    {
+     "request": "syn-amb-1",
+     "chapter": 1,
+     "beat": "He is seated across a low partition from a woman whose desk plate reads ZARA OKAFOR and who does not look up from her screen; she introduces herself only by telling him she is training him, and Milo, eager to make a good impression, takes her flatness for focus.",
+     "movement": {
+      "Milo Voss": [
+       "rolling his chair an inch closer to the partition."
+      ],
+      "Zara Okafor": []
+     }
+    },
+    {
+     "request": "syn-amb-2",
+     "chapter": 1,
+     "beat": "He is seated across a low partition from a woman whose desk plate reads ZARA OKAFOR and who does not look up from her screen; she introduces herself only by telling him she is training him, and Milo, eager to make a good impression, takes her flatness for focus.",
+     "movement": {
+      "Milo Voss": [
+       "rolling his chair an inch closer to the partition."
+      ],
+      "Zara Okafor": []
+     }
+    }
+   ],
+   "withheld": [
+    {
+     "beat": "He is seated across a low partition from a woman whose desk plate reads ZARA OKAFOR and who does not look up from her screen; she introduces herself only by telling him she is training him, and Milo, eager to make a good impression, takes her flatness for focus.",
+     "owner": "Zara Okafor",
+     "lines": [
+      {
+       "text": "Zara Okafor, at the next desk, did not look up.",
+       "rule": "restates"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "raises": true
+   }
+  },
+  "unmatched": {
+   "about": "An export row whose beat matches no beat_prose record: counted in `movement.unmatched_withheld`, no credit.",
+   "beats": [
+    {
+     "request": "syn-un-1",
+     "chapter": 1,
+     "beat": "He is seated across a low partition from a woman whose desk plate reads ZARA OKAFOR and who does not look up from her screen; she introduces herself only by telling him she is training him, and Milo, eager to make a good impression, takes her flatness for focus.",
+     "movement": {
+      "Milo Voss": [
+       "rolling his chair an inch closer to the partition."
+      ],
+      "Zara Okafor": []
+     }
+    }
+   ],
+   "withheld": [
+    {
+     "beat": "Zara files a form no beat asked for.",
+     "owner": "Zara Okafor",
+     "lines": [
+      {
+       "text": "Zara Okafor, at the next desk, did not look up.",
+       "rule": "restates"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "unmatched_withheld": 1,
+    "reason": "Zara Okafor: eligible, no movement line"
+   }
+  },
+  "restates_elsewhere": {
+   "about": "B-1: p2 recorded `restates` (the product checks the whole book's plan) in a beat whose own line and brief do not carry it: starved, the rule named.",
+   "beats": [
+    {
+     "request": "syn-else-1",
+     "chapter": 1,
+     "beat": "Prava hands Milo a laminated org chart and explains tenure, graduation and his retention as a strong culture fit.",
+     "movement": {
+      "Milo Voss": [
+       "rolling his chair an inch closer to the partition."
+      ],
+      "Zara Okafor": []
+     },
+     "brief": "The Laminated Org Chart: Prava explains tenure and the faint hope of graduation, and Milo nods along."
+    }
+   ],
+   "withheld": [
+    {
+     "beat": "Prava hands Milo a laminated org chart and explains tenure, graduation and his retention as a strong culture fit.",
+     "owner": "Zara Okafor",
+     "lines": [
+      {
+       "text": "Zara Okafor, at the next desk, did not look up.",
+       "rule": "restates"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "reason": "Zara Okafor: eligible, withheld (restates)"
+   }
+  }
+ },
+ "w8c_withheld": [
+  {
+   "beat": "He is seated across a low partition from a woman whose desk plate reads ZARA OKAFOR and who does not look up from her screen; she introduces herself only by telling him she is training him, and Milo, eager to make a good impression, takes her flatness for focus.",
+   "owner": "Zara Okafor",
+   "lines": [
+    {
+     "text": "Zara looked at the column for a long time. Her grey eyes did not change at all.",
+     "rule": "later_plot"
+    },
+    {
+     "text": "Reconciliations was a long room the colour of old teeth, lit from nowhere. Milo's desk faced Zara's across a low partition. Zara Okafor had grey eyes, flat as a filing cabinet, and she turned them on him for exactly one second before she went back to her screen.",
+     "rule": "not_centred"
+    },
+    {
+     "text": "Zara set down her pen.",
+     "rule": "later_plot"
+    },
+    {
+     "text": "Zara Okafor, at the next desk, did not look up.",
+     "rule": "restates"
+    }
+   ]
+  },
+  {
+   "beat": "Zara trains him in short imperatives without explanation, open the queue, check the balance, initial here, file it, while Milo peppers her with hedged questions about dashboards, best practice and ramp-up, each answered in a word or not at all, and he finds the rhythm oddly companionable.",
+   "owner": "Zara Okafor",
+   "lines": [
+    {
+     "text": "Zara looked at the column for a long time. Her grey eyes did not change at all.",
+     "rule": "later_plot"
+    },
+    {
+     "text": "Reconciliations was a long room the colour of old teeth, lit from nowhere. Milo's desk faced Zara's across a low partition. Zara Okafor had grey eyes, flat as a filing cabinet, and she turned them on him for exactly one second before she went back to her screen.",
+     "rule": "not_centred"
+    },
+    {
+     "text": "Zara set down her pen.",
+     "rule": "later_plot"
+    },
+    {
+     "text": "Zara Okafor, at the next desk, did not look up.",
+     "rule": "restates"
+    }
+   ]
+  },
+  {
+   "beat": "When he asks whether it is always this quiet she gives him a dry, deadpan reply that he laughs at as if they are already sharing jokes, though she does not smile, and he decides she simply has a very understated sense of humour.",
+   "owner": "Zara Okafor",
+   "lines": [
+    {
+     "text": "Zara looked at the column for a long time. Her grey eyes did not change at all.",
+     "rule": "later_plot"
+    },
+    {
+     "text": "Reconciliations was a long room the colour of old teeth, lit from nowhere. Milo's desk faced Zara's across a low partition. Zara Okafor had grey eyes, flat as a filing cabinet, and she turned them on him for exactly one second before she went back to her screen.",
+     "rule": "not_centred"
+    },
+    {
+     "text": "Zara set down her pen.",
+     "rule": "later_plot"
+    },
+    {
+     "text": "Zara Okafor, at the next desk, did not look up.",
+     "rule": "restates"
+    }
+   ]
+  },
+  {
+   "beat": "At the end of the shift, with no clock to mark it, Zara tells him to come back tomorrow without looking up, and Milo walks out of Reconciliations certain he has found a mentor and, for the first time in a long while, a place where he belongs.",
+   "owner": "Zara Okafor",
+   "lines": [
+    {
+     "text": "Zara looked at the column for a long time. Her grey eyes did not change at all.",
+     "rule": "later_plot"
+    },
+    {
+     "text": "Reconciliations was a long room the colour of old teeth, lit from nowhere. Milo's desk faced Zara's across a low partition. Zara Okafor had grey eyes, flat as a filing cabinet, and she turned them on him for exactly one second before she went back to her screen.",
+     "rule": "not_centred"
+    },
+    {
+     "text": "Zara set down her pen.",
+     "rule": "later_plot"
+    },
+    {
+     "text": "Zara Okafor, at the next desk, did not look up.",
+     "rule": "restates"
+    }
+   ]
+  }
+ ]
+}

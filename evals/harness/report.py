@@ -50,6 +50,7 @@ def scorecard(run: dict) -> str:
             if run["judge"].get("mixed")
             else ""
         ),
+        f"run={run.get('run') or 'undeclared'}  relogin={run.get('relogin', 0)}",
         "-" * 64,
     ]
     for name, res in run["steps"].items():
@@ -116,6 +117,16 @@ def scorecard(run: dict) -> str:
             f" ±{std:.3f} (n={res.get('repeats')})" if std is not None else ""
         )
         lines.append(f"  {name:14s}  {score_str}   {extra}")
+    move = (run["steps"].get("prompt_contract") or {}).get("movement") or {}
+    if "per_principal" in move:  # W9-1 (d): one line, from the gate's tallies
+        lines.append(
+            "  movement shown/carried/starved: "
+            + "; ".join(
+                f"{n} {t['shown']}/{t['carried']}/{t['starved']}"
+                for n, t in move["per_principal"].items()
+            )
+            + f"; unmatched withheld {move['unmatched_withheld']}"
+        )
     return "\n".join(lines)
 
 

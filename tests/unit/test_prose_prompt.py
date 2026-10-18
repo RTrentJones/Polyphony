@@ -15,8 +15,10 @@ from pathlib import Path
 import pytest
 
 from app.core.llm_text import as_quoted_block
+from app.core.prompt_markers import VOICE_SAMPLES_LABEL
 from app.orchestration import prose as prose_module
 from app.orchestration.pov import NAMING_RULE, Pov, pov_instruction
+from app.orchestration.revise import build_revise_prompt
 from app.orchestration.prose import (
     GENERIC_CRAFT_GUIDANCE,
     PREV_TAIL_WORDS,
@@ -257,6 +259,23 @@ class TestBeatPrompt:
         await _write(_BEATS[0])
         pov = pov_instruction(Pov("first person"))
         assert f"{pov}\n{NAMING_RULE}\n" in fake.prompts[0]
+
+
+@pytest.mark.parametrize("voiced", [False, True])
+async def test_the_voice_header_claims_samples_only_when_shown(fake, voiced):
+    """(F) SPEC-70: W8b's empty store, canon clause; (R) a sample, W8b's header."""
+    fixture = Path(__file__).parents[1] / "fixtures/w8_archives.json"
+    section = json.loads(fixture.read_text())["w8b_empty_store"]["characters_section"]
+    head, cast = section.split("\nmatching their voice samples:\n\n")
+    if voiced:
+        cast = cast.replace("Okafor\n", f"Okafor\n{VOICE_SAMPLES_LABEL}\n")
+    clause = "matching their voice samples" if voiced else "as the canon describes it"
+    kw = dict(pov=Pov("first person"), story_position=None, secondary_block="")
+    await write_beat_prose(_BEATS[0], _REQUEST, cast, "", **kw)
+    assert f"{head}\n{clause}:\n\n{cast}\n\n" in fake.prompts[0]
+    args = dict(canon_block="", chapter_summary="", prior="", after="", target="")
+    revise = build_revise_prompt(**args, **kw, cast_context=cast, instruction="")
+    assert f"THEIR OWN voice, {clause}:\n\n{cast}\n" in revise
 
 
 def test_scene_name_warnings_on_the_archived_scenes():

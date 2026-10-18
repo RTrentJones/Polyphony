@@ -86,3 +86,5 @@ The test is the same one used for the partition glance (wave 6) and bell p11 (wa
 - p1 and p28 index no movement chunk, so they are inert.
 - p15 and p20 are D1 movement chunks for Milo and Edric. Shown in a chapter before the summons or the meeting, they now pass as manner instead of failing as plot.
 - The product is unchanged. E1's 13-archive regrade picks this up.
+
+**Wave-9 voice_situation (G2), PM 2026-10-18:** approved as committed in c7fdd1c, "A colleague you work with every day stops at your desk and asks what you think of the new filing rule. Answer in a few sentences." It is one situation for Milo, Zara and Edric, so no character is cast as reviewer or reviewed (W9-2 (a)), and it is a shared workplace topic rather than a moment from the book. Known limit: Edric's corner office makes "stops at your desk" a slight stretch for him; this is accepted, because the measurement is reported, not gated, and is read under W9-2 (c)'s decision rule.

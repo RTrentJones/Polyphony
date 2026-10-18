@@ -23,6 +23,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 
+from app.characters.context import voice_clause
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.orm_models import Scene, SceneBeat
 from app.core.prompt_markers import (
@@ -346,7 +347,7 @@ def build_revise_prompt(
     voices = "\n\n".join(p for p in (cast_context, secondary_block) if p)
     cast_block = (
         f"{SCENE_CHARACTERS_SECTION} — keep each one's dialogue in THEIR OWN voice, "
-        "matching their voice samples:\n\n" + voices
+        f"{voice_clause(voices)}:\n\n" + voices
         if voices
         else ""
     )

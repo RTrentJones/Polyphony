@@ -565,13 +565,13 @@ class TestHistory:
             *("W7", "W7b", "W7r", "W7br"),
         ]
         assert lines[-2] == report.ACT_RULE
-        # (F) W8-2 (c): attribution pooled over W7, W7r and W8r, with its
-        # interval; the tighten act rule fires on both wave-7 pairs only.
+        # (F) W8-2 (c): attribution pooled over W7, W7r, W8r and W9, with its
+        # interval; tighten fires on both wave-7 pairs, R2 on wave 9.
         assert lines[-3] == (
-            "Attribution pooled from W7 (Wilson 95%): Milo 9/16 (0.33, 0.77); "
-            "Zara 9/16 (0.33, 0.77); Edric 6/16 (0.18, 0.61)"
+            "Attribution pooled from W7 (Wilson 95%): Milo 14/26 (0.35, 0.71); "
+            "Zara 14/26 (0.35, 0.71); Edric 7/26 (0.14, 0.46)"
         )
-        assert lines[-1].endswith("tighten RA (7), tighten RA (7r)")
+        assert lines[-1].endswith("tighten RA (7), tighten RA (7r), R2 mean (9)")
 
     def test_the_act_rule_fires_only_on_both_draws_of_a_pair(self, tmp_path):
         from evals.harness import report
@@ -585,3 +585,26 @@ class TestHistory:
         ]
         (path := tmp_path / "h.csv").write_text("\n".join(rows) + "\n")
         assert report.history(path).splitlines()[-1] == "Fires on: untouched_share (7)"
+
+
+def _vec(text):  # a fake embedder: the same text, the same vector
+    return [float(len(text)), 1.0]
+
+
+def test_masking_hides_each_name_form_but_not_the_word_chief():
+    forms = {"Milo Voss": ["Milo Voss", "Milo"], "Zara Okafor": ["Zara Okafor"]}
+    forms["Edric Thane"] = ["Edric Thane", "Chief Executive Lich"]
+    voss, zara = (
+        attribution.mask(t, forms) for t in ("Mr. Voss, do sit.", "Zara, do sit.")
+    )
+    assert voss == zara == "⟨NAME⟩, do sit."  # (F) W9-2 (b), honorific included
+    refs = {"Milo Voss": [_vec("x")], "Zara Okafor": [_vec("a longer line")]}
+    # (F) a line differing only by its vocative classifies identically.
+    assert attribution.attribute(
+        "Milo Voss", _vec(voss), refs
+    ) == attribution.attribute("Milo Voss", _vec(zara), refs)
+    # (R) "chief" is no name, and a title alias is masked whole, never by token.
+    line = "The chief signs. Chief Executive Lich waits. Chief Okafor?"
+    assert (
+        attribution.mask(line, forms) == "The chief signs. ⟨NAME⟩ waits. Chief ⟨NAME⟩?"
+    )
