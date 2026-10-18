@@ -704,6 +704,38 @@
     "unmatched_withheld": 1,
     "reason": "Zara Okafor: eligible, no movement line"
    }
+  },
+  "restates_elsewhere": {
+   "about": "B-1: p2 recorded `restates` (the product checks the whole book's plan) in a beat whose own line and brief do not carry it: starved, the rule named.",
+   "beats": [
+    {
+     "request": "syn-else-1",
+     "chapter": 1,
+     "beat": "Prava hands Milo a laminated org chart and explains tenure, graduation and his retention as a strong culture fit.",
+     "movement": {
+      "Milo Voss": [
+       "rolling his chair an inch closer to the partition."
+      ],
+      "Zara Okafor": []
+     },
+     "brief": "The Laminated Org Chart: Prava explains tenure and the faint hope of graduation, and Milo nods along."
+    }
+   ],
+   "withheld": [
+    {
+     "beat": "Prava hands Milo a laminated org chart and explains tenure, graduation and his retention as a strong culture fit.",
+     "owner": "Zara Okafor",
+     "lines": [
+      {
+       "text": "Zara Okafor, at the next desk, did not look up.",
+       "rule": "restates"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "reason": "Zara Okafor: eligible, withheld (restates)"
+   }
   }
  },
  "w8c_withheld": [

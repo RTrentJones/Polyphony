@@ -8,10 +8,10 @@
   `movement.unmatched_withheld`. Credit is never inferred: no row, no credit.
 - **Carried (c).** An eligible block of owner O with no line shown is `carried` when the matched row holds **every**
   grader-eligible store line of O (a line `plot.only_plot` does not call plot here) with the product's "restates the plan"
-  rule, and none of those lines is in an event's `narrated` list. The grader reads the record; it re-runs no product rule.
-- **Gate.** (i) every principal cast in a chapter-1 block has a block shown or carried; (ii) ≥ 0.8 of the remaining
-  (not carried) eligible blocks move. All carried: `rate` null, `all_carried` true, (i) decides. n = 0 and nothing carried
-  fails. `ok` is this gate.
+  rule, and none of those lines is in an event's `narrated` list. Carried also needs the line's stemmed content to be at
+  least half in this prompt's beat line and brief (`CARRIED_SHARE`, B-1), because `restates` runs over the whole book's plan.
+- **Gate (`ok`).** (i) each principal cast in a chapter-1 block has a block shown or carried; (ii) ≥ 0.8 of the remaining
+  eligible blocks move. All carried: `rate` null, `all_carried` true, (i) decides. n = 0 with nothing carried fails.
 - **Reasons (d).** A starved block reads "O: eligible, withheld (<rule>)" when the row holds an eligible line, else "O: eligible,
   no movement line". `movement.per_principal` = `{name: {shown, carried, starved}}`; the scorecard prints it on one line.
 - **W8c chain (D10).** E2's product test writes `w8c_withheld`; read as the export, Zara's four blocks are carried, `ok` true.

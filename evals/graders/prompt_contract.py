@@ -136,6 +136,7 @@ GENERIC_CRAFT_MARKERS = (
 )
 
 _MAX_FAILURES = 12  # per check, in the report
+CARRIED_SHARE = 0.5  # B-1: `restates` runs over the whole book's plan
 
 
 # --- archive -------------------------------------------------------------------
@@ -776,10 +777,10 @@ def check_movement_in_scene(
     return reasons, [(o, len(ls)) for o, ls in blocks]
 
 
-def _block(owner, n, lines, rules, chapter, pg, placed) -> tuple[str, str | None]:
-    """D2/D3 (wave 9): an eligible block is shown, carried (no line shown, and
-    the export holds every eligible store line, none narrated, withheld for
-    the plan already carrying it) or starved, with the product's rule named."""
+def _block(owner, n, lines, rules, ref, chapter, pg, placed) -> tuple:
+    """D2/D3 (wave 9): an eligible block is shown, carried (no line shown; the
+    export holds every eligible store line, none narrated, withheld for a plan
+    `ref` (this beat and brief) carries, B-1) or starved, the rule named."""
     if n:
         return "shown", None
     eligible = [ln for ln in lines if not plot.only_plot([ln], chapter, pg, placed)]
@@ -789,6 +790,7 @@ def _block(owner, n, lines, rules, chapter, pg, placed) -> tuple[str, str | None
         rules
         and not told
         and all(rules.get(ln) == WITHHELD_RULES[-1] for ln in eligible)
+        and all(content_share(ln, ref) >= CARRIED_SHARE for ln in eligible)
     ):
         return "carried", None
     named = sorted({rules[ln] for ln in eligible if ln in (rules or {})})
@@ -1254,6 +1256,7 @@ def grade(
                         n,
                         lines,
                         held.get((rec.get("id"), owner)),
+                        beat_ref(prompt),
                         chapter,
                         pg,
                         placed,

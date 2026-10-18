@@ -16,6 +16,7 @@ from app.core.prompt_markers import (
     MOVEMENT_LABEL,
     OUTLINE_CHAPTERS_HEADER,
     SCENE_CHARACTERS_SECTION,
+    SCENE_DESCRIPTION_LABEL,
     TIGHTEN_CLAUSE,
     VOICE_SAMPLES_LABEL,
 )
@@ -937,6 +938,7 @@ def _w9_regrade(tmp_path, fx, run, beats=None, withheld=None, drop=()):
     for i, b in enumerate(beats or fx["beats"]):
         blocks = {w: ([], ms) for w, ms in b["movement"].items() if w not in drop}
         prompt = f"{_beat(b['chapter'], blocks)}{BEAT_TO_WRITE_LABEL}: {b['beat']}\n"
+        prompt += f"{SCENE_DESCRIPTION_LABEL}: {b.get('brief', fx.get('brief'))}\n"
         _write(answered, _rec(b["request"], "beat_prose", prompt, created=1.0 + i))
     voice = {"movement": fx["store"], "withheld": withheld}
     doc = {"book": "cel", "steps": {"prose": {"voice": voice}}}
