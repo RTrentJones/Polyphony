@@ -88,3 +88,7 @@ The test is the same one used for the partition glance (wave 6) and bell p11 (wa
 - The product is unchanged. E1's 13-archive regrade picks this up.
 
 **Wave-9 voice_situation (G2), PM 2026-10-18:** approved as committed in c7fdd1c, "A colleague you work with every day stops at your desk and asks what you think of the new filing rule. Answer in a few sentences." It is one situation for Milo, Zara and Edric, so no character is cast as reviewer or reviewed (W9-2 (a)), and it is a shared workplace topic rather than a moment from the book. Known limit: Edric's corner office makes "stops at your desk" a slight stretch for him; this is accepted, because the measurement is reported, not gated, and is read under W9-2 (c)'s decision rule.
+
+**Wave-10 source_facts (PM, 2026-10-18):** approved with the fact text "Halvard Bell is sent under: his account is closed and his desk is cleared" (paragraph 9, id `bell_sent_under`). The day-0 text's "in chapter one" was removed, because the source excerpt carries no chapter number and the outlines place the Bell account in chapter 1 or 2. `source_fact_hits` reads "Bell alive later" from the signed placements, not from a chapter in the fact.
+
+**Wave-10 voice_situation (PM, 2026-10-18):** approved as committed in 59dd168. The only change from the wave-9 text is the ending "Answer in one to three sentences.", the single length limit from W10-2 (b), which now matches the probe template. The situation itself is unchanged, so the run-W9a2 baseline stays comparable apart from the length limit.
