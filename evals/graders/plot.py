@@ -245,7 +245,7 @@ def main(argv: list[str] | None = None) -> None:
     with its own movement store (`regrade`)."""
     import argparse
 
-    from evals.graders.prompt_contract import load_archive
+    from evals.graders.prompt_contract import load_archive, purpose
 
     ap = argparse.ArgumentParser(description=main.__doc__)
     ap.add_argument("command", choices=["draft", "regrade"])
@@ -259,6 +259,8 @@ def main(argv: list[str] | None = None) -> None:
     corpus = Path(__file__).resolve().parent.parent / "corpora" / args.book
     gt = json.loads((corpus / "ground_truth.json").read_text(encoding="utf-8"))
     records = load_archive(args.archive)
+    if not any(purpose(r) == "outline:beats" for r in records):  # SPEC-68
+        raise SystemExit(f"no outline:beats records in {args.archive}")
     cells = draft_placements(gt["excerpt_events"], outline_chapters(records))
     doc = {"run": args.run, "outline_hash": outline_hash(records)}
     doc |= {"signed_by": None, "signed_at": None, "placements": cells}

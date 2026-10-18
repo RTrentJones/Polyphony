@@ -29,6 +29,9 @@ class PolyphonyClient:
         )
         self._token: str | None = None
         self.user_email: str | None = None
+        # The eval user's login, in memory only: a 401 logs in again (SPEC-68).
+        self._login_as: tuple[str, str] | None = None
+        self.relogins = 0
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -74,10 +77,21 @@ class PolyphonyClient:
             raise EvalClientError(f"register failed ({r.status_code}): {r.text[:400]}")
         self._token = r.json()["access_token"]
         self.user_email = email
+        self._login_as = (email, password)
         return email
 
     # -- low-level ----------------------------------------------------------
     async def _send(self, call, path: str, **kw) -> httpx.Response:
+        # A run outlives the app's 30-minute access token: on a 401 log in
+        # again, once, and retry once (SPEC-68). The report counts `relogin`.
+        r = await self._paced(call, path, **kw)
+        if r.status_code == 401 and self._login_as:
+            self._token = await self._login(*self._login_as)
+            self.relogins += 1
+            r = await self._paced(call, path, **kw)
+        return r
+
+    async def _paced(self, call, path: str, **kw) -> httpx.Response:
         # Honour the app's own rate limits (SPEC-05): on a 429 wait Retry-After
         # and try again, like the UI does, instead of failing the run.
         for _ in range(3):
@@ -98,7 +112,7 @@ class PolyphonyClient:
         return await self._send(self._http.get, path, **kw)
 
     async def _put(self, path: str, **kw) -> httpx.Response:
-        return await self._http.put(path, headers=self._auth(), **kw)
+        return await self._send(self._http.put, path, **kw)
 
     async def poll(self, path: str, done, *, timeout: float = 300, interval: float = 3):
         """Poll GET `path` until `done(json)` is truthy; returns that json.
