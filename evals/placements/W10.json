@@ -1,0 +1,46 @@
+{
+  "run": "W10",
+  "outline_hash": "6f783fac48af9dcf3a20876d5e92170d9dc733f280a79b647414e6c5b4139ba5",
+  "signed_by": "PM",
+  "signed_at": "2026-10-18T19:12:32Z",
+  "placements": {
+    "intake": {
+      "chapter": 1,
+      "line": "The Laminated Org Chart: Prava slides a laminated org chart across a laminate desk and tells Milo he has been retained as a strong culture fit; Milo, who died mid-sentence complaining about a meeting, feels seen and useful for the first time in decades and accepts before anyone offers him a choice, and Zara Okafor, at the next desk, tells him not to thank anyone until he has read the appendices."
+    },
+    "training": {
+      "chapter": null,
+      "line": null
+    },
+    "partition": {
+      "chapter": 1,
+      "line": "Desk Facing the Partition: In the long Reconciliations room the colour of old teeth, Milo fires corporate questions at Zara about first-quarter expectations and throughput trackers; she answers only 'Close the accounts in your queue. Don't open the ones that aren't,' and Milo learns that her flatness is the whole of the training he will get."
+    },
+    "bell": {
+      "chapter": 2,
+      "line": "The Bell Account: Halvard Bell, a former dentist with ninety years in Retention, comes through Milo's queue restructured that morning; Milo zeroes him in under four minutes, sees Facilities clear his desk before the coffee finishes dispensing, and asks Zara where Bell actually goes, receiving only 'He goes under. Write that on the form. Nothing else.' That night, unasked, Milo locks the ledger in his drawer."
+    },
+    "drawer": {
+      "chapter": 2,
+      "line": "The Bell Account: Halvard Bell, a former dentist with ninety years in Retention, comes through Milo's queue restructured that morning; Milo zeroes him in under four minutes, sees Facilities clear his desk before the coffee finishes dispensing, and asks Zara where Bell actually goes, receiving only 'He goes under. Write that on the form. Nothing else.' That night, unasked, Milo locks the ledger in his drawer."
+    },
+    "summons": {
+      "chapter": 2,
+      "line": "Paper With Its Own Gravity: A memo on impossibly heavy paper, signed Edric Thane, Chief Executive, summons Milo; he reads it as a career win, but Zara tells him it is not normal and gives him three rules: bring nothing, sign nothing, and if offered a chair, stand."
+    },
+    "corner office": {
+      "chapter": 2,
+      "line": "Do Sit: In the library-cold corner office Edric Thane, hands folded on a closed ledger, invites Milo to sit; Milo, surprising himself, stays standing, and Edric tells him that four minutes is not diligence but appetite, that he once had the same appetite, and that Milo was retained for not asking questions, which is not the reason he will be kept."
+    },
+    "discrepancy": {
+      "chapter": 2,
+      "line": "A Column No One Explained: Back at his desk Milo unlocks the drawer and finds, in an unexplained column beneath his own entry, that Bell's tenure was never zeroed but moved; he brings it to Zara as a 'discrepancy', and she studies it, tells him he has now read an appendix, and tells him to sit down because they have a great deal of paperwork to do."
+    }
+  },
+  "source_facts": {
+    "bell_sent_under": {
+      "contradicted": false,
+      "line": null
+    }
+  }
+}
