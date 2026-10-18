@@ -705,5 +705,95 @@
     "reason": "Zara Okafor: eligible, no movement line"
    }
   }
- }
+ },
+ "w8c_withheld": [
+  {
+   "beat": "He is seated across a low partition from a woman whose desk plate reads ZARA OKAFOR and who does not look up from her screen; she introduces herself only by telling him she is training him, and Milo, eager to make a good impression, takes her flatness for focus.",
+   "owner": "Zara Okafor",
+   "lines": [
+    {
+     "text": "Zara looked at the column for a long time. Her grey eyes did not change at all.",
+     "rule": "later_plot"
+    },
+    {
+     "text": "Reconciliations was a long room the colour of old teeth, lit from nowhere. Milo's desk faced Zara's across a low partition. Zara Okafor had grey eyes, flat as a filing cabinet, and she turned them on him for exactly one second before she went back to her screen.",
+     "rule": "not_centred"
+    },
+    {
+     "text": "Zara set down her pen.",
+     "rule": "later_plot"
+    },
+    {
+     "text": "Zara Okafor, at the next desk, did not look up.",
+     "rule": "restates"
+    }
+   ]
+  },
+  {
+   "beat": "Zara trains him in short imperatives without explanation, open the queue, check the balance, initial here, file it, while Milo peppers her with hedged questions about dashboards, best practice and ramp-up, each answered in a word or not at all, and he finds the rhythm oddly companionable.",
+   "owner": "Zara Okafor",
+   "lines": [
+    {
+     "text": "Zara looked at the column for a long time. Her grey eyes did not change at all.",
+     "rule": "later_plot"
+    },
+    {
+     "text": "Reconciliations was a long room the colour of old teeth, lit from nowhere. Milo's desk faced Zara's across a low partition. Zara Okafor had grey eyes, flat as a filing cabinet, and she turned them on him for exactly one second before she went back to her screen.",
+     "rule": "not_centred"
+    },
+    {
+     "text": "Zara set down her pen.",
+     "rule": "later_plot"
+    },
+    {
+     "text": "Zara Okafor, at the next desk, did not look up.",
+     "rule": "restates"
+    }
+   ]
+  },
+  {
+   "beat": "When he asks whether it is always this quiet she gives him a dry, deadpan reply that he laughs at as if they are already sharing jokes, though she does not smile, and he decides she simply has a very understated sense of humour.",
+   "owner": "Zara Okafor",
+   "lines": [
+    {
+     "text": "Zara looked at the column for a long time. Her grey eyes did not change at all.",
+     "rule": "later_plot"
+    },
+    {
+     "text": "Reconciliations was a long room the colour of old teeth, lit from nowhere. Milo's desk faced Zara's across a low partition. Zara Okafor had grey eyes, flat as a filing cabinet, and she turned them on him for exactly one second before she went back to her screen.",
+     "rule": "not_centred"
+    },
+    {
+     "text": "Zara set down her pen.",
+     "rule": "later_plot"
+    },
+    {
+     "text": "Zara Okafor, at the next desk, did not look up.",
+     "rule": "restates"
+    }
+   ]
+  },
+  {
+   "beat": "At the end of the shift, with no clock to mark it, Zara tells him to come back tomorrow without looking up, and Milo walks out of Reconciliations certain he has found a mentor and, for the first time in a long while, a place where he belongs.",
+   "owner": "Zara Okafor",
+   "lines": [
+    {
+     "text": "Zara looked at the column for a long time. Her grey eyes did not change at all.",
+     "rule": "later_plot"
+    },
+    {
+     "text": "Reconciliations was a long room the colour of old teeth, lit from nowhere. Milo's desk faced Zara's across a low partition. Zara Okafor had grey eyes, flat as a filing cabinet, and she turned them on him for exactly one second before she went back to her screen.",
+     "rule": "not_centred"
+    },
+    {
+     "text": "Zara set down her pen.",
+     "rule": "later_plot"
+    },
+    {
+     "text": "Zara Okafor, at the next desk, did not look up.",
+     "rule": "restates"
+    }
+   ]
+  }
+ ]
 }
