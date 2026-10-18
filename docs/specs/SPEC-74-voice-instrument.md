@@ -17,3 +17,5 @@
   principal at 0/4 is unvalidated, and at 3/4 it validates; (R) the score and the answers' accuracy are recorded either
   way. `test_dialogue_probe.py`: (F) the probe prompt's two length phrases are both "one to three sentences"; (R) the
   SPEC-55 rows are unchanged.
+- **Note (principal F3).** W9a2 answers vs train refs 22/30, 0/30 lifted; wave 9's 11/30 used test-line refs; the
+  leave-one-out failure is reported, and validation is redesigned in wave 11.

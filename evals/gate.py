@@ -76,14 +76,9 @@ def exercised(reports: list[dict]) -> list[str]:
 
 def main(argv: list[str]) -> int:
     if argv[:1] == ["exercised"]:
-        reports = []
-        for path in argv[1:]:
-            with open(path, encoding="utf-8") as f:
-                reports.append(json.load(f))
-        failures = exercised(reports)
-        for f in failures:
-            print(f"::error::eval gate: {f}")
-        return 1 if failures or not reports else 0
+        failures = exercised([json.load(open(p, encoding="utf-8")) for p in argv[1:]])
+        print(*(f"::error::eval gate: {f}" for f in failures), sep="\n")
+        return int(bool(failures) or len(argv) < 3)
     if len(argv) < 2:
         print(__doc__)
         return 2
