@@ -585,3 +585,26 @@ class TestHistory:
         ]
         (path := tmp_path / "h.csv").write_text("\n".join(rows) + "\n")
         assert report.history(path).splitlines()[-1] == "Fires on: untouched_share (7)"
+
+
+def _vec(text):  # a fake embedder: the same text, the same vector
+    return [float(len(text)), 1.0]
+
+
+def test_masking_hides_each_name_form_but_not_the_word_chief():
+    forms = {"Milo Voss": ["Milo Voss", "Milo"], "Zara Okafor": ["Zara Okafor"]}
+    forms["Edric Thane"] = ["Edric Thane", "Chief Executive Lich"]
+    voss, zara = (
+        attribution.mask(t, forms) for t in ("Mr. Voss, do sit.", "Zara, do sit.")
+    )
+    assert voss == zara == "⟨NAME⟩, do sit."  # (F) W9-2 (b), honorific included
+    refs = {"Milo Voss": [_vec("x")], "Zara Okafor": [_vec("a longer line")]}
+    # (F) a line differing only by its vocative classifies identically.
+    assert attribution.attribute(
+        "Milo Voss", _vec(voss), refs
+    ) == attribution.attribute("Milo Voss", _vec(zara), refs)
+    # (R) "chief" is no name, and a title alias is masked whole, never by token.
+    line = "The chief signs. Chief Executive Lich waits. Chief Okafor?"
+    assert (
+        attribution.mask(line, forms) == "The chief signs. ⟨NAME⟩ waits. Chief ⟨NAME⟩?"
+    )

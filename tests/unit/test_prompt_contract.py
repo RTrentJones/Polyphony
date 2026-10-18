@@ -21,6 +21,7 @@ from app.core.prompt_markers import (
 )
 from app.llm.json_utils import JSON_OBJECT
 from evals.graders import plot
+from evals.harness.report import scorecard
 from evals.graders import prompt_contract as pc
 from evals.steps import pipeline
 
@@ -592,6 +593,9 @@ def _plan_record(plan: list[list[str]]) -> dict:
     return _rec("o", "outline:beats", prompt, json.dumps(chapters), created=0.0)
 
 
+IDLE = {p["name"]: {"shown": 0, "carried": 0, "starved": 0} for p in PRINCIPALS}
+
+
 def test_movement_lists_every_ineligible_principal_on_the_w5_stores(tmp_path):
     """(F) D3a on W5d's and W5bd's stores and plans: in chapter 1 every store
     line is gold plot or past the gold tail, so no principal is eligible. Each
@@ -614,6 +618,7 @@ def test_movement_lists_every_ineligible_principal_on_the_w5_stores(tmp_path):
             **{"n": 0, "passed": 0, "rate": None, "failures": []},
             **{"ineligible": row["ineligible"], "ok": False, "not_cast": []},
             "not_eligible": sorted(row["store"]),
+            **{"unmatched_withheld": 0, "all_carried": False, "per_principal": IDLE},
         }
 
 
@@ -915,3 +920,80 @@ def test_movement_ok_is_the_gate(tmp_path, monkeypatch):
         9,
         ["Edric Thane"],
     )
+
+
+# --- wave 9: the withheld record (tpm-plan-wave9 D2, D3, D10; SPEC-69) -----------
+
+W8 = json.loads(
+    (Path(__file__).parents[1] / "fixtures" / "w8_archives.json").read_text()
+)
+
+
+def _w9_regrade(tmp_path, fx, run, beats=None, withheld=None, drop=()):
+    """`fx`'s inputs as a run dir (its signed placement `run`), regraded."""
+    answered = tmp_path / "answered-archive" / "model" / "answered"
+    answered.mkdir(parents=True)
+    _write(answered, _plan_record(fx["plan"]))
+    for i, b in enumerate(beats or fx["beats"]):
+        blocks = {w: ([], ms) for w, ms in b["movement"].items() if w not in drop}
+        prompt = f"{_beat(b['chapter'], blocks)}{BEAT_TO_WRITE_LABEL}: {b['beat']}\n"
+        _write(answered, _rec(b["request"], "beat_prose", prompt, created=1.0 + i))
+    voice = {"movement": fx["store"], "withheld": withheld}
+    doc = {"book": "cel", "steps": {"prose": {"voice": voice}}}
+    (tmp_path / "eval-report-cel.json").write_text(json.dumps(doc))
+    signed = Path(pc.__file__).parents[1] / "placements" / f"{run}.json"
+    (plot.PLACEMENTS / f"{run}.json").write_text(signed.read_text())
+    return plot.regrade(tmp_path)["movement"]
+
+
+def test_the_w8c_chain_closes_on_the_products_record(tmp_path):
+    """(F) D10: E2's product output, read as the run's export, carries Zara's
+    four blocks by the plan; she passes and `ok` is the gate."""
+    move = _w9_regrade(tmp_path, W8["w8c_movement"], "W8c", None, W8["w8c_withheld"])
+    want = {"n": 4, "passed": 4, "ok": True, "all_carried": False}
+    assert {k: move[k] for k in want} == want
+    assert move["per_principal"] == {
+        "Milo Voss": {"shown": 4, "carried": 0, "starved": 0},
+        "Zara Okafor": {"shown": 0, "carried": 4, "starved": 0},
+        "Edric Thane": {"shown": 0, "carried": 0, "starved": 0},
+    }
+    run = {"book": "cel", "judge": {"provider": "r", "self": 0}, "steps": {}}
+    run["steps"]["prompt_contract"] = {"score": 1.0, "movement": move}
+    assert "Zara Okafor 0/4/0; Edric Thane 0/0/0; unmatched withheld 0" in scorecard(
+        run
+    )
+
+
+def test_all_carried_leaves_coverage_null_and_the_cast_rule_decides(tmp_path):
+    """(F) D2: with Milo's blocks dropped every eligible block is carried."""
+    fx = W8["w8c_movement"]
+    move = _w9_regrade(tmp_path, fx, "W8c", None, W8["w8c_withheld"], ["Milo Voss"])
+    want = {"n": 0, "rate": None, "all_carried": True, "ok": True}
+    assert {k: move[k] for k in want} == want
+
+
+@pytest.mark.parametrize("case", sorted(set(W8["synthetic"]) - {"about"}))
+def test_the_synthetic_movement_rows_grade_to_their_expect(tmp_path, case):
+    """(F) D3 and change 9: a named rule, the plain reason, an ambiguous
+    match (raises) and an unmatched row (counted, no credit)."""
+    row, fx = W8["synthetic"][case], W8["w8c_movement"]
+    regrade = lambda: _w9_regrade(  # noqa: E731
+        tmp_path, fx, "W8c", row["beats"], row["withheld"]
+    )
+    if row["expect"].get("raises"):
+        with pytest.raises(ValueError, match="matches 2 beats"):
+            regrade()
+        return
+    move = regrade()
+    assert move["failures"][0]["reasons"] == [row["expect"]["reason"]]
+    assert move["unmatched_withheld"] == row["expect"].get("unmatched_withheld", 0)
+
+
+@pytest.mark.parametrize("run", ["W7br", "W8r"])
+def test_shown_movement_still_passes(tmp_path, run):
+    """(R) W7br's shown p2, and W8r's gated regrade 12/12 with no export."""
+    fx = W8["w7br_shown" if run == "W7br" else "w8r_movement"]
+    move = _w9_regrade(tmp_path, fx, run)
+    assert move["ok"] is True and move["per_principal"]["Zara Okafor"]["shown"]
+    if run == "W8r":
+        assert {k: move[k] for k in fx["regrade"]} == fx["regrade"]

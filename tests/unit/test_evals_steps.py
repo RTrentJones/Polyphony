@@ -131,29 +131,33 @@ def test_corpora_without_a_synopsis_file_upload_their_excerpts(book):
 
 
 async def test_attribution_creates_book_scoped_characters(tmp_path, monkeypatch):
+    seen = []
+
     async def fake_many(texts):
+        seen.extend(texts)
         return [[1.0, 0.0] for _ in texts]
 
     async def fake_one(text):
+        seen.append(text)
         return [1.0, 0.0]
 
     monkeypatch.setattr(embed, "embed_many", fake_many)
     monkeypatch.setattr(embed, "embed_one", fake_one)
     _, cel = pipeline.load_corpus("cel")
-    gt = {"synopsis": "s", "voice_probe": cel["voice_probe"], "gold_lines": {}}
+    gt = {"synopsis": "s", "voice_situation": cel["voice_situation"], "gold_lines": {}}
+    gt["cast"] = ["Milo Voss", "Edric Thane"]
     for who in ("Milo Voss", "Edric Thane"):
-        gt["gold_lines"][who] = {"train": ["a"], "test": ["b"]}
+        gt["gold_lines"][who] = {"train": ["a"], "test": ["Mr. Voss, do sit."]}
     client = _FakeClient({})
     out = await pipeline.step_attribution(_ctx(tmp_path, client, gt))
     assert client.created == [("Milo Voss", "book-2"), ("Edric Thane", "book-2")]
     assert "error" not in out
-    # M3: each in their own role; Edric reviews, Milo is reviewed.
-    milo, edric = cel["voice_probe"]["Milo Voss"], cel["voice_probe"]["Edric Thane"]
-    # (F) W8-2: ten draws each, memoised per draw; reported, with an interval.
-    assert client.prompts == [milo] * 10 + [edric] * 10
-    assert "your desk for review" in edric and out["generated"] == 20
-    assert [d["probe"] for d in out["detail"]] == [milo] * 10 + [edric] * 10
-    assert out["status"] == "reported"
+    # (F) W9-2 (a): one symmetric situation, ten draws each (k = 10), memoised
+    # per draw; only the name and voice block differ, in the product's prompt.
+    assert client.prompts == [cel["voice_situation"]] * 20 and out["generated"] == 20
+    assert out["status"] == "reported" and out["w9_9_p0"] is False  # Milo 0.72
+    # (F) W9-2 (b): masked on both sides, the gold line and the generated one.
+    assert {"⟨NAME⟩, do sit.", "line from char-⟨NAME⟩"} <= set(seen)
     assert out["per_character"] == {  # identical vectors: Milo ranks first
         "Milo Voss": {"correct": 10, "k": 10, "accuracy": 1.0, "wilson95": (0.72, 1.0)},
         "Edric Thane": {
@@ -268,6 +272,10 @@ class _ProductClient:
     async def voice_chunks(self, cid, chunk_type=None):
         said = [{"chunk_type": "dialogue", "word_count": n} for n in (2, 3, 9)]
         return [*said, {"chunk_type": "action", "text": "He sat.", "word_count": 9}]
+
+    async def scene_grounding(self, scene_id):  # one withheld line (SPEC-69)
+        zara = {"name": "Zara Okafor", "withheld": [{"text": "x", "rule": "r"}]}
+        return {"beats": [{"description": scene_id, "characters": [zara]}]}
 
     async def get_canon(self, book_id):
         return {"entries": [], "style": self.style.get(book_id)}
@@ -500,6 +508,7 @@ async def test_prose_writes_the_planned_scenes_of_a_two_principal_chapter(tmp_pa
     assert out["voice"]["chunks"]["Zara Okafor"] == 4
     assert out["voice"]["speech"]["Edric Thane"] == 2  # >= 3-word dialogue (D9)
     assert out["voice"]["movement"]["Edric Thane"] == ["He sat."]  # D6 reads it
+    assert {r["owner"] for r in out["voice"]["withheld"]} == {"Zara Okafor"}  # W9-1
 
     s1, s2 = out["scenes"]
     # Scene 1 repeats a sentence across its beat seam: R4 is capped at 0.
@@ -1095,3 +1104,17 @@ def test_portable_outline_swaps_ids_in_beat_children_too():
     three = portable_outline(nodes, ids, {"foreign": "Halvard Bell"})
     assert three[0]["secondary_names"] == ["Halvard Bell"]
     assert three[0]["children"][0]["secondary_names"] == ["Halvard Bell"]
+
+
+def test_the_withheld_export_is_built_from_the_grounding_body():
+    """(F) W9-1 (b): each character group holding `withheld` lines becomes one
+    `voice.withheld` row under its beat's description (SPEC-69)."""
+    held = [{"chunk_id": "c", "rule": "restates", "text": "p2", "excerpt": "p"}]
+    zara = {"name": "Zara Okafor", "samples": [], "withheld": held}
+    milo = {"name": "Milo Voss", "samples": [{"chunk_id": "m", "text": "m"}]}
+    body = {"beats": [{"description": "Beat one.", "characters": [zara, milo]}]}
+    body["beats"].append({"description": "Beat two.", "characters": []})
+    assert pipeline.withheld_rows(body) == [
+        {"beat": "Beat one.", "owner": "Zara Okafor"}
+        | {"lines": [{"text": "p2", "rule": "restates"}]}
+    ]

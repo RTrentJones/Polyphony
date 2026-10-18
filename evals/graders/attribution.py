@@ -11,6 +11,7 @@ with synthetic vectors and cheap to run over real embeddings.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from evals.harness.vecmath import centroid, cosine
@@ -83,3 +84,21 @@ def accuracy(results: list[AttributionResult]) -> dict:
         "chance": round(1 / n_chars, 4) if n_chars else 0.0,
         "mean_gap": round(sum(r.gap for r in results) / n, 4) if n else None,
     }
+
+
+MASK = "⟨NAME⟩"
+_HONORIFIC = r"(?:(?:Mr|Mrs|Ms|Dr)\.\s+|Miss\s+)?"
+
+
+def mask(text: str, forms: dict[str, list[str]]) -> str:
+    """W9-2 (b): each cast form ({name: [name, *aliases]}) and each name's
+    first and last token, whole-word and case-sensitive with an optional
+    honorific, replaced by MASK, so a vocative is no speaker label. An alias
+    is masked whole, never token by token ("Chief Executive Lich")."""
+    words = {w for n, fs in forms.items() for w in (*fs, n.split()[0], n.split()[-1])}
+    alts = "|".join(re.escape(w) for w in sorted(words, key=len, reverse=True))
+    return (
+        text
+        if not alts
+        else re.sub(rf"(?<!\w){_HONORIFIC}(?:{alts})(?!\w)", MASK, text)
+    )

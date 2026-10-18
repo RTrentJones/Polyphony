@@ -120,6 +120,7 @@ from app.core.prompt_markers import (
     STOP_AT_NEXT_BEAT,
     STORY_POSITION_RE,
     TIGHTEN_CLAUSE,
+    WITHHELD_RULES,
     labelled_line,
 )
 from app.llm.json_utils import JSON_OBJECT
@@ -775,7 +776,48 @@ def check_movement_in_scene(
     return reasons, [(o, len(ls)) for o, ls in blocks]
 
 
+def _block(owner, n, lines, rules, chapter, pg, placed) -> tuple[str, str | None]:
+    """D2/D3 (wave 9): an eligible block is shown, carried (no line shown, and
+    the export holds every eligible store line, none narrated, withheld for
+    the plan already carrying it) or starved, with the product's rule named."""
+    if n:
+        return "shown", None
+    eligible = [ln for ln in lines if not plot.only_plot([ln], chapter, pg, placed)]
+    at = (plot.paragraph_of(ln, pg["paragraphs"]) for ln in eligible)
+    told = any(i in e["narrated"] for i in at if i is not None for e in pg["events"])
+    if (
+        rules
+        and not told
+        and all(rules.get(ln) == WITHHELD_RULES[-1] for ln in eligible)
+    ):
+        return "carried", None
+    named = sorted({rules[ln] for ln in eligible if ln in (rules or {})})
+    if named:
+        return "starved", f"{owner}: eligible, withheld ({', '.join(named)})"
+    return "starved", f"{owner}: eligible, no movement line"
+
+
 LIFT_N = 8  # a shared run this long is a copied phrase, not a shared idiom
+
+
+def match_withheld(records: list[dict], rows, aliases: dict) -> tuple[dict, int]:
+    """W9-1 (b): the run's `voice.withheld` export as {(record id, owner):
+    {line: rule}}, each row matched to the one beat_prose record whose BEAT TO
+    WRITE line is its beat; two such records raise, none is counted."""
+    by_beat: dict[str, list] = {}
+    for rec in (r for r in records if purpose(r) == "beat_prose"):
+        if m := _BEAT_TO_WRITE.search(prompt_text(rec)):
+            by_beat.setdefault(_squash(m.group(1)), []).append(rec.get("id"))
+    held, unmatched = {}, 0
+    for row in rows or []:
+        ids = by_beat.get(_squash(row["beat"]), [])
+        if len(ids) > 1:
+            raise ValueError(f"withheld row matches {len(ids)} beats: {row['beat']!r}")
+        unmatched += not ids
+        for rid in ids:
+            rules = {ln["text"]: ln["rule"] for ln in row["lines"]}
+            held.setdefault((rid, _who(row["owner"], aliases)), {}).update(rules)
+    return held, unmatched
 
 
 def check_sample_lift(prompt: str, answer: str) -> tuple[list[str], int]:
@@ -1058,6 +1100,7 @@ def grade(
     movement_store: dict[str, list[str]] | None = None,
     source: str = "",
     revise_rows: list[dict] | None = None,
+    withheld: list[dict] | None = None,
 ) -> dict:
     """Run every check over an archive (see the module docstring).
 
@@ -1075,6 +1118,7 @@ def grade(
     step's `voice.movement`); without it the movement result is null.
     `source` is the manuscript the run uploaded (wave 7, evidence_verbatim).
     `revise_rows` are the revise step's report rows (wave 8, tighten_clause).
+    `withheld` is the prose step's `voice.withheld` export (wave 9, SPEC-69).
     The events are placed by the signed file in `plot.PLACEMENTS` (D4)."""
     gold = {
         who: [*(v.get("train") or []), *(v.get("test") or [])]
@@ -1133,6 +1177,10 @@ def grade(
     quoting, plan_n = [], 0
     # D3a reads what the run's store holds, and nothing else (wave 8).
     shown = {_who(o, aliases): set(ls) for o, ls in (movement_store or {}).items()}
+    held, unmatched = match_withheld(records, withheld, aliases)
+    per = {
+        n: dict.fromkeys(("shown", "carried", "starved"), 0) for n in principal_names
+    }
 
     for rec in records:
         pur = purpose(rec)
@@ -1200,9 +1248,19 @@ def grade(
                 lines = shown.get(owner) or ()
                 why = plot.only_plot(lines, chapter, pg, placed)
                 if lines and not why:  # D3a: eligible here
-                    eligible += 1
                     eligible_in.add(owner)
-                    empty += [f"{owner}: eligible, no movement line"] * (not n)
+                    state, reason = _block(
+                        owner,
+                        n,
+                        lines,
+                        held.get((rec.get("id"), owner)),
+                        chapter,
+                        pg,
+                        placed,
+                    )
+                    per[owner][state] += 1
+                    eligible += state != "carried"
+                    empty += [reason] * (state == "starved")
                 else:  # no indexed movement is a reason too (S-5)
                     ineligible.setdefault(owner, set()).update(why or {NONE_INDEXED})
             if eligible:
@@ -1308,7 +1366,14 @@ def grade(
     not_cast = sorted(set(principal_names) - in_ch1)
     out["movement"] = move.as_dict() | {"ineligible": listed}
     out["movement"] |= {"not_eligible": unmet, "not_cast": not_cast}
-    out["movement"]["ok"] = bool(move.n) and not unmet and move.passed >= 0.8 * move.n
+    carried = sum(t["carried"] for t in per.values())
+    out["movement"] |= {"per_principal": per, "unmatched_withheld": unmatched}
+    out["movement"]["all_carried"] = bool(carried) and not move.n  # coverage null
+    # D2 (wave 9): every principal cast in chapter 1 moves or is carried by the
+    # plan somewhere, and >= 0.8 of the remaining eligible blocks move.
+    moved = all(per[o]["shown"] + per[o]["carried"] for o in in_ch1)
+    cover = move.passed >= 0.8 * move.n if move.n else bool(carried)
+    out["movement"]["ok"] = moved and cover
     if movement_store is None:  # a movement grade needs the run's store
         out["movement"], out["movement_reason"] = None, "no movement_store"
     out["hindsight"] = hindsight  # reported (W6-3)

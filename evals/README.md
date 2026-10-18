@@ -115,8 +115,10 @@ so an archive from before the F8 fixture edit still grades.
   counts the corpus' `secondary_cast` as hits and lists them as `secondary_found`; recall stays
   over the principals (SPEC-33).
 - `attribution`: per line `gap` (top-1 minus top-2 score) and `mean_gap`; `margin` is kept for
-  misses. The probe is the corpus' in-world `voice_probe` for that character, in their own role
-  (SPEC-39); the step reports each row's probe.
+  misses. Every character gets the corpus' one symmetric `voice_situation`, k = 10 draws each,
+  and every cast name form is masked to `⟨NAME⟩` in the generated and gold lines before
+  embedding; per character a Wilson interval, and `w9_9_p0` when no lower bound beats 0.33
+  (SPEC-67). Reported, never gated; the step reports each row's probe.
 - `outline`: `outline_names_synopsis_secondaries` ("k/2", from the outline text and any
   `secondary_names`) and `outline_secondaries_named`. `extraction` also reports
   `canonical_names_ok` ("k/n" over the principals with a title alias, such as Edric's "Chief
@@ -298,7 +300,11 @@ and `signed_at`. An unsigned file is not read. Without a signed file, the plot g
 
 Regrade a run offline with `python -m evals.graders.plot regrade <run-dir>` (the dir holding its
 `eval-report-<book>.json` and `answered-archive/`). It grades with the movement store the run's own
-report holds (`steps.prose.voice.movement`); without one, `movement` is `null`.
+report holds (`steps.prose.voice.movement`); without one, `movement` is `null`. It also reads the
+report's `steps.prose.voice.withheld` (each scene's grounding API `withheld` lines, per beat and
+owner), so a block the product withheld because the plan carries it is `carried`, not starved,
+and a starved block names the product's rule. `movement.per_principal` and
+`unmatched_withheld` are reported; a row matching two beats is an error (SPEC-69).
 
 ## Adding a book — data only, no code
 

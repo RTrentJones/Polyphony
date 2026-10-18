@@ -228,7 +228,10 @@ async def run(
                 voice = (result["steps"].get("prose") or {}).get("voice") or {}
                 revise = result["steps"].get("revise") or {}
                 contract = await pipeline.prompt_contract_result(
-                    ctx, voice.get("movement"), revise.get("revisions")
+                    ctx,
+                    voice.get("movement"),
+                    revise.get("revisions"),
+                    voice.get("withheld"),
                 )
             except Exception as e:  # a grader bug never loses the run's scores
                 contract = {"error": f"{type(e).__name__}: {e}"}

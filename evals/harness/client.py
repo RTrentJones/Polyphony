@@ -456,6 +456,12 @@ class PolyphonyClient:
         r.raise_for_status()
         return r.json()
 
+    async def scene_grounding(self, scene_id: str) -> dict:
+        """A scene's grounding record: per beat, samples and withheld lines."""
+        r = await self._get(f"/api/v1/books/scenes/{scene_id}/grounding")
+        r.raise_for_status()
+        return r.json()
+
     async def get_scene(self, scene_id: str) -> dict:
         r = await self._get(f"/api/v1/scenes/{scene_id}")
         r.raise_for_status()
