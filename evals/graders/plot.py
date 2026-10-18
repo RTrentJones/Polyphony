@@ -77,7 +77,8 @@ def placements(
     """D4: the signed file (evals/README.md) whose `outline_hash` is this run's,
     else None. A draft (no `signed_by`) is not signed; two signed files for one
     outline, or a signed file missing an event's cell, is an error, never a
-    guess."""
+    guess. Its optional `source_facts` cell ({fact id: {contradicted, line}})
+    reads as None when the file has none (wave 10)."""
     key = outline_hash(records)
     docs = {
         p.name: json.loads(p.read_text(encoding="utf-8"))
@@ -95,7 +96,7 @@ def placements(
     doc = docs[found[0]]
     if missing := [e["event"] for e in events if e["event"] not in doc["placements"]]:
         raise ValueError(f"{found[0]} has no cell for {missing}")
-    return doc
+    return {"source_facts": None} | doc
 
 
 def placed_chapters(signed: dict) -> dict[str, int]:

@@ -575,6 +575,19 @@ def test_a_signed_file_missing_a_cell_is_an_error(tmp_path):
         pc.grade(records, **PLOT_GOLD)
 
 
+def test_a_signed_files_source_facts_cell_loads_or_reads_null(tmp_path):
+    """(F) Wave-10 day-0: a signed file's `source_facts` cell loads as signed;
+    a file without one reads as null."""
+    _write(tmp_path, _outline("w5d"))
+    records, events = pc.load_archive(tmp_path), CEL["excerpt_events"]
+    doc = _sign(records)
+    assert plot.placements(records, events, plot.PLACEMENTS)["source_facts"] is None
+    cell = {CEL["source_facts"][0]["id"]: {"contradicted": True, "line": "x: y"}}
+    doc["source_facts"] = cell
+    (plot.PLACEMENTS / f"{doc['outline_hash'][:12]}.json").write_text(json.dumps(doc))
+    assert plot.placements(records, events, plot.PLACEMENTS)["source_facts"] == cell
+
+
 def test_two_signed_files_for_one_outline_are_an_error(tmp_path):
     _write(tmp_path, _outline("w5d"))
     records = pc.load_archive(tmp_path)

@@ -73,6 +73,9 @@ MOVEMENT_LABEL = (
 # The rules a grounding record names for a movement line it withheld, in
 # `moves`' predicate order (SPEC-69). Not printed: the movement grader reads it.
 WITHHELD_RULES = ("later_plot", "not_centred", "names_outside_scene", "restates")
+# The record's key for the withheld entries dropped past its per-owner cap
+# (SPEC-69 amendment); the export and the carried rule read it.
+WITHHELD_MORE = "withheld_more"
 
 # --- secondary characters (planning/secondaries.render_secondaries) ------------
 SECONDARY_FENCE = "secondary"
@@ -90,6 +93,9 @@ EARLIER_BEATS = "Beats already planned in {what}:"
 CHAPTER_SCENES_HEADER = (
     "This chapter's planned scenes, in order (→ marks the one being planned):"
 )
+# An outline warning from the check against the author's sources (SPEC-73):
+# the outline job writes it, `outline_source_conflicts` reads it. A prefix.
+OUTLINE_SOURCE_WARNING = "Outline vs your source: "
 
 
 # --- parsers built from the markers --------------------------------------------
