@@ -340,8 +340,10 @@ async def journey(page: Page) -> None:
         # the source contradicts nothing, so no warning names it.
         r = await page.request.get(f"{STUB}/__stub/requests", params={"limit": 200})
         prompts = [x["prompt"] for x in (await r.json())["requests"]]
-        checks = [p for p in prompts if "continuity editor" in p and "<source>\n" in p]
-        assert len(checks) == 1 and SOURCE.splitlines()[0] in checks[0], checks
+        # This book's only: the eval runs before the journey check their own.
+        mine = f"<source>\n{SOURCE.splitlines()[0]}\n"
+        checks = [p for p in prompts if "continuity editor" in p and mine in p]
+        assert len(checks) == 1, checks
         assert "Outline vs your source" not in body
         await shot(page, "outline")
         # Promote all is idempotent: a second click creates nothing new.
