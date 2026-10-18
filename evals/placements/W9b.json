@@ -1,0 +1,40 @@
+{
+  "run": "W9b",
+  "outline_hash": "50c48eea0937b43656b16cfdc0f9bb2253f6cbce2a8b51d40af08c560162662a",
+  "signed_by": "PM",
+  "signed_at": "2026-10-18T07:02:11Z",
+  "placements": {
+    "intake": {
+      "chapter": 1,
+      "line": "Culture Fit: Prava slides a laminated org chart across a laminate desk, tells Milo he has been retained and that his forty-one years of process optimisation are a strong culture fit, and he says yes to Reconciliations before anyone thinks to offer a choice; for the first time in decades he feels seen."
+    },
+    "training": {
+      "chapter": null,
+      "line": null
+    },
+    "partition": {
+      "chapter": 2,
+      "line": "The Desk Neighbour: Milo meets Zara Okafor, his trainer, who answers his eager questions in single flat sentences and never looks up; he mistakes her courtesy for friendship and resolves to win her over by being excellent."
+    },
+    "bell": {
+      "chapter": 2,
+      "line": "Zeroing Out: Zara walks him through closing a restructured account: review the tenure, zero it, file it under. Milo is fast and clean at it, enjoys the satisfaction of a balanced form, and by the end of his first quarter is the best closer on the floor."
+    },
+    "drawer": {
+      "chapter": null,
+      "line": null
+    },
+    "summons": {
+      "chapter": 5,
+      "line": "Reply All: The work stoppage goes out as an all-staff email that is, for once, completely honest, and across the Marrow District the dead stop hoping on schedule; within the hour a summons arrives for Mr. Voss's quarterly review in the corner office, and Zara tells him, flatly, to bring the paperwork."
+    },
+    "corner office": {
+      "chapter": 6,
+      "line": "The Office at the Top: Milo enters the room no employee returns from unchanged and meets Edric Thane, formal and courteous, who speaks to him in ledger metaphors as one clerk to another and offers him the climb: a pooled account of his own. Milo recognises himself in the offer and, for the first time, declines a promotion."
+    },
+    "discrepancy": {
+      "chapter": 2,
+      "line": "It Does Not Reconcile: Closing a routine restructured account, Milo finds the tenure being zeroed is not disappearing but draining upward, faster than labour can explain, into a single pooled account at the top of the org chart. He looks over the partition; Zara, for once, is watching him."
+    }
+  }
+}
