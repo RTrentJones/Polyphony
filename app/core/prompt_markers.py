@@ -71,7 +71,7 @@ MOVEMENT_LABEL = (
     "words, and do not reuse these events, objects or names):"
 )
 # The rules a grounding record names for a movement line it withheld, in
-# `moves`' predicate order (SPEC-66). Not printed: the movement grader reads it.
+# `moves`' predicate order (SPEC-69). Not printed: the movement grader reads it.
 WITHHELD_RULES = ("later_plot", "not_centred", "names_outside_scene", "restates")
 
 # --- secondary characters (planning/secondaries.render_secondaries) ------------

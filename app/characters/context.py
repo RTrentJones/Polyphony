@@ -450,7 +450,7 @@ def _centres(
 
 def _withheld_by(s: dict, character, scope: SceneScope) -> Optional[str]:
     """The first rule of WITHHELD_RULES withholding movement row `s`, or None:
-    the one place they are ordered (SPEC-66). Own narration meets only the first."""
+    the one place they are ordered (SPEC-69). Own narration meets only the first."""
     text, name = s.get("text") or "", getattr(character, "name", "") or ""
     aliases = getattr(character, "aliases", None) or []
     if _later_plot(s, scope):

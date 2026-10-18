@@ -14,7 +14,7 @@ character) is stored as an entry with no chunk and a `reason`; it is listed
 with no samples and that reason, so the view names everyone in the beat. A
 movement line the product withheld is stored with its rule (`withheld`, one of
 WITHHELD_RULES) and listed under the group's `withheld`, which is omitted when
-empty (SPEC-66).
+empty (SPEC-69).
 """
 
 from uuid import UUID

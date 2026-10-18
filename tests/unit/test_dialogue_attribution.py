@@ -1137,7 +1137,7 @@ def test_the_cel_voice_chunks_are_unchanged():
     assert voice == PLANS["cel_voice"]["chunks"]
 
 
-# --- SPEC-66: the withheld record (W9-1 (a)) ------------------------------------------
+# --- SPEC-69: the withheld record (W9-1 (a)) ------------------------------------------
 W8 = json.loads((Path(__file__).parents[1] / "fixtures/w8_archives.json").read_text())
 SC, P2 = W8["w8c_movement"]["scope"], ZARA_2[2]
 
