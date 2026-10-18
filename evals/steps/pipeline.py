@@ -438,11 +438,10 @@ _MIN_USABLE_CHUNKS = 3
 
 @step("ingestion", needs_api=True)
 async def step_ingestion(ctx: StepContext) -> dict:
-    # Append a marker so the content hash differs from the extraction step's
-    # upload of the same corpus. Doesn't affect the chunking measured here.
-    content = (ctx.corpus_text + "\n\n[[eval-ingestion-copy]]\n").encode("utf-8")
+    # The corpus as-is: an upload without a book_id gets its own book, so the
+    # extraction step's copy of the same text is no duplicate (SPEC-68).
     up, _run = await ctx.client.extract_and_commit(
-        f"{ctx.book}-ing.txt", content, f"eval-ing-{ctx.book}"
+        f"{ctx.book}-ing.txt", ctx.corpus_text.encode("utf-8"), f"eval-ing-{ctx.book}"
     )
     chars = await ctx.client.wait_voice_indexed(up["id"])
     if not chars:

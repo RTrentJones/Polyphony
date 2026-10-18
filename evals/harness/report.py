@@ -50,6 +50,7 @@ def scorecard(run: dict) -> str:
             if run["judge"].get("mixed")
             else ""
         ),
+        f"run={run.get('run') or 'undeclared'}  relogin={run.get('relogin', 0)}",
         "-" * 64,
     ]
     for name, res in run["steps"].items():

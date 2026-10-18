@@ -242,6 +242,16 @@ answers far slower than a vendor. The eval process also needs an `LLM_TIMEOUT_SE
 long enough for an agent-paced judge. `EVAL_RELAY_DIR` here is the **model's** queue,
 whose archive the prompt-contract grader reads.
 
+**Declared runs are preflighted (SPEC-68).** A gated draw names its run, `--run gated-full |
+gated-scenes | attribution` (`evals/preflight.py` `RUNS`), and `evals.run` checks it before the
+first step. It stops with the reason if `--steps` is not that run's list, if `EVAL_RELAY_DIR` is
+unset, if the relay's `answered/` or `EVAL_CACHE_DIR` holds a file, or if `GET /usage` reports a
+`daily_token_limit` below the run's minimum ("daily limit N: run needs ≥ M"). Check a stack
+before drawing with `python -m evals.preflight --run <name>`. There is no skip flag. A run
+without `--run` (e2e, CI) is not preflighted and is never gated; the scorecard says
+`run=undeclared`. The harness logs the eval user in again on a 401 and retries once, so the
+app's 30-minute token carries a long run; the scorecard counts `relogin`.
+
 ## Regenerating a corpus
 
 ```bash
@@ -281,7 +291,8 @@ the scene line the signer read. `outline_hash` is the SHA-256 of
 `json.dumps(outline_chapters(records), sort_keys=True)`, so whitespace in an answer is ignored.
 
 Draft one with `python -m evals.graders.plot draft <answered-dir> --run W7` (a word-boundary
-term match, written with `signed_by: null`). The signer corrects the cells and sets `signed_by`
+term match, written with `signed_by: null`). It refuses a directory with no `outline:beats`
+record, such as `answered-archive/` instead of `answered-archive/model/answered`. The signer corrects the cells and sets `signed_by`
 and `signed_at`. An unsigned file is not read. Without a signed file, the plot gates report
 `null` and `placement_signed: false` (SPEC-54).
 
