@@ -15,19 +15,68 @@ GOLD = {  # 18 lines of A; B's one train line has no reference once held out
 
 
 @pytest.mark.parametrize("bt_side, ok", [("a", False), ("b", True)])
-async def test_train_references_and_the_18_of_22_verdict(bt_side, ok):
-    """(F) No leakage: train references, less the held line. (F) 18 with B at
-    0/4 is unvalidated, B at 3/4 validates. (R) The scores are recorded."""
+async def test_the_leave_one_out_is_reported_on_train_references(bt_side, ok):
+    """(F) Train references, less the held line. (R) The leave-one-out is
+    reported, total and per principal, whatever the verdict."""
     assert vi.references(GOLD, ("B", 0)) == {"A": GOLD["A"]["train"], "B": []}
 
     async def embed(texts):
         sides = (t.replace("bt", bt_side)[0] for t in texts)
         return [[1.0, 0.0] if s == "a" else [0.0, 1.0] for s in sides]
 
-    out = await vi.score(GOLD, {}, embed, [{"intended": "A", "answer": '"a9"\n'}])
-    want = (22, 18 + 3 * ok, ok, f"{3 * ok}/4", 1)
-    got = (out["n"], out["correct"], out["validated"], out["per_principal"]["B"])
-    assert (*got, out["w9a2_answers"]["correct"]) == want
+    out = await vi.score(GOLD, {}, embed, [])
+    got = (out["n"], out["correct"], out["per_principal"]["B"], out["wilson95"])
+    assert got == (22, 18 + 3 * ok, f"{3 * ok}/4", vi.wilson(18 + 3 * ok, 22))
+
+
+BAL = {w: {"train": [f"{w}{i}" for i in range(5)], "test": [f"{w}t0"]} for w in "ab"}
+ODD = {f"{w}{i}" for w in "ab" for i in ("1", "3", "t0")}  # each self-split's half b
+
+
+def _answers(right: int) -> list[dict]:  # ten for a, `right` on a's side
+    return [{"intended": "a", "answer": "a" if i < right else "b"} for i in range(10)]
+
+
+async def _separable(texts):
+    return [[1.0, 0.0] if t[0] == "a" else [0.0, 1.0] for t in texts]
+
+
+async def _flat(texts):  # one vector for every line: no voice at all
+    return [[1.0, 0.0] for _ in texts]
+
+
+async def _topic(texts):  # each speaker's second half reads as another topic
+    return [[0.0, 1.0] if t in ODD else [1.0, 0.0] for t in texts]
+
+
+@pytest.mark.parametrize("embed, p, won", [(_separable, 0.01, 0.995), (_flat, 1.0, 0)])
+async def test_the_permutation_control_scores_200_seeded_shuffles(embed, p, won):
+    """(F) D4 (b): 200 seeded shuffles; separable beats all but the draw that keeps
+    or swaps every label (p = 2/201), no voice beats none (p = 1)."""
+    assert vi.SHUFFLES == 200
+    one = (await vi.score(BAL, {}, embed, []))["instrument"]
+    assert (one["permutation_p"], one["beats_shuffles"]) == (p, won)
+    assert (await vi.score(BAL, {}, embed, []))["instrument"] == one  # seeded
+
+
+@pytest.mark.parametrize(
+    "embed, right, ok",
+    [(_separable, 10, True), (_separable, 3, False), (_flat, 10, False)],
+)
+async def test_validated_needs_both_controls(embed, right, ok):
+    """(F) D4: the positive control (answers vs train refs) has a lower bound
+    > 0.33 AND the true score beats 95% of shuffles; either alone fails."""
+    out = await vi.score(BAL, {}, embed, _answers(right))
+    assert out["instrument"]["positive"]["correct"] == right
+    assert out["instrument"]["validated"] is ok
+
+
+async def test_the_self_split_is_reported_never_gated():
+    """(F) D4 (b): each speaker against itself, reported; a split the instrument
+    separates (topic, not voice) does not validate."""
+    out = (await vi.score(BAL, {}, _topic, _answers(10)))["instrument"]
+    assert out["self_split"] == {"a": "6/6", "b": "6/6"}
+    assert out["validated"] is False
 
 
 def test_the_w9a2_answers_are_read_from_the_corpora():

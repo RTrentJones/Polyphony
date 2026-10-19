@@ -646,3 +646,20 @@ def test_source_fact_hits_read_the_signed_cell_and_the_detail(warnings, named):
     assert hits == {"bell_sent_under": {"contradicted": True, "names_the_fact": named}}
     unsigned = plot.source_fact_hits(gt, None, [])["bell_sent_under"]
     assert unsigned["contradicted"] is None
+
+
+# W10b's outline step warning (its report's app_warnings[1]), first sentence.
+OLD_FEN = (
+    f"{W10}In Chapter 1 of the source, Old Fen is already present while Milo works"
+    " the Bell account in Reconciliations."
+)
+
+
+def test_names_the_fact_needs_a_full_name_or_alias():
+    """(F) D7: W10b's Old Fen finding names "the Bell account": one word of a name
+    no longer counts for Bell. (R) "Halvard Bell" in full still does."""
+    gt = pipeline.load_corpus("cel")[1]
+    hits = plot.source_fact_hits(gt, None, [OLD_FEN])["bell_sent_under"]
+    assert hits["names_the_fact"] is False
+    hits = plot.source_fact_hits(gt, None, [OLD_FEN, CONFLICTS[0]])["bell_sent_under"]
+    assert hits["names_the_fact"] is True

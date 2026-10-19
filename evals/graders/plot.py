@@ -121,8 +121,9 @@ def outline_source_conflicts(warnings: list[str] | None) -> list[dict]:
 
 def source_fact_hits(gt: dict, signed: dict | None, warnings) -> dict:
     """D1, reported: per gold `source_facts` row, the signed `contradicted`
-    (None unsigned) and whether a conflict's detail names the fact's subject."""
-    from evals.graders.prompt_contract import _named
+    (None unsigned) and whether a conflict's detail names the fact's subject,
+    by a full name or listed alias (wave 11, D7: "the Bell account" is not Bell)."""
+    from evals.graders.prompt_contract import _named_whole
 
     people = [*gt["fidelity"]["principals"], *gt.get("secondary_cast", [])]
     people = [p if isinstance(p, dict) else {"name": p} for p in people]
@@ -130,9 +131,9 @@ def source_fact_hits(gt: dict, signed: dict | None, warnings) -> dict:
     cells = (signed or {}).get("source_facts") or {}
     return {
         f["id"]: {"contradicted": (cells.get(f["id"]) or {}).get("contradicted")}
-        | {"names_the_fact": any(_named(d, p) for d in details for p in subject)}
+        | {"names_the_fact": any(_named_whole(d, p) for d in details for p in subject)}
         for f in gt.get("source_facts") or []
-        for subject in [[p for p in people if _named(f["fact"], p)]]
+        for subject in [[p for p in people if _named_whole(f["fact"], p)]]
     }
 
 

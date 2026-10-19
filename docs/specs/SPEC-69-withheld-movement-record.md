@@ -22,3 +22,7 @@
   nearest first by store score; the last entry carries `withheld_more` (`WITHHELD_MORE`), the count dropped, which the
   grounding API copies onto the owner's group. The synthetic 60-row store (`w9_archives.json`) goes from 25.8 KB to 3.6 KB;
   the W8c record (4 lines a beat) is unchanged. A block with `withheld_more > 0` is never `carried` (E1's grader row).
+- **Amendment, wave 11 (D5, G3).** Reported, never gated: `movement.thinness = {principal: {store, eligible, shown}}` (the
+  store's lines, those not gold plot in their block's chapter, and the distinct lines shown), with one scorecard line
+  `movement store/eligible/shown`; `movement.blocks = [{id, owner, state}]`, each D3a-eligible block's outcome, so PM
+  condition 2's prompts are listed. W10: Milo 8/1/1, Zara 4/1/0, Edric 3/0/0. 20-archive regrade: only these keys are new.
