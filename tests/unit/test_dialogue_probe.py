@@ -146,7 +146,8 @@ async def test_the_probe_states_one_length_limit(probe):
 
 
 def test_the_probe_caller_is_a_scene_of_one():
-    """(R) SPEC-55's rows above, re-run, are the API caller's scope (SPEC-77)."""
+    """(R) The API probe caller passes `(), {}`: with `plot == ()` the rule cannot
+    change its prompt, so SPEC-55's rows above are its rows."""
     from app.api import characters as api
 
     assert "[character], [], (), {}, (), {})" in inspect.getsource(api.test_dialogue)

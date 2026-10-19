@@ -30,8 +30,8 @@ def test_the_sweep_releases_p2_in_w10s_later_scenes_only():
 
 
 def test_the_dracula_mode_lists_every_releasable_speech_beat(capsys):
-    """(F) G-D: one row per speech-beat line the product indexes as movement."""
+    """(F) G-D: one row per speech-beat line the product indexes as movement;
+    under `is_speech` dracula has none (R-GD-1 closed)."""
     ms.main(["--book", "dracula"])
     out = capsys.readouterr().out.splitlines()
-    assert out[0] == "dracula: 177 speech paragraphs; 3 speech-beat lines"
-    assert [ln.split(" [")[0] for ln in out[1:]] == ["p9", "p192", "p271"]
+    assert out == ["dracula: 145 speech paragraphs; 0 speech-beat lines"]

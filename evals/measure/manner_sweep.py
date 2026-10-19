@@ -15,11 +15,9 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from app.characters.context import SceneScope, _withheld_by, later_plot_from
-from app.characters.context import speech_paragraphs
+from app.characters import context as cx
 from app.core.prompt_markers import STORY_POSITION_RE
-from app.parsing.character_extractor import CharacterExtractor, source_location
-from app.parsing.character_extractor import source_paragraphs
+from app.parsing import character_extractor as ce
 from app.planning.canon import Canon
 from evals.graders import plot
 from evals.graders import prompt_contract as pc
@@ -57,17 +55,17 @@ def releases(scenes, store, source, cast, plan) -> list[dict]:
     """(scene, owner, line, paragraph, chapter, [today's rule, the product's])
     for every store line of a shown owner whose rule changes."""
     people = {c["name"]: SimpleNamespace(**c) for c in cast}
-    speech = {SOURCE_ID: speech_paragraphs(source)}
-    paragraphs = source_paragraphs(source)
+    speech = {SOURCE_ID: cx.speech_paragraphs(source)}
+    paragraphs = ce.source_paragraphs(source)
     book = [(n, {"title": "", "summary": ln}) for n, ln in plan]
     out, earlier = [], {}
     for s in scenes:
-        cut = later_plot_from(paragraphs, s["chapter"], book)
+        cut = cx.later_plot_from(paragraphs, s["chapter"], book)
         names = {o for b in s["blocks"] for o in b["owners"]}
         canon = Canon(title="", synopsis=s["canon"], characters=list(people.values()))
         # scene_setup's plot and scope (prose.py:127-147): keep the two in step.
         lines = [s["brief"], *(ln for _, ln in plan), *earlier.get(s["chapter"], [])]
-        scope = SceneScope.of(
+        scope = cx.SceneScope.of(
             canon,
             [people[n] for n in sorted(names & people.keys())],
             sorted(names - people.keys()),
@@ -82,24 +80,25 @@ def releases(scenes, store, source, cast, plan) -> list[dict]:
                 at = plot.paragraph_of(text, paragraphs)
                 where = "" if at is None else f"paragraph_{at}"
                 row = {"text": text, "source": where, "source_id": SOURCE_ID}
-                rules = [_withheld_by(row, people[owner], sc) for sc in (today, scope)]
+                rules = [cx._withheld_by(row, people[owner], v) for v in (today, scope)]
                 if rules[0] != rules[1]:
                     out.append((s["brief"][:40], owner, text, at, s["chapter"], rules))
         earlier.setdefault(s["chapter"], []).extend(s["beats"])
     return out
 
 
-def sweep(name: str, gt: dict, cast: list[dict]) -> list | None:
-    """One archive's releases, each with its `plot_reasons` ([] is a gain)."""
+def sweep(name: str, gt: dict, cast: list[dict]) -> list:
+    """One archive's releases, each with its `plot_reasons` ([] is a gain).
+    A missing report, store or signed placement raises: never a silent 0 / 0."""
     base = EVAL_OUT / name
-    report = next(base.glob("eval-report-*.json"), None)
-    voice = json.loads(report.read_text())["steps"]["prose"]["voice"] if report else {}
+    report = next(base.glob("eval-report-*.json"))
+    voice = json.loads(report.read_text())["steps"]["prose"]["voice"]
     alias = {f.lower(): c["name"] for c in cast for f in [c["name"], *c["aliases"]]}
     store = {alias.get(o.lower(), o): v for o, v in voice.get("movement", {}).items()}
     records = pc.load_archive(base / "answered-archive/model/answered")
     signed = plot.placements(records, gt["excerpt_events"], plot.PLACEMENTS)
     if not store or not signed:
-        return None
+        raise ValueError(f"{name}: no movement store or no signed placements")
     source = load_excerpts("cel")
     gold = {"events": gt["excerpt_events"], "paragraphs": source.split("\n\n")}
     placed = plot.placed_chapters(signed)
@@ -120,8 +119,8 @@ def superset(book: str) -> list[tuple[tuple[int, str], list[str]]]:
     corpus cast (pipeline.py's two extractor calls), the lines the rule could
     release on any outline: ((paragraph, line), owners)."""
     text, gt = load_corpus(book)
-    cast, x, rows = _cast_with_roles(gt), CharacterExtractor(), {}
-    forms, speech = cast_of(cast), speech_paragraphs(text)
+    cast, x, rows = _cast_with_roles(gt), ce.CharacterExtractor(), {}
+    forms, speech = cast_of(cast), cx.speech_paragraphs(text)
     for c, (name, aliases) in zip(cast, (f.values() for f in forms)):
         narrator = "narrator" in (c.get("role") or "").lower()
         chunks = x.extract_character_content(text, name, aliases=aliases, cast=forms)
@@ -129,7 +128,7 @@ def superset(book: str) -> list[tuple[tuple[int, str], list[str]]]:
             text, name, aliases=aliases, cast=forms, is_narrator=narrator
         )
         for ch in chunks:
-            kind, at = source_location(ch["source_location"]) or (None, None)
+            kind, at = ce.source_location(ch["source_location"]) or (None, None)
             if kind == "paragraph" and ch["chunk_type"] != "dialogue" and at in speech:
                 rows.setdefault((at, ch["text"]), {})[name] = None
     print(f"{book}: {len(speech)} speech paragraphs; {len(rows)} speech-beat lines")
@@ -146,7 +145,7 @@ def main(argv: list[str] | None = None) -> None:
     cast = cast_of(gt["characters"])
     total = [0, 0]
     for name in argv or ARCHIVES:
-        found = sweep(name, gt, cast) or []
+        found = sweep(name, gt, cast)
         leaks = sum(bool(r[-1]) for r in found)
         total = [total[0] + len(found) - leaks, total[1] + leaks]
         print(f"{name:6} manner-gains={len(found) - leaks} plot-leaks={leaks}")

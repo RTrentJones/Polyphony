@@ -279,6 +279,12 @@ _SUBJECT = re.compile(rf"^\s*(?P<who>{_PROPER})(?=,|\s+[a-z])")
 SPEECH_MIN_WORDS = 3
 
 
+def is_speech(span: dict) -> bool:
+    """A quoted span that counts as someone speaking (SPEC-17): credited, or
+    uncredited of SPEECH_MIN_WORDS+ words (a vocative or a scare-quote is not)."""
+    return bool(span["speaker"]) or len(span["text"].split()) >= SPEECH_MIN_WORDS
+
+
 def _canon_speaker(who: str) -> Optional[str]:
     """A tag's subject as a speaker key: leading openers dropped ("Then Zara" →
     "Zara"); a pronoun lowercased (it never names a cast member); a bare
@@ -624,9 +630,7 @@ class CharacterExtractor:
             themselves = ("i", "we") if where == "narration" else ()
             spans = attributed[i]
             if i not in own and not any(
-                s["speaker"] not in themselves
-                and (s["speaker"] or len(s["text"].split()) >= SPEECH_MIN_WORDS)
-                for s in spans
+                s["speaker"] not in themselves and is_speech(s) for s in spans
             ):
                 found = [(para, self._classify_chunk(para), f"{where}_{i}")]
             else:
