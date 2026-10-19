@@ -150,7 +150,7 @@ def test_scene_scope_of(cast):
 
     edric = _char("Edric Thane", "A courier.")
     canon = Canon(title="Cel", synopsis="Milo dies.", characters=[*cast, edric])
-    scope = ctx.SceneScope.of(canon, cast, ["Old Fen"], (), {})
+    scope = ctx.SceneScope.of(canon, cast, ["Old Fen"], (), {}, (), {})
     assert scope.cast == tuple(cast)
     assert scope.book_cast == (*cast, edric)
     assert scope.secondary_names == ("Old Fen",)

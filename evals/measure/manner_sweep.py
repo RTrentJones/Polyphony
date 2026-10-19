@@ -1,12 +1,12 @@
 """G-S0 (SPEC-77): the movement lines the speech-beat rule releases, on the
 product's own `_withheld_by`, over the signed cel archives with a store.
 
-A line is released in a scene when today's rule (every plan line counted as
-the scene's own) withholds it `restates` and the product's rule shows it. Each
-release is a gain (the signed gold calls it manner) or a leak (`plot_reasons`).
-Upper bound: every store line of each shown owner, no retrieval threshold or k.
+Released: today's rule (every plan line the scene's own) withholds it, the
+product's shows it; a gain (gold manner) or a leak (`plot_reasons`). Upper
+bound: every store line of each shown owner, no retrieval threshold or k.
 
     python -m evals.measure.manner_sweep [archive ...]
+    python -m evals.measure.manner_sweep --book dracula   # G-D's superset
 """
 
 import json
@@ -15,24 +15,20 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from app.characters.context import (
-    SceneScope,
-    _withheld_by,
-    later_plot_from,
-    speech_paragraphs,
-)
+from app.characters.context import SceneScope, _withheld_by, later_plot_from
+from app.characters.context import speech_paragraphs
 from app.core.prompt_markers import STORY_POSITION_RE
+from app.parsing.character_extractor import CharacterExtractor, source_location
 from app.parsing.character_extractor import source_paragraphs
 from app.planning.canon import Canon
 from evals.graders import plot
 from evals.graders import prompt_contract as pc
-from evals.steps.pipeline import load_excerpts
+from evals.steps.pipeline import _cast_with_roles, load_corpus, load_excerpts
 
 EVAL_OUT = Path("/tmp/claude-0/eval-out")
 # The 17 signed archives whose report carries a movement store (G-S0).
-ARCHIVES = (
-    "w5bc w5bd w5c w5d w6 w6b w7 w7b w7br w7r w8b w8c w8r w9 w9b w10 w10b".split()
-)
+ARCHIVES = "w5bc w5bd w5c w5d w6 w6b w7 w7b w7br w7r w8b w8c w8r w9 w9b".split()
+ARCHIVES += ["w10", "w10b"]
 SOURCE_ID = "source"
 
 
@@ -47,18 +43,11 @@ def scenes_of(records: list[dict]) -> list[dict]:
         scene = pc.block(text, "scene") or ""
         brief = re.search(r"(?m)^Scene description:\s*(.*)$", scene)
         beats = (pc.block(text, pc.BEATS_FENCE) or "").splitlines()
-        s = out.setdefault(
-            scene,
-            {
-                "brief": brief.group(1).strip() if brief else "",
-                "beats": [re.sub(r"^\W*\d+[.)]\s*", "", b) for b in beats if b.strip()],
-                "chapter": int(STORY_POSITION_RE.search(text).group("n")),
-                "canon": "\n".join(
-                    filter(None, (pc.block(text, t) for t in ("synopsis", "canon")))
-                ),
-                "blocks": [],
-            },
-        )
+        canon = f"{pc.block(text, 'synopsis')}\n{pc.block(text, 'canon')}"
+        s = out.setdefault(scene, {"canon": canon, "blocks": []})
+        s["brief"] = brief.group(1).strip() if brief else ""
+        s["beats"] = [re.sub(r"^\W*\d+[.)]\s*", "", b) for b in beats if b.strip()]
+        s["chapter"] = int(STORY_POSITION_RE.search(text).group("n"))
         owners = [o for o, _ in pc.movement_blocks(pc.characters_section(text) or "")]
         s["blocks"].append({"request": rec.get("id"), "owners": owners})
     return list(out.values())
@@ -76,6 +65,7 @@ def releases(scenes, store, source, cast, plan) -> list[dict]:
         cut = later_plot_from(paragraphs, s["chapter"], book)
         names = {o for b in s["blocks"] for o in b["owners"]}
         canon = Canon(title="", synopsis=s["canon"], characters=list(people.values()))
+        # scene_setup's plot and scope (prose.py:127-147): keep the two in step.
         lines = [s["brief"], *(ln for _, ln in plan), *earlier.get(s["chapter"], [])]
         scope = SceneScope.of(
             canon,
@@ -105,9 +95,7 @@ def sweep(name: str, gt: dict, cast: list[dict]) -> list | None:
     report = next(base.glob("eval-report-*.json"), None)
     voice = json.loads(report.read_text())["steps"]["prose"]["voice"] if report else {}
     alias = {f.lower(): c["name"] for c in cast for f in [c["name"], *c["aliases"]]}
-    store = {
-        alias.get(o.lower(), o): v for o, v in (voice.get("movement") or {}).items()
-    }
+    store = {alias.get(o.lower(), o): v for o, v in voice.get("movement", {}).items()}
     records = pc.load_archive(base / "answered-archive/model/answered")
     signed = plot.placements(records, gt["excerpt_events"], plot.PLACEMENTS)
     if not store or not signed:
@@ -123,19 +111,46 @@ def sweep(name: str, gt: dict, cast: list[dict]) -> list | None:
     ]
 
 
+def cast_of(entries) -> list[dict]:
+    return [{"name": c["name"], "aliases": c.get("aliases") or []} for c in entries]
+
+
+def superset(book: str) -> list[tuple[tuple[int, str], list[str]]]:
+    """G-D: every speech-beat line the product indexes as movement for the
+    corpus cast (pipeline.py's two extractor calls), the lines the rule could
+    release on any outline: ((paragraph, line), owners)."""
+    text, gt = load_corpus(book)
+    cast, x, rows = _cast_with_roles(gt), CharacterExtractor(), {}
+    forms, speech = cast_of(cast), speech_paragraphs(text)
+    for c, (name, aliases) in zip(cast, (f.values() for f in forms)):
+        narrator = "narrator" in (c.get("role") or "").lower()
+        chunks = x.extract_character_content(text, name, aliases=aliases, cast=forms)
+        chunks += x.extract_narration(
+            text, name, aliases=aliases, cast=forms, is_narrator=narrator
+        )
+        for ch in chunks:
+            kind, at = source_location(ch["source_location"]) or (None, None)
+            if kind == "paragraph" and ch["chunk_type"] != "dialogue" and at in speech:
+                rows.setdefault((at, ch["text"]), {})[name] = None
+    print(f"{book}: {len(speech)} speech paragraphs; {len(rows)} speech-beat lines")
+    return sorted(rows.items())
+
+
 def main(argv: list[str] | None = None) -> None:
-    gt = json.loads((Path("evals/corpora/cel/ground_truth.json")).read_text())
-    cast = [
-        {"name": c["name"], "aliases": c.get("aliases") or []} for c in gt["characters"]
-    ]
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["--book"]:
+        for (at, line), owners in superset(argv[1]):
+            print(f"p{at} [{', '.join(owners)}] {' '.join(line.split())}")
+        return
+    gt = load_corpus("cel")[1]
+    cast = cast_of(gt["characters"])
     total = [0, 0]
-    for name in (argv if argv is not None else sys.argv[1:]) or ARCHIVES:
-        found = sweep(name, gt, cast)
-        leaks = sum(bool(r[-1]) for r in found or ())
-        if found is not None:
-            total = [total[0] + len(found) - leaks, total[1] + leaks]
-        print(f"{name:6} manner-gains={len(found or ()) - leaks} plot-leaks={leaks}")
-        for scene, owner, _, at, _, rules, why in found or ():
+    for name in argv or ARCHIVES:
+        found = sweep(name, gt, cast) or []
+        leaks = sum(bool(r[-1]) for r in found)
+        total = [total[0] + len(found) - leaks, total[1] + leaks]
+        print(f"{name:6} manner-gains={len(found) - leaks} plot-leaks={leaks}")
+        for scene, owner, _, at, _, rules, why in found:
             print(f"  {why[0] if why else 'gain'} p{at} {owner} [{scene}] {rules}")
     print(f"total manner-gains={total[0]} plot-leaks={total[1]}")
 

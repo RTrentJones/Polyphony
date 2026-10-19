@@ -4,6 +4,7 @@ One retrieval (`context.character_samples`), one renderer
 (`context.render_character`): the probe's prompt carries the same `### name`
 block, own words only, as a beat prompt does."""
 
+import inspect
 import types
 import uuid
 
@@ -62,7 +63,9 @@ def probe(monkeypatch):
     milo = types.SimpleNamespace(
         id=uuid.uuid4(), name="Milo Voss", aliases=["Milo"], user_id=None, book_id=None
     )
-    scope = ctx.SceneScope.of(Canon(title="Cel", characters=[milo]), [milo], (), (), {})
+    scope = ctx.SceneScope.of(
+        Canon(title="Cel", characters=[milo]), [milo], (), (), {}, (), {}
+    )
     return milo, scope, prompts
 
 
@@ -119,7 +122,7 @@ async def test_the_probe_block_holds_each_speakers_own_lines(probe, monkeypatch,
         id=uuid.uuid4(), name=who, aliases=[], user_id=None, book_id=None
     )
     scope = ctx.SceneScope.of(
-        Canon(title="Cel", characters=[member]), [member], (), (), {}
+        Canon(title="Cel", characters=[member]), [member], (), (), {}, (), {}
     )
     await dialogue.generate_dialogue(
         character=member, prompt="Hi.", context="", scope=scope
@@ -140,3 +143,10 @@ async def test_the_probe_states_one_length_limit(probe):
     )
     text = prompts["dialogue"]
     assert text.count(" sentences") == text.count("one to three sentences") == 2
+
+
+def test_the_probe_caller_is_a_scene_of_one():
+    """(R) SPEC-55's rows above, re-run, are the API caller's scope (SPEC-77)."""
+    from app.api import characters as api
+
+    assert "[character], [], (), {}, (), {})" in inspect.getsource(api.test_dialogue)

@@ -13,7 +13,6 @@ unreachable.
 """
 
 import re
-from types import MappingProxyType
 from typing import Iterable, Mapping, NamedTuple, Optional
 from uuid import UUID
 
@@ -31,10 +30,8 @@ from app.core.prompt_markers import (
 )
 from app.parsing.character_extractor import (
     SPEECH_MIN_WORDS,
-    narration_of,
-    normalize_quotes,
+    attribute_speech,
     source_location,
-    source_paragraphs,
 )
 from app.rag.store import get_chunk_store
 
@@ -79,10 +76,9 @@ class SceneScope(NamedTuple):
         secondary_names: Iterable[str],
         plot: Iterable[str],
         later_from: Mapping[str, int],
-        own_plot: Iterable[str] = (),
-        speech_paragraphs: Mapping[str, frozenset] = MappingProxyType({}),
+        own_plot: Iterable[str],
+        speech_paragraphs: Mapping[str, frozenset],
     ) -> "SceneScope":
-        """A probe is a scene of one: no own plan, no speech beats."""
         from app.planning.fidelity import canon_known_text
 
         return cls(
@@ -351,12 +347,9 @@ def later_plot_from(
 
 
 def speech_paragraphs(text: str) -> frozenset:
-    """The paragraphs of a source that carry quoted speech: their narration
-    (`narration_of`, the one speech rule) is not the whole paragraph."""
-    paragraphs = enumerate(source_paragraphs(text))
-    return frozenset(
-        i for i, p in paragraphs if narration_of(p) != normalize_quotes(p.strip())
-    )
+    """The paragraphs of a source that carry quoted speech, by the one speech
+    rule (`attribute_speech`, SPEC-17)."""
+    return frozenset(i for i, spans in enumerate(attribute_speech(text)) if spans)
 
 
 def _location(sample: dict) -> tuple[str, int] | tuple[None, None]:
@@ -501,10 +494,8 @@ def _withheld_by(s: dict, character, scope: SceneScope) -> Optional[str]:
         return "names_outside_scene"
     # Own-scene `restates` withholds; another scene's plan withholds only
     # narration that is not a speech beat (SPEC-77).
-    if any(restates(text, p) for p in scope.own_plot):
-        return "restates"
     beat = _location(s)[1] in scope.speech_paragraphs.get(s.get("source_id"), ())
-    if not beat and any(restates(text, p) for p in scope.plot):
+    if any(restates(text, p) for p in (scope.own_plot if beat else scope.plot)):
         return "restates"
     return None
 
@@ -528,7 +519,7 @@ async def character_samples(
     is action / description / thought, falling back to untyped retrieval (minus
     dialogue) when the classifier under-labelled. It keeps only narration that
     centres them, names no one outside the scene (`names_outside_scene`) and
-    restates no line of `scope.plot` (`restates`): a block shows only eligible
+    restates no plan line (`restates`, SPEC-77): a block shows only eligible
     lines, judged before the limit (SPEC-30, SPEC-36, SPEC-40, SPEC-53).
     Neither block shows a sample from its source's later plot
     (`scope.later_from`). `threshold` is
