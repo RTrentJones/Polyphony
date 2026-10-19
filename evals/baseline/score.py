@@ -8,8 +8,6 @@ import random
 from collections import defaultdict
 from statistics import mean
 
-from evals.ops_scorecard import edit_distance
-
 RESAMPLES, LEVEL = 2000, 0.975
 
 
@@ -32,10 +30,7 @@ def _pct(v: list, q: float):
     return sorted(v)[max(0, math.ceil(q * len(v)) - 1)] if v else None
 
 
-def score(
-    records: list[dict], judgments: list[tuple], rated: dict | None = None
-) -> dict:
-    """`rated`: {(slot, arm): {"continuity": n, "edited": text, "minutes": m}}."""
+def score(records: list[dict], judgments: list[tuple]) -> dict:
     out = {f"P({x}>A)": win_rate(judgments, x, "A") for x in "BC"}
     wins = [k for k, r in out.items() if r["ci"] and r["ci"][0] > 0.5]
     out["decision"] = f"{', '.join(wins)} excludes 0.5" if wins else "simplify toward A"
@@ -43,13 +38,6 @@ def score(
     for arm in "ABC":
         rs = [r for r in records if r["arm"] == arm]
         lat = [r["latency_ms"] for r in rs if r["latency_ms"] is not None]
-        mine = [(r, (rated or {}).get((r["slot"], arm)) or {}) for r in rs]
-        cont = [m["continuity"] for _r, m in mine if "continuity" in m]
-        edits = [
-            (edit_distance(r["text"], m["edited"]), m["minutes"])
-            for r, m in mine
-            if "edited" in m
-        ]
         out[arm] = {
             "scenes": len(rs),
             "latency_ms_p50": _pct(lat, 0.5),
@@ -58,8 +46,5 @@ def score(
                 sum(r["cost_usd"] or 0 for r in rs) / len(rs) if rs else None
             ),
             "unpriced_tokens": sum(r["unpriced_tokens"] for r in rs),
-            "continuity_per_scene": mean(cont) if cont else None,
-            "edit_distance": mean(e for e, _m in edits) if edits else None,
-            "edit_minutes": mean(m for _e, m in edits) if edits else None,
         }
     return out

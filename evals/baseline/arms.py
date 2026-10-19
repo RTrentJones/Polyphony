@@ -1,20 +1,14 @@
-"""W12-5 baseline harness (SPEC-84): one model, one ingestion and one fixed outline
-per manuscript; per slot (manuscript, chapter, scene brief) three arms.
-
-- B: today's retrieval-assisted prose, through the API (`mode="prose"`).
-- C: the ensemble, through the API (`mode="ensemble"`, LLM_TIER=paid).
-- A: canon plus the first 3 eligible dialogue lines per present character, no
-  retrieval: `run_prose_scene_workflow` in-process with `cast_builder`, B's beats
-  seeded through the checkpoint and each beat's cast rebuilt from B's grounding.
-  Needs the app's environment (DATABASE_URL, the same LLM provider).
-
-Every arm runs under a job id; its cost is one SQL sum over api_usage.job_id.
+"""W12-5 baseline harness (SPEC-84): per slot, B (prose) and C (ensemble) through
+the API, and A in-process: `run_prose_scene_workflow` with B's beats and request,
+`prose.build_cast_context` patched to A's cast (canon plus first lines). Every arm
+runs under a job id; its cost is one SQL sum over api_usage.job_id.
 """
 
 import json
 import os
 import random
 from pathlib import Path
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 from sqlalchemy import bindparam, select, text
@@ -24,11 +18,7 @@ from app.core.database import get_async_session
 from app.core.llm_text import as_quoted_block
 from app.core.orm_models import APIUsage, Character, Job, Scene, SceneBeat
 from app.jobs.context import JobContext, job_context
-from app.orchestration.prose import (
-    run_prose_scene_workflow,
-    scene_chapter,
-    scene_prior_tail,
-)
+from app.orchestration import prose
 from app.parsing.character_extractor import SPEECH_MIN_WORDS, source_location
 from app.rag.store import get_chunk_store
 from evals.baseline import blind, score
@@ -40,9 +30,7 @@ SLOTS = 2  # the dev dry run, cel x 2; W12-9 runs 18 slots (SPEC-84)
 
 
 async def first_lines(character, scope, removed: set) -> list[dict]:
-    """N3: the first LINES dialogue lines in source order of at least
-    SPEECH_MIN_WORDS words and not in `scope.later_from`; no ranking. `removed`
-    collects the candidates the later-plot cut dropped before the last pick."""
+    """N3 (SPEC-84); `removed` collects what the later-plot cut dropped."""
     rows = await get_chunk_store().list_chunks(str(character.id), chunk_type="dialogue")
     rows.sort(
         key=lambda s: (s["source_id"] or "", source_location(s["source"]) or ("", 0))
@@ -74,14 +62,15 @@ def a_cast_builder(removed: set):
 
 
 def beats_from(grounding: dict, rows, names: dict) -> list[dict]:
-    """B's beats, each beat's cast rebuilt from its grounding: the cast is not
-    stored, but every present character has an entry, in the beat's cast order."""
-    cast = [
-        dict.fromkeys(e["character_id"] for e in grounding[str(i)])
-        for i in range(len(grounding))
-    ]
+    """B's beats, each cast rebuilt from its grounding entries, in cast order."""
     return [
-        {"description": r.description, "characters": [names[UUID(c)] for c in cast[i]]}
+        {
+            "description": r.description,
+            "characters": [
+                names[UUID(c)]
+                for c in dict.fromkeys(e["character_id"] for e in grounding[str(i)])
+            ],
+        }
         for i, r in enumerate(rows)
     ]
 
@@ -99,8 +88,8 @@ async def run_arm_a(b_scene_id: UUID) -> tuple[UUID, UUID, int]:
             .order_by(SceneBeat.beat_number)
         )
         beats = beats_from(b.evaluation_scores["grounding"], rows, names)
-        summary, position = await scene_chapter(db, b)
-        tail = await scene_prior_tail(db, b)
+        summary, position = await prose.scene_chapter(db, b)
+        tail = await prose.scene_prior_tail(db, b)
         a = Scene(
             user_id=b.user_id,
             book_id=b.book_id,
@@ -116,8 +105,10 @@ async def run_arm_a(b_scene_id: UUID) -> tuple[UUID, UUID, int]:
         await db.commit()
     job_id, removed = uuid4(), set()
     seeded = {"beats": beats, "prose": []}  # B's beats: plan_scene_beats is skipped
-    with job_context(JobContext(job_id=job_id)):
-        await run_prose_scene_workflow(
+    with job_context(JobContext(job_id=job_id)), patch.object(
+        prose, "build_cast_context", a_cast_builder(removed)
+    ):
+        await prose.run_prose_scene_workflow(
             a_id,
             request,
             user_id,
@@ -126,7 +117,6 @@ async def run_arm_a(b_scene_id: UUID) -> tuple[UUID, UUID, int]:
             prior_scene_tail=tail,
             book_id=book_id,
             checkpoint=seeded,
-            cast_builder=a_cast_builder(removed),
         )
     return a_id, job_id, len(removed)
 
@@ -192,12 +182,8 @@ async def step_baseline(ctx) -> dict:
                 raise EvalClientError(
                     f"arm {arm} ran {scene.get('mode_used')} (set LLM_TIER=paid)"
                 )
-            ids[arm] = scene[
-                "id"
-            ]  # trashed: no arm reads another's prose as its prior tail
-            await ctx.client._send(
-                ctx.client._http.delete, f"/api/v1/scenes/{scene['id']}"
-            )
+            ids[arm] = scene["id"]  # trashed: no arm reads another's prose
+            await ctx.client.delete_scene(scene["id"])
         a_id, a_job, removed = await run_arm_a(UUID(ids["B"]))
         slot = f"{ctx.book}-{n + 1}"
         records += [await scene_record(slot, arm, sid) for arm, sid in ids.items()]

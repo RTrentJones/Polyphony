@@ -1,4 +1,4 @@
-"""W12-5 (c)(d) and W12-6 (b): blinding and the rater sheet (SPEC-84, -85).
+"""W12-5 (c)(d): blinding and the rater sheet (SPEC-84).
 
 Items get random ids and lose every arm marker; pair order and each slot's edit
 arm are drawn from a seeded RNG. The seed and the id -> (slot, arm) key form the
@@ -60,7 +60,6 @@ def sheet(bundle: dict) -> str:
         for i in bundle["items"]
     ]
     tasks += [("edit to acceptable (paste the edit)", i, "") for i in bundle["edit"]]
-    tasks += [("whose line? (a name)", i, "") for i in bundle.get("lines", {})]
     out = io.StringIO()
     csv.writer(out).writerows([("task", "item", "other", "answer", "minutes"), *tasks])
     return out.getvalue()
