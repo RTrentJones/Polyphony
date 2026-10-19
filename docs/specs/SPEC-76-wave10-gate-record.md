@@ -8,8 +8,8 @@
 - **F2, W9b's regrade (wave-10 tree):** `secondary_has_context` n = 0, `exempt` set; Zara cast, starved 0/0/9; `ok` false;
   `not_cast` [Edric]; W9 stays `ok` true, not exempt. **SPEC-73's eval side (E1):** the outline book ingests the source first, cached with
   the outline (`OUTLINE_CACHE_KEY` bumped); G3 passed (prompts byte-identical). Outline sourcing is **cel-only**, keyed on `source_facts`.
-- **Speech-beat rule (SPEC-77).** Provenance: the PM's wave-8 signing criterion, written before this case. Evidence: **one corpus**,
-  24 narration paragraphs, 5 gains (14 of 15 by the gold); G-S0 5 gains / 0 leaks, W8c credited, W10b unchanged. Not a general law.
+- **Speech-beat rule (SPEC-77).** Provenance: the PM's wave-8 criterion, written before this case (narration around speech is a
+  reaction, gesture or tag, not the event). Evidence: **one corpus**, 24 narration paragraphs, 5 gains, 14/15 by the gold. Not a general law.
 - **G-D: "one corpus; the dracula check (G-D) failed its bar at n = 2 (1 beat, 1 event) and is thin"** (0.50 < 0.85); never
   cite it as passed (dracula's 72 narration-bearing speech paragraphs, context: 0.57 beats). **Design gate, (b) narrow:** a speech
   paragraph has a span that `is_speech` (credited, or 3+ words), the indexer's predicate. Cel's 22 are unchanged, so G-S0 is
