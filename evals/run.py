@@ -25,6 +25,7 @@ from evals.harness.client import PolyphonyClient
 from evals.harness.config import load as load_config
 from evals.harness.judge import Judge
 from evals.preflight import RUNS, preflight
+from evals.baseline import arms  # noqa: F401 — registers `baseline` (W12-5)
 from evals.steps import pipeline  # noqa: F401 — registers the steps
 from evals.steps.base import StepContext, all_steps, get_step
 
