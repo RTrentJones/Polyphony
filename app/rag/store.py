@@ -142,6 +142,7 @@ class ChunkStore:
         user_id: Optional[str] = None,
         book_id: Optional[str] = None,
         keep: Optional[Callable[[dict], bool]] = None,
+        exhausted: Optional[list] = None,
     ) -> list[dict]:
         """Retrieve a character's most similar chunks for voice grounding.
 
@@ -185,7 +186,7 @@ class ChunkStore:
             if chunk_type:
                 sql += " AND chunk_type = :chunk_type"
                 params["chunk_type"] = chunk_type
-            sql += " ORDER BY embedding <=> CAST(:q AS vector) LIMIT :k"
+            sql += " ORDER BY embedding <=> CAST(:q AS vector), id LIMIT :k"
 
             async with self._session() as session:
                 rows = (await session.execute(text(sql), params)).mappings().all()
@@ -197,6 +198,8 @@ class ChunkStore:
             )
             return []
 
+        if exhausted is not None and len(rows) >= params["k"]:
+            exhausted.append(character_id)  # the bound was hit (SPEC-83)
         results = [
             {
                 "id": str(row["id"]) if row.get("id") is not None else None,
