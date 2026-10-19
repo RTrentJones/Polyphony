@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
+  # greenlight-build.yml calls this suite as its `verify` job, at the exact
+  # commit it builds: the image ships only if every job here passes.
+  workflow_call:
 
 jobs:
   test:
@@ -46,8 +49,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # Tests are BLOCKING: the same suite gates the container build in
-      # greenlight-build.yml, so a red test means no image ships.
+      # Tests are BLOCKING: greenlight-build.yml calls this workflow before it
+      # builds, so a red test means no image ships.
       - name: Run tests (sqlite)
         env:
           SECRET_KEY: ci_secret_key_minimum_32_characters_long
@@ -61,6 +64,9 @@ jobs:
         env:
           SECRET_KEY: ci_secret_key_minimum_32_characters_long
           RUN_PG_TESTS: "1"
+          # The eval corpus's gold voices must stay separable (fastembed over
+          # the corpus). One leg is enough: it downloads the embedding model.
+          RUN_EMBED_TESTS: ${{ matrix.python-version == '3.12' && '1' || '' }}
           DATABASE_URL: postgresql+asyncpg://postgres:ci_password_12345@localhost:5432/polyphony_test
         run: python -m pytest tests/integration -m integration -o addopts="" -q
 
