@@ -42,7 +42,7 @@ PROVIDERS: dict[str, Provider] = {
         label="Google Gemini",
         kind="openai",
         env_key="GEMINI_API_KEY",
-        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        base_url=os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/"),  # fmt: skip
         # The 2.5 models are served only to projects that already used them
         # (models page, re-checked 2026-10-16); a new key gets a 404.
         default_model="gemini-3.6-flash",
