@@ -1205,8 +1205,10 @@ def grade(
     }
     # Wave 11, D5: per principal, the store's lines, those eligible (D3a) in a
     # drawn-chapter block, and those shown; each eligible block's outcome.
-    thin = {n: {"store": set(shown.get(n) or ())} for n in principal_names}
-    thin = {n: t | {"eligible": set(), "shown": set()} for n, t in thin.items()}
+    thin = {
+        n: {"store": set(shown.get(n) or ()), "eligible": set(), "shown": set()}
+        for n in principal_names
+    }
     outcomes = []
 
     drawn = {  # W10-3 (b): the run's beat_prose is one chapter's, or no grade
@@ -1302,13 +1304,15 @@ def grade(
                         placed,
                     )
                     per[owner][state] += 1
-                    outcomes.append(
-                        {"id": rec.get("id"), "owner": owner, "state": state}
-                    )
                     eligible += state != "carried"
                     empty += [reason] * (state == "starved")
                 else:  # no indexed movement is a reason too (S-5)
+                    state = "ineligible"
                     ineligible.setdefault(owner, set()).update(why or {NONE_INDEXED})
+                rows = held.get((rec.get("id"), owner)) or {}
+                rules = sorted({r for k, r in rows.items() if k != WITHHELD_MORE})
+                outcomes.append({"id": rec.get("id"), "owner": owner, "state": state})
+                outcomes[-1]["withheld"] = rules  # the PM's listing (code gate §6)
             if eligible:
                 move.add(rec, empty)
             ref = beat_ref(prompt)

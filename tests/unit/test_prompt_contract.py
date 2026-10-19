@@ -634,7 +634,10 @@ def test_movement_lists_every_ineligible_principal_on_the_w5_stores(tmp_path):
             **{"ineligible": row["ineligible"], "ok": False, "not_cast": []},
             "not_eligible": sorted(row["store"]),
             **{"unmatched_withheld": 0, "all_carried": False, "per_principal": IDLE},
-            "blocks": [],
+            "blocks": [  # code gate §6: every block, ineligible ones too
+                {"id": "b", "owner": w, "state": "ineligible", "withheld": []}
+                for w in row["store"]
+            ],
             "thinness": {  # wave 11, D5: a store with nothing eligible is thin
                 w: {**ZERO, "store": len(row["store"].get(w, []))} for w in IDLE
             },
@@ -1117,8 +1120,9 @@ def test_the_w10_chain_grader_half(tmp_path):
     after = W10["w10_withheld_after"]
     move = _w9_regrade(tmp_path / "after", _w10_fx(after), "W10", None, after)
     four = ("0027", "0029", "0030", "0035")
-    zara = {b["id"][-4:]: b["state"] for b in move["blocks"] if b["owner"] == ZARA}
-    assert {n: zara[n] for n in four} == dict.fromkeys(four, "shown")
+    zara = {b["id"][-4:]: b for b in move["blocks"] if b["owner"] == ZARA}
+    assert {n: zara[n]["state"] for n in four} == dict.fromkeys(four, "shown")
+    assert zara["0034"]["withheld"] == ["later_plot", "not_centred"]  # (R) §6 listing
     assert move["ok"] is True and move["failures"] == []
 
 

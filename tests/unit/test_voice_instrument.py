@@ -65,18 +65,19 @@ async def test_the_permutation_control_scores_200_seeded_shuffles(embed, p, won)
 )
 async def test_validated_needs_both_controls(embed, right, ok):
     """(F) D4: the positive control (answers vs train refs) has a lower bound
-    > 0.33 AND the true score beats 95% of shuffles; either alone fails."""
+    > 0.33 AND the true score beats 95% of shuffles; either alone fails. The
+    self-split (3/6 throughout) is not read."""
     out = await vi.score(BAL, {}, embed, _answers(right))
     assert out["instrument"]["positive"]["correct"] == right
     assert out["instrument"]["validated"] is ok
+    assert out["instrument"]["self_split"] == {"a": "3/6", "b": "3/6"}
 
 
 async def test_the_self_split_is_reported_never_gated():
-    """(F) D4 (b): each speaker against itself, reported; a split the instrument
-    separates (topic, not voice) does not validate."""
+    """(F) D4 (b): each speaker against itself, reported (here a topic split, 6/6);
+    validation does not read it (the separable case validates at 3/6)."""
     out = (await vi.score(BAL, {}, _topic, _answers(10)))["instrument"]
     assert out["self_split"] == {"a": "6/6", "b": "6/6"}
-    assert out["validated"] is False
 
 
 def test_the_w9a2_answers_are_read_from_the_corpora():
