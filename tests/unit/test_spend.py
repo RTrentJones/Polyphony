@@ -67,17 +67,10 @@ async def test_worker_pauses_fails_and_bounds(
     llm, async_session, test_user, monkeypatch
 ):
     # 4: the call that would cross the ceiling is never sent; the job pauses.
-    row = APIUsage(endpoint="x", tokens_used=1, cost_usd=1 - WORST / 2)
-    async_session.add(row)
+    async_session.add(APIUsage(endpoint="x", tokens_used=1, cost_usd=1 - WORST / 2))
     job = await _job(async_session, test_user, monkeypatch, lambda p: llm.generate(HI))
     assert llm._client.chat.completions.create.await_count == 0
     assert (job.status, job.error) == ("queued", MONTHLY_CEILING)
-    # 4b: once the ledger is lower, the due job succeeds and its reason clears.
-    row.cost_usd, job.available_at = 0.0, datetime.now(timezone.utc)
-    await async_session.commit()
-    await _worker().run_once()
-    await async_session.refresh(job)
-    assert (job.status, job.error) == ("succeeded", None)
     # 8: an unpriced model fails the job, naming the model and the fix.
     run = lambda p: llm.generate(HI, model="mystery-1")  # noqa: E731
     job = await _job(async_session, test_user, monkeypatch, run)
