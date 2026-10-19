@@ -1,7 +1,5 @@
-"""W12-5 (e), pre-registered in SPEC-84: P(B>A) and P(C>A) as pairwise win rates,
-each with a 97.5% (Bonferroni) slot-cluster bootstrap CI over 2,000 resamples,
-ties counted 1/2, n = 18 slots. P(C>B) is descriptive. No Bradley-Terry.
-"""
+"""W12-5 (e): the statistic pre-registered in SPEC-84 (P(B>A), P(C>A), 97.5%
+slot-cluster bootstrap CIs over 2,000 resamples, ties 1/2; P(C>B) descriptive)."""
 
 import math
 import random
@@ -42,9 +40,7 @@ def score(records: list[dict], judgments: list[tuple]) -> dict:
             "scenes": len(rs),
             "latency_ms_p50": _pct(lat, 0.5),
             "latency_ms_p95": _pct(lat, 0.95),
-            "cost_per_scene": (
-                sum(r["cost_usd"] or 0 for r in rs) / len(rs) if rs else None
-            ),
+            "cost_per_scene": mean(r["cost_usd"] or 0 for r in rs) if rs else None,
             "unpriced_tokens": sum(r["unpriced_tokens"] for r in rs),
         }
     return out

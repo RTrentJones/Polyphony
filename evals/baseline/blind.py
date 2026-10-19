@@ -1,9 +1,5 @@
-"""W12-5 (c)(d): blinding and the rater sheet (SPEC-84).
-
-Items get random ids and lose every arm marker; pair order and each slot's edit
-arm are drawn from a seeded RNG. The seed and the id -> (slot, arm) key form the
-sealed key, which is written outside the bundle (`step_baseline`).
-"""
+"""W12-5 (c)(d): blinding and the rater sheet (SPEC-84); the seed and the
+id -> (slot, arm) key are sealed outside the bundle (`step_baseline`)."""
 
 import csv
 import io
