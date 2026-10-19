@@ -1,0 +1,46 @@
+{
+  "run": "W12b",
+  "outline_hash": "8850132d40044ecfa714d793da09d2f590d347256db673104ba1666a906de8f2",
+  "signed_by": "PM",
+  "signed_at": "2026-10-19T19:46:37Z",
+  "placements": {
+    "intake": {
+      "chapter": 1,
+      "line": "Retained: Prava slides a laminated org chart across the desk and tells Milo his skills are a strong culture fit. Having never been told his boredom was valuable, he says yes before anyone offers a choice, and goes from dead and disoriented to feeling seen."
+    },
+    "training": {
+      "chapter": null,
+      "line": null
+    },
+    "partition": {
+      "chapter": 1,
+      "line": "The Desk Across the Partition: In Reconciliations, Milo pitches dashboards, trackers and low-hanging fruit to Zara, who replies only with flat rules ('Close the accounts in your queue') and a joke about the best week of his death. He laughs and she doesn't, and he learns his trainer will not be the friend he expected."
+    },
+    "bell": {
+      "chapter": 1,
+      "line": "Four Minutes: Halvard Bell's restructured account reaches Milo's queue and he zeroes the tenure and initials the form in under four minutes. By lunch Bell has been sent under and Facilities has cleared his desk, and Milo's pride in a clean close first meets a question he cannot answer."
+    },
+    "drawer": {
+      "chapter": 1,
+      "line": "What the Appendices Are For: When Milo asks where Bell actually goes, Zara tells him to write 'He goes under' and nothing else, and Old Fen remarks without looking up that nobody reads the appendices, that being what they are for. That night Milo locks the ledger in his drawer without knowing why, his first act of keeping something back."
+    },
+    "summons": {
+      "chapter": 2,
+      "line": "The Memo: A memo on impossibly heavy paper, signed 'Edric Thane, Chief Executive', summons Milo, who takes it as a positive career signal. Zara says it is not normal and gives him three rules: bring nothing, sign nothing, and stand if offered a chair. His excitement now has an edge of fear."
+    },
+    "corner office": {
+      "chapter": 2,
+      "line": "The Chair: In the library-cold corner office the Lich invites Milo to sit and Milo, surprising himself, stays standing. Edric names the Bell account and its four minutes, calls it appetite rather than diligence, and says he once had the same appetite. Milo learns the most powerful being in the building has been watching his numbers personally."
+    },
+    "discrepancy": {
+      "chapter": 2,
+      "line": "The Unexplained Column: Back at his desk Milo unlocks the drawer and finds that, in a column no one ever explained, Bell's tenure was moved, not zeroed. He brings the discrepancy to Zara, who studies it, says 'Now you've read an appendix,' and tells him to sit: they have a great deal of paperwork to do. Milo crosses from compliant analyst to Zara's confederate."
+    }
+  },
+  "source_facts": {
+    "bell_sent_under": {
+      "contradicted": false,
+      "line": null
+    }
+  }
+}
