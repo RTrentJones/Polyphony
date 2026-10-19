@@ -3,7 +3,7 @@ name: evals
 # Runs the renamed-public-domain eval suite against a freshly-booted app and
 # ingests the scores into Tracer, so voice/plot/continuity quality is trended
 # release-over-release (not eyeballed). Manually dispatched (it spends shared
-# Gemini free-tier quota) + a weekly baseline.
+# Gemini free-tier quota). No schedule: it returns sized to W13-0's measure.
 #
 # Secrets this needs on the Polyphony repo (Settings → Secrets and variables →
 # Actions):
@@ -36,8 +36,6 @@ on:
           for a deployed-prompts baseline) instead of booting one here. Leave
           blank to boot this ref's app. External mode needs EVAL_ADMIN_* secrets.
         default: ''
-  schedule:
-    - cron: '17 6 * * 1' # Mondays 06:17 UTC — a weekly trend point
   # On-demand trigger for when workflow_dispatch isn't available (e.g. an
   # integration token can't press "Run workflow"): bump evals/.run-eval and push.
   # Path-scoped so ordinary commits don't fire it (this run spends Gemini quota).

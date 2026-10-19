@@ -16,6 +16,7 @@
   The call is logged as `llm_unpriced_refused`, and **the job fails**. The failure message names the model and says the fix is a
   `PRICES` row with a source and a date. When no ceiling is set, cost is still recorded, as `None` if the model is unpriced. Free, stub
   and relay models carry explicit `0` rows. Known: scenes turn it into a failed scene; `dialogue.py` swallows it, as it does quota.
+  A job with retries (extraction, `max_attempts=3`) fails after them (W12 N3); no spend is lost, as admission refuses first.
 - **AC (c), B5 (verbatim):** past the ceiling, queued work **pauses, up to the 48 h pause bound, and then fails**. `SpendPausedError`
   pauses on every tier (`unhinted_pause_seconds`); `jobs.pause_seconds[reason]` adds each scheduled pause. At the bound: `monthly
   ceiling reached; job stopped after 48h paused; re-running starts this job over` (or `accounting unavailable; …`; quota keeps its

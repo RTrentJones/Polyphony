@@ -38,6 +38,8 @@ def test_paid_ensemble_costs_more_calls_than_prose(monkeypatch):
         cast_size=3,
     )
     assert ens.mode == "ensemble" and ens.calls > prose.calls
+    monkeypatch.setattr(settings, "LLM_MODEL", "mystery-1")  # unpriced: never $0
+    assert estimates._usd(10, 10) is None
 
 
 def test_affordable_is_the_longest_prefix_that_fits():
