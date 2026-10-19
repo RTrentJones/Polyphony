@@ -10,7 +10,7 @@ import json
 import re
 from pathlib import Path
 
-from app.core.prompt_markers import ACT_CHAPTERS_HEADER
+from app.core.prompt_markers import ACT_CHAPTERS_HEADER, OUTLINE_SOURCE_WARNING
 
 _ACT = re.compile(re.escape(ACT_CHAPTERS_HEADER).replace(r"\{number\}", r"(\d+)"))
 
@@ -69,6 +69,7 @@ def draft_placements(events: list[dict], chapters: list[list[str]]) -> dict:
 
 
 PLACEMENTS = Path(__file__).resolve().parent.parent / "placements"
+_CORPORA = PLACEMENTS.parent / "corpora"
 
 
 def placements(
@@ -77,7 +78,8 @@ def placements(
     """D4: the signed file (evals/README.md) whose `outline_hash` is this run's,
     else None. A draft (no `signed_by`) is not signed; two signed files for one
     outline, or a signed file missing an event's cell, is an error, never a
-    guess."""
+    guess. Its optional `source_facts` cell ({fact id: {contradicted, line}})
+    reads as None when the file has none (wave 10)."""
     key = outline_hash(records)
     docs = {
         p.name: json.loads(p.read_text(encoding="utf-8"))
@@ -95,7 +97,44 @@ def placements(
     doc = docs[found[0]]
     if missing := [e["event"] for e in events if e["event"] not in doc["placements"]]:
         raise ValueError(f"{found[0]} has no cell for {missing}")
-    return doc
+    return {"source_facts": None} | doc
+
+
+# W10-1 (c): SPEC-73's located (` ("<quote>")`) and unlocated warning endings.
+_QUOTED = re.compile(
+    r' \((?:could not locate )?"(?P<quote>.*)"(?P<lost> in the outline)?\)$'
+)
+
+
+def outline_source_conflicts(warnings: list[str] | None) -> list[dict]:
+    """D1: the warnings carrying OUTLINE_SOURCE_WARNING as {detail, quote,
+    located}; a warning with no quote keeps its whole text as the detail."""
+    n = len(OUTLINE_SOURCE_WARNING)
+    found = [w[n:] for w in warnings or [] if w.startswith(OUTLINE_SOURCE_WARNING)]
+    return [
+        {"detail": b[: m.start()] if m else b, "quote": m and m["quote"]}
+        | {"located": bool(m) and not m["lost"]}
+        for b in found
+        for m in [_QUOTED.search(b)]
+    ]
+
+
+def source_fact_hits(gt: dict, signed: dict | None, warnings) -> dict:
+    """D1, reported: per gold `source_facts` row, the signed `contradicted`
+    (None unsigned) and whether a conflict's detail names the fact's subject,
+    by a full name or listed alias (wave 11, D7: "the Bell account" is not Bell)."""
+    from evals.graders.prompt_contract import _named_whole
+
+    people = [*gt["fidelity"]["principals"], *gt.get("secondary_cast", [])]
+    people = [p if isinstance(p, dict) else {"name": p} for p in people]
+    details = [c["detail"] for c in outline_source_conflicts(warnings)]
+    cells = (signed or {}).get("source_facts") or {}
+    return {
+        f["id"]: {"contradicted": (cells.get(f["id"]) or {}).get("contradicted")}
+        | {"names_the_fact": any(_named_whole(d, p) for d in details for p in subject)}
+        for f in gt.get("source_facts") or []
+        for subject in [[p for p in people if _named_whole(f["fact"], p)]]
+    }
 
 
 def placed_chapters(signed: dict) -> dict[str, int]:
@@ -231,12 +270,19 @@ def regrade(run_dir: str | Path) -> dict:
     store = voice.get("movement")
     records = pc.load_archive(run / "answered-archive" / "model" / "answered")
     rows = (doc["steps"].get("revise") or {}).get("revisions")  # tighten_clause
+    inputs = pc.book_inputs(doc["book"])
     out = pc.grade(
         records,
-        **pc.book_inputs(doc["book"]),
+        **inputs,
         **{"movement_store": store, "revise_rows": rows},
         withheld=voice.get("withheld"),  # W9-1: the run's export, or None
     )
+    # W10-1 (c), reported: the outline step's warnings, read with the signed cell.
+    warnings = (doc["steps"].get("outline") or {}).get("app_warnings")
+    signed = placements(records, inputs["excerpt_events"] or [], PLACEMENTS)
+    gt = json.loads((_CORPORA / doc["book"] / "ground_truth.json").read_text())
+    out["outline_source_conflicts"] = outline_source_conflicts(warnings)
+    out["source_fact_hits"] = source_fact_hits(gt, signed, warnings)
     for who, why in ((out.get("movement") or {}).get("ineligible") or {}).items():
         if (store or {}).get(who) and pc.NONE_INDEXED in why:
             raise ValueError(f"{who}: read as none indexed; the store holds lines")
@@ -261,7 +307,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "regrade":
         print(json.dumps(regrade(args.archive), indent=2, ensure_ascii=False))
         return
-    corpus = Path(__file__).resolve().parent.parent / "corpora" / args.book
+    corpus = _CORPORA / args.book
     gt = json.loads((corpus / "ground_truth.json").read_text(encoding="utf-8"))
     records = load_archive(args.archive)
     if not any(purpose(r) == "outline:beats" for r in records):  # SPEC-68

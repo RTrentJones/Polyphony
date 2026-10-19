@@ -147,7 +147,7 @@ async def test_attribution_creates_book_scoped_characters(tmp_path, monkeypatch)
     gt = {"synopsis": "s", "voice_situation": cel["voice_situation"], "gold_lines": {}}
     gt["cast"] = ["Milo Voss", "Edric Thane"]
     for who in ("Milo Voss", "Edric Thane"):
-        gt["gold_lines"][who] = {"train": ["a"], "test": ["Mr. Voss, do sit."]}
+        gt["gold_lines"][who] = {"train": ["Mr. Voss, do sit."], "test": ["held out"]}
     client = _FakeClient({})
     out = await pipeline.step_attribution(_ctx(tmp_path, client, gt))
     assert client.created == [("Milo Voss", "book-2"), ("Edric Thane", "book-2")]
@@ -158,6 +158,9 @@ async def test_attribution_creates_book_scoped_characters(tmp_path, monkeypatch)
     assert out["status"] == "reported" and out["w9_9_p0"] is False  # Milo 0.72
     # (F) W9-2 (b): masked on both sides, the gold line and the generated one.
     assert {"⟨NAME⟩, do sit.", "line from char-⟨NAME⟩"} <= set(seen)
+    # (F) wave 11, D4 (a): the reference centroids are the TRAIN lines; no
+    # held-out test line is embedded, and the report says so.
+    assert "held out" not in seen and out["reference"] == "train"
     assert out["per_character"] == {  # identical vectors: Milo ranks first
         "Milo Voss": {"correct": 10, "k": 10, "accuracy": 1.0, "wilson95": (0.72, 1.0)},
         "Edric Thane": {
@@ -235,13 +238,13 @@ class _ProductClient:
     app: ids are per book, promote returns chapters, generate-planned returns
     the chapter's scenes."""
 
-    def __init__(self, *, two_principal_chapter=True, outline_nodes=None):
+    def __init__(self, *, w9b_shape=False, planned_fails=False, outline_nodes=None):
         self.n = 0
         self.chars: dict[str, dict] = {}
         self.ids: dict[str, dict[str, str]] = {}
         self.style: dict[str, dict] = {}
         self.calls: list[tuple] = []
-        self.two = two_principal_chapter
+        self.w9b_shape, self.planned_fails = w9b_shape, planned_fails  # W10-3 (a)
         self.outline_nodes = outline_nodes
 
     async def create_book(self, title, synopsis, genre=""):
@@ -329,7 +332,7 @@ class _ProductClient:
     async def get_chapter(self, chapter_id):
         ids = self.ids[self.book]
         cast = [ids["Milo Voss"]]
-        if chapter_id == "ch-2" and self.two:
+        if (chapter_id == "ch-2") == self.w9b_shape:  # the chapter casting two
             cast.append(ids["Zara Okafor"])
         return {"title": f"title {chapter_id}", "summary": "s", "character_ids": cast}
 
@@ -337,6 +340,8 @@ class _ProductClient:
 
     async def generate_planned(self, chapter_id, body=None):
         self.calls.append(("generate_planned", chapter_id))
+        if self.planned_fails:
+            raise EvalClientError("422: the chapter has no planned beats")
         self.spent = 1000
         ids = [{"id": f"s{i + 1}"} for i in range(self.n_scenes)]
         return {
@@ -490,14 +495,14 @@ def test_strip_tags_leaves_only_spoken_lines_with_names_masked():
     ]
 
 
-async def test_prose_writes_the_planned_scenes_of_a_two_principal_chapter(tmp_path):
+async def test_prose_writes_the_planned_scenes_of_chapter_1(tmp_path):
     client = _ProductClient()
     judge = _RubricJudge()
     out = await pipeline.step_prose(_cel_ctx(tmp_path, client, judge))
 
-    assert out["path"] == "planned"
-    # ch-1 casts only Milo; ch-2 (Milo + Zara) is the one written, in order.
-    assert ("generate_planned", "ch-2") in client.calls
+    assert out["path"] == "planned" and out["prose_chapter"] == 1
+    # ch-1 (Milo + Zara) is the one written, in order (W10-3 (a)).
+    assert [c[1] for c in client.calls if c[0] == "generate_planned"] == ["ch-1"]
     assert not any(c[0] == "generate_scene" for c in client.calls)
     # The voice excerpt went into the prose book, and the commit approved the
     # canon cast by name only (curated entries are not overwritten).
@@ -555,13 +560,23 @@ def test_r1_requires_someone_of_the_cast_on_the_page():
     assert checks["warnings"] == ["Edric Thane is in the plan but never named"]
 
 
+async def test_prose_is_pinned_to_chapter_1_on_the_w9b_shape(tmp_path):
+    """(F) W10-3 (a): W9b's chapter 1 cast one principal, so its prose ran
+    chapter 2, unreported. Chapter 1 is written whatever its cast."""
+    client = _ProductClient(w9b_shape=True)
+    out = await pipeline.step_prose(_cel_ctx(tmp_path, client))
+    assert (out["prose_chapter"], out["chapter"]) == (1, "title ch-1")
+    assert [c[1] for c in client.calls if c[0] == "generate_planned"] == ["ch-1"]
+
+
 async def test_a_failed_planned_path_fails_loudly_and_is_tried_again(tmp_path):
-    """M16 (SPEC-39): no fallback scene; the failure is reported, scored None
-    and not memoised (S5), so the next run takes the planned path."""
-    out = await pipeline.step_prose(
-        _cel_ctx(tmp_path, _ProductClient(two_principal_chapter=False))
-    )
-    assert out["path"] == "failed" and "two principals" in out["reason"]
+    """M16 (SPEC-39): no fallback scene and (W10-3 (a)) no other chapter; the
+    failure is reported, scored None and not memoised (S5), so the next run
+    takes the planned path."""
+    client = _ProductClient(planned_fails=True)
+    out = await pipeline.step_prose(_cel_ctx(tmp_path, client))
+    assert out["path"] == "failed" and "no planned beats" in out["reason"]
+    assert [c[1] for c in client.calls if c[0] == "generate_planned"] == ["ch-1"]
     assert out["score"] is None and "fallback" not in json.dumps(out)
     again = await pipeline.step_prose(_cel_ctx(tmp_path, _ProductClient()))
     assert again["path"] == "planned" and again["score"] is not None
@@ -624,8 +639,13 @@ async def test_outline_confirms_the_authors_premise_and_caps_r1(tmp_path):
 
 
 async def test_outline_score_is_r1_times_mean_r6_r3(tmp_path):
-    out = await pipeline.step_outline(_cel_ctx(tmp_path, _ProductClient()))
+    out = await pipeline.step_outline(_cel_ctx(tmp_path, client := _ProductClient()))
     assert out["cast_fidelity"] == 1.0 and out["deterministic_failures"] == {}
+    # (F) W10-1 (a): the excerpt is the outline book's source before its outline.
+    calls = [c[0] for c in client.calls]
+    assert (
+        calls.index("commit") < calls.index("outline") and out["source"] == "ingested"
+    )
     assert out["score"] == pytest.approx(1.0 * (0.5 + 0.6) / 2)
 
 
@@ -1110,11 +1130,11 @@ def test_the_withheld_export_is_built_from_the_grounding_body():
     """(F) W9-1 (b): each character group holding `withheld` lines becomes one
     `voice.withheld` row under its beat's description (SPEC-69)."""
     held = [{"chunk_id": "c", "rule": "restates", "text": "p2", "excerpt": "p"}]
-    zara = {"name": "Zara Okafor", "samples": [], "withheld": held}
+    zara = {"name": "Zara Okafor", "samples": [], "withheld": held, "withheld_more": 3}
     milo = {"name": "Milo Voss", "samples": [{"chunk_id": "m", "text": "m"}]}
     body = {"beats": [{"description": "Beat one.", "characters": [zara, milo]}]}
     body["beats"].append({"description": "Beat two.", "characters": []})
     assert pipeline.withheld_rows(body) == [
         {"beat": "Beat one.", "owner": "Zara Okafor"}
-        | {"lines": [{"text": "p2", "rule": "restates"}]}
+        | {"lines": [{"text": "p2", "rule": "restates"}], "withheld_more": 3}
     ]

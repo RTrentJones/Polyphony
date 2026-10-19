@@ -16,7 +16,7 @@ THRESHOLDS = (0, 0.2)  # today's (SPEC-55), and wave 6's
 
 async def shown(character, canon, probe: str) -> dict:
     """{threshold: {"voice": [text], "movement": [text]}} for one character."""
-    scope = SceneScope.of(canon, [character], [], (), {})  # the probe's scope
+    scope = SceneScope.of(canon, [character], [], (), {}, (), {})  # the probe's scope
     out = {}
     for t in THRESHOLDS:
         words, moves = await character_samples(

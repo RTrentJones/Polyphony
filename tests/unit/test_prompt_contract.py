@@ -575,6 +575,19 @@ def test_a_signed_file_missing_a_cell_is_an_error(tmp_path):
         pc.grade(records, **PLOT_GOLD)
 
 
+def test_a_signed_files_source_facts_cell_loads_or_reads_null(tmp_path):
+    """(F) Wave-10 day-0: a signed file's `source_facts` cell loads as signed;
+    a file without one reads as null."""
+    _write(tmp_path, _outline("w5d"))
+    records, events = pc.load_archive(tmp_path), CEL["excerpt_events"]
+    doc = _sign(records)
+    assert plot.placements(records, events, plot.PLACEMENTS)["source_facts"] is None
+    cell = {CEL["source_facts"][0]["id"]: {"contradicted": True, "line": "x: y"}}
+    doc["source_facts"] = cell
+    (plot.PLACEMENTS / f"{doc['outline_hash'][:12]}.json").write_text(json.dumps(doc))
+    assert plot.placements(records, events, plot.PLACEMENTS)["source_facts"] == cell
+
+
 def test_two_signed_files_for_one_outline_are_an_error(tmp_path):
     _write(tmp_path, _outline("w5d"))
     records = pc.load_archive(tmp_path)
@@ -595,6 +608,7 @@ def _plan_record(plan: list[list[str]]) -> dict:
 
 
 IDLE = {p["name"]: {"shown": 0, "carried": 0, "starved": 0} for p in PRINCIPALS}
+ZERO = dict.fromkeys(("store", "eligible", "shown"), 0)  # wave 11, D5 thinness
 
 
 def test_movement_lists_every_ineligible_principal_on_the_w5_stores(tmp_path):
@@ -620,6 +634,13 @@ def test_movement_lists_every_ineligible_principal_on_the_w5_stores(tmp_path):
             **{"ineligible": row["ineligible"], "ok": False, "not_cast": []},
             "not_eligible": sorted(row["store"]),
             **{"unmatched_withheld": 0, "all_carried": False, "per_principal": IDLE},
+            "blocks": [  # code gate §6: every block, ineligible ones too
+                {"id": "b", "owner": w, "state": "ineligible", "withheld": []}
+                for w in row["store"]
+            ],
+            "thinness": {  # wave 11, D5: a store with nothing eligible is thin
+                w: {**ZERO, "store": len(row["store"].get(w, []))} for w in IDLE
+            },
         }
 
 
@@ -647,14 +668,14 @@ def test_an_eligible_principal_with_an_empty_block_fails(tmp_path):
     ]
     assert move["ineligible"] == {"Milo Voss": [0, 13]}
     assert (grade(movement_store={})["n"], grade(movement_store={})["ok"]) == (0, False)
+    thin = {w: ZERO for w in IDLE} | {"Zara Okafor": {**ZERO, "shown": 1}}  # (F) D5
+    assert grade(movement_store={})["thinness"] == thin
     move = grade(movement_store={"Milo Voss": store["Milo Voss"]})  # (R) S-5
     assert move["ineligible"]["Zara Okafor"] == ["none indexed"]
-    # D4: nobody is cast in chapter 1, but no eligible block is no gate (n = 0).
-    assert (move["n"], move["ok"], move["not_cast"]) == (
-        0,
-        False,
-        ["Edric Thane", "Milo Voss", "Zara Okafor"],
-    )
+    # D4 (W10-3 (b)): chapter 3 is drawn, so Milo and Zara are cast in it and
+    # neither is eligible; no eligible block is no gate (n = 0).
+    assert (move["n"], move["ok"], move["not_cast"]) == (0, False, ["Edric Thane"])
+    assert move["not_eligible"] == ["Milo Voss", "Zara Okafor"]
 
 
 def test_json_mode_where_json_reads_the_recorded_response_format(tmp_path):
@@ -964,6 +985,9 @@ def test_the_w8c_chain_closes_on_the_products_record(tmp_path):
     assert "Zara Okafor 0/4/0; Edric Thane 0/0/0; unmatched withheld 0" in scorecard(
         run
     )
+    # (R) wave 11, G3: W8c's 0022-0025 are each listed, carried, unchanged.
+    zara = [(b["id"][-4:], b["state"]) for b in move["blocks"] if b["owner"] == ZARA]
+    assert zara == [(f"00{n}", "carried") for n in (22, 23, 24, 25)]
 
 
 def test_all_carried_leaves_coverage_null_and_the_cast_rule_decides(tmp_path):
@@ -999,3 +1023,118 @@ def test_shown_movement_still_passes(tmp_path, run):
     assert move["ok"] is True and move["per_principal"]["Zara Okafor"]["shown"]
     if run == "W8r":
         assert {k: move[k] for k in fx["regrade"]} == fx["regrade"]
+
+
+# --- wave 10: the gate definitions (tpm-plan-wave10 D4; SPEC-75) ----------------
+
+W9X = json.loads(
+    (Path(__file__).parents[1] / "fixtures" / "w9_archives.json").read_text()
+)
+
+
+def test_movement_reads_the_drawn_chapters_cast():
+    """(F) W10-3 (b): W9b's prose drew chapter 2, where no block was "in
+    chapter 1", so the cast rule passed vacuously. Cast is now a block of the
+    drawn chapter: Zara is cast there with no line of her own indexed."""
+    rec = W9X["w9b_beat_prose"]["record"]
+    store = {"Milo Voss": ["Milo straightened the stapler."]}
+    move = pc.grade([rec], principals=PRINCIPALS, movement_store=store)["movement"]
+    assert move["not_cast"] == ["Edric Thane"] and move["ok"] is False
+    assert move["not_eligible"] == ["Zara Okafor"]
+
+
+def test_beat_prose_spanning_two_chapters_has_no_drawn_chapter(tmp_path):
+    """(F) W10-3 (b): the drawn chapter is unique, or the grade raises."""
+    for n in (1, 2):
+        _write(tmp_path, _rec(f"b{n}", "beat_prose", _beat(n, {}), created=n))
+    with pytest.raises(ValueError, match=r"spans chapters \[1, 2\]"):
+        pc.grade(pc.load_archive(tmp_path), principals=PRINCIPALS)
+
+
+@pytest.mark.parametrize(
+    "people, exempt",
+    [  # (F) the drawn plan names principals only: exempt, the condition quoted
+        (["Milo", "Zara Okafor"], pc.SECONDARY_EXEMPT),
+        (["Milo", "Prava"], None),  # (R) it names Prava: n = 0 stays a failure
+    ],
+)
+def test_secondary_has_context_is_exempt_only_on_a_quiet_plan(tmp_path, people, exempt):
+    """W10-3 (c): no "Also named" line is exempt only when the drawn chapter's
+    archived plan (its outline:beats nodes) names no secondary."""
+    chapter = {**CHAPTER, "people": ["Milo Voss"], "children": [{"people": people}]}
+    _write(tmp_path, _rec("o", "outline:beats", "p", json.dumps([chapter]), 0.0))
+    prompt = f"<chapter>\n{CHAPTER['summary']}\n</chapter>\n{_beat(1, {})}"
+    _write(tmp_path, _rec("b", "beat_prose", prompt, created=1.0))
+    out = pc.grade(pc.load_archive(tmp_path), principals=PRINCIPALS)
+    assert out["secondary_has_context"]["n"] == 0
+    assert out["secondary_has_context"]["exempt"] == exempt
+    assert exempt is None or exempt == "the drawn chapter's plan names no secondary"
+
+
+def test_a_capped_withheld_record_is_not_carried(tmp_path):
+    """(F) W10-4 (D7): the W8c chain past the cap: Zara is starved, not carried."""
+    rows = [{**r, "withheld_more": 2} for r in W8["w8c_withheld"]]
+    move = _w9_regrade(tmp_path, W8["w8c_movement"], "W8c", None, rows)
+    assert move["per_principal"]["Zara Okafor"]["starved"] == 4 and not move["ok"]
+
+
+# --- wave 11: the W10 chain's grader half, thinness (tpm-plan-wave11 D2, D5) ----
+
+W10 = json.loads(
+    (Path(__file__).parents[1] / "fixtures" / "w10_archives.json").read_text()
+)
+W10_STORE = {w: ls for w, ls in W10["store"].items() if w != "about"}
+P2, ZARA = "Zara Okafor, at the next desk, did not look up.", "Zara Okafor"
+
+
+def _w10_fx(export: list[dict]) -> dict:
+    """W10's run: each beat shows the store lines its export row does not withhold."""
+    held = {(r["beat"], r["owner"]): {ln["text"] for ln in r["lines"]} for r in export}
+
+    def shows(beat, w):
+        return [ln for ln in W10_STORE.get(w, []) if ln not in held.get((beat, w), ())]
+
+    beats = [
+        {
+            **b,
+            "brief": sc["brief"],
+            "movement": {w: shows(b["beat"], w) for w in b["movement"]},
+        }
+        for sc in W10["scenes"]["scenes"]
+        for b in sc["blocks"]
+    ]
+    return {"plan": W10["plan"], "store": W10_STORE, "beats": beats}
+
+
+W10_BEFORE = [r for sc in W10["scenes"]["scenes"] for r in sc["export"]]
+
+
+def test_the_w10_chain_grader_half(tmp_path):
+    """(R) W10's export rebuilds its ten named blocks and the signed four failures.
+    (F) G3: on E2's record, 0027, 0029, 0030 and 0035 are each listed, p2 shown."""
+    fx = _w10_fx(W10_BEFORE)
+    blocks = [b for sc in W10["scenes"]["scenes"] for b in sc["blocks"]]
+    assert [b["movement"] for b in fx["beats"]] == [b["movement"] for b in blocks]
+    move = _w9_regrade(tmp_path / "before", fx, "W10", None, W10_BEFORE)
+    assert move["failures"] == W10["regrade"]["failures"]
+    after = W10["w10_withheld_after"]
+    move = _w9_regrade(tmp_path / "after", _w10_fx(after), "W10", None, after)
+    four = ("0027", "0029", "0030", "0035")
+    zara = {b["id"][-4:]: b for b in move["blocks"] if b["owner"] == ZARA}
+    assert {n: zara[n]["state"] for n in four} == dict.fromkeys(four, "shown")
+    assert zara["0034"]["withheld"] == ["later_plot", "not_centred"]  # (R) §6 listing
+    assert move["ok"] is True and move["failures"] == []
+
+
+def test_thinness_on_w10s_shape(tmp_path):
+    """(F) D5: per principal, store/eligible/shown in the drawn chapter: Zara
+    has one eligible line, shown nowhere."""
+    move = _w9_regrade(tmp_path, _w10_fx(W10_BEFORE), "W10", None, W10_BEFORE)
+    assert move["thinness"] == {
+        "Milo Voss": {"store": 8, "eligible": 1, "shown": 1},
+        "Zara Okafor": {"store": 4, "eligible": 1, "shown": 0},
+        "Edric Thane": {"store": 3, "eligible": 0, "shown": 0},
+    }
+    run = {"book": "cel", "judge": {"provider": "r", "self": 0}, "steps": {}}
+    run["steps"]["prompt_contract"] = {"score": 1.0, "movement": move}
+    assert "store/eligible/shown: Milo Voss 8/1/1; Zara Okafor 4/1/0" in scorecard(run)

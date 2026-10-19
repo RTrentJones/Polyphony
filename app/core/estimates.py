@@ -145,9 +145,10 @@ def revise_max_tokens(target_chars: int) -> int:
     return max(600, estimate_tokens(target_chars) * 3)
 
 
-def outline(*, canon_chars: int, staged: bool = True) -> Estimate:
+def outline(*, canon_chars: int, source_chars: int, staged: bool = True) -> Estimate:
     """Staged: skeleton + chapters + ~4 act batches (+ one possible repair of
-    chapters and beats). Single: one call."""
+    chapters and beats), then, with sources, one check of the outline against
+    them (SPEC-73). Single: one call."""
     canon = estimate_tokens(canon_chars)
     if not staged:
         return Estimate("outline", "single", 1, canon + 800, 4096 // 2)
@@ -156,6 +157,10 @@ def outline(*, canon_chars: int, staged: bool = True) -> Estimate:
     tokens_out = (
         _OUTLINE_OUT["skeleton"] + _OUTLINE_OUT["chapters"] + 4 * _OUTLINE_OUT["beats"]
     ) // 2
+    if source_chars:
+        calls += 1  # the outline in, at most what its stages wrote
+        tokens_in += estimate_tokens(source_chars) + tokens_out + 800
+        tokens_out += _CONTINUITY_OUT // 3
     est = Estimate("outline", "staged", calls, tokens_in, tokens_out)
     est.notes.append(
         "If a principal character is missing, the chapters and beats are "

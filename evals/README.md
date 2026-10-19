@@ -21,7 +21,7 @@ renamed excerpts of a few chapters are committed, never whole novels.
 | `extraction`  | finds the right cast          | upload → extract → **F1** vs gold cast, plus principal bible depth and mention order | yes (extract) |
 | `ingestion`   | upload yields usable voice     | upload → per-character indexed-chunk count → **fraction grounded** | yes (extract) |
 | `retrieval`   | voices separate in embedding space | held-out line → nearest across pooled voices → **precision@k / MRR** | no (embedder) |
-| `attribution` | generated line sounds like the character | test-dialogue → embed → nearest centroid → **top-1 accuracy** vs chance | yes (generate) |
+| `attribution` | generated line sounds like the character | test-dialogue → embed → nearest train-line centroid (`reference: "train"`, SPEC-74) → **top-1 accuracy** vs chance | yes (generate) |
 | `outline`     | recovers the story's shape    | generate outline (premise confirmed with the author's edit) → **R1 × mean(R6, R3)** + unknown-name rates | yes |
 | `continuity`  | catches contradictions        | inject known errors → **detection recall**, precision, quote-verbatim + false-positive rate | yes |
 | `prose`       | end-to-end scene quality      | the product path: outline → promote → planned scenes → deterministic cast/seam checks + **R1 × mean(R2..R5)** per scene | yes |
@@ -304,7 +304,12 @@ report holds (`steps.prose.voice.movement`); without one, `movement` is `null`. 
 report's `steps.prose.voice.withheld` (each scene's grounding API `withheld` lines, per beat and
 owner), so a block the product withheld because the plan carries it is `carried`, not starved,
 and a starved block names the product's rule. `movement.per_principal` and
-`unmatched_withheld` are reported; a row matching two beats is an error (SPEC-69).
+`unmatched_withheld` are reported; a row matching two beats is an error (SPEC-69). A row whose
+`withheld_more` is above 0 (the record was capped) is never `carried` (W10-4). The regrade also
+reports `outline_source_conflicts` (the outline step's "Outline vs your source: " warnings, with
+their outline quotes) and `source_fact_hits` (per cel `source_facts` row: the signed placement's
+`contradicted` cell, and whether a conflict names the fact; SPEC-73).
+The voice instrument runs offline with `python -m evals.measure.voice_instrument` (SPEC-74).
 
 ## Adding a book — data only, no code
 

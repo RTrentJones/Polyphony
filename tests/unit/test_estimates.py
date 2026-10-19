@@ -49,10 +49,21 @@ def test_affordable_is_the_longest_prefix_that_fits():
 
 
 def test_outline_staged_vs_single():
-    staged = estimates.outline(canon_chars=20_000)
-    single = estimates.outline(canon_chars=20_000, staged=False)
+    staged = estimates.outline(canon_chars=20_000, source_chars=0)
+    single = estimates.outline(canon_chars=20_000, source_chars=0, staged=False)
     assert staged.calls == 6 and single.calls == 1
     assert staged.tokens > single.tokens
+
+
+def test_the_outline_estimate_counts_the_source_check():
+    """(F) SPEC-73: a sourced book's staged outline is one call more, reading
+    the sources; single mode makes no check."""
+    bare = estimates.outline(canon_chars=20_000, source_chars=0)
+    sourced = estimates.outline(canon_chars=20_000, source_chars=40_000)
+    assert sourced.calls == bare.calls + 1
+    assert sourced.input_tokens - bare.input_tokens > 10_000
+    single = dict(canon_chars=20_000, staged=False)
+    assert estimates.outline(**single, source_chars=40_000).calls == 1
 
 
 def test_continuity_scales_with_prose():

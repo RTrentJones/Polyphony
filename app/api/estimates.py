@@ -102,8 +102,12 @@ async def estimate(
             cast_size=len(cast),
         )
     elif payload.action == "outline":
+        from app.planning.continuity import source_texts
+
         est = estimates.outline(
-            canon_chars=canon_chars, staged=payload.mode != "single"
+            canon_chars=canon_chars,
+            source_chars=sum(map(len, await source_texts(db, book.id))),
+            staged=payload.mode != "single",
         )
     else:
         from app.planning.continuity import build_fact_sheet, collect_scenes

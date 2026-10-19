@@ -15,9 +15,11 @@ from pathlib import Path
 
 import pytest
 
-from app.characters.context import later_plot_from
+import app.characters.context as ctx
+from app.characters.context import SceneScope, later_plot_from, speech_paragraphs
 from app.core.config import settings
 from app.core.models import ChunkType
+from app.core.prompt_markers import CHARACTERS_SECTION, STORY_POSITION
 from app.parsing.character_extractor import (
     CharacterExtractor,
     attribute_speech,
@@ -26,7 +28,8 @@ from app.parsing.character_extractor import (
 )
 from app.planning.planned_beat import beat_scene_description
 from app.rag.store import above_threshold
-from evals.steps.pipeline import load_excerpts
+from evals.graders import prompt_contract as pc
+from evals.steps.pipeline import load_corpus, load_excerpts
 from tests.unit.factories import make_scope
 
 pytestmark = pytest.mark.unit
@@ -615,8 +618,6 @@ def _cel(synopsis=True):
 async def _milo_moves(monkeypatch, texts, scene, secondaries=(), synopsis=True, **kw):
     """(voice block, movement lines) for `who` (Milo) in a scene of Milo +
     `scene` (first names), with one dialogue chunk and `texts` as actions."""
-    import app.characters.context as ctx
-
     canon, by = _cel(synopsis)
     store = TypedStore(
         [_s("d0", "Is there a dashboard or a tracker?", "dialogue", "dialogue_1")]
@@ -626,7 +627,9 @@ async def _milo_moves(monkeypatch, texts, scene, secondaries=(), synopsis=True, 
     monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
     cast = [by["Milo"], *(by[n] for n in scene)]
     plot = kw.get("plot", (kw["brief"],) if kw.get("brief") else ())
-    scope = ctx.SceneScope.of(canon, cast, secondaries, plot, kw.get("later", {}))
+    scope = ctx.SceneScope.of(
+        canon, cast, secondaries, plot, kw.get("later", {}), (), {}
+    )
     who = by[kw.get("who", "Milo")]
     out = await ctx.build_character_context(
         who, who.name, kw.get("query", "x"), scope=scope
@@ -653,7 +656,7 @@ class TestMovementInScene:
         canon, by = _cel()
         chief = "The chief reason was the form."
         assert _centres(chief, "Milo Voss", [by["Milo"], by["Edric"]], ["Milo"])
-        scope = SceneScope.of(canon, [by["Milo"], by["Zara"]], (), (), {})
+        scope = SceneScope.of(canon, [by["Milo"], by["Zara"]], (), (), {}, (), {})
         assert names_outside_scene(chief, by["Milo"], scope) == []
         # Edric is still seen by any of his forms, capitalised.
         lich = "Milo bowed to the Lich."
@@ -923,8 +926,8 @@ W4, W4B2 = _lines("w4"), _lines("w4b2")
 async def test_a_sample_that_restates_any_plot_line_goes(
     monkeypatch, plot, sample, kept
 ):
-    """The rule over `plot` (day-0 reads it); what fills `plot` is pinned (F) by
-    test_secondaries' scene_setup case and the prose plot-line case."""
+    """The rule over `plot`, no speech beats (SPEC-77); what fills `plot` is pinned
+    (F) by test_secondaries' scene_setup case and the prose plot-line case."""
     who = "Zara" if sample == LOOKED else "Milo"
     _, move = await _milo_moves(monkeypatch, [sample], ["Zara"], plot=plot, who=who)
     assert (sample in move) is kept
@@ -1018,7 +1021,7 @@ async def test_an_owned_phrase_is_named_only_where_its_owner_is_absent(monkeypat
     edric.voice_characteristics = "The impersonal 'one'; calls Milo 'Mr. Voss'; don't"
     assert (ctx.owned_phrases(edric), ctx.owned_phrases(milo)) == (["Mr. Voss"], [])
     monkeypatch.setattr(ctx, "get_chunk_store", lambda: TypedStore([]))
-    scope = ctx.SceneScope.of(canon, [milo], ["Prava"], (), {})
+    scope = ctx.SceneScope.of(canon, [milo], ["Prava"], (), {}, (), {})
     without = await ctx.build_cast_context([milo], "x", scope=scope)
     owned = f"{ctx.OWNED_PHRASES_NOTE}\n<owned>\nEdric Thane: 'Mr. Voss'\n</owned>"
     assert without.count(owned) == 1
@@ -1035,8 +1038,6 @@ async def test_an_owned_phrase_is_named_only_where_its_owner_is_absent(monkeypat
 async def _shown(monkeypatch, who, i, plot=(), later=None):
     """What a scene of the three cel principals shows `who` from the chunks the
     product indexes for them from paragraph `i` (retrieval's filters included)."""
-    import app.characters.context as ctx
-
     canon, by = _cel()
     cast = [{"name": c.name, "aliases": c.aliases} for c in by.values()]
     got = CharacterExtractor().extract_character_content(
@@ -1050,7 +1051,7 @@ async def _shown(monkeypatch, who, i, plot=(), later=None):
         ]
     )
     monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
-    scope = ctx.SceneScope.of(canon, list(by.values()), (), plot, later or {})
+    scope = ctx.SceneScope.of(canon, list(by.values()), (), plot, later or {}, (), {})
     _, move = await ctx.character_samples(
         by[who], "beat", 3, scope=scope, threshold=settings.RAG_SCORE_THRESHOLD
     )
@@ -1113,9 +1114,8 @@ async def test_eligibility_comes_before_the_movement_limit(monkeypatch, who, i, 
     )
     monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
     cast = [by[n.split()[0]] for n in beat["cast"]]
-    scope = ctx.SceneScope.of(
-        canon, cast, beat["secondary_names"], beat["plot"], {1: beat["later_from"]}
-    )
+    args = (beat["secondary_names"], beat["plot"], {1: beat["later_from"]}, (), {})
+    scope = ctx.SceneScope.of(canon, cast, *args)
     _, move = await ctx.character_samples(
         by[who], beat["query"], 5, scope=scope, threshold=settings.RAG_SCORE_THRESHOLD
     )
@@ -1139,18 +1139,19 @@ def test_the_cel_voice_chunks_are_unchanged():
 
 # --- SPEC-69: the withheld record (W9-1 (a)) ------------------------------------------
 W8 = json.loads((Path(__file__).parents[1] / "fixtures/w8_archives.json").read_text())
+SPEECH = speech_paragraphs(load_excerpts("cel"))  # cel's speech beats (SPEC-77)
 SC, P2 = W8["w8c_movement"]["scope"], ZARA_2[2]
+SC_SPEECH = {next(iter(SC["later_from"])): SPEECH}  # its one source
 
 
-async def _zara(monkeypatch, plot, beat):
+async def _zara(monkeypatch, plot, beat, own=(), speech=None):
     """Zara's movement lines and grounding record in `beat`, on her W8c rows."""
-    import app.characters.context as ctx
-
     canon, by = _cel()
     rows = [{**r, "score": 0.5} for r in SC["zara_rows"]]
     monkeypatch.setattr(ctx, "get_chunk_store", lambda: TypedStore(rows))
-    cast, rec = [by["Milo"], by["Zara"]], []
-    scope = ctx.SceneScope.of(canon, cast, (), plot, SC["later_from"])
+    cast, rec, later = [by["Milo"], by["Zara"]], [], SC["later_from"]
+    scope = ctx.SceneScope.of(canon, cast, (), plot, later, own[:1], speech or {})
+    scope = scope.planned(own[1:])
     out = await ctx.build_character_context(
         cast[1], "", beat, scope=scope, grounding=rec
     )
@@ -1158,10 +1159,13 @@ async def _zara(monkeypatch, plot, beat):
 
 
 async def test_the_w8c_chain_records_p2_as_restates(monkeypatch):
-    """(F) D10: the product's W8c export IS `w8c_withheld`; (R) p2 `restates`."""
+    """(F) D10: the W8c export IS `w8c_withheld`; (R) p2 `restates` by its own
+    scene's plan (SPEC-77: the brief, the beats via `planned`)."""
     text, export = {r["id"]: r["text"] for r in SC["zara_rows"]}, []
+    beats = tuple(b["beat"] for b in W8["w8c_movement"]["beats"])
+    own, n = (W8["w8c_movement"]["brief"], *beats), len(beats)
     for b in W8["w8c_movement"]["beats"]:
-        move, rec = await _zara(monkeypatch, SC["plot"], b["beat"])
+        move, rec = await _zara(monkeypatch, SC["plot"][:-n], b["beat"], own, SC_SPEECH)
         withheld = [e for e in rec if "withheld" in e]
         lines = [{"text": text[e["chunk_id"]], "rule": e["withheld"]} for e in withheld]
         export.append({"beat": b["beat"], "owner": "Zara Okafor", "lines": lines})
@@ -1195,9 +1199,115 @@ async def test_a_withheld_line_is_recorded_once(monkeypatch, text, at, rule):
     canon, by = _cel(synopsis=False)  # without the synopsis Prava is no one
     store = TypedStore([_s("a1", text, "action", f"paragraph_{at}")])
     monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
-    scope = ctx.SceneScope.of(canon, [by["Milo"], by["Zara"]], (), (), {None: 9})
+    scope = ctx.SceneScope.of(
+        canon, [by["Milo"], by["Zara"]], (), (), {None: 9}, (), {}
+    )
     kw, sink = dict(scope=scope, threshold=0), []
     got = await ctx.character_samples(by["Milo"], "x", 3, withheld=sink, **kw)
     assert got == ([], []) == await ctx.character_samples(by["Milo"], "x", 3, **kw)
     entry = {"character_id": str(by["Milo"].id), "chunk_id": "a1", "withheld": rule}
     assert sink == [{**entry, "excerpt": text}]
+
+
+async def test_a_full_manuscript_withheld_record_is_bounded(monkeypatch):
+    """(F) W10-4: 60 rows, all past the cut: the 8 nearest are recorded and the
+    last counts the rest, under 8 KB (25.7 KB uncapped). (R) W8c above: 4 lines."""
+    import app.characters.context as ctx
+    from app.core.prompt_markers import WITHHELD_MORE
+
+    syn = json.loads(
+        (Path(__file__).parents[1] / "fixtures/w9_archives.json").read_text()
+    )
+    syn, (canon, by) = syn["synthetic_store"], _cel()
+    monkeypatch.setattr(ctx, "get_chunk_store", lambda: TypedStore(syn["rows"]))
+    scope = ctx.SceneScope.of(canon, [by["Milo"]], (), (), syn["later_from"], (), {})
+    rec = []
+    await ctx.build_character_context(by["Milo"], "", "x", scope=scope, grounding=rec)
+    withheld = [e for e in rec if "withheld" in e]
+    nearest = sorted(syn["rows"], key=lambda r: -r["score"])[: ctx.WITHHELD_CAP]
+    assert [e["chunk_id"] for e in withheld] == [r["id"] for r in nearest]
+    assert withheld[-1][WITHHELD_MORE] == len(syn["rows"]) - 8
+    assert len(json.dumps(rec)) < 8 * 1024
+
+
+# --- SPEC-77: the speech-beat rule (wave 11, item 1) ---------------------------------
+W10 = json.loads((Path(__file__).parents[1] / "fixtures/w10_archives.json").read_text())
+
+
+async def _record(monkeypatch, rows, who, scope, beat):
+    """(movement lines shown, the withheld record [{text, rule}]) of `who`."""
+    rows = [{**r, "score": 0.5} for r in rows]
+    monkeypatch.setattr(ctx, "get_chunk_store", lambda: TypedStore(rows))
+    rec, text = [], {r["id"]: r["text"] for r in rows}
+    got = await ctx.build_character_context(who, "", beat, scope=scope, grounding=rec)
+    rec = [e for e in rec if "withheld" in e]
+    out = [{"text": text[e["chunk_id"]], "rule": e["withheld"]} for e in rec]
+    return [ln[2:] for ln in _blocks(got)[1].splitlines()[1:]], out
+
+
+async def w10_withheld(monkeypatch) -> list[dict]:
+    """Per W10 scene-2/3 block and shown owner, on a scope built as scene_setup
+    builds it (pinned by test_secondaries): the record."""
+    (canon, by), src, out = _cel(), W10["source"], []
+    speech = {src["source_id"]: speech_paragraphs(src["text"])}
+    for sc in W10["scenes"]["scenes"][1:]:
+        cast, n = [by[c.split()[0]] for c in sc["cast"]], len(sc["beat_lines"])
+        args = (sc["secondary_names"], sc["plot"][:-n], sc["later_from"])
+        scope = SceneScope.of(canon, cast, *args, sc["plot"][:1], speech)
+        scope = scope.planned(sc["beat_lines"])
+        for b, who in ((b, c) for b in sc["blocks"] for c in cast):
+            if who.name in b["movement"]:
+                rows = [r for r in W10["rows"]["rows"] if r["owner"] == who.name]
+                shown, lines = await _record(monkeypatch, rows, who, scope, b["beat"])
+                key = dict(request=b["request"][-4:], beat=b["beat"], owner=who.name)
+                out.append(key | {"lines": lines, "shown": shown})
+    return out
+
+
+async def test_the_w10_chain_shows_p2_in_every_failing_block(monkeypatch):
+    """(F) G3: p2 shown, not withheld, in 0027, 0029, 0030, 0035 (and 0028, 0034);
+    the record IS `w10_withheld_after`. (R) Milo's p0 and p13 stay withheld."""
+    export = await w10_withheld(monkeypatch)
+    zara = {e["request"]: e for e in export if e["owner"] == "Zara Okafor"}
+    assert sorted(zara) == ["0027", "0028", "0029", "0030", "0034", "0035"]
+    for e in zara.values():
+        assert P2 not in [ln["text"] for ln in e["lines"]] and e["shown"] == [P2]
+    p0, p13 = W10["store"]["Milo Voss"][0], W10["store"]["Milo Voss"][6]
+    milo = [e["lines"] for e in export if e["owner"] == "Milo Voss"]
+    milo = [{ln["text"]: ln["rule"] for ln in lines} for lines in milo]
+    assert {(r[p0], r[p13]) for r in milo} == {("restates", "later_plot")}
+    assert export == W10["w10_withheld_after"]
+
+
+def test_a_scare_quote_or_vocative_is_no_speech_paragraph():
+    """(F) R-GD-1 (design ruling (b)): the indexer's `is_speech` decides; only the
+    credited line makes a speech paragraph (8003c45: {0, 1, 2})."""
+    text = 'With the "foreign gentleman."\n\n"Count Vasska?" He bowed.\n\n'
+    assert speech_paragraphs(text + '"I have waited long," he said.') == {2}
+
+
+@pytest.mark.parametrize("planned, shown", [(False, [P2]), (True, [])])
+async def test_a_speech_beat_another_scene_plans_is_shown(monkeypatch, planned, shown):
+    """(F) A speech beat only another scene restates is shown; (R) the same line
+    added through `planned` (the scene's own) withholds it."""
+    seen = "Zara Okafor, at the next desk, did not look up from the queue."
+    plot, own = ((), ("", seen)) if planned else ((seen,), ())
+    move, rec = await _zara(monkeypatch, plot, "x", own, SC_SPEECH)
+    withheld = [e["withheld"] for e in rec if "withheld" in e and e["excerpt"] == P2]
+    assert (move, withheld) == (shown, ["restates"] if planned else [])
+
+
+async def test_p19_released_by_another_scene_fails_samples_not_plot(monkeypatch):
+    """(R) The named residual (PM (b)): another chapter-1 scene plans the meeting;
+    p19, a speech beat that is the event, is shown and `samples_not_plot` fails."""
+    (canon, by), p19 = _cel(), W10["store"]["Milo Voss"][5]
+    row = {**_s("p19", p19, "description", "paragraph_19"), "source_id": 1}
+    monkeypatch.setattr(ctx, "get_chunk_store", lambda: TypedStore([row]))
+    plan = ("", "Do Sit: Milo, surprised to hear himself, remained standing")
+    scope = ctx.SceneScope.of(canon, [by["Milo"]], (), plan, {}, [""], {1: SPEECH})
+    block = await ctx.build_cast_context([by["Milo"]], "x", scope=scope)
+    prompt = f"{STORY_POSITION.format(n=1, m=6)}\n{CHARACTERS_SECTION}\n{block}"
+    gold = {"events": load_corpus("cel")[1]["excerpt_events"], "paragraphs": PARAGRAPHS}
+    counts = dict(classified=0, later_plot_slots=0)
+    why = pc.check_samples_not_plot(prompt, gold, {"corner office": 1}, counts)[0]
+    assert why == ["Milo Voss: paragraph 19: narrates corner office (ch 1)"]

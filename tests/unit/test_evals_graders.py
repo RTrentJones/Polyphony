@@ -8,6 +8,8 @@ exercised in the local end-to-end dry run, not here.
 import pytest
 
 from evals.graders import attribution, continuity, extraction, fidelity, retrieval
+from evals.graders import plot
+from evals.steps import pipeline
 
 pytestmark = pytest.mark.unit
 
@@ -566,12 +568,12 @@ class TestHistory:
         ]
         assert lines[-2] == report.ACT_RULE
         # (F) W8-2 (c): attribution pooled over W7, W7r, W8r and W9, with its
-        # interval; tighten fires on both wave-7 pairs, R2 on wave 9.
+        # interval; tighten fires on both wave-7 pairs and 11, R2 on 9 and 10.
         assert lines[-3] == (
             "Attribution pooled from W7 (Wilson 95%): Milo 14/26 (0.35, 0.71); "
             "Zara 14/26 (0.35, 0.71); Edric 7/26 (0.14, 0.46)"
         )
-        assert lines[-1].endswith("tighten RA (7), tighten RA (7r), R2 mean (9)")
+        assert lines[-1].endswith("(7r), R2 mean (9), R2 mean (10), tighten RA (11)")
 
     def test_the_act_rule_fires_only_on_both_draws_of_a_pair(self, tmp_path):
         from evals.harness import report
@@ -608,3 +610,56 @@ def test_masking_hides_each_name_form_but_not_the_word_chief():
     assert (
         attribution.mask(line, forms) == "The chief signs. ⟨NAME⟩ waits. Chief ⟨NAME⟩?"
     )
+
+
+def test_old_is_masked_only_within_old_fen():
+    """(F) W10-5: "Old habits" is unmasked; (R) "Old Fen said" is masked."""
+    forms = {"Old Fen": ["Old Fen"]}
+    assert attribution.mask("Old habits. Fen?", forms) == "Old habits. ⟨NAME⟩?"
+    assert attribution.mask("Old Fen said so.", forms) == "⟨NAME⟩ said so."
+
+
+W10 = "Outline vs your source: "
+CONFLICTS = [  # SPEC-73's located and unlocated forms, a plain warning, none
+    f'{W10}Your source has Halvard Bell sent under. ("Bell files his report")',
+    f'{W10}Bell is alive. (could not locate "Bell waves" in the outline)',
+    "Outline not checked against your source",
+]
+
+
+def test_outline_source_conflicts_read_both_quote_forms():
+    """(F) W10-1 (c): each prefixed warning, its detail and its outline quote."""
+    assert plot.outline_source_conflicts(CONFLICTS) == [
+        {"detail": "Your source has Halvard Bell sent under."}
+        | {"quote": "Bell files his report", "located": True},
+        {"detail": "Bell is alive.", "quote": "Bell waves", "located": False},
+    ]
+
+
+@pytest.mark.parametrize("warnings, named", [(CONFLICTS, True), (CONFLICTS[2:], False)])
+def test_source_fact_hits_read_the_signed_cell_and_the_detail(warnings, named):
+    """(F) W10-1 (c): the signed cell says Bell is contradicted; a conflict
+    names the fact when its detail names Bell (model output, reported)."""
+    gt = pipeline.load_corpus("cel")[1]
+    signed = {"source_facts": {"bell_sent_under": {"contradicted": True, "line": "x"}}}
+    hits = plot.source_fact_hits(gt, signed, warnings)
+    assert hits == {"bell_sent_under": {"contradicted": True, "names_the_fact": named}}
+    unsigned = plot.source_fact_hits(gt, None, [])["bell_sent_under"]
+    assert unsigned["contradicted"] is None
+
+
+# W10b's outline step warning (its report's app_warnings[1]), first sentence.
+OLD_FEN = (
+    f"{W10}In Chapter 1 of the source, Old Fen is already present while Milo works"
+    " the Bell account in Reconciliations."
+)
+
+
+def test_names_the_fact_needs_a_full_name_or_alias():
+    """(F) D7: W10b's Old Fen finding names "the Bell account": one word of a name
+    no longer counts for Bell. (R) "Halvard Bell" in full still does."""
+    gt = pipeline.load_corpus("cel")[1]
+    hits = plot.source_fact_hits(gt, None, [OLD_FEN])["bell_sent_under"]
+    assert hits["names_the_fact"] is False
+    hits = plot.source_fact_hits(gt, None, [OLD_FEN, CONFLICTS[0]])["bell_sent_under"]
+    assert hits["names_the_fact"] is True

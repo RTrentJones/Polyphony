@@ -311,3 +311,28 @@ async def test_a_paused_check_resumes_at_its_next_chunk(monkeypatch):
     edited = [scenes[0]._replace(text="x" + scenes[0].text), *scenes[1:]]
     await cont.run_continuity_check(edited, "facts", checkpoint=saved)
     assert len(calls) == 3
+
+
+async def test_the_outline_check_reads_the_live_sources_oldest_first(
+    async_session, test_book
+):
+    """(F) SPEC-73: live sources with text, by upload; trashed or empty ones never."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.orm_models import Source
+
+    t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    rows = [("later", 3, None), ("first", 0, None), ("gone", 1, t0), ("  ", 2, None)]
+    async_session.add_all(
+        Source(
+            book_id=test_book.id,
+            user_id=test_book.user_id,
+            title=title,
+            content_text=title,
+            uploaded_at=t0 + timedelta(days=day),
+            deleted_at=gone,
+        )
+        for title, day, gone in rows
+    )
+    await async_session.commit()
+    assert await cont.source_texts(async_session, test_book.id) == ["first", "later"]

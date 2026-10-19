@@ -38,7 +38,7 @@ import json
 from typing import Awaitable, Callable, Optional
 from uuid import UUID
 
-from app.core.llm_text import STORY_MATERIAL_NOTICE
+from app.core.llm_text import STORY_MATERIAL_NOTICE, TextTooLargeError
 from app.core.logging_config import setup_logging
 from app.core.prompt_markers import (
     ACT_CHAPTERS_HEADER,
@@ -48,6 +48,7 @@ from app.core.prompt_markers import (
 )
 from app.llm.client import get_llm_client
 from app.llm.json_utils import JSON_OBJECT, extract_json_array, extract_json_object
+from app.planning import continuity
 from app.planning.canon import Canon
 from app.parsing import names
 from app.planning.fidelity import FidelityAudit, audit_outline, canon_known_text
@@ -555,3 +556,38 @@ async def generate_staged_outline(
         validate_outline_nodes(nodes, cast=cast, known_text=known_text),
         list(audit.warnings),
     )
+
+
+async def check_against_sources(
+    nodes: list[dict],
+    sources: list[str],
+    *,
+    user_id: Optional[UUID],
+    checkpoint: Optional[dict],
+    save_checkpoint: CheckpointCallback,
+) -> list[str]:
+    """SPEC-73: ONE continuity call reads the outline's summaries against the
+    book's sources; each finding is a warn-only outline warning. No source, no
+    call. The result is checkpointed under `source_check`, so a resume never
+    repeats the call; an outline or sources changed since run it again."""
+    chunk = continuity.outline_chunk(nodes)
+    if not sources or chunk is None:
+        return []
+    sheet = continuity.source_fact_sheet(sources)
+    key = continuity._input_hash([chunk], sheet)
+    done = (checkpoint or {}).get("source_check") or {}
+    if done.get("input_hash") == key:
+        return list(done["warnings"])
+    try:
+        findings, _, checked = await continuity.check_chunk(
+            chunk, sheet, "the outline", user_id
+        )
+    except TextTooLargeError:
+        warnings = [continuity.SOURCE_TOO_LONG]
+    else:
+        warnings = [continuity.source_warning(f) for f in findings]
+        warnings = warnings if checked else [continuity.SOURCE_UNCHECKED]
+    if save_checkpoint is not None:
+        source_check = {"input_hash": key, "warnings": warnings}
+        await save_checkpoint({**(checkpoint or {}), "source_check": source_check})
+    return warnings

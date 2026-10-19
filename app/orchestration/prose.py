@@ -110,7 +110,7 @@ async def scene_setup(
     request's cast from it, the scene scope with its Also-named secondaries,
     the POV, the rendered secondary block, the book's plan and what the
     chapter's earlier scenes already planned."""
-    from app.characters.context import later_plot_from
+    from app.characters.context import later_plot_from, speech_paragraphs
     from app.parsing.character_extractor import source_paragraphs
     from app.planning.planned_beat import beat_scene_description
     from app.planning.secondaries import render_secondaries, scene_secondaries
@@ -124,7 +124,8 @@ async def scene_setup(
     earlier = await earlier_beats(session, scene)
     # SPEC-40: every plan line a movement sample may not restate, and where each
     # source's later plot begins (nowhere without a story position).
-    plot = [scene_request.get("scene_description") or ""]
+    brief = scene_request.get("scene_description") or ""
+    plot = [brief]
     plot += [beat_scene_description(b) for _, b in plan]
     plot += [line for _, lines in earlier for line in lines]
     rows = await session.execute(
@@ -141,7 +142,9 @@ async def scene_setup(
             later_from[sid] = cut
     # The brief stays at plot[0], even empty (the scripted rule reads it there).
     plot = dict.fromkeys([plot[0], *filter(None, plot[1:])])
-    scope = SceneScope.of(canon, cast, names, plot, later_from)
+    # SPEC-77: the scene's own plan, and where each source carries speech.
+    speech = {sid: speech_paragraphs(text) for sid, text in sources}
+    scope = SceneScope.of(canon, cast, names, plot, later_from, [brief], speech)
     block = render_secondaries(scene_secondaries(names, canon, sources, later_from))
     return SceneSetup(canon, cast, scope, pov, block, plan, earlier, summary, position)
 
@@ -534,7 +537,7 @@ async def run_prose_scene_workflow(
                 "progress": {"stage": "beats", "done": 0, "total": len(beats)},
             }
             await _save(save_checkpoint, checkpoint)
-        scope = scope._replace(plot=scope.plot + tuple(b["description"] for b in beats))
+        scope = scope.planned(b["description"] for b in beats)
 
         target_total = int(scene_request.get("target_word_count") or 500)
         per_beat_words = max(120, target_total // max(1, len(beats)))

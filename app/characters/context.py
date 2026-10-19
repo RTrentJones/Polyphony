@@ -22,8 +22,18 @@ from app.core.config import settings
 from app.core.database import get_async_session
 from app.core.llm_text import as_quoted_block, clean_for_llm
 from app.core.orm_models import Character
-from app.core.prompt_markers import MOVEMENT_LABEL, NAME_HEADING, VOICE_SAMPLES_LABEL
-from app.parsing.character_extractor import SPEECH_MIN_WORDS, source_location
+from app.core.prompt_markers import (
+    MOVEMENT_LABEL,
+    NAME_HEADING,
+    VOICE_SAMPLES_LABEL,
+    WITHHELD_MORE,
+)
+from app.parsing.character_extractor import (
+    SPEECH_MIN_WORDS,
+    attribute_speech,
+    is_speech,
+    source_location,
+)
 from app.rag.store import get_chunk_store
 
 # A grounding record keeps a bounded excerpt of each sample's text as it was at
@@ -33,6 +43,9 @@ from app.rag.store import get_chunk_store
 GROUNDING_EXCERPT_CHARS = 300
 NO_SAMPLES_REASON = "no indexed voice samples"
 CONTEXT_ONLY_REASON = "context only"
+# A block records at most this many withheld lines per owner, the store's
+# nearest first; the last entry counts the rest under WITHHELD_MORE (SPEC-69).
+WITHHELD_CAP = 8
 
 
 class SceneScope(NamedTuple):
@@ -51,6 +64,10 @@ class SceneScope(NamedTuple):
     # plot[0] is its brief, kept even when empty (the scripted rule reads it).
     plot: tuple[str, ...]
     later_from: Mapping[str, int]  # source_id -> first paragraph of later plot
+    # The scene's own brief and beat lines (in `plot` too): own-scene `restates`.
+    own_plot: tuple[str, ...]
+    # source_id -> the paragraphs carrying quoted speech (`speech_paragraphs`).
+    speech_paragraphs: Mapping[str, frozenset]
 
     @classmethod
     def of(
@@ -60,6 +77,8 @@ class SceneScope(NamedTuple):
         secondary_names: Iterable[str],
         plot: Iterable[str],
         later_from: Mapping[str, int],
+        own_plot: Iterable[str],
+        speech_paragraphs: Mapping[str, frozenset],
     ) -> "SceneScope":
         from app.planning.fidelity import canon_known_text
 
@@ -71,7 +90,14 @@ class SceneScope(NamedTuple):
             canon_known_text(canon),
             tuple(plot),
             later_from,
+            tuple(own_plot),
+            speech_paragraphs,
         )
+
+    def planned(self, lines: Iterable[str]) -> "SceneScope":
+        """This scope once the scene's beat lines are planned: its own plot."""
+        lines = tuple(lines)
+        return self._replace(plot=self.plot + lines, own_plot=self.own_plot + lines)
 
 
 def grounding_excerpt(text_value: Optional[str]) -> Optional[str]:
@@ -321,6 +347,13 @@ def later_plot_from(
     return None
 
 
+def speech_paragraphs(text: str) -> frozenset:
+    """The paragraphs of a source that carry speech by the indexer's rule
+    (`is_speech`, SPEC-17)."""
+    spoken = enumerate(attribute_speech(text))
+    return frozenset(i for i, spans in spoken if any(map(is_speech, spans)))
+
+
 def _location(sample: dict) -> tuple[str, int] | tuple[None, None]:
     """A chunk's (kind, paragraph), read by the module that writes the format."""
     return source_location(str(sample.get("source") or "")) or (None, None)
@@ -461,7 +494,10 @@ def _withheld_by(s: dict, character, scope: SceneScope) -> Optional[str]:
         return "not_centred"
     if names_outside_scene(text, character, scope):
         return "names_outside_scene"
-    if any(restates(text, p) for p in scope.plot):
+    # Own-scene `restates` withholds; another scene's plan withholds only
+    # narration that is not a speech beat (SPEC-77).
+    beat = _location(s)[1] in scope.speech_paragraphs.get(s.get("source_id"), ())
+    if any(restates(text, p) for p in (scope.own_plot if beat else scope.plot)):
         return "restates"
     return None
 
@@ -485,12 +521,13 @@ async def character_samples(
     is action / description / thought, falling back to untyped retrieval (minus
     dialogue) when the classifier under-labelled. It keeps only narration that
     centres them, names no one outside the scene (`names_outside_scene`) and
-    restates no line of `scope.plot` (`restates`): a block shows only eligible
+    restates no plan line (`restates`, SPEC-77): a block shows only eligible
     lines, judged before the limit (SPEC-30, SPEC-36, SPEC-40, SPEC-53).
     Neither block shows a sample from its source's later plot
     (`scope.later_from`). `threshold` is
     the store's score floor (`score_threshold`), which every caller passes.
-    `withheld` (an out-sink) gets a grounding entry per movement row withheld.
+    `withheld` (an out-sink) gets a grounding entry per movement row withheld,
+    at most WITHHELD_CAP of them.
     """
     k_voice, k_move = k, min(_MOVEMENT_SAMPLES, k)
     allowed = set(chunk_types) if chunk_types else None
@@ -545,11 +582,17 @@ async def character_samples(
     own = [s for s in body if _own_narration(s) and not scripted(s)]
     words += own[: max(0, k_voice - len(words))]
     if withheld is not None:
-        withheld.extend(
+        ranked = sorted(
+            withheld_rows.items(), key=lambda r: -(r[1][0].get("score") or 0)
+        )
+        entries = [
             {"character_id": str(character.id), "chunk_id": i, "withheld": rule}
             | {"excerpt": grounding_excerpt(s.get("text"))}
-            for i, (s, rule) in withheld_rows.items()
-        )
+            for i, (s, rule) in ranked[:WITHHELD_CAP]
+        ]
+        if len(ranked) > WITHHELD_CAP:
+            entries[-1][WITHHELD_MORE] = len(ranked) - WITHHELD_CAP
+        withheld.extend(entries)
     return words, [s for s in body if not _own_narration(s)][:k_move]
 
 

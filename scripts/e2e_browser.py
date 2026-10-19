@@ -336,6 +336,15 @@ async def journey(page: Page) -> None:
         await expect(promote).to_be_visible(timeout=TIMEOUT)
         body = await page.inner_text("body")
         assert "Milo" in body, "outline does not name the protagonist"
+        # SPEC-73: the sourced book's outline was read against its source once;
+        # the source contradicts nothing, so no warning names it.
+        r = await page.request.get(f"{STUB}/__stub/requests", params={"limit": 200})
+        prompts = [x["prompt"] for x in (await r.json())["requests"]]
+        # This book's only: the eval runs before the journey check their own.
+        mine = f"<source>\n{SOURCE.splitlines()[0]}\n"
+        checks = [p for p in prompts if "continuity editor" in p and mine in p]
+        assert len(checks) == 1, checks
+        assert "Outline vs your source" not in body
         await shot(page, "outline")
         # Promote all is idempotent: a second click creates nothing new.
         promote_all = page.get_by_role("button", name="Promote all to chapters")

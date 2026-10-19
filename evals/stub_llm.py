@@ -322,6 +322,9 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
         )
     if "Write the book's synopsis" in prompt:
         return json.dumps({"synopsis": f"A story about {', '.join(cast[:4]) or lead}."})
+    if "continuity editor" in prompt and "source" in _blocks(prompt):
+        # SPEC-73: the journey's source contradicts nothing.
+        return json.dumps({"findings": []})
     if "continuity editor" in prompt:
         # One minor finding quoting the first sentence of the first scene: a
         # located finding for the journey to open in the editor (SPEC-31).

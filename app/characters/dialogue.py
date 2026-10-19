@@ -55,7 +55,7 @@ Write {name}'s next line of dialogue. Match the cadence, diction and syntax of t
 Important:
 - Stay in character
 - Be natural and conversational
-- Keep it concise (1-3 sentences)
+- Keep it to one to three sentences
 - Do NOT include character name or quotes, just the dialogue
 
 {name} says:"""

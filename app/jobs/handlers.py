@@ -145,7 +145,8 @@ async def _run_generate_outline(payload: dict) -> None:
     """Outline as a background job (Phase 5; SPEC-07 for mode="single").
 
     Builds the canon (S0), runs S1-S4 writing BookPlan.stage between stages for
-    progress, then persists the result + a version. QuotaExhaustedError from any
+    progress, reads a sourced book's outline against its sources once (SPEC-73),
+    then persists the result + a version. QuotaExhaustedError from any
     stage propagates so the worker PAUSES the job (free tier); on resume the
     staged run continues from its last completed stage (SPEC-08).
 
@@ -162,7 +163,12 @@ async def _run_generate_outline(payload: dict) -> None:
     from app.core.orm_models import BookPlan
     from app.planning.canon import build_canon
     from app.planning.outline import generate_outline
-    from app.planning.staged_outline import generate_premise, generate_staged_outline
+    from app.planning.continuity import source_texts
+    from app.planning.staged_outline import (
+        check_against_sources,
+        generate_premise,
+        generate_staged_outline,
+    )
     from app.versioning import repository as versions_repo
 
     plan_id = UUID(payload["plan_id"])
@@ -243,6 +249,15 @@ async def _run_generate_outline(payload: dict) -> None:
             on_restart=ctx.note,
             skeleton=confirmed_skeleton,
             on_premise=None if confirmed_skeleton else store_premise,
+        )
+        async with get_async_session() as session:
+            sources = await source_texts(session, book_id)
+        warnings += await check_against_sources(
+            nodes,
+            sources,
+            user_id=user_id,
+            checkpoint=ctx.checkpoint,
+            save_checkpoint=ctx.save,
         )
 
     async with get_async_session() as session:

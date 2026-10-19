@@ -23,6 +23,7 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 
+from app.core.prompt_markers import WITHHELD_MORE
 from app.parsing.names import match
 from evals.graders import (
     attribution,
@@ -508,9 +509,9 @@ async def step_attribution(ctx: StepContext) -> dict:
     # W9-2 (b): every name masked on both sides, so a vocative labels no one.
     cast = {n: [n] for n in ctx.ground_truth.get("cast", [])}
     forms = cast | _forms(ctx.ground_truth)
-    # reference centroids from held-out TEST lines (never the indexed train lines).
+    # Wave 11, D4 (a): reference centroids from the TRAIN lines (SPEC-74).
     ref_vecs = {
-        c: await embed.embed_many([attribution.mask(t, forms) for t in v["test"]])
+        c: await embed.embed_many([attribution.mask(t, forms) for t in v["train"]])
         for c, v in gold.items()
     }
 
@@ -572,6 +573,7 @@ async def step_attribution(ctx: StepContext) -> dict:
         # D4 (c): no lower bound above chance (0.33) makes W9-9 wave-10 P0.
         "w9_9_p0": not any((r["wilson95"] or (0, 0))[0] > 0.33 for r in per.values()),
         "status": "reported",
+        "reference": "train",
         "detail": [{**r.as_dict(), "probe": p} for r, p in zip(results, probes)],
     }
 
@@ -699,8 +701,9 @@ def portable_outline(
 
 
 # Bumped when the outline book's canon changes (v1: the minor secondaries;
-# v2: they port as secondary names; v3: described by their introduction).
-OUTLINE_CACHE_KEY = "minor-v3"
+# v2: they port as secondary names; v3: described by their introduction; v4:
+# the excerpt is the book's source, W10-1 (a)).
+OUTLINE_CACHE_KEY = "sourced-v4"
 
 
 @step("outline", needs_api=True)
@@ -725,11 +728,14 @@ async def step_outline(ctx: StepContext) -> dict:
     edit = gt.get("premise_edit")
     chapters_target = len(gt["canonical_beats"])
 
-    out = await ctx.cache.memo(
-        "outline",
-        f"{gt['synopsis']}|{OUTLINE_CACHE_KEY}",
-        lambda: _generate_outline(ctx, book, minor),
-    )
+    async def gen():  # W10-1 (a): the author imported chapter one first (D3);
+        # a corpus with `source_facts` (cel) is read against its source
+        ids = list(book["character_ids"])
+        voice = gt.get("source_facts") and await _index_voice(ctx, book["id"], ids)
+        sourced = voice and (voice.get("error") or "ingested")
+        return await _generate_outline(ctx, book, minor) | {"sourced": sourced}
+
+    out = await ctx.cache.memo("outline", f"{gt['synopsis']}|{OUTLINE_CACHE_KEY}", gen)
     if not isinstance(out, dict):  # back-compat: a bare content list
         out = {"content": out or []}
     nodes = out.get("content") or []
@@ -740,6 +746,9 @@ async def step_outline(ctx: StepContext) -> dict:
         "structural_ok": structural,
         "plan_status": out.get("status"),
         "app_warnings": out.get("warnings"),
+        "source": out.get("sourced"),
+        # W10-1 (c), reported: the product's outline-vs-source warnings.
+        "outline_source_conflicts": plot.outline_source_conflicts(out.get("warnings")),
         "premise_edited": bool(edit),
     }
 
@@ -926,12 +935,12 @@ async def _outline_into(ctx: StepContext, book: dict) -> list:
 
 
 async def _planned_scenes(ctx: StepContext, book: dict) -> dict:
-    """Generate the planned scenes of the first promoted chapter that casts
-    two principals. Raises EvalClientError when the product path is not
-    available (no outline, nothing to promote, no such chapter)."""
+    """Generate the planned scenes of chapter 1, whatever its cast: the gated
+    draw is pinned there (W10-3 (a)) and `prose_chapter` says so. Raises
+    EvalClientError when the product path is not available (no outline,
+    nothing to promote, chapter 1 has no planned beats): no other chapter."""
     from evals.harness.client import EvalClientError
 
-    forms = _forms(ctx.ground_truth)
     names = {cid: name for name, cid in book["character_ids"].items()}
     if not await _outline_into(ctx, book):
         raise EvalClientError("no outline to promote")
@@ -939,68 +948,58 @@ async def _planned_scenes(ctx: StepContext, book: dict) -> dict:
     chapters = sorted(
         promoted.get("chapters") or [], key=lambda c: c.get("position") or 0
     )
-    tried = []
-    for ch in chapters:
-        detail = await ctx.client.get_chapter(ch["chapter_id"])
-        cast = [names[c] for c in detail.get("character_ids") or [] if c in names]
-        if sum(1 for n in cast if n in forms) < 2:
-            continue
-        before = await ctx.client.usage()
-        try:
-            started = await ctx.client.generate_planned(ch["chapter_id"], {})
-        except EvalClientError as e:  # e.g. 422: the chapter has no planned beats
-            tried.append(f"{detail.get('title')}: {e}"[:200])
-            continue
-        spent = (await ctx.client.usage())["tokens_used_24h"] - before[
-            "tokens_used_24h"
-        ]
-        scenes = [await _collect_scene(ctx, s["id"]) for s in started["scenes"]]
-        return {
-            "path": "planned",
-            # SPEC-34: the batch at the default budget, and how far its
-            # estimate ran over what the ledger recorded (target <= 1.3).
-            "queued": started["queued"],
-            "deferred": started["deferred"],
-            "reason": started.get("reason"),
-            "estimate_over_actual": (
-                round(started["estimate"]["tokens"] / spent, 4)
-                if spent and started.get("estimate")
-                else None
-            ),
-            "chapter": {
-                "id": ch["chapter_id"],
-                "title": detail.get("title"),
-                "summary": detail.get("summary"),
-                "cast": cast,
-                "pov": names.get(detail.get("pov_character_id") or ""),
-                # SPEC-23: the beats as data, with their own cast, setting and
-                # tone (cast as names, so the report reads without the ids).
-                "planned_beats": [
-                    {
-                        **b,
-                        "characters": [
-                            names[c] for c in b.get("character_ids") or [] if c in names
-                        ],
-                    }
-                    for b in detail.get("planned_beats") or []
-                    if isinstance(b, dict)
-                ],
-            },
-            "total": started.get("total"),
-            "scenes": scenes,
-        }
-    raise EvalClientError(
-        f"no promoted chapter casts two principals with planned beats "
-        f"({len(chapters)} chapters; tried: {tried})"
-    )
+    if not chapters:
+        raise EvalClientError("the outline promoted no chapter")
+    ch = chapters[0]
+    detail = await ctx.client.get_chapter(ch["chapter_id"])
+    cast = [names[c] for c in detail.get("character_ids") or [] if c in names]
+    before = await ctx.client.usage()
+    started = await ctx.client.generate_planned(ch["chapter_id"], {})  # 422 raises
+    spent = (await ctx.client.usage())["tokens_used_24h"] - before["tokens_used_24h"]
+    scenes = [await _collect_scene(ctx, s["id"]) for s in started["scenes"]]
+    return {
+        "path": "planned",
+        "prose_chapter": ch["position"] + 1,  # W10-3 (a): gated == 1
+        # SPEC-34: the batch at the default budget, and how far its
+        # estimate ran over what the ledger recorded (target <= 1.3).
+        "queued": started["queued"],
+        "deferred": started["deferred"],
+        "reason": started.get("reason"),
+        "estimate_over_actual": (
+            round(started["estimate"]["tokens"] / spent, 4)
+            if spent and started.get("estimate")
+            else None
+        ),
+        "chapter": {
+            "id": ch["chapter_id"],
+            "title": detail.get("title"),
+            "summary": detail.get("summary"),
+            "cast": cast,
+            "pov": names.get(detail.get("pov_character_id") or ""),
+            # SPEC-23: the beats as data, with their own cast, setting and
+            # tone (cast as names, so the report reads without the ids).
+            "planned_beats": [
+                {
+                    **b,
+                    "characters": [
+                        names[c] for c in b.get("character_ids") or [] if c in names
+                    ],
+                }
+                for b in detail.get("planned_beats") or []
+                if isinstance(b, dict)
+            ],
+        },
+        "total": started.get("total"),
+        "scenes": scenes,
+    }
 
 
 # Bumped when what a generation records changes (v4: no fallback path, the
 # batch's queued/deferred; v5: its reason, and minor cast ported as secondary
 # names; v7: voice.movement; v8: name_warnings; v9: the brief is known to
-# them, and the hindsight example is ungendered), so a stale cache entry is
-# regenerated, not regraded.
-PROSE_CACHE_KEY = "planned-v9"
+# them, and the hindsight example is ungendered; v10: chapter 1 only), so a
+# stale cache entry is regenerated, not regraded.
+PROSE_CACHE_KEY = "planned-v10"
 
 
 def _planned_beat_text(scene: dict, beat: dict | None) -> str:
@@ -1119,10 +1118,12 @@ def cast_from_beat(scene: dict, beat: dict | None, chapter: dict) -> bool | None
 
 
 def withheld_rows(body: dict) -> list[dict]:
-    """One scene's grounding API body as `voice.withheld` export rows."""
+    """One scene's grounding API body as `voice.withheld` export rows, with the
+    count past the record's cap (`withheld_more`, W10-4)."""
     return [
         {"beat": b["description"], "owner": g["name"]}
         | {"lines": [{"text": w["text"], "rule": w["rule"]} for w in g["withheld"]]}
+        | {WITHHELD_MORE: g.get(WITHHELD_MORE, 0)}
         for b in body.get("beats") or []
         for g in b["characters"]
         if g.get("withheld")
@@ -1162,6 +1163,7 @@ async def step_prose(ctx: StepContext) -> dict:
     scenes = [s for s in produced.get("scenes") or [] if s.get("content", "").strip()]
     result: dict = {
         "path": produced.get("path"),
+        "prose_chapter": produced.get("prose_chapter"),
         "queued": produced.get("queued"),
         "deferred": produced.get("deferred"),
         "reason": produced.get("reason"),

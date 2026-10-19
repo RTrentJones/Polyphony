@@ -44,7 +44,7 @@ async def test_a_w8r_style_run_passes(tmp_path):
 @pytest.mark.parametrize(
     "case,message",
     [
-        ("limit", "daily limit 200000: run needs ≥ 310000"),
+        ("limit", "daily limit 200000: run needs ≥ 340000"),
         ("steps", "steps outline,prose are not gated-full's"),
         ("answered/1.json", "fresh run, but {t}/answered is not empty"),
         ("cache/sha/1.json", "fresh run, but {t}/cache is not empty"),

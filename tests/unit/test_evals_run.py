@@ -1,5 +1,7 @@
 """Unit tests for evals.run helpers — quota short-circuit classification."""
 
+import json
+
 import pytest
 
 from evals.run import _is_quota_error
@@ -30,15 +32,31 @@ def test_non_quota_error_is_ignored():
 
 def test_preflight_declares_exactly_three_runs():
     """(F) Wave-9 day-0 (SPEC-68): each run's exact --steps, fresh flag and
-    minimum daily limit; every step is a registered one."""
+    minimum daily limit (re-measured at wave-10 day-0, SPEC-75); every step is
+    a registered one."""
     from evals.preflight import RUNS
     from evals.steps.base import all_steps
 
     full = "extraction,ingestion,retrieval,outline,continuity,prose,revise"
     got = {n: (",".join(r.steps), r.fresh, r.min_daily_tokens) for n, r in RUNS.items()}
     assert got == {
-        "gated-full": (full, True, 310_000),
-        "gated-scenes": ("outline,prose,revise", True, 260_000),
+        "gated-full": (full, True, 340_000),
+        "gated-scenes": ("outline,prose,revise", True, 320_000),
         "attribution": ("attribution", True, 40_000),
     }
     assert {s for r in RUNS.values() for s in r.steps} <= set(all_steps())
+
+
+def test_both_draws_exempt_is_not_exercised(tmp_path):
+    """(F) W10-3 (c): an exemptible check must run (n > 0) in one of the two
+    gated draws; both exempt fails as "not exercised", and the CLI exits 1."""
+    from evals.gate import exercised, main
+
+    shc = [
+        {"steps": {"prompt_contract": {"secondary_has_context": {"n": n}}}}
+        for n in (0, 0, 3)
+    ]
+    assert exercised(shc[:2]) == ["secondary_has_context: not exercised"]
+    assert exercised(shc[1:]) == []
+    (path := tmp_path / "r.json").write_text(json.dumps(shc[0]))
+    assert main(["exercised", str(path), str(path)]) == 1

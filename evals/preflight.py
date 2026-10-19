@@ -13,14 +13,14 @@ from evals.harness.config import load as load_config
 class Run(NamedTuple):
     steps: tuple[str, ...]  # exactly the run's --steps
     fresh: bool  # an empty answered/ and cache dir
-    # Measured (characters / 4) x 1.3, rounded up to 10k; sources in SPEC-68.
+    # Measured (characters / 4) x 1.3, rounded up to 10k; sources in SPEC-75.
     min_daily_tokens: int
 
 
 _FULL = "extraction,ingestion,retrieval,outline,continuity,prose,revise"
 RUNS = {
-    "gated-full": Run(tuple(_FULL.split(",")), True, 310_000),
-    "gated-scenes": Run(("outline", "prose", "revise"), True, 260_000),
+    "gated-full": Run(tuple(_FULL.split(",")), True, 340_000),
+    "gated-scenes": Run(("outline", "prose", "revise"), True, 320_000),
     "attribution": Run(("attribution",), True, 40_000),
 }
 

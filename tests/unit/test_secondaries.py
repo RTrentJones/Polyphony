@@ -7,6 +7,7 @@ import uuid
 
 import pytest
 
+from app.characters.context import speech_paragraphs
 from app.parsing import character_extractor as ce
 from app.planning.canon import Canon
 from app.planning.secondaries import (
@@ -296,6 +297,9 @@ async def test_scene_setup_builds_plot_and_later_plot(
     unbriefed = await scene_setup(async_session, test_book.id, {}, scene.id)
     assert unbriefed.scope.plot[:2] == ("", lines[0])  # (R) the brief keeps [0]
     assert setup.scope.later_from == {str(test_source.id): 14}
+    speech = speech_paragraphs(load_excerpts("cel"))  # SPEC-77: keyed by str(id)
+    assert setup.scope.own_plot == ("Brief",) and 2 in speech
+    assert setup.scope.speech_paragraphs == {str(test_source.id): speech}
     assert "practiced warmth\n" in setup.secondary_block
     (fen,) = _secondaries(cel, ["Old Fen"], load_excerpts("cel"), {"s1": 9})
     assert fen.samples == []

@@ -4,6 +4,7 @@ One retrieval (`context.character_samples`), one renderer
 (`context.render_character`): the probe's prompt carries the same `### name`
 block, own words only, as a beat prompt does."""
 
+import inspect
 import types
 import uuid
 
@@ -62,7 +63,9 @@ def probe(monkeypatch):
     milo = types.SimpleNamespace(
         id=uuid.uuid4(), name="Milo Voss", aliases=["Milo"], user_id=None, book_id=None
     )
-    scope = ctx.SceneScope.of(Canon(title="Cel", characters=[milo]), [milo], (), (), {})
+    scope = ctx.SceneScope.of(
+        Canon(title="Cel", characters=[milo]), [milo], (), (), {}, (), {}
+    )
     return milo, scope, prompts
 
 
@@ -119,7 +122,7 @@ async def test_the_probe_block_holds_each_speakers_own_lines(probe, monkeypatch,
         id=uuid.uuid4(), name=who, aliases=[], user_id=None, book_id=None
     )
     scope = ctx.SceneScope.of(
-        Canon(title="Cel", characters=[member]), [member], (), (), {}
+        Canon(title="Cel", characters=[member]), [member], (), (), {}, (), {}
     )
     await dialogue.generate_dialogue(
         character=member, prompt="Hi.", context="", scope=scope
@@ -127,3 +130,24 @@ async def test_the_probe_block_holds_each_speakers_own_lines(probe, monkeypatch,
     beat = await ctx.build_character_context(member, who, "A beat.", scope=scope)
     for text, n in ((probe[2]["dialogue"], 3), (beat, 1)):
         assert [t for _c, t in best if f'- "{t}"' in text] == [t for _c, t in best[:n]]
+
+
+async def test_the_probe_states_one_length_limit(probe):
+    """(F) W10-2 (b): the situation and the template ask one length, one way."""
+    from evals.steps.pipeline import load_corpus
+
+    milo, scope, prompts = probe
+    situation = load_corpus("cel")[1]["voice_situation"]
+    await dialogue.generate_dialogue(
+        character=milo, prompt=situation, context="", scope=scope
+    )
+    text = prompts["dialogue"]
+    assert text.count(" sentences") == text.count("one to three sentences") == 2
+
+
+def test_the_probe_caller_is_a_scene_of_one():
+    """(R) The API probe caller passes `(), {}`: with `plot == ()` the rule cannot
+    change its prompt, so SPEC-55's rows above are its rows."""
+    from app.api import characters as api
+
+    assert "[character], [], (), {}, (), {})" in inspect.getsource(api.test_dialogue)
