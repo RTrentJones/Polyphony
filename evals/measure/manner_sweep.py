@@ -65,8 +65,8 @@ def scenes_of(records: list[dict]) -> list[dict]:
 
 
 def releases(scenes, store, source, cast, plan) -> list[dict]:
-    """Every (scene, owner, line) today's rule withholds `restates` and the
-    product's rule shows, with the scope each was judged in."""
+    """(scene, owner, line, paragraph, chapter, [today's rule, the product's])
+    for every store line of a shown owner whose rule changes."""
     people = {c["name"]: SimpleNamespace(**c) for c in cast}
     speech = {SOURCE_ID: speech_paragraphs(source)}
     paragraphs = source_paragraphs(source)
@@ -90,33 +90,17 @@ def releases(scenes, store, source, cast, plan) -> list[dict]:
         for owner in sorted(names & people.keys() & store.keys()):
             for text in store[owner]:
                 at = plot.paragraph_of(text, paragraphs)
-                row = {
-                    "text": text,
-                    "source": f"paragraph_{at}",
-                    "source_id": SOURCE_ID,
-                }
-                if at is None:
-                    row["source"] = ""
-                before = _withheld_by(row, people[owner], today)
-                after = _withheld_by(row, people[owner], scope)
-                if before != after:
-                    out.append(
-                        {
-                            "scene": s["brief"][:40],
-                            "owner": owner,
-                            "line": text,
-                            "paragraph": at,
-                            "chapter": s["chapter"],
-                            "before": before,
-                            "after": after,
-                        }
-                    )
+                where = "" if at is None else f"paragraph_{at}"
+                row = {"text": text, "source": where, "source_id": SOURCE_ID}
+                rules = [_withheld_by(row, people[owner], sc) for sc in (today, scope)]
+                if rules[0] != rules[1]:
+                    out.append((s["brief"][:40], owner, text, at, s["chapter"], rules))
         earlier.setdefault(s["chapter"], []).extend(s["beats"])
     return out
 
 
-def sweep(name: str, gt: dict, cast: list[dict]) -> dict | None:
-    """One archive's releases, each a gold-manner gain or a gold-plot leak."""
+def sweep(name: str, gt: dict, cast: list[dict]) -> list | None:
+    """One archive's releases, each with its `plot_reasons` ([] is a gain)."""
     base = EVAL_OUT / name
     report = next(base.glob("eval-report-*.json"), None)
     voice = json.loads(report.read_text())["steps"]["prose"]["voice"] if report else {}
@@ -134,15 +118,9 @@ def sweep(name: str, gt: dict, cast: list[dict]) -> dict | None:
     chapters = plot.outline_chapters(records)
     plan = [(n, ln) for n, ch in enumerate(chapters, 1) for ln in ch]
     found = releases(scenes_of(records), store, source.rstrip("\n"), cast, plan)
-    for r in found:
-        why, _, _ = plot.plot_reasons("movement", r["line"], r["chapter"], gold, placed)
-        r["leak"] = why
-    return {
-        "archive": name,
-        "released": found,
-        "gains": sum(not r["leak"] for r in found),
-        "leaks": sum(bool(r["leak"]) for r in found),
-    }
+    return [
+        (*r, plot.plot_reasons("movement", r[2], r[4], gold, placed)[0]) for r in found
+    ]
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -150,27 +128,16 @@ def main(argv: list[str] | None = None) -> None:
     cast = [
         {"name": c["name"], "aliases": c.get("aliases") or []} for c in gt["characters"]
     ]
-    total = {"released": 0, "gains": 0, "leaks": 0}
+    total = [0, 0]
     for name in (argv if argv is not None else sys.argv[1:]) or ARCHIVES:
-        row = sweep(name, gt, cast)
-        if row is None:
-            print(f"{name:6} no store or unsigned")
-            continue
-        n = len(row["released"])
-        print(
-            f"{name:6} released={n:3}  manner-gains={row['gains']:3}  plot-leaks={row['leaks']:3}"
-        )
-        for r in row["released"]:
-            tag = f"LEAK {r['leak'][0]}" if r["leak"] else "gain"
-            print(
-                f"        {tag} p{r['paragraph']} {r['owner']} [{r['scene']}] {r['before']}->{r['after']}"
-            )
-        total = {
-            "released": total["released"] + n,
-            "gains": total["gains"] + row["gains"],
-            "leaks": total["leaks"] + row["leaks"],
-        }
-    print("total", total)
+        found = sweep(name, gt, cast)
+        leaks = sum(bool(r[-1]) for r in found or ())
+        if found is not None:
+            total = [total[0] + len(found) - leaks, total[1] + leaks]
+        print(f"{name:6} manner-gains={len(found or ()) - leaks} plot-leaks={leaks}")
+        for scene, owner, _, at, _, rules, why in found or ():
+            print(f"  {why[0] if why else 'gain'} p{at} {owner} [{scene}] {rules}")
+    print(f"total manner-gains={total[0]} plot-leaks={total[1]}")
 
 
 if __name__ == "__main__":
