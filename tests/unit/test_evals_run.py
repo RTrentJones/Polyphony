@@ -62,3 +62,5 @@ def test_both_draws_exempt_is_not_exercised(tmp_path):
     assert exercised(shc[1:]) == []
     (path := tmp_path / "r.json").write_text(json.dumps(shc[0]))
     assert main(["exercised", str(path), str(path)]) == 1
+    (ok := tmp_path / "ok.json").write_text(json.dumps(shc[2]))
+    assert main(["exercised", str(ok)]) == 0  # one gated draw suffices (SPEC-75)
