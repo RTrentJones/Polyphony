@@ -715,6 +715,8 @@ def _used_as_title(form: str, text: str) -> bool:
     occurrences? "the Chief Executive Lich" is a title, not a name (SPEC-26)."""
     if not text or not form.strip():
         return False
+    # The form's own determiner is the one the test looks for (W12-4).
+    form = re.sub(r"^\s*(?i:the|a|an|this|that)\s+", "", form)
     pattern = r"\s+".join(map(re.escape, form.split()))
     hits = re.findall(rf"(?<!\w)((?i:the|a|an|this|that)\s+)?{pattern}(?!\w)", text)
     return sum(1 for det in hits if det) * 2 > len(hits)
