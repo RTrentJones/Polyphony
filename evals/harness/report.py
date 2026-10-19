@@ -127,6 +127,14 @@ def scorecard(run: dict) -> str:
             )
             + f"; unmatched withheld {move['unmatched_withheld']}"
         )
+    if "thinness" in move:  # wave 11, D5: reported, never gated
+        lines.append(
+            "  movement store/eligible/shown: "
+            + "; ".join(
+                f"{n} {t['store']}/{t['eligible']}/{t['shown']}"
+                for n, t in move["thinness"].items()
+            )
+        )
     return "\n".join(lines)
 
 

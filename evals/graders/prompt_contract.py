@@ -741,11 +741,19 @@ def movement_blocks(section: str) -> list[tuple[str, list[str]]]:
     return out
 
 
-def _named(text: str, person: dict) -> bool:
-    """By a whole form, or a capitalised name token ("the Bell account")."""
+def _named_whole(text: str, person: dict) -> bool:
+    """Wave 11, D7: by the full name or a listed alias, never one word of it.
+    The subject rule: is this fact's subject this person (precision)?"""
     forms = [person["name"], *person.get("aliases", [])]
+    return any(mentions(norm(text), f) for f in forms)
+
+
+def _named(text: str, person: dict) -> bool:
+    """By a whole form, or a capitalised name token ("the Bell account").
+    The in-scene predicate: could this line name someone (recall), so not
+    `_named_whole`: "Okafor nodded" must still trip `movement_names_in_scene`."""
     tokens = [t for t in person["name"].split() if t.lower() not in NON_NAME_TOKENS]
-    return any(mentions(norm(text), f) for f in forms) or any(
+    return _named_whole(text, person) or any(
         re.search(rf"(?<!\w){re.escape(t)}(?!\w)", text) for t in tokens
     )
 
@@ -757,8 +765,8 @@ def _who(name: str, aliases: dict[str, str]) -> str:
 
 def check_movement_in_scene(
     prompt: str, people: list[dict], aliases: dict[str, str]
-) -> tuple[list[str], list[tuple[str, int]]]:
-    """SPEC-30, S7: (reasons, [(owner, movement lines)]). A line may name only
+) -> tuple[list[str], list[tuple[str, list[str]]]]:
+    """SPEC-30, S7: (reasons, [(owner, [movement line])]). A line may name only
     people (ground truth) in the scene: a ``### `` block, the Also-named line,
     or a principal (an `aliases` value) the scene brief or beat plan names. A
     secondary is in the scene only through the Also-named line (NB-2)."""
@@ -781,7 +789,7 @@ def check_movement_in_scene(
         for p in people
         if p["name"] not in present and _named(line, p)
     ]
-    return reasons, [(o, len(ls)) for o, ls in blocks]
+    return reasons, blocks
 
 
 def _block(owner, n, lines, rules, ref, chapter, pg, placed) -> tuple:
@@ -1195,6 +1203,11 @@ def grade(
     per = {
         n: dict.fromkeys(("shown", "carried", "starved"), 0) for n in principal_names
     }
+    # Wave 11, D5: per principal, the store's lines, those eligible (D3a) in a
+    # drawn-chapter block, and those shown; each eligible block's outcome.
+    thin = {n: {"store": set(shown.get(n) or ())} for n in principal_names}
+    thin = {n: t | {"eligible": set(), "shown": set()} for n, t in thin.items()}
+    outcomes = []
 
     drawn = {  # W10-3 (b): the run's beat_prose is one chapter's, or no grade
         int(m.group("n"))
@@ -1265,13 +1278,17 @@ def grade(
             tallies["movement_names_in_scene"].add(rec, reasons)
             at = STORY_POSITION_RE.search(prompt)
             empty, eligible = [], 0
-            for owner, n in ((o, n) for o, n in blocks if o in movement):
-                movement[owner] += n
+            for owner, ms in ((o, ms) for o, ms in blocks if o in movement):
+                movement[owner] += (n := len(ms))
                 moving_blocks.append(n > 0)
                 if at:  # D4 (W10-3 (b)): cast in a block of the drawn chapter
                     in_drawn.add(owner)
                 lines = shown.get(owner) or ()
                 why = plot.only_plot(lines, chapter, pg, placed)
+                thin[owner]["shown"].update(ms)
+                thin[owner]["eligible"].update(
+                    ln for ln in lines if not plot.only_plot([ln], chapter, pg, placed)
+                )
                 if lines and not why:  # D3a: eligible here
                     eligible_in.add(owner)
                     state, reason = _block(
@@ -1285,6 +1302,9 @@ def grade(
                         placed,
                     )
                     per[owner][state] += 1
+                    outcomes.append(
+                        {"id": rec.get("id"), "owner": owner, "state": state}
+                    )
                     eligible += state != "carried"
                     empty += [reason] * (state == "starved")
                 else:  # no indexed movement is a reason too (S-5)
@@ -1400,6 +1420,10 @@ def grade(
     out["movement"] |= {"not_eligible": unmet, "not_cast": not_cast}
     carried = sum(t["carried"] for t in per.values())
     out["movement"] |= {"per_principal": per, "unmatched_withheld": unmatched}
+    out["movement"]["thinness"] = {
+        n: {k: len(v) for k, v in t.items()} for n, t in thin.items()
+    }
+    out["movement"]["blocks"] = outcomes  # PM condition 2: each block's outcome
     out["movement"]["all_carried"] = bool(carried) and not move.n  # coverage null
     # D2 (wave 9): every principal cast in the drawn chapter moves or is carried
     # by the plan somewhere, and >= 0.8 of the remaining eligible blocks move.

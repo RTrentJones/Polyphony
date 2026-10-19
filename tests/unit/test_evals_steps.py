@@ -147,7 +147,7 @@ async def test_attribution_creates_book_scoped_characters(tmp_path, monkeypatch)
     gt = {"synopsis": "s", "voice_situation": cel["voice_situation"], "gold_lines": {}}
     gt["cast"] = ["Milo Voss", "Edric Thane"]
     for who in ("Milo Voss", "Edric Thane"):
-        gt["gold_lines"][who] = {"train": ["a"], "test": ["Mr. Voss, do sit."]}
+        gt["gold_lines"][who] = {"train": ["Mr. Voss, do sit."], "test": ["held out"]}
     client = _FakeClient({})
     out = await pipeline.step_attribution(_ctx(tmp_path, client, gt))
     assert client.created == [("Milo Voss", "book-2"), ("Edric Thane", "book-2")]
@@ -158,6 +158,9 @@ async def test_attribution_creates_book_scoped_characters(tmp_path, monkeypatch)
     assert out["status"] == "reported" and out["w9_9_p0"] is False  # Milo 0.72
     # (F) W9-2 (b): masked on both sides, the gold line and the generated one.
     assert {"⟨NAME⟩, do sit.", "line from char-⟨NAME⟩"} <= set(seen)
+    # (F) wave 11, D4 (a): the reference centroids are the TRAIN lines; no
+    # held-out test line is embedded, and the report says so.
+    assert "held out" not in seen and out["reference"] == "train"
     assert out["per_character"] == {  # identical vectors: Milo ranks first
         "Milo Voss": {"correct": 10, "k": 10, "accuracy": 1.0, "wilson95": (0.72, 1.0)},
         "Edric Thane": {

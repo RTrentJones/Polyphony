@@ -18,3 +18,7 @@
 - **Tests.** `test_staged_outline.py`: (F) W9b + cel, a canned finding stating the gold fact: one JSON call, the fact sheet in
   the prompt, the prefix, located at "Wellness Check"; (R) no source, no call; (F) "could not locate", unparsed, too long; resume.
   `test_continuity_v2.py`: live sources, oldest first. `test_estimates.py`: the call is counted. Journey: one check per outline.
+- **Amendment, wave 11 (D7).** `names_the_fact` matches the fact's subject by a **full name or listed alias**, never one word
+  of a name (`prompt_contract._named_whole`; the movement check keeps `_named`'s token match). Two regrade flips, both true to
+  false, both signed `contradicted: false`, so no trigger moves: **W10b**, an Old Fen finding naming "the Bell account" (the
+  (F) row); **W10**, an Old Fen placement finding "during the Bell account", not about Bell being sent under.

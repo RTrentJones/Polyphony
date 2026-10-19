@@ -509,9 +509,9 @@ async def step_attribution(ctx: StepContext) -> dict:
     # W9-2 (b): every name masked on both sides, so a vocative labels no one.
     cast = {n: [n] for n in ctx.ground_truth.get("cast", [])}
     forms = cast | _forms(ctx.ground_truth)
-    # reference centroids from held-out TEST lines (never the indexed train lines).
+    # Wave 11, D4 (a): reference centroids from the TRAIN lines (SPEC-74).
     ref_vecs = {
-        c: await embed.embed_many([attribution.mask(t, forms) for t in v["test"]])
+        c: await embed.embed_many([attribution.mask(t, forms) for t in v["train"]])
         for c, v in gold.items()
     }
 
@@ -573,6 +573,7 @@ async def step_attribution(ctx: StepContext) -> dict:
         # D4 (c): no lower bound above chance (0.33) makes W9-9 wave-10 P0.
         "w9_9_p0": not any((r["wilson95"] or (0, 0))[0] > 0.33 for r in per.values()),
         "status": "reported",
+        "reference": "train",
         "detail": [{**r.as_dict(), "probe": p} for r, p in zip(results, probes)],
     }
 
