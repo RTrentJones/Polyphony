@@ -18,13 +18,16 @@
 - **Grounding failures (prose and revise only).** A present principal (`context only` excluded) whose entries for a beat include a
   reason (`no indexed voice samples`, `retrieval exhausted (200-row bound)`) or whose every score is < 0.2, ÷ distinct (scene, beat,
   character_id). Ensemble scenes record no reasons (E1 deviation 5), count only via no-samples or low scores, and are understated.
-- **Run evidence.** run-W12 dev (relay) under MONTHLY_COST_CEILING_USD=1: PENDING. First draw: outline, prose and revise raised
-  `UnpricedModelError: 'judge' has no PRICES row` (relay judge default, `judge.py:81`): W12-1's guarantee, an unpriced model under a
-  ceiling fails loudly, never spends unaccounted. F6: default `stub-default` (priced free; the relay echoes it), with an (F) row; re-run
-  after the fix. Regrade: only extraction moved (swept heads W8, W11). Round trip byte-identical but W12-4's headings; SPEC-83's
-  starvation list empty. W12-6 (a): 18/30, Wilson [0.42, 0.75]; Milo 8/10, Edric 8/10, Zara 2/10; without Edric 10/20, not above chance.
-- **Corrections.** W12-4's rows live in `test_extraction_scale.py` (the matrix named a non-existent `test_extraction_merge.py`); the
-  three W12-5 registration edits are reverted, owned in wave 13. §5.1: `restates(` in `context.py` reads 2, unchanged from e954eae.
+- **Run evidence** (`dev (relay)`, smoke only; `MONTHLY_COST_CEILING_USD=1` on app and harness). **run-W12** (a039ea2): the harness
+  judge's default id `judge` was refused (`llm_unpriced_refused`; W12-1 failing loud, in the harness, no product job); outline, prose and
+  revise ungraded. F6: default `stub-default` (priced free), (F) row. **run-W12b** (1c17758, of record): 20 jobs, 0 pauses, 0 refusals,
+  76 usage rows priced $0; every §6.2 row but `sample_lift` 16/17 (0038: a 9-word run of a sample its beat scripts; same at e954eae),
+  a PM-named exception; `exercised` rc 0 (n 13); `replayed` 0. Regrade: only extraction moved (W8, W11). Round trip byte-identical but
+  W12-4's headings; SPEC-83 empty. W12-6 (a): 18/30, Wilson [0.42, 0.75]; Milo 8/10, Edric 8/10, Zara 2/10; no Edric 10/20, chance.
+- **PM rulings:** `sample_lift` exception and W13-SL P0, see pm-w12-eval-signoff.md.
+- **Corrections.** W12-4's rows are in `test_extraction_scale.py` (not the matrix's `test_extraction_merge.py`); W12-5's registration
+  edits are reverted. §5.1: `restates(` in `context.py` reads 2, unchanged from e954eae.
 - **Budgets (net, §0).** Product 165 / +150 (accepted at E1: spend 45, errors 15 vs 30, 5 planned); tests 445 / +430 (day-0's PG round
   trip, E1's plan arithmetic, F1, F6); docs 89 / +110; YAML −27. Wave-13 rule: harness work is sized from a measured floor.
-- **This gate** (this commit): F1 row-6 lock race; F2 abandoned-call cost; F3 no-Edric is chance; F4 (F) determiner; F5 `--topic`; F6.
+- **This gate:** F1 row-6 lock race; F2 abandoned-call cost; F3 no-Edric is chance; F4 (F) determiner; F5 `--topic`; F6 relay judge
+  priced; eval B2: `exercised` takes one gated draw (SPEC-75).
