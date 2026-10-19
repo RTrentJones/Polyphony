@@ -31,6 +31,7 @@ from app.core.prompt_markers import (
 from app.parsing.character_extractor import (
     SPEECH_MIN_WORDS,
     attribute_speech,
+    is_speech,
     source_location,
 )
 from app.rag.store import get_chunk_store
@@ -347,9 +348,10 @@ def later_plot_from(
 
 
 def speech_paragraphs(text: str) -> frozenset:
-    """The paragraphs of a source that carry quoted speech, by the one speech
-    rule (`attribute_speech`, SPEC-17)."""
-    return frozenset(i for i, spans in enumerate(attribute_speech(text)) if spans)
+    """The paragraphs of a source that carry speech by the indexer's rule
+    (`is_speech`, SPEC-17)."""
+    spoken = enumerate(attribute_speech(text))
+    return frozenset(i for i, spans in spoken if any(map(is_speech, spans)))
 
 
 def _location(sample: dict) -> tuple[str, int] | tuple[None, None]:
