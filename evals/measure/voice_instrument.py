@@ -71,7 +71,7 @@ async def topic(gold: dict, forms: dict, embed_many, lines: list[dict]) -> dict:
         zip(texts, await embed_many([attribution.mask(t, forms) for t in texts]))
     )
     out = probe_path(gold, vec, probe)
-    return out | {"beats_chance": (out["wilson95"] or (0,))[0] > 1 / 3}
+    return out | {"beats_chance": out["wilson95"][0] > 1 / 3}
 
 
 def attribute(gold, vec, who, line, held):
@@ -120,8 +120,7 @@ if __name__ == "__main__":
     gt = load_corpus("cel")[1]
     answers = json.loads(ANSWERS.read_text())["answers"]
     forms = {n: [n] for n in gt["cast"]} | _forms(gt)  # step_attribution's
-    result = score(gt["gold_lines"], forms, embed.embed_many, answers)
-    if "--topic" in sys.argv:  # W12-6 (a)
-        lines = json.loads(TOPIC.read_text())["lines"]
-        result = topic(gt["gold_lines"], forms, embed.embed_many, lines)
+    lines = json.loads(TOPIC.read_text())["lines"]  # W12-6 (a): --topic
+    args = gt["gold_lines"], forms, embed.embed_many
+    result = topic(*args, lines) if "--topic" in sys.argv else score(*args, answers)
     print(json.dumps(asyncio.run(result), indent=2))

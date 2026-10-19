@@ -92,14 +92,21 @@ async def _ceiling(payload):
 
 
 async def test_admit_is_exact_and_fails_closed(llm, monkeypatch):
-    async def ledger(session):  # 6: the probe and the worker read it together
+    db = [1 - 1.5 * WORST]  # 6: B's row commits and B releases while A reads
+
+    async def ledger(session):
+        seen = db[0]
         await asyncio.sleep(0.01)
-        return 1 - 1.5 * WORST
+        return seen
+
+    async def b_lands(hold):
+        db[0] += hold
+        await spend.release(hold)
 
     monkeypatch.setattr("app.core.budget.deployment_cost_30d", ledger)
-    two = [spend.admit("gpt-4o", 0, 1024) for _ in "ab"]
-    got = await asyncio.gather(*two, return_exceptions=True)
-    assert sorted(type(r).__name__ for r in got) == ["SpendPausedError", "float"]
+    b = await spend.admit("gpt-4o", 0, 1024)
+    with pytest.raises(SpendPausedError):  # B is in `spent` or `_inflight`
+        await asyncio.gather(spend.admit("gpt-4o", 0, 1024), b_lands(b))
     # 7: an unreadable ledger pauses a priced call; a free model never reads it.
     monkeypatch.setattr("app.core.database.get_async_session", lambda: 1 / 0)
     with pytest.raises(SpendPausedError) as ei:

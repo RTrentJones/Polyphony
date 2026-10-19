@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.llm.prices import cost_usd
 from evals.harness.config import load as load_config
 from evals.harness.judge import Judge
 
@@ -241,8 +242,11 @@ def test_a_judge_at_its_own_url_is_not_self_grading(monkeypatch):
     monkeypatch.setenv("EVAL_JUDGE_LABEL", "claude-judge")
     monkeypatch.setenv("EVAL_JUDGE_PROVIDER", "stub")
     monkeypatch.setenv("LLM_PROVIDER", "stub")
+    monkeypatch.delenv("EVAL_JUDGE_MODEL", raising=False)
     j = Judge(load_config())
     assert j.endpoint == "http://127.0.0.1:8298/v1"
+    # (F) run-W12: the default model is priced (free), so a ceiling admits it.
+    assert cost_usd(j.model_override, 1, 1) is not None
     assert j.provider_id == "claude-judge"
     assert j.is_self is False and j.fell_back is False
 

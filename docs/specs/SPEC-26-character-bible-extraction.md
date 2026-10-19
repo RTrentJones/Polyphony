@@ -148,5 +148,5 @@ surface for its source, and a one-form group is never checked (one scan per dist
 
 **Wave 12 (W12-4, W9-6).** `_used_as_title` strips the form's own leading determiner (the/a/an/this/that) before its
 majority test, so "the Chief Executive Lich" ranks below "Edric Thane". (F) `test_w11_replay_heads_edric_thane`: W11's
-archived answers replayed give Edric Thane, the title an alias, F1 1.0 `dev (relay)` (was 0.741); (R) the determiner row.
+archived answers replayed give Edric Thane, the title an alias, F1 1.0 `dev (relay)` (was 0.741); (F) the determiner row.
 One-off remerge sweep (uncommitted): 28 archives with `extraction_map` answers, 53 runs; only W8 and W11 change head.
