@@ -1,0 +1,46 @@
+{
+  "run": "W11b",
+  "outline_hash": "299c1c3e533be02dc73b4aeef5c3140098f9222a94169934e390f51a6db08cb3",
+  "signed_by": "PM",
+  "signed_at": "2026-10-19T02:58:16Z",
+  "placements": {
+    "intake": {
+      "chapter": 1,
+      "line": "Laminated: Milo opens his eyes in the intake atrium and Prava, warm and practised, slides a laminated org chart across the desk and tells him he has been retained. He feels useful for the first time in decades and says yes before anyone offers him a choice."
+    },
+    "training": {
+      "chapter": null,
+      "line": null
+    },
+    "partition": {
+      "chapter": 1,
+      "line": "The Colour of Old Teeth: In Reconciliations, deep in the windowless Marrow District, Zara gives him a lanyard, a quota and a vocabulary: tenure is the only currency, accounts are closed, souls go under. Milo asks for a throughput tracker and is told to close the accounts in his queue and never open the ones that aren't."
+    },
+    "bell": {
+      "chapter": 2,
+      "line": "Restructured at Nine: Halvard Bell's account comes across Milo's queue: a former dentist, ninety years in Retention, his contract restructured that morning. Milo zeroes the tenure, initials the form and sends Bell under in under four minutes, and feels the pure pleasure of a clean ledger."
+    },
+    "drawer": {
+      "chapter": 2,
+      "line": "He Goes Under: Facilities clears Bell's desk before the coffee finishes dispensing. When Milo asks where Bell actually goes, Zara tells him to write 'He goes under' and nothing else, and that night Milo locks the ledger in his drawer without knowing why."
+    },
+    "summons": {
+      "chapter": 2,
+      "line": "The Memo: A memo on impossibly heavy paper arrives, signed by Edric Thane, Chief Executive. Milo reads it as a career win; Zara tells him it is not normal and to bring nothing, sign nothing and stand if offered a chair, and Milo learns that the CEL is not a department but a person."
+    },
+    "corner office": {
+      "chapter": 2,
+      "line": "Do Sit: In the cold corner office the Lich invites him to sit, and Milo, surprising himself, stays standing. Edric Thane calls his four minutes appetite rather than diligence and tells him he was retained because he does not ask questions, which is not the reason he will be kept."
+    },
+    "discrepancy": {
+      "chapter": 3,
+      "line": "Moved, Not Zeroed: Milo reopens Halvard Bell's entry and reads the unexplained column: Bell's tenure was never zeroed but moved. He traces it, account by account through every soul sent under, into a single pooled account at the top of the org chart, and the ledger he loved stops reconciling."
+    }
+  },
+  "source_facts": {
+    "bell_sent_under": {
+      "contradicted": false,
+      "line": null
+    }
+  }
+}

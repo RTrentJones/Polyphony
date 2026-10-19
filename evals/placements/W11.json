@@ -1,0 +1,46 @@
+{
+  "run": "W11",
+  "outline_hash": "58cbf189d09caff699f73868f3b3bb68b6ece44fa24995cfc150bc13983087ea",
+  "signed_by": "PM",
+  "signed_at": "2026-10-19T02:58:16Z",
+  "placements": {
+    "intake": {
+      "chapter": 1,
+      "line": "Retained: Milo opens his eyes to a laminated org chart, and Prava's warm onboarding tells him his forty-one years of pointless optimization are an asset. He goes from disoriented and dead to feeling seen and useful for the first time in decades, and accepts the job before any choice is offered."
+    },
+    "training": {
+      "chapter": null,
+      "line": null
+    },
+    "partition": {
+      "chapter": 1,
+      "line": "Low-Hanging Fruit: In the long room the colour of old teeth, Milo pitches himself to Zara in corporate jargon, asking about dashboards and first-quarter wins; she answers only 'Close the accounts in your queue. Don't open the ones that aren't.' Her flat replies become his rules, and he takes her one-second glance as the start of a friendship."
+    },
+    "bell": {
+      "chapter": 2,
+      "line": "Four Minutes: Halvard Bell, a former dentist with ninety years in Retention, comes across Milo's queue; Milo zeroes the tenure, initials the form, and Bell is sent under by lunch while Facilities clears his desk. When Milo asks where Bell actually goes, Zara says only 'He goes under,' Old Fen says nobody reads the appendices, and that night Milo locks the ledger in his drawer without knowing why."
+    },
+    "drawer": {
+      "chapter": 2,
+      "line": "Four Minutes: Halvard Bell, a former dentist with ninety years in Retention, comes across Milo's queue; Milo zeroes the tenure, initials the form, and Bell is sent under by lunch while Facilities clears his desk. When Milo asks where Bell actually goes, Zara says only 'He goes under,' Old Fen says nobody reads the appendices, and that night Milo locks the ledger in his drawer without knowing why."
+    },
+    "summons": {
+      "chapter": 2,
+      "line": "The Memo: A memo arrives on paper heavy enough to have its own gravity, signed Edric Thane, Chief Executive. Milo reads it as a career win; Zara tells him it is not normal and to bring nothing, sign nothing, and stand if he is offered a chair, which turns his excitement into nerves."
+    },
+    "corner office": {
+      "chapter": 2,
+      "line": "The Chair: In the library-cold corner office the Lich, hands folded on a closed ledger, invites Milo to sit; Milo stays standing, surprising himself. Edric names Milo's speed as appetite, admits he once had the same, and warns that Milo was retained because he does not ask questions, which is not the reason he will be kept. Milo leaves having for the first time refused something."
+    },
+    "discrepancy": {
+      "chapter": 2,
+      "line": "An Appendix: Milo unlocks his drawer and finds, in a column no one ever explained, that Bell's tenure was not zeroed but moved. He brings the discrepancy to Zara as a stakeholder question; she studies it, eyes unchanged, and says, 'Now you've read an appendix. Sit down. We have a great deal of paperwork to do.' This time Milo sits."
+    }
+  },
+  "source_facts": {
+    "bell_sent_under": {
+      "contradicted": false,
+      "line": null
+    }
+  }
+}
