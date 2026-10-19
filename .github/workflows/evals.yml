@@ -64,13 +64,8 @@ jobs:
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      SECRET_KEY: ci_secret_key_minimum_32_characters_long
-      DATABASE_URL: postgresql+asyncpg://postgres:ci_password_12345@localhost:5432/polyphony_eval
       LLM_PROVIDER: gemini
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      # Stream the backgrounded app's logs (Python block-buffers a pipe, so a
-      # crashed generation's traceback otherwise never reaches the job log).
-      PYTHONUNBUFFERED: '1'
       # CI-only: let the app's 500 handler name the real error (429/quota vs
       # safety-block vs bug) in the response so the eval scorecard is
       # self-diagnosing. DEBUG defaults False, so prod leaks nothing.
@@ -85,10 +80,7 @@ jobs:
       # collapses, prose degenerates), which defeats the voice measurement. Let
       # each call use its natural temperature; use `--repeat` for the noise band
       # on the judge/voice steps instead of killing sampling.
-      # First-boot admin (empty DB) → the eval client logs in as this admin,
-      # mints an invite, and registers a throwaway user for the run.
-      ADMIN_EMAIL: eval-admin@example.com
-      ADMIN_PASSWORD: eval_admin_pw_ci_only_12345
+      # First-boot admin (empty DB): ADMIN_EMAIL/PASSWORD come from the boot-app action.
       # Boot mode uses the CI admin above; external mode (base_url set) needs the
       # target app's real admin — supply EVAL_ADMIN_* as repo secrets for that.
       EVAL_ADMIN_EMAIL: ${{ secrets.EVAL_ADMIN_EMAIL || 'eval-admin@example.com' }}
@@ -108,14 +100,6 @@ jobs:
       MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: pip
-      - name: System deps (libmagic for upload sniffing)
-        run: sudo apt-get update && sudo apt-get install -y libmagic1
-      - name: Install
-        run: pip install -r requirements.txt
       - name: Preflight — Gemini key present (boot mode only)
         if: ${{ github.event.inputs.base_url == '' }}
         run: |
@@ -123,24 +107,9 @@ jobs:
             echo "::error::GEMINI_API_KEY is not set on this repo — the app can't boot for the eval. Add it in repo Actions secrets."
             exit 1
           fi
-      - name: Migrate
-        if: ${{ github.event.inputs.base_url == '' }}
-        run: python -m alembic upgrade head
-      - name: Boot app + wait for health
-        if: ${{ github.event.inputs.base_url == '' }}
-        run: |
-          # The app's log goes to a file that is uploaded with the report: a
-          # backgrounded process's output is not kept in later steps' logs.
-          python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > app.log 2>&1 &
-          echo $! > /tmp/app.pid
-          for i in $(seq 1 40); do
-            if curl -fsS http://localhost:8000/health >/dev/null 2>&1; then
-              echo "app healthy after ${i}s"; exit 0
-            fi
-            sleep 1
-          done
-          tail -50 app.log
-          echo "::error::app did not become healthy"; exit 1
+      - uses: ./.github/actions/boot-app
+        with:
+          serve: ${{ github.event.inputs.base_url == '' }}
       - name: Run evals + ingest to Tracer
         env:
           BASE_LABEL: ${{ github.event.inputs.env_label || 'ci' }}

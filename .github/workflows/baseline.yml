@@ -1,0 +1,104 @@
+name: baseline # W12-9's three-arm baseline, one manuscript per generate dispatch (SPEC-84; tpm-plan-wave13 D4)
+run-name: baseline ${{ inputs.stage }} ${{ inputs.manuscript }} ${{ inputs.label }}
+on:
+  workflow_dispatch:
+    inputs:
+      stage: {type: choice, options: [generate, rate], default: generate}
+      manuscript: {description: 'frankenstein | wuthering | cel (generate)', default: ''}
+      label: {description: the run label, e.g. W12-9 or demo, required: true}
+      sha: {description: the app sha every dispatch runs (the cache is keyed by it), required: true}
+      prior_run: {description: the run id whose state this dispatch resumes, default: ''}
+      bundles: {description: 'comma-separated generate run ids (rate)', default: ''}
+      provider: {description: the generator, by the signed rule (LLM_PROVIDER), default: gemini}
+      model: {description: the generator id (LLM_MODEL and LLM_MODEL_FAST), default: gemini-3.5-flash-lite}
+      max_rpd: {description: 'floor(0.8 x RPD) -> LLM_MAX_RPD (generate; empty = unset)', default: ''}
+      panel: {description: 'BASELINE_PANEL "<provider>:<id>,<provider>:<id>" (rate)', default: ''}
+permissions: {contents: read, actions: read}
+concurrency: {group: baseline, cancel-in-progress: false}
+env: # with the boot-app action's CI values (SECRET_KEY, DATABASE_URL, ADMIN_*)
+  PGURL: postgresql://postgres:ci_password_12345@localhost:5432/polyphony_eval
+  LLM_TIER: paid
+  MONTHLY_COST_CEILING_USD: '1'
+  USER_DAILY_TOKEN_LIMIT: '20000000'
+  STUB_LLM_API_KEY: stub
+  GH_TOKEN: ${{ github.token }}
+  M: ${{ inputs.manuscript }}
+  PRIOR: ${{ inputs.prior_run }}
+jobs:
+  generate: # restore, cancel the snapshot's in-flight jobs BEFORE boot, record B/C (:8091) and A (:8092), dump
+    if: inputs.stage == 'generate'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    services: &pg
+      postgres: {image: pgvector/pgvector:pg16, env: {POSTGRES_PASSWORD: ci_password_12345, POSTGRES_DB: polyphony_eval}, ports: ['5432:5432'],
+        options: '--health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10'}
+    env:
+      LLM_PROVIDER: ${{ inputs.provider }}
+      LLM_MODEL: ${{ inputs.model }}
+      LLM_MODEL_FAST: ${{ inputs.model }}
+      LLM_MAX_RPM: '8'
+      LLM_MAX_RPD: ${{ inputs.max_rpd || '0' }} # 0 = unset on paid
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_BASE_URL: http://127.0.0.1:8091/v1
+      STUB_LLM_BASE_URL: http://127.0.0.1:8091/v1
+      EVAL_POLL_SCALE: '6'
+      EVAL_CACHE_DIR: state/cache
+      EVAL_RELAY_DIR: state/relay-bc
+      EVAL_BASELINE_STATE: state # slots.json, records.json (sealed); bundle and key at E2's default paths
+    steps:
+      - &checkout {uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5, with: {ref: '${{ inputs.sha }}'}} # v4.3.1
+      - &prepare {uses: ./.github/actions/boot-app, with: {serve: 'false'}}
+      - name: Restore the prior state; cancel its in-flight jobs before boot
+        if: inputs.prior_run != ''
+        run: |
+          gh run download "$PRIOR" -n "baseline-state-$M" -D state -R "$GITHUB_REPOSITORY"
+          psql "${PGURL%/*}/postgres" -qc 'DROP DATABASE polyphony_eval' -c 'CREATE DATABASE polyphony_eval'
+          pg_restore --no-owner -d "$PGURL" state/db.dump
+          psql "$PGURL" -f evals/baseline/restore_cancel.sql | sed 's/^/restore-cancel: /' | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Recorders (and the stub, if it is the generator)
+        run: |
+          case "$LLM_PROVIDER" in gemini|stub) ;; *) echo "::error::no recorder upstream for $LLM_PROVIDER"; exit 1 ;; esac
+          UP=https://generativelanguage.googleapis.com/v1beta/openai
+          [ "$LLM_PROVIDER" != stub ] || { UP=http://127.0.0.1:8099/v1; (python -m evals.stub_llm --port 8099 > stub.log 2>&1 &); }
+          (RELAY_UPSTREAM=$UP RELAY_DIR=state/relay-bc python -m evals.relay_llm serve --port 8091 > relay-bc.log 2>&1 &)
+          (RELAY_UPSTREAM=$UP RELAY_DIR=state/relay-a python -m evals.relay_llm serve --port 8092 > relay-a.log 2>&1 &)
+      - {uses: ./.github/actions/boot-app, with: {prepare: 'false'}}
+      - name: Run (arm A runs in this process, through :8092)
+        timeout-minutes: 320
+        env: {GEMINI_BASE_URL: 'http://127.0.0.1:8092/v1', STUB_LLM_BASE_URL: 'http://127.0.0.1:8092/v1'}
+        run: python -m evals.run --run baseline --book "$M" --steps baseline --out state/report.json
+      - name: Summary and dump
+        if: always()
+        run: |
+          kill "$(cat /tmp/app.pid)" 2>/dev/null || true; { echo '```'; psql "$PGURL" -c "SELECT model, count(*) AS requests, count(*) FILTER (WHERE cost_usd IS DISTINCT FROM 0) AS priced_nonzero FROM api_usage GROUP BY model"
+            psql "$PGURL" -c "SELECT status, left(error, 400) AS error, count(*) FROM jobs WHERE error IS NOT NULL GROUP BY 1, 2"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          pg_dump -Fc -f state/db.dump "$PGURL"; cp app.log stub.log relay-*.log state/ 2>/dev/null || true
+      - {if: always(), uses: actions/upload-artifact@v4, with: {name: 'baseline-state-${{ inputs.manuscript }}', path: state, retention-days: 30}}
+      - {if: always(), uses: actions/upload-artifact@v4, with: {name: 'baseline-bundle-${{ inputs.manuscript }}', path: .eval-baseline, retention-days: 30}}
+      - {if: always(), uses: actions/upload-artifact@v4, with: {name: 'baseline-key-${{ inputs.manuscript }}', path: .eval-baseline-key.json, retention-days: 30}}
+  rate: # the model panel reads only baseline-bundle-* artifacts; LLM_MAX_RPD is never set here
+    if: inputs.stage == 'rate'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    services: *pg
+    env:
+      BASELINE_PANEL: ${{ inputs.panel }}
+      BUNDLES: ${{ inputs.bundles }}
+      GEMINI_API_KEY: ${{ contains(inputs.panel, 'gemini:') && secrets.GEMINI_API_KEY || '' }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      EVAL_CACHE_DIR: rate-state/cache # the stub panel, if any, is at the registry's default :8099
+    steps:
+      - *checkout
+      - *prepare
+      - name: Download the bundles only (never a key or a state)
+        run: |
+          for r in ${BUNDLES//,/ }; do gh run download "$r" -p 'baseline-bundle-*' -D "bundles/$r" -R "$GITHUB_REPOSITORY"; done
+          [ -z "$PRIOR" ] || gh run download "$PRIOR" -n baseline-rate-state -D rate-state -R "$GITHUB_REPOSITORY"
+      - name: Rate
+        timeout-minutes: 320
+        run: |
+          case "$BASELINE_PANEL" in *stub:*) (python -m evals.stub_llm --port 8099 > stub.log 2>&1 &); sleep 3 ;; esac
+          python -m evals.baseline.panel bundles --out ratings
+      - {if: always(), uses: actions/upload-artifact@v4, with: {name: baseline-ratings, path: ratings, retention-days: 30}}
+      - {if: always(), uses: actions/upload-artifact@v4, with: {name: baseline-rate-state, path: rate-state, retention-days: 30}}

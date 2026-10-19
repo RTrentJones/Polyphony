@@ -25,7 +25,8 @@ Answer from a shell with ``python -m evals.relay_llm answer <id> <file>`` (or
 write ``done/<id>.json`` directly), and list the queue with
 ``python -m evals.relay_llm pending``.
 
-Run: ``python -m evals.relay_llm serve --port 8299``
+Run: ``python -m evals.relay_llm serve --port 8299``. Recorder (``RELAY_UPSTREAM``):
+forwards with the caller's Authorization, archives, never a header (W13-3).
 """
 
 from __future__ import annotations
@@ -39,8 +40,9 @@ import sys
 import time
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 app = FastAPI(title="polyphony-relay-llm")
 _SEQ = itertools.count(1)
@@ -81,6 +83,16 @@ async def chat(request: Request):
     rid = f"{int(time.time())}-{next(_SEQ):04d}"
     pending, done, answered = _paths(rid)
     messages = body.get("messages", [])
+    if upstream := os.getenv("RELAY_UPSTREAM"):  # the recorder (W13-3)
+        auth = {"Authorization": request.headers.get("authorization", "")}
+        async with httpx.AsyncClient(timeout=None) as c:  # the app bounds it
+            r = await c.post(f"{upstream}/chat/completions", json=body, headers=auth)
+        ans = r.json()["choices"][0]["message"]["content"] if r.is_success else r.text
+        purpose = _purpose(messages, request.headers.get("x-polyphony-purpose"))
+        rec = dict(id=rid, purpose=purpose, messages=messages, answer=ans)
+        rec |= dict(status=r.status_code, created=time.time())
+        answered.write_text(json.dumps(rec, indent=2))  # never a header
+        return Response(r.content, r.status_code, {}, r.headers.get("content-type"))
     pending.write_text(
         json.dumps(
             {
