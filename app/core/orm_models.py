@@ -707,6 +707,7 @@ class Job(Base):
     # 48h", not "48h in total".
     paused_since = Column(DateTime(timezone=True))
     pause_count = Column(Integer, nullable=False, default=0, server_default="0")
+    pause_seconds = Column(JSON().with_variant(JSONB(), "postgresql"))  # {reason: s}
     cancel_requested = Column(
         Boolean, nullable=False, default=False, server_default="false"
     )
@@ -748,6 +749,8 @@ class APIUsage(Base):
     tokens_used = Column(Integer)
     cost_usd = Column(DECIMAL(10, 6))
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    model = Column(String(100))
+    job_id = Column(UUID(as_uuid=True), index=True)  # no FK: outlives its job
 
     # Relationships
     user = relationship("User", back_populates="api_usage")

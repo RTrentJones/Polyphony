@@ -276,7 +276,8 @@ def _bible_lines(character: Character) -> list[str]:
 _MOVEMENT_SAMPLES = 3
 # Voice and movement each fetch the character's pool, so the nearest rows cannot
 # all be ineligible; eligibility, then the threshold, then k (SPEC-40, SPEC-53).
-_POOL = 50
+_POOL = 200
+RETRIEVAL_EXHAUSTED_REASON = "retrieval exhausted (200-row bound)"
 # Ensemble agents are grounded on how they SPEAK and how they MOVE separately
 # (BRD R6.2): one mixed retrieval lets dialogue crowd action out. The ingest
 # classifier under-labels, so a movement block with fewer than this many hits
@@ -549,9 +550,11 @@ async def character_samples(
             and not scripted(s)
         )
 
-    words = []
+    words, hit_v, hit_m = [], [], []  # the store's bound-hit out-sinks
     if voice_types:
-        words = await _retrieve(character, query, _POOL, voice_types, threshold, spoken)
+        words = await _retrieve(
+            character, query, _POOL, voice_types, threshold, spoken, hit_v
+        )
         words = words[:k_voice]
     voiced = {s.get("id") for s in words}
 
@@ -568,7 +571,7 @@ async def character_samples(
         return typed and not rule
 
     body = (
-        await _retrieve(character, query, _POOL, move_types, threshold, moves)
+        await _retrieve(character, query, _POOL, move_types, threshold, moves, hit_m)
         if move_types
         else []
     )
@@ -576,7 +579,9 @@ async def character_samples(
         typed = {s.get("id") for s in body}
         body += [
             s
-            for s in await _retrieve(character, query, _POOL, None, threshold, moves)
+            for s in await _retrieve(
+                character, query, _POOL, None, threshold, moves, hit_m
+            )
             if s.get("id") not in typed
         ]
     own = [s for s in body if _own_narration(s) and not scripted(s)]
@@ -593,7 +598,12 @@ async def character_samples(
         if len(ranked) > WITHHELD_CAP:
             entries[-1][WITHHELD_MORE] = len(ranked) - WITHHELD_CAP
         withheld.extend(entries)
-    return words, [s for s in body if not _own_narration(s)][:k_move]
+    body = [s for s in body if not _own_narration(s)][:k_move]
+    if withheld is not None and (
+        hit_v and len(words) < k_voice or hit_m and len(body) < k_move
+    ):
+        withheld.append(unsampled_entry(character, RETRIEVAL_EXHAUSTED_REASON))
+    return words, body
 
 
 async def _retrieve(
@@ -603,6 +613,7 @@ async def _retrieve(
     chunk_types: Optional[Iterable[str]],
     threshold: float,
     keep=None,
+    exhausted: Optional[list] = None,
 ) -> list[dict]:
     """Voice samples for one character. Retrieve across ALL chunk types unless a
     caller asks for specific ones: the ingest-time classifier under-labels, so a
@@ -612,6 +623,7 @@ async def _retrieve(
         character_id=str(character.id),
         query=query,
         keep=keep,
+        exhausted=exhausted,
         score_threshold=threshold,
         user_id=str(character.user_id) if character.user_id else None,
         book_id=str(character.book_id) if character.book_id else None,

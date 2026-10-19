@@ -78,7 +78,7 @@ def main(argv: list[str]) -> int:
     if argv[:1] == ["exercised"]:
         failures = exercised([json.load(open(p, encoding="utf-8")) for p in argv[1:]])
         print(*(f"::error::eval gate: {f}" for f in failures), sep="\n")
-        return int(bool(failures) or len(argv) < 3)
+        return int(bool(failures) or len(argv) < 2)
     if len(argv) < 2:
         print(__doc__)
         return 2

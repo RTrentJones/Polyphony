@@ -148,7 +148,7 @@ async def test_downgrade_keeps_ended_tokens_refused():
                 ),
                 {"t": tid, "u": uid, "h": uuid.uuid4().hex * 2},
             )
-        await asyncio.to_thread(command.downgrade, cfg, "-1")
+        await asyncio.to_thread(command.downgrade, cfg, "w2_planned_beats")
         async with engine.connect() as c:
             revoked = (
                 await c.execute(

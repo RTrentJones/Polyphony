@@ -5,18 +5,20 @@ Wave 11, D4 (b), the controls (SPEC-74): positive, the W9a2 answers against
 every train line; negative, the leave-one-out over SHUFFLES seeded label
 shuffles; the self-split, reported. Validated when the positive Wilson lower
 bound is > 0.33 and the true score beats 95% of the shuffles.
-`python -m evals.measure.voice_instrument`
+`python -m evals.measure.voice_instrument [--topic]`
 """
 
 import asyncio
 import json
 import random
+import sys
 from pathlib import Path
 
 from evals.graders import attribution
 from evals.measure.wilson import wilson
 
 ANSWERS = Path(__file__).parents[1] / "corpora" / "cel" / "w9a2_answers.json"
+TOPIC = ANSWERS.with_name("topic_controlled.json")
 SHUFFLES, SEED = 200, 11
 
 
@@ -52,15 +54,35 @@ def loo(gold: dict, vec: dict) -> list:
     return [attribute(gold, vec, *x) for x in lines]
 
 
+def probe_path(gold: dict, vec: dict, probe: list) -> dict:
+    """Each (speaker, line) against every train line: accuracy with its Wilson."""
+    out = attribution.accuracy([attribute(gold, vec, w, t, None) for w, t in probe])
+    return out | {"wilson95": wilson(out["correct"], out["n"])}
+
+
+async def topic(gold: dict, forms: dict, embed_many, lines: list[dict]) -> dict:
+    """W12-6 (a), SPEC-85: one fixed event in each principal's voice, by the
+    probe path; it beats chance when the Wilson lower bound is above 1/3."""
+    probe = [(r["speaker"], r["line"]) for r in lines]
+    texts = sorted(
+        {*(t for v in gold.values() for t in v["train"]), *(t for _, t in probe)}
+    )
+    vec = dict(
+        zip(texts, await embed_many([attribution.mask(t, forms) for t in texts]))
+    )
+    out = probe_path(gold, vec, probe)
+    return out | {"beats_chance": out["wilson95"][0] > 1 / 3}
+
+
 def attribute(gold, vec, who, line, held):
     refs = {w: [vec[t] for t in ts] for w, ts in references(gold, held).items()}
     return attribution.attribute(who, vec[line], refs)
 
 
 async def score(gold: dict, forms: dict, embed_many, answers: list) -> dict:
-    probe = [(a["intended"], a["answer"].strip().strip("\"'"), None) for a in answers]
+    probe = [(a["intended"], a["answer"].strip().strip("\"'")) for a in answers]
     lines = (t for v in gold.values() for s in v.values() for t in s)
-    texts = sorted({*lines, *(t for _, t, _ in probe)})
+    texts = sorted({*lines, *(t for _, t in probe)})
     vecs = await embed_many([attribution.mask(t, forms) for t in texts])
     vec = dict(zip(texts, vecs))
 
@@ -71,8 +93,7 @@ async def score(gold: dict, forms: dict, embed_many, answers: list) -> dict:
     null = [
         sum(r.correct for r in loo(relabel(gold, rng), vec)) for _ in range(SHUFFLES)
     ]
-    positive = attribution.accuracy([attribute(gold, vec, *x) for x in probe])
-    positive["wilson95"] = wilson(positive["correct"], positive["n"])
+    positive = probe_path(gold, vec, probe)
     split = {w: loo(halves([*v["train"], *v["test"]]), vec) for w, v in gold.items()}
     beats = sum(n < k for n in null) / SHUFFLES
     return {
@@ -99,5 +120,7 @@ if __name__ == "__main__":
     gt = load_corpus("cel")[1]
     answers = json.loads(ANSWERS.read_text())["answers"]
     forms = {n: [n] for n in gt["cast"]} | _forms(gt)  # step_attribution's
-    result = score(gt["gold_lines"], forms, embed.embed_many, answers)
+    lines = json.loads(TOPIC.read_text())["lines"]  # W12-6 (a): --topic
+    args = gt["gold_lines"], forms, embed.embed_many
+    result = topic(*args, lines) if "--topic" in sys.argv else score(*args, answers)
     print(json.dumps(asyncio.run(result), indent=2))

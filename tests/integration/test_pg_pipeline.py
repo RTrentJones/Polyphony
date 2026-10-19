@@ -849,3 +849,30 @@ async def test_spec07_migration_downgrades_and_reapplies(pg):
             )
         ).scalar()
         assert "UNIQUE" in idx and "queued" in idx
+
+
+async def test_w12_0021_round_trips(pg):
+    """(R) W12 day-0: 0021's three columns and HNSW drop; its downgrade reverses."""
+    from alembic import command
+    from alembic.config import Config
+
+    cfg = Config("alembic.ini")
+    cfg.set_main_option("script_location", "alembic")
+    q = text(
+        "SELECT (SELECT count(*) FROM information_schema.columns WHERE column_name"
+        " IN ('model', 'job_id', 'pause_seconds') AND table_name IN ('api_usage',"
+        " 'jobs')), (SELECT string_agg(indexname, ',') FROM pg_indexes WHERE "
+        "indexname IN ('ix_api_usage_job_id', 'idx_voice_chunks_embedding'))"
+    )
+    states = []
+    for move, rev in (
+        (None, ""),
+        (command.downgrade, "refresh_token_family"),
+        (command.upgrade, "head"),
+    ):
+        if move:
+            await asyncio.to_thread(move, cfg, rev)
+        async with pg() as s:
+            states.append(tuple((await s.execute(q)).one()))
+    up = (3, "ix_api_usage_job_id")
+    assert states == [up, (0, "idx_voice_chunks_embedding"), up]

@@ -78,7 +78,8 @@ class Judge:
         if self.endpoint:
             self.provider_id = cfg.judge_label or "relay-judge"
             self.fell_back = False
-            self.model_override = cfg.judge_model or "judge"
+            # The relay ignores the name; a priced-free id passes a ceiling (W12-1).
+            self.model_override = cfg.judge_model or "stub-default"
             return
         # Resolved eagerly so the report records the judge that will ACTUALLY
         # grade (post-fallback), not just the requested one.

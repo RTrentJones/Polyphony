@@ -55,13 +55,16 @@ class Estimate:
         return d
 
 
-def _usd(tokens_in: int, tokens_out: int) -> float:
-    from app.llm.providers import active_provider, cost_usd
+def _usd(tokens_in: int, tokens_out: int) -> Optional[float]:
+    from app.llm.prices import cost_usd
+    from app.llm.providers import active_provider, resolve_model
 
     try:
-        return round(cost_usd(active_provider(), tokens_in, tokens_out), 4)
+        model = resolve_model(active_provider(), fast=False)
     except Exception:  # unknown provider: no price to show
-        return 0.0
+        return None
+    cost = cost_usd(model, tokens_in, tokens_out)
+    return None if cost is None else round(cost, 4)
 
 
 def scene(

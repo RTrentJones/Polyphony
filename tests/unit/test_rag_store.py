@@ -1,12 +1,21 @@
 """Unit tests for the pgvector-backed chunk store."""
 
+import json
 from contextlib import asynccontextmanager
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import app.characters.context as ctx
 from app.rag.embeddings import cosine_similarity
 from app.rag.store import ChunkStore, _vector_literal
+from tests.unit.factories import make_scope
+
+STARVE = json.loads(
+    (Path(__file__).parents[1] / "fixtures/retrieval_starve.json").read_text()
+)
 
 
 class FakeSession:
@@ -24,7 +33,8 @@ class FakeSession:
             raise RuntimeError("db down")
         self.executed.append((str(statement), params or {}))
         result = MagicMock()
-        result.mappings.return_value.all.return_value = self.rows
+        rows = self.rows[: (params or {}).get("k")]  # LIMIT :k, as Postgres
+        result.mappings.return_value.all.return_value = rows
         result.first.return_value = self.rows[0] if self.rows else None
         result.rowcount = self.rowcount
         return result
@@ -195,3 +205,31 @@ class TestCosineSimilarity:
 
     def test_zero_vector(self):
         assert cosine_similarity([0.0, 0.0], [1.0, 0.0]) == 0.0
+
+
+async def _voice_block(monkeypatch, extra=0):
+    """SPEC-83: the voice block (k=5) and its grounding reasons over the fixture,
+    plus `extra` ineligible rows below rank 51."""
+    row = {"chunk_type": "dialogue", "source_location": "", "word_count": 1}
+    rows = [row | dict(r, id=r["rank"]) for r in STARVE["rows"]]
+    rows += [dict(rows[0], id=-i, score=0.5) for i in range(extra)]
+    store, session = make_store(rows)
+    monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
+    who, out = SimpleNamespace(id="m", name="Milo", user_id=None, book_id=None), []
+    kw = dict(scope=make_scope(), threshold=0.2, chunk_types=["dialogue"])
+    words, _ = await ctx.character_samples(who, "q", 5, withheld=out, **kw)
+    reasons = [g.get("reason") for g in out]
+    return [w["text"] for w in words], reasons, session.executed[0][0]
+
+
+@pytest.mark.unit
+async def test_the_eligible_row_at_rank_51_fills_the_starved_block(monkeypatch):  # (F)
+    shown, reasons, sql = await _voice_block(monkeypatch)
+    assert (shown, reasons) == ([STARVE["rows"][50]["text"]], [])
+    assert "<=> CAST(:q AS vector), id LIMIT :k" in sql
+
+
+@pytest.mark.unit
+async def test_a_short_block_at_the_bound_records_why(monkeypatch):  # (F)
+    shown, reasons, _ = await _voice_block(monkeypatch, extra=149)
+    assert (len(shown), reasons) == (1, [ctx.RETRIEVAL_EXHAUSTED_REASON])

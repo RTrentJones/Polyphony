@@ -44,8 +44,12 @@ from app.jobs.cancel import JobCancelled
 from app.jobs.context import JobContext, job_context
 from app.jobs.handlers import HANDLERS
 from app.llm.errors import (
+    ACCOUNTING_UNAVAILABLE,
+    MONTHLY_CEILING,
+    PAUSE_REASON,
     ProviderUnavailableError,
     QuotaExhaustedError,
+    SpendPausedError,
     UserBudgetExhaustedError,
 )
 from app.llm.tier import get_tier
@@ -53,6 +57,12 @@ from app.llm.tier import get_tier
 logger = setup_logging("jobs.worker")
 
 REAP_INTERVAL_SECONDS = 60
+_EVERY_TIER = (ProviderUnavailableError, UserBudgetExhaustedError, SpendPausedError)
+_RERUN = "re-running starts this job over"
+_STOPPED = {  # what a spend pause past JOB_MAX_PAUSE_HOURS says (SPEC-81)
+    MONTHLY_CEILING: "monthly ceiling reached",
+    ACCOUNTING_UNAVAILABLE: "accounting unavailable",
+}
 ERROR_BACKOFF_SECONDS = 5
 # Extra looks taken after a wake before trusting "nothing queued". Correctness
 # does not rest on these: enqueue() fires its wake from the session's
@@ -231,6 +241,7 @@ class JobWorker:
         error: str | None = None
         pause_after: float | None = None  # set => quota pause, not a failure
         pause_hinted = False  # the provider said when quota returns
+        pause_reason = PAUSE_REASON
         cancelled = False
         if handler is None:
             error = f"unknown job kind: {kind}"
@@ -250,10 +261,8 @@ class JobWorker:
                 # never the author's error (SPEC-03).
                 # So does the author's own spent budget: it refills as the
                 # 24h window rolls, so pausing loses nothing on any tier.
-                if (
-                    isinstance(e, (ProviderUnavailableError, UserBudgetExhaustedError))
-                    or get_tier().on_quota == "pause"
-                ):
+                if isinstance(e, _EVERY_TIER) or get_tier().on_quota == "pause":
+                    pause_reason = e.reason
                     pause_hinted = bool(e.reset_after)
                     pause_after = e.reset_after or settings.QUOTA_PAUSE_SECONDS
                 else:
@@ -286,7 +295,10 @@ class JobWorker:
                 # means the quota is not coming back on its own — stop
                 # re-pausing every 15 minutes forever and say why.
                 pause_after = None
-                error = f"quota did not return within {settings.JOB_MAX_PAUSE_HOURS:g}h"
+                hours = f"{settings.JOB_MAX_PAUSE_HOURS:g}h"
+                error = f"quota did not return within {hours}"
+                if why := _STOPPED.get(pause_reason):
+                    error = f"{why}; job stopped after {hours} paused; " + _RERUN
                 db_job.attempts = db_job.max_attempts
             if pause_after is not None and not pause_hinted:
                 pause_after = unhinted_pause_seconds(db_job.pause_count or 0)
@@ -296,7 +308,7 @@ class JobWorker:
                     session,
                     db_job,
                     available_at=resume_at,
-                    reason=jobs_repo.PAUSE_REASON,
+                    reason=pause_reason,
                 )
                 await session.commit()
                 log_business_event(
