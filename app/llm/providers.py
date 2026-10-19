@@ -22,9 +22,6 @@ class Provider:
     base_url: Optional[str]  # openai-compatible endpoint (kind: "openai")
     default_model: str
     fast_model: str
-    # USD per 1M tokens (best-effort, for cost display; 0 for free tiers)
-    rate_in: float = 0.0
-    rate_out: float = 0.0
     # Free-tier requests-per-minute pacing default (overridable via LLM_MAX_RPM)
     max_rpm: int = 10
     # Free-tier requests-per-DAY ceilings for the default and fast models, as
@@ -97,8 +94,6 @@ PROVIDERS: dict[str, Provider] = {
         base_url=None,
         default_model="gpt-4o",
         fast_model="gpt-4o-mini",
-        rate_in=2.5,
-        rate_out=10.0,
         max_rpm=60,
     ),
     # --- additional free-tier vendors (all OpenAI-compatible) ---------------
@@ -168,7 +163,7 @@ class GenResult:
     provider: str
     model: str
     latency_ms: int
-    cost_usd: float = 0.0
+    cost_usd: Optional[float] = 0.0  # None = unpriced (app/llm/prices.py)
     metadata: dict = field(default_factory=dict)
 
 
@@ -197,7 +192,3 @@ def resolve_model(provider: Provider, fast: bool) -> str:
     if fast:
         return settings.LLM_MODEL_FAST or provider.fast_model
     return settings.LLM_MODEL or provider.default_model
-
-
-def cost_usd(provider: Provider, tokens_in: int, tokens_out: int) -> float:
-    return (tokens_in * provider.rate_in + tokens_out * provider.rate_out) / 1_000_000

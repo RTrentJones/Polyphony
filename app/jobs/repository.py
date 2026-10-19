@@ -20,6 +20,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.core.database import get_async_session
 from app.core.orm_models import Job
 from app.jobs import notify_enqueued
+from app.llm.errors import PAUSE_REASONS
 
 # Retry n (1-based) becomes available after BASE * 2**(n-1), capped.
 BACKOFF_BASE_SECONDS = 60
@@ -27,8 +28,6 @@ BACKOFF_CAP_SECONDS = 15 * 60
 
 # Statuses that hold a dedupe key (a paused job is 'queued' with paused_since).
 ACTIVE_STATUSES = ("queued", "running")
-# The error text a quota pause leaves on the job while it waits.
-PAUSE_REASON = "quota exhausted"
 
 
 def _utcnow() -> datetime:
@@ -271,7 +270,7 @@ async def mark_succeeded(session: AsyncSession, job: Job) -> None:
     job.locked_by = None
     job.paused_since = None
     job.checkpoint = None  # job-scoped resume state; done with it
-    if job.error == PAUSE_REASON:
+    if job.error in PAUSE_REASONS:
         job.error = None  # the pause is over; an informational note stays
     await session.flush()
 
@@ -336,8 +335,11 @@ async def pause(
     job.error = reason
     job.locked_at = None
     job.locked_by = None
+    now = _utcnow()
     if job.paused_since is None:
-        job.paused_since = _utcnow()
+        job.paused_since = now
+    s = (job.pause_seconds or {}).get(reason, 0) + (available_at - now).total_seconds()
+    job.pause_seconds = {**(job.pause_seconds or {}), reason: s}  # scheduled length
     job.pause_count = (job.pause_count or 0) + 1
     await session.flush()
 

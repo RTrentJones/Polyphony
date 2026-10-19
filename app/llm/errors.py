@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import Optional
 
+PAUSE_REASON = "quota exhausted"  # a pause's reason: the job's error text
+MONTHLY_CEILING, ACCOUNTING_UNAVAILABLE = "monthly_ceiling", "accounting_unavailable"
+PAUSE_REASONS = (PAUSE_REASON, MONTHLY_CEILING, ACCOUNTING_UNAVAILABLE)
+
 
 class QuotaExhaustedError(RuntimeError):
     """The provider's rate/quota is exhausted (429 / RESOURCE_EXHAUSTED) after the
@@ -21,9 +25,10 @@ class QuotaExhaustedError(RuntimeError):
         message: str = "LLM quota exhausted",
         *,
         reset_after: Optional[float] = None,
+        reason: str = PAUSE_REASON,
     ):
         super().__init__(message)
-        self.reset_after = reset_after
+        self.reset_after, self.reason = reset_after, reason
 
 
 class ProviderUnavailableError(QuotaExhaustedError):
@@ -48,3 +53,13 @@ class DailyRequestLimitError(QuotaExhaustedError):
     """The provider's requests-per-day ceiling is reached (tracked locally in
     the request ledger, app/llm/ledger.py). Raised BEFORE calling the
     provider; `reset_after` is the time until the provider's day rolls over."""
+
+
+class SpendPausedError(QuotaExhaustedError):  # not admitted under a ceiling
+    def __init__(self, reason: str):
+        super().__init__(f"spend paused: {reason}", reason=reason)
+
+
+class UnpricedModelError(RuntimeError):  # under a ceiling: fails the job
+    def __init__(self, model: str):
+        super().__init__(f"'{model}' has no PRICES row; add one with source and date")

@@ -8,7 +8,7 @@ Reuses the accounting that already exists (api_usage + budget helpers).
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import budget
@@ -31,14 +31,19 @@ async def get_usage(
     remaining = await budget.remaining_budget_24h(db, current_user.id)
 
     since_30d = datetime.now(timezone.utc) - timedelta(days=30)
-    month_cost = (
+    # Unpriced calls (cost IS NULL, SPEC-81): their tokens beside the cost.
+    unpriced = case((APIUsage.cost_usd.is_(None), APIUsage.tokens_used), else_=0)
+    month_cost, unpriced_tokens = (
         await db.execute(
-            select(func.coalesce(func.sum(APIUsage.cost_usd), 0)).where(
+            select(
+                func.coalesce(func.sum(APIUsage.cost_usd), 0),
+                func.coalesce(func.sum(unpriced), 0),
+            ).where(
                 APIUsage.user_id == current_user.id,
                 APIUsage.timestamp >= since_30d,
             )
         )
-    ).scalar_one()
+    ).one()
 
     from app.core.estimates import requests_left_today
     from app.llm.providers import active_provider
@@ -83,5 +88,6 @@ async def get_usage(
         "daily_token_limit": tier.daily_token_limit,
         "allow_ensemble": tier.allow_ensemble,
         "month_cost_usd": float(month_cost),
+        "unpriced_tokens_30d": int(unpriced_tokens or 0),
         "monthly_cost_ceiling_usd": tier.monthly_cost_ceiling_usd,
     }

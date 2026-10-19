@@ -8,7 +8,6 @@ import pytest
 from app.llm.providers import (
     PROVIDERS,
     active_provider,
-    cost_usd,
     enabled_providers,
     provider_api_key,
     resolve_model,
@@ -80,13 +79,6 @@ class TestProviderRegistry:
 
         monkeypatch.setattr(settings, "LLM_MODEL", "gemini-2.5-pro")
         assert resolve_model(PROVIDERS["gemini"], fast=False) == "gemini-2.5-pro"
-
-    def test_cost_free_tier_is_zero(self):
-        assert cost_usd(PROVIDERS["gemini"], 100_000, 100_000) == 0.0
-
-    def test_cost_paid_tier(self):
-        cost = cost_usd(PROVIDERS["openai"], 1_000_000, 1_000_000)
-        assert cost == pytest.approx(12.5)
 
 
 @pytest.mark.unit

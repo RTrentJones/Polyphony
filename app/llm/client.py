@@ -34,12 +34,13 @@ from .errors import (
     QuotaExhaustedError,
     UserBudgetExhaustedError,
 )
+from . import spend
 from .pacing import backoff_after_429, get_pacer
+from .prices import cost_usd
 from .providers import (
     GenResult,
     Provider,
     active_provider,
-    cost_usd,
     provider_api_key,
     resolve_model,
 )
@@ -104,12 +105,14 @@ class LLMClient:
         if settings.LLM_TEMPERATURE_OVERRIDE is not None:
             temperature = settings.LLM_TEMPERATURE_OVERRIDE
         start = time.monotonic()
+        est_in = sum(len(str(m.get("content") or "")) for m in messages) // 4
+        # Check the cap actually sent: reasoning models get headroom on top of
+        # the caller's max_tokens (_thinking_guard), and it is spent too.
+        _, sent_cap = _thinking_guard(self.provider, resolved_model, max_tokens)
         if user_id is not None:
-            prompt_chars = sum(len(str(m.get("content") or "")) for m in messages)
-            # Check the cap actually sent: reasoning models get headroom on top
-            # of the caller's max_tokens (_thinking_guard), and it is spent too.
-            _, sent_cap = _thinking_guard(self.provider, resolved_model, max_tokens)
-            await _check_user_budget(user_id, prompt_chars // 4 + sent_cap)
+            await _check_user_budget(user_id, est_in + sent_cap)
+        hold = await spend.admit(resolved_model, est_in, sent_cap)
+        result = None
 
         # The circuit breaker wraps the WHOLE retry sequence, not each attempt:
         # one logical generate() = one breaker success/failure. Wrapping each
@@ -121,7 +124,7 @@ class LLMClient:
         # the breaker opens only on sustained failure across multiple calls,
         # while transient blips stay absorbed by the per-call retries.
         try:
-            return await self._breaker.call(
+            result = await self._breaker.call(
                 self._generate_with_retries,
                 messages,
                 resolved_model,
@@ -144,6 +147,13 @@ class LLMClient:
                 str(e),
                 reset_after=max(5.0, self._breaker.seconds_until_retry()),
             ) from e
+        finally:
+            if result is None:
+                await spend.release(hold)  # no response: nothing was spent
+        if user_id is not None or hold is not None:
+            if await self._record_usage(user_id, purpose, result):
+                await spend.release(hold)  # unrecorded, it stays held (SPEC-81)
+        return result
 
     async def _generate_with_retries(
         self,
@@ -196,9 +206,7 @@ class LLMClient:
                         extra_body=extra_body,
                         **extra_kwargs,
                     )
-                return await self._account(
-                    response, resolved_model, start, user_id, purpose
-                )
+                return await self._account(response, resolved_model, start)
             except RateLimitError as e:
                 last_error = e
                 retry_after = _retry_after_seconds(e)
@@ -241,14 +249,12 @@ class LLMClient:
         response,
         model: str,
         start: float,
-        user_id: Optional[UUID],
-        purpose: str,
     ) -> GenResult:
         latency_ms = int((time.monotonic() - start) * 1000)
         usage = getattr(response, "usage", None)
         tokens_in = getattr(usage, "prompt_tokens", 0) or 0
         tokens_out = getattr(usage, "completion_tokens", 0) or 0
-        cost = cost_usd(self.provider, tokens_in, tokens_out)
+        cost = cost_usd(model, tokens_in, tokens_out)
         text = (response.choices[0].message.content or "").strip()
 
         llm_requests_total.labels(service="app", model=model, status="success").inc()
@@ -264,9 +270,6 @@ class LLMClient:
         if cost:
             llm_cost_usd_total.labels(service="app", model=model).inc(cost)
 
-        if user_id is not None:
-            await self._record_usage(user_id, purpose, tokens_in + tokens_out, cost)
-
         return GenResult(
             text=text,
             tokens_in=tokens_in,
@@ -278,11 +281,12 @@ class LLMClient:
         )
 
     async def _record_usage(
-        self, user_id: UUID, purpose: str, tokens: int, cost: float
-    ) -> None:
+        self, user_id: Optional[UUID], purpose: str, result: GenResult
+    ) -> bool:
         # Local import: keep the LLM layer importable without a DB configured.
         from app.core.database import get_async_session
         from app.core.orm_models import APIUsage
+        from app.jobs.context import current_job
 
         try:
             async with get_async_session() as session:
@@ -290,16 +294,20 @@ class LLMClient:
                     APIUsage(
                         user_id=user_id,
                         endpoint=purpose or "llm",
-                        tokens_used=tokens,
-                        cost_usd=cost,
+                        tokens_used=result.tokens_in + result.tokens_out,
+                        cost_usd=result.cost_usd,
+                        model=result.model,
+                        job_id=current_job().job_id,
                     )
                 )
+            return True
         except Exception as e:
             # Accounting must never fail a generation.
             logger.warning(
                 f"Failed to record LLM usage: {e}",
                 extra_fields={"event": "llm_usage_record_failed"},
             )
+            return False
 
 
 # Groq's free tier limits gpt-oss to ~8K tokens per minute, counting the
