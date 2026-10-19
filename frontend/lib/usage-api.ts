@@ -50,7 +50,7 @@ export interface Estimate {
   input_tokens: number
   output_tokens: number
   tokens: number
-  usd: number
+  usd: number | null // null: the model has no price (SPEC-81)
   degraded_from: string | null
   notes: string[]
   remaining_tokens_24h: number
@@ -78,7 +78,7 @@ export async function estimate(req: EstimateRequest): Promise<Estimate> {
   }
 }
 
-/** "≈ 6 calls · 31k tokens · 16% of today's budget" (+ "$0.04" when priced). */
+/** "≈ 6 calls · 31k tokens · 16% of today's budget" (+ "$0.04" when priced, "price unknown" when unpriced). */
 export function describeEstimate(e: Estimate): string {
   const tokens =
     e.tokens >= 1000 ? `${Math.round(e.tokens / 1000)}k tokens` : `${e.tokens} tokens`
@@ -86,6 +86,7 @@ export function describeEstimate(e: Estimate): string {
   if (e.share_of_remaining !== null) {
     parts.push(`${Math.max(1, Math.round(e.share_of_remaining * 100))}% of today's budget`)
   }
-  if (e.usd > 0) parts.push(`$${e.usd.toFixed(2)}`)
+  if (e.usd) parts.push(`$${e.usd.toFixed(2)}`)
+  else if (e.usd === null) parts.push('price unknown')
   return parts.join(' · ')
 }

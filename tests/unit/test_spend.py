@@ -1,5 +1,6 @@
-"""SPEC-81: one price source, and spend admission under a monthly ceiling.
-Rows are numbered as in tpm-plan-wave12 §3 (E1, W12-1)."""
+"""SPEC-81: spend admission under a monthly ceiling, and the usage record.
+Rows are numbered as in tpm-plan-wave12 §3 (E1, W12-1); rows 1-3 were cut and
+row 12 folds into row 9 (principal ruling at the E1 checkpoint)."""
 
 import asyncio
 from datetime import datetime, timedelta, timezone
@@ -19,7 +20,6 @@ from app.jobs.handlers import Handler
 from app.llm import client as client_mod
 from app.llm import spend
 from app.llm.errors import MONTHLY_CEILING, PAUSE_REASON, SpendPausedError
-from app.llm.prices import PRICES, cost_usd
 from app.llm.providers import PROVIDERS
 from tests.unit.test_job_lifecycle import _bind, _worker
 from tests.unit.test_quota_safety import _Ctx, _no_sleep, _NoPacer
@@ -27,13 +27,6 @@ from tests.unit.test_quota_safety import _Ctx, _no_sleep, _NoPacer
 pytestmark = pytest.mark.unit
 HI = [{"role": "user", "content": "hi"}]
 WORST = 1024 * 10.0 / 1e6  # gpt-4o: a 1024-token cap, a 0-token prompt estimate
-
-
-def test_prices():  # rows 1-3
-    assert cost_usd("mystery-1", 1, 1) is None
-    assert cost_usd("gpt-4o", 10**6, 10**6) == pytest.approx(12.5)
-    for m in ("stub-default", "stub-fast", "gemini-3.6-flash", "gemini-3.5-flash-lite"):
-        assert PRICES[m].cost(10**6, 10**6) == 0
 
 
 @pytest.fixture
@@ -115,7 +108,9 @@ async def test_admit_is_exact_and_fails_closed(llm, monkeypatch):
     assert await spend.admit("stub-default", 10, 10) == 0
 
 
-async def test_client_holds_and_records(llm, async_session, test_user, monkeypatch):
+async def test_client_holds_records_and_reports(
+    llm, async_session, test_user, monkeypatch, client, auth_headers
+):
     # 5: an error before a response releases; a failed record keeps holding.
     create = llm._client.chat.completions.create
     create.side_effect = APIConnectionError(request=httpx.Request("POST", "http://t"))
@@ -127,14 +122,22 @@ async def test_client_holds_and_records(llm, async_session, test_user, monkeypat
         m.setattr(llm, "_record_usage", AsyncMock(return_value=False))
         await llm.generate(HI)
     assert spend._inflight == pytest.approx(WORST)
-    # 9: with no ceiling nothing is enforced, and cost is recorded (None unpriced).
+    # 9 (F) + 12: with no ceiling nothing is enforced, and every response is
+    # recorded with its job, user or not; /usage keeps unpriced tokens apart.
     monkeypatch.setattr(settings, "MONTHLY_COST_CEILING_USD", None)
-    async_session.add(APIUsage(endpoint="x", tokens_used=1, cost_usd=99))
-    for model in ("gpt-4o", "mystery-1"):
-        await llm.generate(HI, model=model, user_id=test_user.id)
-    q = select(APIUsage.model, APIUsage.cost_usd).where(APIUsage.model.is_not(None))
-    cost = dict((await async_session.execute(q)).all())
-    assert (float(cost["gpt-4o"]), cost["mystery-1"]) == (0.000225, None)
+    u = test_user.id
+    with job_context(JobContext(job_id=u)):
+        for model, who in (("gpt-4o", u), ("mystery-1", u), ("stub-default", None)):
+            await llm.generate(HI, model=model, user_id=who)
+    q = select(APIUsage.model, APIUsage.cost_usd, APIUsage.user_id, APIUsage.job_id)
+    got = (await async_session.execute(q)).all()
+    rows = {m: (None if c is None else float(c), w, j) for m, c, w, j in got}
+    want = {"gpt-4o": 0.000225, "mystery-1": None, "stub-default": 0.0}
+    assert rows == {
+        m: (c, None if m == "stub-default" else u, u) for m, c in want.items()
+    }
+    body = (await client.get("/api/v1/usage", headers=auth_headers)).json()
+    assert (body["month_cost_usd"], body["unpriced_tokens_30d"]) == (0.000225, 30)
 
 
 async def test_pause_seconds_accumulate_by_reason(async_session, test_user):  # 10
@@ -145,18 +148,3 @@ async def test_pause_seconds_accumulate_by_reason(async_session, test_user):  # 
         await jobs_repo.pause(async_session, job, available_at=at, reason=why)
     want = {MONTHLY_CEILING: 180, PAUSE_REASON: 30}
     assert job.pause_seconds == pytest.approx(want, abs=1)
-
-
-async def test_usage_splits_unpriced(
-    llm, async_session, test_user, client, auth_headers
-):
-    u = test_user.id  # 12, and a row is recorded without a user_id
-    async_session.add(APIUsage(user_id=u, endpoint="x", tokens_used=1, cost_usd=0.5))
-    async_session.add(APIUsage(user_id=u, endpoint="x", tokens_used=40))
-    with job_context(JobContext(job_id=u)):
-        await llm.generate(HI, model="stub-default")  # no user_id, under a ceiling
-    body = (await client.get("/api/v1/usage", headers=auth_headers)).json()
-    assert (body["month_cost_usd"], body["unpriced_tokens_30d"]) == (0.5, 40)
-    q = select(APIUsage).where(APIUsage.model == "stub-default")
-    row = (await async_session.execute(q)).scalar_one()
-    assert (row.user_id, row.job_id, row.cost_usd) == (None, u, 0)

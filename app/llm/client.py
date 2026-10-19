@@ -150,9 +150,8 @@ class LLMClient:
         finally:
             if result is None:
                 await spend.release(hold)  # no response: nothing was spent
-        if user_id is not None or hold is not None:
-            if await self._record_usage(user_id, purpose, result):
-                await spend.release(hold)  # unrecorded, it stays held (SPEC-81)
+        if await self._record_usage(user_id, purpose, result):  # every response
+            await spend.release(hold)  # unrecorded, it stays held (SPEC-81)
         return result
 
     async def _generate_with_retries(

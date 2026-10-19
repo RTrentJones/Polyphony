@@ -163,7 +163,7 @@ class GenResult:
     provider: str
     model: str
     latency_ms: int
-    cost_usd: Optional[float] = 0.0  # None = unpriced (app/llm/prices.py)
+    cost_usd: Optional[float]  # None = unpriced (app/llm/prices.py)
     metadata: dict = field(default_factory=dict)
 
 

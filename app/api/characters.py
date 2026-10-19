@@ -359,7 +359,7 @@ async def test_dialogue(
     author's daily budget is checked first, and the whole call — including any
     429 backoff — gets TEST_DIALOGUE_BUDGET_SECONDS.
     """
-    from app.llm.errors import QuotaExhaustedError
+    from app.llm.errors import QuotaExhaustedError, UnpricedModelError
 
     character = await _owned_character(character_id, current_user, db)
     await check_user_budget(db, current_user.id)
@@ -388,6 +388,8 @@ async def test_dialogue(
             detail="The AI quota is used up for now; try the voice test later.",
             headers=headers,
         )
+    except UnpricedModelError as e:  # a misconfigured deployment (SPEC-81)
+        raise HTTPException(status_code=503, detail=str(e))
     return response
 
 

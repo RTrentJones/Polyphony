@@ -44,6 +44,12 @@ describe('EstimateHint (SPEC-12)', () => {
     await waitFor(() => expect(onEstimate).toHaveBeenCalledWith(base))
   })
 
+  it('says when the price is unknown, never $0 (SPEC-81)', async () => {
+    estimate.mockResolvedValue({ ...base, usd: null })
+    render(<EstimateHint request={{ action: 'scene', book_id: 'b' }} debounceMs={0} />)
+    expect(await screen.findByText(/16% of today's budget · price unknown/)).toBeTruthy()
+  })
+
   it('explains a refusal', async () => {
     estimate.mockResolvedValue({ ...base, allowed: false, reason: 'Needs about 31,000 tokens' })
     render(<EstimateHint request={{ action: 'outline', book_id: 'b' }} debounceMs={0} />)

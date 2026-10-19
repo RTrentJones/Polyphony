@@ -18,9 +18,11 @@ _FREE_MODELS = (  # free tiers and the stub; Gemini only on an unbilled project
     " llama-3.3-70b llama3.1-8b google/gemma-4-31b-it:free mistral-small-latest"
     " google/gemma-4-26b-a4b-it:free stub-default stub-fast"
 ).split()
-PRICES: dict[str, Price] = {
-    "gpt-4o": Price(2.5, 10.0, "openai.com/api/pricing", "2026-10-19"),
-} | dict.fromkeys(_FREE_MODELS, Price(0, 0, "free", "2026-10-19"))
+# No row carries a date on which nobody read its source (W12-9 re-prices).
+_CARRIED = "carried from Provider.rate_in @ e954eae; not re-verified"
+_FREE = Price(0, 0, "free tier or local stub, per the provider registry", "unverified")
+PRICES: dict[str, Price] = {"gpt-4o": Price(2.5, 10.0, _CARRIED, "unverified")}
+PRICES |= dict.fromkeys(_FREE_MODELS, _FREE)
 
 
 def cost_usd(model: str, tokens_in: int, tokens_out: int) -> Optional[float]:

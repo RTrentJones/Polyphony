@@ -88,6 +88,6 @@ async def get_usage(
         "daily_token_limit": tier.daily_token_limit,
         "allow_ensemble": tier.allow_ensemble,
         "month_cost_usd": float(month_cost),
-        "unpriced_tokens_30d": int(unpriced_tokens or 0),
+        "unpriced_tokens_30d": int(unpriced_tokens),
         "monthly_cost_ceiling_usd": tier.monthly_cost_ceiling_usd,
     }

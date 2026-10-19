@@ -27,7 +27,7 @@ from app.jobs import repository as jobs_repo
 from app.jobs.cancel import JobCancelled
 from app.jobs.handlers import HANDLERS
 from app.jobs.worker import JobWorker
-from app.llm.errors import QuotaExhaustedError
+from app.llm.errors import QuotaExhaustedError, SpendPausedError, UnpricedModelError
 
 pytestmark = pytest.mark.unit
 
@@ -615,14 +615,20 @@ async def test_test_dialogue_checks_budget(
     assert r.status_code == 429
 
 
+@pytest.mark.parametrize(
+    "error, status",
+    [(None, 504), (SpendPausedError("x"), 429), (UnpricedModelError("m"), 503)],
+)
 async def test_test_dialogue_is_bounded(
-    client, auth_headers, async_session, test_character, monkeypatch
+    client, auth_headers, async_session, test_character, monkeypatch, error, status
 ):
     import asyncio
 
     import app.api.characters as chars
 
-    async def slow(**kw):
+    async def slow(**kw):  # SPEC-81: a spend pause is a 429, an unpriced model a 503
+        if error:
+            raise error
         await asyncio.sleep(5)
 
     async def ok(db, user_id):
@@ -636,7 +642,7 @@ async def test_test_dialogue_is_bounded(
         json={"prompt": "Say hello"},
         headers=auth_headers,
     )
-    assert r.status_code == 504
+    assert r.status_code == status
 
 
 def test_test_dialogue_bound_is_below_the_proxy_timeout():
