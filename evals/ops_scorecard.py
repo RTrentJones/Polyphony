@@ -1,10 +1,6 @@
-"""Operational scorecard (W12-7, SPEC-87): six figures read from the DB.
-
-    python -m evals.ops_scorecard --db <url> [--days 30] [--user <id>] [--rows <figure>]
-
-A script for the one operator, not a product endpoint; `--rows` prints the SQL
-behind one figure. The reason strings are the frozen contracts (tpm-plan-wave12
-§1(b)) and 0.2 is RAG_SCORE_THRESHOLD: a grader does not import the rule it grades.
+"""Operational scorecard (W12-7, SPEC-87): `python -m evals.ops_scorecard --db <url>
+[--days 30] [--user <id>]`; each figure's SQL is QUERIES[<figure>]. Reason strings are
+the frozen contracts and 0.2 is RAG_SCORE_THRESHOLD: a grader does not import its rule.
 """
 
 import argparse
@@ -17,6 +13,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 W = "j.created_at >= :since AND (CAST(:uid AS uuid) IS NULL OR j.user_id = CAST(:uid AS uuid))"
 KEPT = f"{W} AND j.status = 'completed' AND j.deleted_at IS NULL"
+KEPT_TEXTS = f"SELECT generated_content, content FROM scenes j WHERE {KEPT}"
 SCENE_USAGE = (
     f"api_usage u JOIN jobs j ON j.id = u.job_id WHERE j.domain_type = 'scene' AND {W}"
 )
@@ -27,7 +24,7 @@ QUERIES = {
     "pause_duration": f"SELECT p.key AS reason, sum(p.value::float) AS total, percentile_disc(0.95) WITHIN GROUP (ORDER BY p.value::float) AS p95, count(*) AS jobs FROM jobs j, jsonb_each_text(j.pause_seconds) p WHERE {W} AND jsonb_typeof(j.pause_seconds) = 'object' GROUP BY p.key ORDER BY p.key",
     "grounding_failures": f"SELECT count(*) FILTER (WHERE bad)::float / NULLIF(count(*), 0) AS rate, count(*) FILTER (WHERE bad) AS failed, count(*) AS pairs FROM (SELECT bool_or({FAILED}) OR bool_and(coalesce((e->>'score')::float, 0) < 0.2) AS bad FROM scenes j, jsonb_each(j.evaluation_scores::jsonb->'grounding') b, jsonb_array_elements(b.value) e WHERE {W} AND coalesce(e->>'reason', '') <> 'context only' GROUP BY j.id, b.key, e->>'character_id') q",
     "cost_per_kept_scene": f"SELECT (SELECT sum(u.cost_usd) FROM {SCENE_USAGE})::float / NULLIF((SELECT count(*) FROM scenes j WHERE {KEPT}), 0) AS usd, (SELECT count(*) FROM scenes j WHERE {KEPT}) AS kept, (SELECT coalesce(sum(u.tokens_used), 0) FROM {SCENE_USAGE} AND u.cost_usd IS NULL) AS unpriced_tokens",
-    "author_acceptance": f"SELECT count(*) FILTER (WHERE r.meta->>'status' = 'accepted')::float / NULLIF(count(*), 0) AS proposal_rate, count(*) AS proposals FROM scene_revisions r JOIN scenes j ON j.id = r.scene_id WHERE r.source = 'ai_revise' AND r.meta->>'status' IN ('accepted', 'discarded') AND {W}",
+    "author_acceptance": f"SELECT count(*) FILTER (WHERE r.meta->>'status' = 'accepted')::float / NULLIF(count(*), 0) AS proposal_rate, count(*) AS proposals, (SELECT count(*) FROM scenes j WHERE {KEPT} AND j.content IS DISTINCT FROM j.generated_content) AS edited_at_least_once FROM scene_revisions r JOIN scenes j ON j.id = r.scene_id WHERE r.source = 'ai_revise' AND r.meta->>'status' IN ('accepted', 'discarded') AND {W}",
 }
 
 
@@ -47,14 +44,7 @@ async def scorecard(conn, days: int = 30, user: str | None = None) -> dict:
     out = {}
     for name, sql in QUERIES.items():
         out[name] = [dict(r._mapping) for r in await conn.execute(text(sql), p)]
-    kept = (
-        await conn.execute(
-            text(f"SELECT generated_content, content FROM scenes j WHERE {KEPT}"), p
-        )
-    ).all()
-    out["author_acceptance"][0]["edited_at_least_once"] = sum(
-        (c or "") != (g or "") for g, c in kept
-    )
+    kept = (await conn.execute(text(KEPT_TEXTS), p)).all()
     out["author_acceptance"][0]["edit_distance"] = (
         sum(edit_distance(*s) for s in kept) / len(kept) if kept else None
     )
@@ -66,10 +56,7 @@ async def main() -> None:
     ap.add_argument("--db", required=True)
     ap.add_argument("--days", type=int, default=30)
     ap.add_argument("--user")
-    ap.add_argument("--rows", choices=sorted(QUERIES))
     a = ap.parse_args()
-    if a.rows:
-        return print(QUERIES[a.rows])
     engine = create_async_engine(a.db)
     async with engine.connect() as conn:
         print(json.dumps(await scorecard(conn, a.days, a.user), indent=2))

@@ -1,8 +1,4 @@
-"""W12-7: the ops scorecard's six figures on real Postgres, against a small
-seeded world whose answers are worked by hand in the comments.
-
-Skipped unless RUN_PG_TESTS is set (CI provides a pgvector service).
-"""
+"""W12-7: the scorecard's six figures on Postgres equal hand-worked constants."""
 
 import asyncio
 import os
