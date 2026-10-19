@@ -30,7 +30,7 @@ def test_non_quota_error_is_ignored():
     assert _is_quota_error("got 429 responses in the sample text") is False
 
 
-def test_preflight_declares_exactly_four_runs():
+def test_preflight_declares_exactly_five_runs():
     """(F) Wave-9 day-0 (SPEC-68): each run's exact --steps, fresh flag and
     minimum daily limit (re-measured at wave-10 day-0, SPEC-75; baseline-dev at
     wave-12 day-0); every run's step is a registered one (W12-5 adds baseline)."""
@@ -43,7 +43,8 @@ def test_preflight_declares_exactly_four_runs():
         "gated-full": (full, True, 340_000),
         "gated-scenes": ("outline,prose,revise", True, 320_000),
         "attribution": ("attribution", True, 40_000),
-        "baseline-dev": ("baseline", True, 210_000),
+        "baseline-dev": ("baseline", True, 630_000),
+        "baseline": ("baseline", False, 750_000),
     }
     assert {s for r in RUNS.values() for s in r.steps} <= set(all_steps())
 

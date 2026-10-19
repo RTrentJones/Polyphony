@@ -40,7 +40,7 @@ def score(records: list[dict], judgments: list[tuple]) -> dict:
             "scenes": len(rs),
             "latency_ms_p50": _pct(lat, 0.5),
             "latency_ms_p95": _pct(lat, 0.95),
-            "cost_per_scene": mean(r["cost_usd"] or 0 for r in rs) if rs else None,
+            "requests_per_scene": mean(r["requests"] for r in rs) if rs else None,
             "unpriced_tokens": sum(r["unpriced_tokens"] for r in rs),
         }
     return out

@@ -21,7 +21,7 @@ from app.jobs.context import JobContext, job_context
 from app.orchestration import prose
 from app.parsing.character_extractor import SPEECH_MIN_WORDS, source_location
 from app.rag.store import get_chunk_store
-from evals.baseline import blind, score
+from evals.baseline import blind
 from evals.steps.base import step
 from evals.steps.pipeline import _book_with_cast, _outline_into
 
@@ -121,7 +121,7 @@ async def run_arm_a(b_scene_id: UUID) -> tuple[UUID, UUID, int]:
     return a_id, job_id, len(removed)
 
 
-COST = "SELECT sum(cost_usd), sum(tokens_used), sum(CASE WHEN cost_usd IS NULL THEN tokens_used ELSE 0 END) FROM api_usage WHERE job_id = :j"
+COST = "SELECT sum(cost_usd), sum(tokens_used), sum(CASE WHEN cost_usd IS NULL THEN tokens_used ELSE 0 END), count(*) FROM api_usage WHERE job_id = :j"
 
 
 async def scene_record(slot: str, arm: str, scene_id, job_id=None, removed=None):
@@ -133,7 +133,7 @@ async def scene_record(slot: str, arm: str, scene_id, job_id=None, removed=None)
             select(Job.id).where(Job.domain_id == scene.id)
         )
         cost_q = text(COST).bindparams(bindparam("j", type_=APIUsage.job_id.type))
-        cost, tokens, unpriced = (await db.execute(cost_q, {"j": job_id})).one()
+        cost, tokens, unpriced, n = (await db.execute(cost_q, {"j": job_id})).one()
     cost = None if cost is None else float(cost)
     return {
         "slot": slot,
@@ -142,6 +142,7 @@ async def scene_record(slot: str, arm: str, scene_id, job_id=None, removed=None)
         "job_id": str(job_id),
         "latency_ms": scene.generation_time_ms,
         "tokens": tokens or 0,
+        "requests": n,
         "cost_usd": cost,
         "unpriced_tokens": unpriced or 0,
         "text": scene.content or "",
@@ -151,8 +152,8 @@ async def scene_record(slot: str, arm: str, scene_id, job_id=None, removed=None)
 
 @step("baseline", needs_api=True)
 async def step_baseline(ctx) -> dict:
-    """The dry run (W12-5 (f)): labelled dev, never reported. Rater answers are
-    synthetic; the bundle, sealed key and sheet go to EVAL baseline_dir."""
+    """The bundle and sheet go to EVAL_BASELINE_DIR, the key to EVAL_BASELINE_KEY;
+    the stub panel and score.py rate them end to end (SPEC-84)."""
     from evals.harness.client import EvalClientError
 
     book = await _book_with_cast(ctx, f"eval-baseline-{ctx.book}", voice=True)
@@ -195,12 +196,4 @@ async def step_baseline(ctx) -> dict:
     (out / "bundle.json").write_text(json.dumps(bundle, indent=1))
     (out / "sheet.csv").write_text(blind.sheet(bundle))
     sealed.write_text(json.dumps(key))  # outside the bundle's directory
-    rng = random.Random(0)  # synthetic rater answers: the pipeline, not a result
-    prefs = [
-        (p, rng.choice([*p, None])) for p in bundle["pairs"] for _rater in range(3)
-    ]
-    return {
-        "label": "dev",
-        "records": records,
-        "score": score.score(records, blind.unblind(prefs, key)),
-    }
+    return {"records": records}

@@ -241,6 +241,7 @@ async def run(
     finally:
         if ctx.client:
             result["relogin"] = ctx.client.relogins
+            result["usage"] = await ctx.client.usage()  # the report header (W13-1)
             await ctx.client.aclose()
 
     report.write(result, out)

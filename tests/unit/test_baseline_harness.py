@@ -91,8 +91,8 @@ async def test_arm_a_differs_from_b_only_in_cast_context(
         async_session.add(APIUsage(job_id=j, cost_usd=c, tokens_used=t))
     await async_session.commit()
     rec = await arms.scene_record("cel-1", "A", a_id, a_job, removed)
-    got = [rec[k] for k in ("cost_usd", "tokens", "unpriced_tokens")]
-    assert got == [0.5, 17, 7]
+    got = [rec[k] for k in ("cost_usd", "tokens", "unpriced_tokens", "requests")]
+    assert got == [0.5, 17, 7, 2]
 
 
 async def test_first_lines_are_eligible_in_source_order_and_count_the_later_cut(
