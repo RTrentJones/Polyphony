@@ -568,12 +568,12 @@ class TestHistory:
         ]
         assert lines[-2] == report.ACT_RULE
         # (F) W8-2 (c): attribution pooled over W7, W7r, W8r and W9, with its
-        # interval; tighten fires on both wave-7 pairs, R2 on wave 9.
+        # interval; tighten fires on both wave-7 pairs and 11, R2 on 9 and 10.
         assert lines[-3] == (
             "Attribution pooled from W7 (Wilson 95%): Milo 14/26 (0.35, 0.71); "
             "Zara 14/26 (0.35, 0.71); Edric 7/26 (0.14, 0.46)"
         )
-        assert lines[-1].endswith("tighten RA (7), tighten RA (7r), R2 mean (9)")
+        assert lines[-1].endswith("(7r), R2 mean (9), R2 mean (10), tighten RA (11)")
 
     def test_the_act_rule_fires_only_on_both_draws_of_a_pair(self, tmp_path):
         from evals.harness import report

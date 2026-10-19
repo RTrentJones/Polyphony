@@ -24,5 +24,6 @@
   the W8c record (4 lines a beat) is unchanged. A block with `withheld_more > 0` is never `carried` (E1's grader row).
 - **Amendment, wave 11 (D5, G3).** Reported, never gated: `movement.thinness = {principal: {store, eligible, shown}}` (the
   store's lines, those not gold plot in their block's chapter, and the distinct lines shown), with one scorecard line
-  `movement store/eligible/shown`; `movement.blocks = [{id, owner, state, withheld}]`, every block of a shown owner (`ineligible` where D3a
-  fails; `withheld` names its rules, `withheld_more` excluded), so PM condition 2's prompts are listed. W10: Milo 8/1/1, Zara 4/1/0, Edric 3/0/0. 20-archive regrade: only these keys are new.
+  `movement store/eligible/shown`; `movement.blocks = [{id, owner, state, withheld}]`, every block of a shown owner
+  (`ineligible` where D3a fails; `withheld` names its rules, `withheld_more` excluded), so PM condition 2's prompts are
+  listed. W10: Milo 8/1/1, Zara 4/1/0, Edric 3/0/0. 20-archive regrade: only these keys are new.
