@@ -1,20 +1,20 @@
-# SPEC-79 — Waves 10+11 combined merge gate record (§6.2 draws W11 and W11b)
-**Closes**: wave-11 §6, the wave-10 hold (SPEC-76) · **Size**: docs · **Depends on**: SPEC-69, -73 to -77.
-- **Instrument (SPEC-74).** (1) Pre-registered: seed 11, 200 shuffles, p 0.1194, beats 88.5%: **not validated**, so run-W11a is skipped.
-  (2) Post hoc, not the gate: other seeds p 0.114, 0.035, 0.090, 0.050, 0.070; pooled ≈ 92.5% (p ≈ 0.075). (3) Positive 22/30, Wilson
-  0.56–0.86: pass. (4) Self-split, reported: Milo 4/11, Zara 1/6, Edric 2/5. (5) LOO 12/22, Wilson 0.35–0.73. (6) Condition 4 needs only
-  the train-reference fix, which is in. (7) Wave 12: pre-register 2000 shuffles; the real bottleneck is 22 gold lines.
-- **Draws on 875e129**. W11 `gated-full`: extraction 0.741, ingestion 0.833, retrieval 0.381, outline 0.827, continuity 1.000, prose 0.873
-  (R2 0.895), revise 0.909, contract 1.000. W11b `gated-scenes`: outline 0.765, prose 0.916 (R2 0.925), revise 0.894, contract 1.000.
-  `exercised` rc 0. **Signed regrade, both:** movement 16/16; `samples_not_plot` 20/20, classified 84 / 74; `bell_sent_under` not
-  contradicted. W11b's Zara: carried by own-scene `restates` in 0019–0022, shown in 0024–0027. `manner_sweep`: W11 0/0, W11b 1 gain / 0
-  leaks; no `restates`-withheld speech beat that only another scene restates. P1 flips W10, W10b.
-- **PM conditions.** (1) Sweep: G-S0 met (5 gains, 0 leaks, W8c credited, W10b unchanged); the 20-archive `samples_not_plot` reading
-  **awaits the principal's eval re-check**. (2) Chain: met as worded (all four W10 blocks). (3) Two draws: every row above passes;
-  **awaits the principal's eval re-check**. (4) Train references: in. **G-D: read, not met** (0.50, n = 2, thin; ruling (b)-narrow).
-- **Act rule (§6.3):** tighten RA means 0.82, 0.817, both < 0.85: **tighten is P0 in wave 12**; R2 (0.895, 0.925) does not fire (pair 10's
-  R2 does: 0.837, 0.850). **Size** (net, §0 pathspecs): wave 11 vs edcd7ef +278 product, +310 tests, +96 docs; vs dea853d +599, +644, +165.
-- **Wave 12:** ch ≥ 2 placement (rule, `placement_sweep`); `withheld_more` as its own field; sentence-adjacent beats; the own-narration
-  exemption (PM's dracula events); narrator-path `paragraph_{i}`; a 0.85-bar third-person corpus sweep before non-cel gating; tighten P0;
-  relay: cross-stage cast mismatch, non-cumulative revisions, briefs quoting the source against the no-quote rule, unmarked revise-context
-  truncation, beat-summary POV leak, no synopsis in the outline source check; judge self-correction (W11b "Colour of Old Teeth" R5).
+# SPEC-79 — Waves 10+11 combined merge gate: the PM's rulings (draws W11, W11b on 875e129)
+**Closes**: wave-11 §6.2, the wave-10 hold (SPEC-76) · **Size**: docs · **Depends on**: SPEC-80 (the draw record), -74, -76, -77.
+- **Verdict.** The wave-10 hold is released; the combined PR merges **not clean**. (1) met on the "stays" reading; (2) met as worded
+  (all four W10 blocks); (3) **not met as written**: B1 is a named exception, B2 a record correction; (4) met (train references; the
+  instrument is not validated, SPEC-80). **G-D: read, not met** (0.50, n = 2, thin; the design gate ruled (b)-narrow, SPEC-77).
+- **B1 (extraction).** Extraction (W11 `gated-full`) scored 0.741 against the held 1.0 row. Condition 3 is not met on this row, and the PM
+  signed it as a named exception under the pm-w9b-signoff §5 rule. The cause is W9-6: `extraction_reduce` 0002 headed Edric's entry with
+  the title "the Chief Executive Lich" and demoted "Edric Thane" to an alias. That defect is pre-existing on main: `canon_extractor.py` is
+  untouched since main, and the archived W8 draw has the identical output and score. It has no downstream effect. W9-6's wave-9 deferral
+  premise, "extraction scores are unaffected", was false when written. W9-6 is a wave-12 P0, with W11's 0002 as its (F) fixture and an
+  (R) row. No re-draw was taken, and this merge does not count as clean.
+- **B2 (`plan_quotes_source`).** `plan_quotes_source` is reported, not gated, as ruled in wave 8 (Q1) and implemented in SPEC-61 and the
+  grader. The "0" target in the wave-9 to wave-11 §6.2 rows, and in the PM's wave-9 held-gate list, was a transcription error against
+  that ruling, and is corrected here. Recorded values: W9 1, W10 1, W10b 4, W11 0, W11b 1 (0023 beat 4). The W9–W10b breaches of the
+  written 0 passed unremarked at the time. Any future gate on this metric has its bar fixed before that wave's first draw.
+- **B3 (condition 1, `samples_not_plot` over 22 archives).** Condition 1 is met on the PM's "stays" reading: no archive's
+  `samples_not_plot` moved from main, and the 19 archives that met it on main, W11 and W11b included, remain 1.0 with classified > 0.
+  Read literally ("every archive"), condition 1 is not met by three archives that have never met it and are unchanged from main: w4b2 at
+  1/15 with classified 77 (SPEC-54), w5b at 19/19 with classified 0, vacuous (SPEC-45, SPEC-54), and w8b at 16/16 with classified 0,
+  vacuous (SPEC-66, replaced by W8c).

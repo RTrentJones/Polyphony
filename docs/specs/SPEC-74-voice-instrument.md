@@ -25,6 +25,6 @@
   side, each speaker its count), `permutation_p = (1 + shuffles scoring >= the true score) / 201`; the **self-split**, each
   principal's lines alternately as two speakers, reported, never gated. **Validated** = the positive Wilson lower bound > 0.33
   and the true score beats >= 95% of the shuffles (`beats_shuffles`). Result: positive 22/30 (0.56-0.86); p = 0.1194, beats
-  0.885: **not validated**, so run-W11a is skipped (numbers in SPEC-79). Tests: the LOO reported on train refs (R); the
+  0.885: **not validated**, so run-W11a is skipped (numbers in SPEC-80). Tests: the LOO reported on train refs (R); the
   permutation on separable and flat vectors (F); validated needs both controls (F); the self-split reported, and validation
   does not read it (F).
