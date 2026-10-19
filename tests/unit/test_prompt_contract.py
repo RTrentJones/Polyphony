@@ -1104,27 +1104,17 @@ def _w10_fx(export: list[dict]) -> dict:
 
 
 W10_BEFORE = [r for sc in W10["scenes"]["scenes"] for r in sc["export"]]
-# D2's expected record after item 1: p2 released from Zara's rows in scenes 2-3.
-# Integration replaces it with E2's `w10_withheld_after` and deletes it.
-D2_AFTER = [
-    {**r, "lines": [ln for ln in r["lines"] if ln["text"] != P2 or i == 0]}
-    for i, sc in enumerate(W10["scenes"]["scenes"])
-    for r in sc["export"]
-]
 
 
 def test_the_w10_chain_grader_half(tmp_path):
     """(R) W10's export rebuilds its ten named blocks and the signed four failures.
-    (F) G3: on D2's record, 0027, 0029, 0030 and 0035 are each listed, p2 shown."""
-    assert (
-        W10["w10_withheld_after"] == []
-    ), "E2's record landed: grade it, delete D2_AFTER"
+    (F) G3: on E2's record, 0027, 0029, 0030 and 0035 are each listed, p2 shown."""
     fx = _w10_fx(W10_BEFORE)
     blocks = [b for sc in W10["scenes"]["scenes"] for b in sc["blocks"]]
     assert [b["movement"] for b in fx["beats"]] == [b["movement"] for b in blocks]
     move = _w9_regrade(tmp_path / "before", fx, "W10", None, W10_BEFORE)
     assert move["failures"] == W10["regrade"]["failures"]
-    after = D2_AFTER
+    after = W10["w10_withheld_after"]
     move = _w9_regrade(tmp_path / "after", _w10_fx(after), "W10", None, after)
     four = ("0027", "0029", "0030", "0035")
     zara = {b["id"][-4:]: b["state"] for b in move["blocks"] if b["owner"] == ZARA}
