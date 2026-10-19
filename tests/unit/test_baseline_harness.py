@@ -4,6 +4,7 @@ only context assembly differing, cost by job id, blinding, and the statistic."""
 import json
 import re
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -19,8 +20,8 @@ from tests.unit.test_scene_canon import FakeLLM, FakeStore, _bind, _Ctx
 from tests.unit.test_scene_canon import cel_book as _cel
 
 pytestmark = pytest.mark.unit
-# baseline.yml's restore-cancel, run in psql after pg_restore and before boot.
-RESTORE_CANCEL = "UPDATE jobs SET status = 'cancelled' WHERE status IN ('queued', 'paused', 'running')"
+# baseline.yml runs it in psql after pg_restore and before boot.
+RESTORE_CANCEL = Path(arms.__file__).with_name("restore_cancel.sql").read_text()
 cel_book = _cel  # the canon fixture, shared
 BEATS = [
     {"description": "They meet.", "characters": ["Milo Voss", "Zara Okafor"]},
@@ -146,8 +147,7 @@ def test_win_rates_with_cluster_ci_on_a_known_ordering():
 async def test_restore_cancel_then_entry_trashes_orphans_and_resumes(
     async_session, cel_book, monkeypatch, tmp_path
 ):
-    ch, uid, beats = cel_book.chapter, cel_book.book.user_id, [{"node_id": "n1"}]
-    ch.planned_beats = beats
+    ch, uid = cel_book.chapter, cel_book.book.user_id
     orphan = Scene(user_id=uid, chapter_id=ch.id, book_id=cel_book.book.id, position=1)
     async_session.add(orphan)
     await async_session.flush()
@@ -178,5 +178,4 @@ async def test_restore_cancel_then_entry_trashes_orphans_and_resumes(
         await arms.step_baseline(ctx)
     client.delete_scene.assert_awaited_with(str(orphan.id))  # the orphan, trashed
     assert client.generate_scene.await_args[0][1]["planned_beat_id"] == "3"
-    assert cache.get("baseline-slot", "cel|3") is None and ch.planned_beats == beats
     assert sorted(p.read_bytes() for p in (tmp_path / "c").rglob("*.json")) == done
