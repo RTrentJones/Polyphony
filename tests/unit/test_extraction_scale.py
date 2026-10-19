@@ -354,6 +354,42 @@ class TestMerge:
         (mina,) = ce.merge_characters(answers, text)
         assert mina["mentions"] == 3
 
+    def test_a_determiner_led_title_loses_to_a_proper_name(self):
+        # W12-4: the form's own "the" counts as the determiner.
+        text = "the Grey Warden met Ana Moss. Later the Grey Warden left."
+        answers = [(0, {"characters": [_cand("the Grey Warden", ["Ana Moss"])]})]
+        (g,) = ce.merge_characters(answers, text)
+        assert (g["name"], g["aliases"]) == ("Ana Moss", ["the Grey Warden"])
+
+    async def test_w11_replay_heads_edric_thane(self, monkeypatch):
+        # W12-4 (F): W11's archived answers, replayed, grade 1.0 (was 0.741).
+        from pathlib import Path
+
+        from evals.graders.extraction import grade_extraction
+
+        root = Path(__file__).resolve().parents[1]
+        fx = json.loads((root / "fixtures" / "w11_extraction.json").read_text())
+        by_purpose = {
+            "extraction_map": fx["map"][0]["answer"],
+            "extraction_reduce": fx["reduce"]["answer"],
+            "extraction_synopsis": fx["synopsis"]["answer"],
+        }
+        fake = types.SimpleNamespace()
+
+        async def generate(messages, *, purpose="", **kw):
+            return CountingLLM._r(by_purpose[purpose])
+
+        fake.generate = generate
+        monkeypatch.setattr(ce, "get_llm_client", lambda: fake)
+        out = await ce.extract_canon(fx["text"])
+        heads = {c["name"]: c for c in out["characters"]}
+        assert "the Chief Executive Lich" in heads["Edric Thane"]["aliases"]
+        gt = json.loads(
+            (root.parent / "evals/corpora/cel/ground_truth.json").read_text()
+        )
+        score = grade_extraction(list(heads), gt["cast"], gt["secondary_cast"])
+        assert score.f1 == 1.0
+
 
 class TestCategoriesAndRoles:
     def test_invalid_category_stored_as_concept(self):

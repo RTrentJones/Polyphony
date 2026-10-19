@@ -90,3 +90,22 @@ def test_the_w9a2_answers_are_read_from_the_corpora():
     answers = json.loads(vi.ANSWERS.read_text())["answers"]
     assert len(answers) == 30
     assert {a["intended"] for a in answers} <= set(load_corpus("cel")[1]["gold_lines"])
+
+
+TRIO = {w: {"train": [f"{w}{i}" for i in range(4)], "test": []} for w in "abc"}
+ON_TOPIC = [{"speaker": w, "line": f"{w}-e{e}"} for e in range(10) for w in "abc"]
+
+
+async def _event(texts):  # topic lines carry their event; train lines their speaker
+    return [
+        [1.0, 0.0, 0.0] if "-e" in t else [float(t[0] == w) for w in "abc"]
+        for t in texts
+    ]
+
+
+async def test_topic_mode_scores_the_probe_path_against_chance():
+    """(F) W12-6 (a): topic-controlled lines against every train line; an
+    embedding that carries the event, not the speaker, sits at chance (10/30)."""
+    out = await vi.topic(TRIO, {}, _event, ON_TOPIC)
+    assert (out["n"], out["correct"], out["chance"]) == (30, 10, 0.3333)
+    assert out["wilson95"] == vi.wilson(10, 30) and out["beats_chance"] is False

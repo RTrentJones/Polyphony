@@ -1,0 +1,186 @@
+{
+ "brief": "Write 10 events x 3 principals (Milo Voss, Zara Okafor, Edric Thane) = 30 lines. Each event is a fixed, concrete situation, the same for all three (e.g. 'the quarterly tenure audit is announced'). Each principal says one line of dialogue reacting to that event, in their own voice as the bibles describe it. Do not quote or paraphrase any line from the book; do not name the speaker inside their own line.",
+ "author": "authoring agent, 2026-10-19",
+ "lines": [
+  {
+   "event": 1,
+   "event_text": "The quarterly tenure audit is announced.",
+   "speaker": "Milo Voss",
+   "line": "Oh wow, okay, an audit, that's great honestly, but do we know the scope yet, because I'd love to get ahead of it and pre-reconcile some low-hanging fruit?"
+  },
+  {
+   "event": 1,
+   "event_text": "The quarterly tenure audit is announced.",
+   "speaker": "Zara Okafor",
+   "line": "Pull your last four quarters. Check every zero. Do not sign anything they hand you."
+  },
+  {
+   "event": 1,
+   "event_text": "The quarterly tenure audit is announced.",
+   "speaker": "Edric Thane",
+   "line": "An audit is merely the ledger asking whether it has been told the truth; one need not fear it, provided one has been thorough."
+  },
+  {
+   "event": 2,
+   "event_text": "The gray-coffee dispenser at the coffee station breaks down.",
+   "speaker": "Milo Voss",
+   "line": "So the coffee thing's down, which, fine, we don't technically need it, but has anyone looped in Facilities, or should I just own that end-to-end?"
+  },
+  {
+   "event": 2,
+   "event_text": "The gray-coffee dispenser at the coffee station breaks down.",
+   "speaker": "Zara Okafor",
+   "line": "Of course it broke. The one thing down here that never complained. Leave it broken."
+  },
+  {
+   "event": 2,
+   "event_text": "The gray-coffee dispenser at the coffee station breaks down.",
+   "speaker": "Edric Thane",
+   "line": "One observes that the dead drink it from habit rather than need; its absence therefore costs the firm nothing and should be entered as a saving."
+  },
+  {
+   "event": 3,
+   "event_text": "This quarter's company newsletter is distributed to every desk.",
+   "speaker": "Milo Voss",
+   "line": "Okay, I actually read it cover to cover, is that weird, because there's a stakeholder spotlight in there I think we could totally leverage?"
+  },
+  {
+   "event": 3,
+   "event_text": "This quarter's company newsletter is distributed to every desk.",
+   "speaker": "Zara Okafor",
+   "line": "Don't read it. Recycle it. If anyone asks, you loved it."
+  },
+  {
+   "event": 3,
+   "event_text": "This quarter's company newsletter is distributed to every desk.",
+   "speaker": "Edric Thane",
+   "line": "It is the finest instrument of morale this firm possesses, and I will not hear it disparaged; every column is a ledger of hope, faithfully kept."
+  },
+  {
+   "event": 4,
+   "event_text": "A mandatory compliance training module is assigned to all staff.",
+   "speaker": "Milo Voss",
+   "line": "Mandatory training, love it, quick question though, is there a hard deadline or is it more of a soft target we can circle back on next quarter?"
+  },
+  {
+   "event": 4,
+   "event_text": "A mandatory compliance training module is assigned to all staff.",
+   "speaker": "Zara Okafor",
+   "line": "Forty slides on how never to say what we do here. I could scream. Click through. Skip the quiz."
+  },
+  {
+   "event": 4,
+   "event_text": "A mandatory compliance training module is assigned to all staff.",
+   "speaker": "Edric Thane",
+   "line": "Compliance is the courtesy one extends to the rules that sustain one; I have completed every iteration of that module without exception."
+  },
+  {
+   "event": 5,
+   "event_text": "The all-hands meeting is rescheduled, with no new time given.",
+   "speaker": "Milo Voss",
+   "line": "So it's moved but there's no time, which, I mean, there are no clocks anyway, so how would we even calendar it, should I just wait in the amphitheater?"
+  },
+  {
+   "event": 5,
+   "event_text": "The all-hands meeting is rescheduled, with no new time given.",
+   "speaker": "Zara Okafor",
+   "line": "Good. Fewer speeches. Stay at your desk and keep working."
+  },
+  {
+   "event": 5,
+   "event_text": "The all-hands meeting is rescheduled, with no new time given.",
+   "speaker": "Edric Thane",
+   "line": "Who authorised this? An all-hands without an hour is a column without a total, and I find it intolerable, wholly and entirely intolerable."
+  },
+  {
+   "event": 6,
+   "event_text": "Performance review forms arrive, calibrated on the curve.",
+   "speaker": "Milo Voss",
+   "line": "I'm honestly kind of thrilled, is that strange, because nobody has ever formally reviewed me before and I've got so many wins to surface?"
+  },
+  {
+   "event": 6,
+   "event_text": "Performance review forms arrive, calibrated on the curve.",
+   "speaker": "Zara Okafor",
+   "line": "It's a curve. Someone fails by design. Rate yourself average. Say nothing interesting."
+  },
+  {
+   "event": 6,
+   "event_text": "Performance review forms arrive, calibrated on the curve.",
+   "speaker": "Edric Thane",
+   "line": "The curve distributes fear evenly, as a good accountant distributes overhead; one should not mistake so sound a practice for cruelty."
+  },
+  {
+   "event": 7,
+   "event_text": "A team-building exercise is scheduled for the Reconciliations department.",
+   "speaker": "Milo Voss",
+   "line": "Team building, okay, great, I'm totally in, do we know if it's trust falls or more of a breakout-session vibe, and is attendance being tracked?"
+  },
+  {
+   "event": 7,
+   "event_text": "A team-building exercise is scheduled for the Reconciliations department.",
+   "speaker": "Zara Okafor",
+   "line": "No. Absolutely not. I am not holding hands in a basement for morale. Tell them I'm sick."
+  },
+  {
+   "event": 7,
+   "event_text": "A team-building exercise is scheduled for the Reconciliations department.",
+   "speaker": "Edric Thane",
+   "line": "Such exercises cost the firm very little and return a great deal; one has seldom seen a more favourable entry upon the balance sheet."
+  },
+  {
+   "event": 8,
+   "event_text": "New lanyards with a redesigned badge are issued to everyone.",
+   "speaker": "Milo Voss",
+   "line": "Ooh, new lanyards, and with the updated logo, which honestly is a really nice touch for brand alignment, so do we keep the old ones or hand them in?"
+  },
+  {
+   "event": 8,
+   "event_text": "New lanyards with a redesigned badge are issued to everyone.",
+   "speaker": "Zara Okafor",
+   "line": "Keep the old one. Find out what the new badge records. Then wear it."
+  },
+  {
+   "event": 8,
+   "event_text": "New lanyards with a redesigned badge are issued to everyone.",
+   "speaker": "Edric Thane",
+   "line": "A lanyard is a small thing, yet it binds the bearer to the ledger more surely than any contract; it is money well spent."
+  },
+  {
+   "event": 9,
+   "event_text": "The style guide is updated with a new approved term for restructured contracts.",
+   "speaker": "Milo Voss",
+   "line": "So we're saying 'transitioned' now instead of 'restructured,' which feels way more stakeholder-friendly, but should I update my old filings retroactively?"
+  },
+  {
+   "event": 9,
+   "event_text": "The style guide is updated with a new approved term for restructured contracts.",
+   "speaker": "Zara Okafor",
+   "line": "Same thing, new word. They keep doing this. Every time. Write the old one in the margin. Don't let it go."
+  },
+  {
+   "event": 9,
+   "event_text": "The style guide is updated with a new approved term for restructured contracts.",
+   "speaker": "Edric Thane",
+   "line": "The meaning has not altered, only the heading of the entry; a prudent clerk revises the label and leaves the sum precisely where it was."
+  },
+  {
+   "event": 10,
+   "event_text": "The fluorescent lights in the office go out for an afternoon.",
+   "speaker": "Milo Voss",
+   "line": "Lights are out, so I guess we're pivoting to a low-visibility workflow, which is fine, I can basically do reconciliations by feel at this point, right?"
+  },
+  {
+   "event": 10,
+   "event_text": "The fluorescent lights in the office go out for an afternoon.",
+   "speaker": "Zara Okafor",
+   "line": "Sit still. Count the minutes. See who comes to check on us."
+  },
+  {
+   "event": 10,
+   "event_text": "The fluorescent lights in the office go out for an afternoon.",
+   "speaker": "Edric Thane",
+   "line": "Dark? Here? This is unconscionable. Find the department responsible and have its accounts upon my desk before the light returns."
+  }
+ ]
+}
