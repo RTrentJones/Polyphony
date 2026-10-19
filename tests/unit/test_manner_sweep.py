@@ -30,8 +30,14 @@ def test_the_sweep_releases_p2_in_w10s_later_scenes_only():
 
 
 def test_the_dracula_mode_lists_every_releasable_speech_beat(capsys):
-    """(F) G-D: one row per speech-beat line the product indexes as movement;
+    """(F) G-D's superset (G-D itself failed, SPEC-77): one row per speech-beat line the product indexes as movement;
     under `is_speech` dracula has none (R-GD-1 closed)."""
     ms.main(["--book", "dracula"])
     out = capsys.readouterr().out.splitlines()
     assert out == ["dracula: 145 speech paragraphs; 0 speech-beat lines"]
+
+
+def test_a_missing_archive_raises():
+    """(F) F2: no report is an error naming the archive, never a silent 0 / 0."""
+    with pytest.raises(FileNotFoundError, match="nosuch"):
+        ms.sweep("nosuch", {}, [])

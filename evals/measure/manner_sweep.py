@@ -91,7 +91,9 @@ def sweep(name: str, gt: dict, cast: list[dict]) -> list:
     """One archive's releases, each with its `plot_reasons` ([] is a gain).
     A missing report, store or signed placement raises: never a silent 0 / 0."""
     base = EVAL_OUT / name
-    report = next(base.glob("eval-report-*.json"))
+    report = next(base.glob("eval-report-*.json"), None)
+    if report is None:
+        raise FileNotFoundError(f"{name}: no eval-report-*.json in {base}")
     voice = json.loads(report.read_text())["steps"]["prose"]["voice"]
     alias = {f.lower(): c["name"] for c in cast for f in [c["name"], *c["aliases"]]}
     store = {alias.get(o.lower(), o): v for o, v in voice.get("movement", {}).items()}
