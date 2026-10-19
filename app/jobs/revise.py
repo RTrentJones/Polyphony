@@ -85,7 +85,7 @@ async def run(payload: dict) -> None:
     prior, target, after = span.split(draft)
     # SPEC-41: no movement sample restates this scene's beats (B-1); a redo
     # keeps what the rest of the chapter refers to.
-    scope = setup.scope._replace(plot=(*setup.scope.plot, *filter(None, lines)))
+    scope = setup.scope.planned(filter(None, lines))
     rest = "\n\n".join((prior, after, *later))
     keep = rv.callbacks(target, rest, canon) if redo is not None else []
     ctx = current_job()

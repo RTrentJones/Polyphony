@@ -13,6 +13,7 @@ unreachable.
 """
 
 import re
+from types import MappingProxyType
 from typing import Iterable, Mapping, NamedTuple, Optional
 from uuid import UUID
 
@@ -28,7 +29,13 @@ from app.core.prompt_markers import (
     VOICE_SAMPLES_LABEL,
     WITHHELD_MORE,
 )
-from app.parsing.character_extractor import SPEECH_MIN_WORDS, source_location
+from app.parsing.character_extractor import (
+    SPEECH_MIN_WORDS,
+    narration_of,
+    normalize_quotes,
+    source_location,
+    source_paragraphs,
+)
 from app.rag.store import get_chunk_store
 
 # A grounding record keeps a bounded excerpt of each sample's text as it was at
@@ -59,6 +66,10 @@ class SceneScope(NamedTuple):
     # plot[0] is its brief, kept even when empty (the scripted rule reads it).
     plot: tuple[str, ...]
     later_from: Mapping[str, int]  # source_id -> first paragraph of later plot
+    # The scene's own brief and beat lines (in `plot` too): own-scene `restates`.
+    own_plot: tuple[str, ...]
+    # source_id -> the paragraphs carrying quoted speech (`speech_paragraphs`).
+    speech_paragraphs: Mapping[str, frozenset]
 
     @classmethod
     def of(
@@ -68,7 +79,10 @@ class SceneScope(NamedTuple):
         secondary_names: Iterable[str],
         plot: Iterable[str],
         later_from: Mapping[str, int],
+        own_plot: Iterable[str] = (),
+        speech_paragraphs: Mapping[str, frozenset] = MappingProxyType({}),
     ) -> "SceneScope":
+        """A probe is a scene of one: no own plan, no speech beats."""
         from app.planning.fidelity import canon_known_text
 
         return cls(
@@ -79,7 +93,14 @@ class SceneScope(NamedTuple):
             canon_known_text(canon),
             tuple(plot),
             later_from,
+            tuple(own_plot),
+            speech_paragraphs,
         )
+
+    def planned(self, lines: Iterable[str]) -> "SceneScope":
+        """This scope once the scene's beat lines are planned: its own plot."""
+        lines = tuple(lines)
+        return self._replace(plot=self.plot + lines, own_plot=self.own_plot + lines)
 
 
 def grounding_excerpt(text_value: Optional[str]) -> Optional[str]:
@@ -329,6 +350,15 @@ def later_plot_from(
     return None
 
 
+def speech_paragraphs(text: str) -> frozenset:
+    """The paragraphs of a source that carry quoted speech: their narration
+    (`narration_of`, the one speech rule) is not the whole paragraph."""
+    paragraphs = enumerate(source_paragraphs(text))
+    return frozenset(
+        i for i, p in paragraphs if narration_of(p) != normalize_quotes(p.strip())
+    )
+
+
 def _location(sample: dict) -> tuple[str, int] | tuple[None, None]:
     """A chunk's (kind, paragraph), read by the module that writes the format."""
     return source_location(str(sample.get("source") or "")) or (None, None)
@@ -469,7 +499,12 @@ def _withheld_by(s: dict, character, scope: SceneScope) -> Optional[str]:
         return "not_centred"
     if names_outside_scene(text, character, scope):
         return "names_outside_scene"
-    if any(restates(text, p) for p in scope.plot):
+    # Own-scene `restates` withholds; another scene's plan withholds only
+    # narration that is not a speech beat (SPEC-77).
+    if any(restates(text, p) for p in scope.own_plot):
+        return "restates"
+    beat = _location(s)[1] in scope.speech_paragraphs.get(s.get("source_id"), ())
+    if not beat and any(restates(text, p) for p in scope.plot):
         return "restates"
     return None
 

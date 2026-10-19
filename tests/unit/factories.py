@@ -56,5 +56,7 @@ def make_scope(**fields) -> SceneScope:
         "known_text": "",
         "plot": (),
         "later_from": {},
+        "own_plot": (),
+        "speech_paragraphs": {},
     }
     return SceneScope(**{**empty, **fields})
