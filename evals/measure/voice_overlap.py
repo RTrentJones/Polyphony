@@ -3,7 +3,7 @@ against its beat line, and the no-refill lower bound on `voice_coverage` per
 threshold: every slot at or above it is removed, nothing refills, and coverage
 is recomputed by the grader's own function. No ranking claim, no replay.
 
-    python -m evals.measure.voice_overlap /tmp/claude-0/eval-out/w7 ...
+    python -m evals.measure.voice_overlap [--book cel] /tmp/claude-0/eval-out/w7 ...
 """
 
 import sys
@@ -31,8 +31,8 @@ def overlap(records: list[dict], aliases: dict) -> dict:
     }
 
 
-def main(runs: list[str]) -> None:
-    principals = pc.book_inputs("cel")["principals"]
+def main(runs: list[str], book: str = "cel") -> None:
+    principals = pc.book_inputs(book)["principals"]
     aliases = {
         f.lower(): p["name"]
         for p in principals
@@ -53,4 +53,6 @@ def main(runs: list[str]) -> None:
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    args = sys.argv[1:]  # the archives' corpus decides the aliases (W13-SL (ii))
+    book = args.pop(args.index("--book") + 1) if "--book" in args else "cel"
+    main([a for a in args if a != "--book"], book)
