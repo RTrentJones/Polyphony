@@ -95,4 +95,4 @@ The test is the same one used for the partition glance (wave 6) and bell p11 (wa
 
 **Wave-11 named residuals of the speech-beat rule (PM; SPEC-76, SPEC-77):**
 - **p19** (cel, "and remained standing"): a speech beat that is the event. An (R) fixture releases it when another scene of the same chapter plans the meeting, and `samples_not_plot` fails on that fixture; in a gated draw a p19 leak fails `samples_not_plot` and holds the merge.
-- **R-GD-1** (dracula p271, Verhoeven, `paragraph_271`): a diary paragraph whose only "speech" is the two-word "foreign gentleman"; it narrates the maids' request and Seward's leaving, dining and rounds, so it is an event. Closed by construction: under `is_speech` (credited, or 3+ words) p271 is no speech paragraph. p192 is inert and not a residual.
+- **R-GD-1** (dracula p271, Verhoeven, `paragraph_271`): a diary paragraph whose only "speech" is the two-word "foreign gentleman"; it narrates the maids' request and the diarist Ward's leaving, dining and rounds, so it is an event. Closed by construction: under `is_speech` (credited, or 3+ words) p271 is no speech paragraph. p192 is inert and not a residual.
