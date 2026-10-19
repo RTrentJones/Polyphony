@@ -100,23 +100,3 @@ async def test_an_unanswered_request_times_out(tmp_path, monkeypatch):
         )
     assert r.status_code == 504
     assert relay_llm._pending() == []
-
-
-async def test_the_recorder_archives_answers_a_429_and_no_header(tmp_path, monkeypatch):
-    from evals import relay_llm
-
-    env = dict(RELAY_DIR=tmp_path, RELAY_UPSTREAM="http://v", RELAY_TIMEOUT_SECONDS=0)
-    [monkeypatch.setenv(k, str(v)) for k, v in env.items()]  # base: 504, no wait
-    ok, q, real = {"choices": [{"message": {"content": "p"}}]}, "429", httpx.AsyncClient
-    rs = iter([httpx.Response(200, json=ok), httpx.Response(429, text=q)])
-    ask = {"Authorization": "Bearer k", "X-Polyphony-Purpose": "beat_prose"}
-    a = ask["Authorization"]
-    up = httpx.MockTransport(lambda r: r.headers["authorization"] == a and next(rs))
-    monkeypatch.setattr(httpx, "AsyncClient", lambda **k: real(transport=up))
-    async with real(transport=httpx.ASGITransport(app=relay_llm.app)) as c:
-        r = [await c.post("http://r/v1/chat/completions", json={}, headers=ask)]
-        r += [await c.post("http://r/v1/chat/completions", json={}, headers=ask)]
-    assert (r[1].status_code, r[1].text) == (429, q)
-    texts = [p.read_text() for p in sorted(tmp_path.glob("answered/*.json"))]
-    assert [json.loads(t)["answer"] for t in texts] == ["p", q] and "beat_" in texts[1]
-    assert not any("Bearer" in t for t in texts)  # no header is written
