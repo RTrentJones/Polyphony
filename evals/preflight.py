@@ -22,6 +22,8 @@ RUNS = {
     "gated-full": Run(tuple(_FULL.split(",")), True, 340_000),
     "gated-scenes": Run(("outline", "prose", "revise"), True, 320_000),
     "attribution": Run(("attribution",), True, 40_000),
+    # W12-5 dry run: --book cel, ungated (dev, never reported); W11b prose x 1.3.
+    "baseline-dev": Run(("baseline",), True, 210_000),
 }
 
 
