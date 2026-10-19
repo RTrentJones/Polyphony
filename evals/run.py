@@ -312,6 +312,8 @@ def main() -> None:
                 asyncio.run(ingest_to_tracer(result, url, token, env_label))
             except Exception as e:  # noqa: BLE001 - telemetry is never fatal
                 print(f"tracer ingest failed (non-fatal): {type(e).__name__}: {e}")
+    if any("error" in s for s in result["steps"].values()):
+        raise SystemExit(1)  # a step error is red; a quota skip stays a skip (W13-7)
 
 
 if __name__ == "__main__":

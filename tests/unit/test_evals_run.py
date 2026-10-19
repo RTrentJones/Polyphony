@@ -1,6 +1,8 @@
 """Unit tests for evals.run helpers — quota short-circuit classification."""
 
+import contextlib
 import json
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -64,3 +66,18 @@ def test_both_draws_exempt_is_not_exercised(tmp_path):
     assert main(["exercised", str(path), str(path)]) == 1
     (ok := tmp_path / "ok.json").write_text(json.dumps(shc[2]))
     assert main(["exercised", str(ok)]) == 0  # one gated draw suffices (SPEC-75)
+
+
+@pytest.mark.parametrize("a", [{"error": "boom"}, {"skipped": True}])
+def test_main_exits_1_on_a_step_error_and_0_on_skips(monkeypatch, a):
+    """(F) a step error exits 1 (W13-7); (R) skips and passes exit 0."""
+    import evals.run as r
+
+    steps = {"steps": {"a": a, "b": {"score": 1.0}}}
+    monkeypatch.setattr(r, "run", AsyncMock(return_value=steps))
+    monkeypatch.setattr(r.report, "scorecard", lambda res: "")
+    monkeypatch.setattr(r.report, "history", lambda h: "")
+    monkeypatch.setattr("sys.argv", ["run", "--steps", "a,b"])
+    red = "error" in a
+    with pytest.raises(SystemExit, match="1") if red else contextlib.nullcontext():
+        r.main()
