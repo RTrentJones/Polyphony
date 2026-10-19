@@ -7,6 +7,7 @@ runs under a job id; its cost is one SQL sum over api_usage.job_id.
 import json
 import os
 import random
+from functools import partial
 from pathlib import Path
 from unittest.mock import patch
 from uuid import UUID, uuid4
@@ -22,11 +23,12 @@ from app.orchestration import prose
 from app.parsing.character_extractor import SPEECH_MIN_WORDS, source_location
 from app.rag.store import get_chunk_store
 from evals.baseline import blind
+from evals.harness.client import EvalClientError
 from evals.steps.base import step
 from evals.steps.pipeline import _book_with_cast, _outline_into
 
 LINES = 3  # per present character (N3)
-SLOTS = 2  # the dev dry run, cel x 2; W12-9 runs 18 slots (SPEC-84)
+SLOTS = 6  # per manuscript, the dry run and the real run alike (SPEC-84)
 
 
 async def first_lines(character, scope, removed: set) -> list[dict]:
@@ -150,20 +152,18 @@ async def scene_record(slot: str, arm: str, scene_id, job_id=None, removed=None)
     }
 
 
-@step("baseline", needs_api=True)
-async def step_baseline(ctx) -> dict:
-    """The bundle and sheet go to EVAL_BASELINE_DIR, the key to EVAL_BASELINE_KEY;
-    the stub panel and score.py rate them end to end (SPEC-84)."""
-    from evals.harness.client import EvalClientError
-
+async def prepare(ctx) -> dict:
+    """SPEC-84's slot rule: slot k = (outline chapter k, its first planned beat)."""
     book = await _book_with_cast(ctx, f"eval-baseline-{ctx.book}", voice=True)
     await _outline_into(ctx, book)
     chapters = sorted(
         (await ctx.client.promote_all(book["id"]))["chapters"],
         key=lambda c: c.get("position") or 0,
     )
-    records = []
-    for n, ch in enumerate(chapters[:SLOTS]):
+    if len(chapters) < SLOTS:
+        raise EvalClientError(f"the outline has {len(chapters)} chapters < {SLOTS}")
+    slots = []
+    for ch in chapters[:SLOTS]:
         detail = await ctx.client.get_chapter(ch["chapter_id"])
         beat = (detail.get("planned_beats") or [{}])[0]
         brief = {
@@ -174,26 +174,57 @@ async def step_baseline(ctx) -> dict:
             "target_word_count": 500,
             "planned_beat_id": beat.get("node_id"),
         }
-        ids = {}
-        for arm, mode in (("B", "prose"), ("C", "ensemble")):
-            scene = await ctx.client.generate_scene(
-                ch["chapter_id"], {**brief, "mode": mode}
+        slots.append({"chapter_id": ch["chapter_id"], "brief": brief})
+    return {"book_id": book["id"], "slots": slots}
+
+
+async def run_slot(ctx, slot: str, s: dict) -> list[dict]:
+    ids = {}
+    for arm, mode in (("B", "prose"), ("C", "ensemble")):
+        scene = await ctx.client.generate_scene(
+            s["chapter_id"], {**s["brief"], "mode": mode}
+        )
+        if scene.get("mode_used") != mode:
+            raise EvalClientError(
+                f"arm {arm} ran {scene.get('mode_used')} (set LLM_TIER=paid)"
             )
-            if scene.get("mode_used") != mode:
-                raise EvalClientError(
-                    f"arm {arm} ran {scene.get('mode_used')} (set LLM_TIER=paid)"
-                )
-            ids[arm] = scene["id"]  # trashed: no arm reads another's prose
+        if scene["status"] != "completed":  # never memoised (a quota stop fails)
+            async with get_async_session() as db:
+                why = select(Job.error).where(Job.domain_id == UUID(scene["id"]))
+                raise EvalClientError(f"arm {arm} failed: {await db.scalar(why)}")
+        ids[arm] = scene["id"]  # trashed: no arm reads another's prose
+        await ctx.client.delete_scene(scene["id"])
+    a_id, a_job, removed = await run_arm_a(UUID(ids["B"]))
+    out = [await scene_record(slot, arm, sid) for arm, sid in ids.items()]
+    out.append(await scene_record(slot, "A", a_id, a_job, removed))
+    await ctx.client.delete_scene(str(a_id))
+    return out
+
+
+@step("baseline", needs_api=True)
+async def step_baseline(ctx) -> dict:
+    """One manuscript; prep and slots memoised, so the next dispatch resumes.
+    Outputs: EVAL_BASELINE_DIR (bundle, sheet), _KEY, _STATE (slots, records)."""
+    prep = await ctx.cache.memo("baseline-prep", ctx.book, lambda: prepare(ctx))
+    await ctx.client.get_book(prep["book_id"])  # N5: a 404 = cache without DB
+    state = Path(os.getenv("EVAL_BASELINE_STATE", ".eval-baseline-state"))
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "slots.json").write_text(json.dumps(prep["slots"], indent=1))
+    for s in prep["slots"]:  # orphans: a live scene here is a dead dispatch's
+        for scene in (await ctx.client.get_chapter(s["chapter_id"]))["scenes"]:
             await ctx.client.delete_scene(scene["id"])
-        a_id, a_job, removed = await run_arm_a(UUID(ids["B"]))
-        slot = f"{ctx.book}-{n + 1}"
-        records += [await scene_record(slot, arm, sid) for arm, sid in ids.items()]
-        records.append(await scene_record(slot, "A", a_id, a_job, removed))
+    records = []
+    for k, s in enumerate(prep["slots"], 1):
+        run = partial(run_slot, ctx, f"{ctx.book}-{k}", s)
+        records += await ctx.cache.memo("baseline-slot", f"{ctx.book}|{k}", run)
+    (state / "records.json").write_text(json.dumps(records, indent=1))
     bundle, key = blind.blind(records, seed=random.SystemRandom().getrandbits(32))
     out = Path(os.getenv("EVAL_BASELINE_DIR", ".eval-baseline"))
     sealed = Path(os.getenv("EVAL_BASELINE_KEY", ".eval-baseline-key.json"))
-    out.mkdir(parents=True, exist_ok=True)
+    for d in (out, sealed.parent):
+        d.mkdir(parents=True, exist_ok=True)
     (out / "bundle.json").write_text(json.dumps(bundle, indent=1))
     (out / "sheet.csv").write_text(blind.sheet(bundle))
     sealed.write_text(json.dumps(key))  # outside the bundle's directory
-    return {"records": records}
+    per = {a: sum(r["requests"] for r in records if r["arm"] == a) for a in "ABC"}
+    return {"done": f"{len(records) // 3}/{SLOTS}", "requests": per}

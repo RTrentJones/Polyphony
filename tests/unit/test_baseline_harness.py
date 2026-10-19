@@ -4,16 +4,23 @@ only context assembly differing, cost by job id, blinding, and the statistic."""
 import json
 import re
 import uuid
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import text
 
 from app.characters.context import SceneScope
 from app.core.orm_models import APIUsage, Job, Scene
+from app.jobs.repository import claim_one
 from evals.baseline import arms, blind, score
+from evals.harness.cache import Cache
 from tests.unit.test_scene_canon import FakeLLM, FakeStore, _bind, _Ctx
 from tests.unit.test_scene_canon import cel_book as _cel
 
 pytestmark = pytest.mark.unit
+# baseline.yml's restore-cancel, run in psql after pg_restore and before boot.
+RESTORE_CANCEL = "UPDATE jobs SET status = 'cancelled' WHERE status IN ('queued', 'paused', 'running')"
 cel_book = _cel  # the canon fixture, shared
 BEATS = [
     {"description": "They meet.", "characters": ["Milo Voss", "Zara Okafor"]},
@@ -134,3 +141,42 @@ def test_win_rates_with_cluster_ci_on_a_known_ordering():
     assert out["P(C>A)"]["p"] == 0.5 and out["P(C>A)"]["ci"] == [0.5, 0.5]
     assert out["decision"] == "P(B>A) excludes 0.5"
     assert out["P(C>B) descriptive"]["slots"] == 0
+
+
+async def test_restore_cancel_then_entry_trashes_orphans_and_resumes(
+    async_session, cel_book, monkeypatch, tmp_path
+):
+    ch, uid, beats = cel_book.chapter, cel_book.book.user_id, [{"node_id": "n1"}]
+    ch.planned_beats = beats
+    orphan = Scene(user_id=uid, chapter_id=ch.id, book_id=cel_book.book.id, position=1)
+    async_session.add(orphan)
+    await async_session.flush()
+    job = Job(user_id=uid, kind="generate_prose_scene", status="running", payload={})
+    job.domain_id, job.error = orphan.id, "daily request limit reached"
+    async_session.add(job)
+    await async_session.commit()
+    await async_session.execute(text(RESTORE_CANCEL))  # the worker never claims it
+    assert await claim_one(async_session, worker_id="w") is None
+    assert (
+        await async_session.get(Job, job.id, populate_existing=True)
+    ).status == "cancelled"
+    failed = {"id": str(orphan.id), "status": "failed", "mode_used": "prose"}
+    live = {"scenes": [{"id": str(orphan.id)}]}
+    client = SimpleNamespace(get_book=AsyncMock(), delete_scene=AsyncMock())
+    client.get_chapter = AsyncMock(return_value=live)
+    client.generate_scene = AsyncMock(return_value=failed)
+    monkeypatch.setattr(arms, "get_async_session", lambda: _Ctx(async_session))
+    monkeypatch.setenv("EVAL_BASELINE_STATE", str(tmp_path / "state"))
+    cache = Cache(str(tmp_path / "c"), "sha")
+    slots = [{"chapter_id": "c", "brief": {"planned_beat_id": k}} for k in "123456"]
+    cache.put("baseline-prep", "cel", {"book_id": "b", "slots": slots})
+    for k in (1, 2):
+        cache.put("baseline-slot", f"cel|{k}", [{"slot": f"cel-{k}", "arm": "B"}])
+    done = sorted(p.read_bytes() for p in (tmp_path / "c").rglob("*.json"))
+    ctx = SimpleNamespace(book="cel", cache=cache, client=client)
+    with pytest.raises(arms.EvalClientError, match="B failed: daily request limit"):
+        await arms.step_baseline(ctx)
+    client.delete_scene.assert_awaited_with(str(orphan.id))  # the orphan, trashed
+    assert client.generate_scene.await_args[0][1]["planned_beat_id"] == "3"
+    assert cache.get("baseline-slot", "cel|3") is None and ch.planned_beats == beats
+    assert sorted(p.read_bytes() for p in (tmp_path / "c").rglob("*.json")) == done
