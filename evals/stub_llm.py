@@ -196,12 +196,6 @@ def _revise(prompt: str) -> str:
 def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
     if prompt.lstrip().startswith("Revise the TARGET passage"):
         return _revise(prompt)
-    if "Which passage is better?" in prompt:  # the model panel: order-consistent
-        p1, p2 = (_blocks(prompt).get(f"passage_{i}", "") for i in (1, 2))
-        w1, w2 = (-len(p1.split()), p1), (-len(p2.split()), p2)  # more words wins
-        return json.dumps({"preferred": 1 if w1 <= w2 else 2})
-    if "Count the continuity errors" in prompt:
-        return json.dumps({"errors": 0})
     cast = _cast(prompt)
     lead = cast[0] if cast else "the protagonist"
     second = cast[1] if len(cast) > 1 else lead

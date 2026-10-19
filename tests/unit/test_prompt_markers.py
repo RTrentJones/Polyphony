@@ -112,12 +112,7 @@ async def test_outline_prompt_markers(monkeypatch):
     assert pc.voice_samples(prompt) == {"Milo Voss": ["So."]}
 
 
-async def test_the_stub_panel_is_order_consistent_and_rounds_are_forced(monkeypatch):
-    ask = "Which passage is better?\n<passage_1>\n{}\n</passage_1>\n<passage_2>\n{}\n</passage_2>"
-    one, two = "Short one.", "A longer passage, by words."
-    picks = [stub_llm._answer(ask.format(*o)) for o in ((one, two), (two, one))]
-    assert picks == ['{"preferred": 2}', '{"preferred": 1}']  # the same passage
-    assert stub_llm._answer("Count the continuity errors") == '{"errors": 0}'
+async def test_the_stub_forces_ensemble_rounds_per_beat(monkeypatch):
     monkeypatch.setitem(stub_llm._STATE, "ensemble_rounds", 2)  # W13-3 dry run
     review = "The beat to cover: w13{}\nCharacters present: Ann\nReview this draft:"
     got = [json.loads(stub_llm._answer(review.format(x)))["satisfied"] for x in "aba"]

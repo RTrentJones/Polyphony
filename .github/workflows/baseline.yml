@@ -1,18 +1,15 @@
 name: baseline # W12-9's three-arm baseline, one manuscript per generate dispatch (SPEC-84; tpm-plan-wave13 D4)
-run-name: baseline ${{ inputs.stage }} ${{ inputs.manuscript }} ${{ inputs.label }}
+run-name: baseline ${{ inputs.manuscript }} ${{ inputs.label }} # rating (the panel) is wave 14's
 on:
   workflow_dispatch:
     inputs:
-      stage: {type: choice, options: [generate, rate], default: generate}
-      manuscript: {description: 'frankenstein | wuthering | cel (generate)', default: ''}
+      manuscript: {description: 'frankenstein | wuthering | cel', required: true}
       label: {description: the run label, e.g. W12-9 or demo, required: true}
       sha: {description: the app sha every dispatch runs (the cache is keyed by it), required: true}
       prior_run: {description: the run id whose state this dispatch resumes, default: ''}
-      bundles: {description: 'comma-separated generate run ids (rate)', default: ''}
       provider: {description: the generator, by the signed rule (LLM_PROVIDER), default: gemini}
       model: {description: the generator id (LLM_MODEL and LLM_MODEL_FAST), default: gemini-3.5-flash-lite}
-      max_rpd: {description: 'floor(0.8 x RPD) -> LLM_MAX_RPD (generate; empty = unset)', default: ''}
-      panel: {description: 'BASELINE_PANEL "<provider>:<id>,<provider>:<id>" (rate)', default: ''}
+      max_rpd: {description: 'floor(0.8 x RPD) -> LLM_MAX_RPD (empty = unset)', default: ''}
 permissions: {contents: read, actions: read}
 concurrency: {group: baseline, cancel-in-progress: false}
 env: # with the boot-app action's CI values (SECRET_KEY, DATABASE_URL, ADMIN_*)
@@ -26,10 +23,9 @@ env: # with the boot-app action's CI values (SECRET_KEY, DATABASE_URL, ADMIN_*)
   PRIOR: ${{ inputs.prior_run }}
 jobs:
   generate: # restore, cancel the snapshot's in-flight jobs BEFORE boot, record B/C (:8091) and A (:8092), dump
-    if: inputs.stage == 'generate'
     runs-on: ubuntu-24.04
     timeout-minutes: 350
-    services: &pg
+    services:
       postgres: {image: pgvector/pgvector:pg16, env: {POSTGRES_PASSWORD: ci_password_12345, POSTGRES_DB: polyphony_eval}, ports: ['5432:5432'],
         options: '--health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10'}
     env:
@@ -46,8 +42,8 @@ jobs:
       EVAL_RELAY_DIR: state/relay-bc
       EVAL_BASELINE_STATE: state # slots.json, records.json (sealed); bundle and key at E2's default paths
     steps:
-      - &checkout {uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5, with: {ref: '${{ inputs.sha }}'}} # v4.3.1
-      - &prepare {uses: ./.github/actions/boot-app, with: {serve: 'false'}}
+      - {uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5, with: {ref: '${{ inputs.sha }}'}} # v4.3.1
+      - {uses: ./.github/actions/boot-app, with: {serve: 'false'}}
       - name: Restore the prior state; cancel its in-flight jobs before boot
         if: inputs.prior_run != ''
         run: |
@@ -76,29 +72,3 @@ jobs:
       - {if: always(), uses: actions/upload-artifact@v4, with: {name: 'baseline-state-${{ inputs.manuscript }}', path: state, retention-days: 30}}
       - {if: always(), uses: actions/upload-artifact@v4, with: {name: 'baseline-bundle-${{ inputs.manuscript }}', path: .eval-baseline, retention-days: 30}}
       - {if: always(), uses: actions/upload-artifact@v4, with: {name: 'baseline-key-${{ inputs.manuscript }}', path: .eval-baseline-key.json, retention-days: 30}}
-  rate: # the model panel reads only baseline-bundle-* artifacts; LLM_MAX_RPD is never set here
-    if: inputs.stage == 'rate'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 350
-    services: *pg
-    env:
-      BASELINE_PANEL: ${{ inputs.panel }}
-      BUNDLES: ${{ inputs.bundles }}
-      GEMINI_API_KEY: ${{ contains(inputs.panel, 'gemini:') && secrets.GEMINI_API_KEY || '' }}
-      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      EVAL_CACHE_DIR: rate-state/cache # the stub panel, if any, is at the registry's default :8099
-    steps:
-      - *checkout
-      - *prepare
-      - name: Download the bundles only (never a key or a state)
-        run: |
-          for r in ${BUNDLES//,/ }; do gh run download "$r" -p 'baseline-bundle-*' -D "bundles/$r" -R "$GITHUB_REPOSITORY"; done
-          [ -z "$PRIOR" ] || gh run download "$PRIOR" -n baseline-rate-state -D rate-state -R "$GITHUB_REPOSITORY"
-      - name: Rate
-        timeout-minutes: 320
-        run: |
-          case "$BASELINE_PANEL" in *stub:*) (python -m evals.stub_llm --port 8099 > stub.log 2>&1 &); sleep 3 ;; esac
-          python -m evals.baseline.panel bundles --out ratings
-      - {if: always(), uses: actions/upload-artifact@v4, with: {name: baseline-ratings, path: ratings, retention-days: 30}}
-      - {if: always(), uses: actions/upload-artifact@v4, with: {name: baseline-rate-state, path: rate-state, retention-days: 30}}
