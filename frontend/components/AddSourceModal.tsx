@@ -13,6 +13,7 @@ import Button from './Button'
 import Input from './Input'
 import Modal from './Modal'
 import FileUpload from './FileUpload'
+import ExtractionRefusal from './ExtractionRefusal'
 import apiClient from '@/lib/api-client'
 import { useExtractionStore, useSourceStore } from '@/lib/store'
 import type { ExtractionPreflight } from '@/lib/types'
@@ -163,28 +164,17 @@ export default function AddSourceModal({
   }
 
   if (refused) {
-    const p = refused.preflight
     return (
       <Modal isOpen onClose={onClose} title="Source saved" size="md">
         <div className="space-y-4">
           {error && <p className="text-sm text-red-600">{error}</p>}
-          <p className="text-sm text-gray-700">
-            Your source is saved, but extracting all of it would take about{' '}
-            {p.estimated_tokens.toLocaleString()} tokens over {p.windows} parts (
-            {p.requests} AI requests) — more than the{' '}
-            {p.capacity_tokens.toLocaleString()} available before the job would
-            give up waiting for quota.
-          </p>
-          <div className="flex items-center space-x-3 pt-2">
-            <Button variant="outline" fullWidth onClick={onClose}>
-              Not now
-            </Button>
-            {p.max_chapters ? (
-              <Button fullWidth onClick={extractOpening} isLoading={submitting}>
-                Extract the first {p.max_chapters} chapters
-              </Button>
-            ) : null}
-          </div>
+          <ExtractionRefusal
+            preflight={refused.preflight}
+            saved
+            busy={submitting}
+            onExtractOpening={extractOpening}
+            onDismiss={onClose}
+          />
         </div>
       </Modal>
     )

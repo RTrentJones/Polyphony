@@ -37,6 +37,14 @@ async def test_create_scene_posts_to_chapter_scenes():
     await c.aclose()
 
 
+async def test_a_failed_scene_delete_raises():  # sweep S1: no scene left live
+    c = PolyphonyClient("http://localhost:8000")
+    c._http.delete = AsyncMock(return_value=_resp(409, {"detail": "busy"}))
+    with pytest.raises(httpx.HTTPStatusError):
+        await c.delete_scene("sid")
+    await c.aclose()
+
+
 async def test_set_scene_content_uses_put():
     # Route is PUT /books/scenes/{id}/content — a POST 405s.
     c = PolyphonyClient("http://localhost:8000")

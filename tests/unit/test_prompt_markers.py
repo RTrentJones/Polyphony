@@ -7,6 +7,7 @@ confirmed-premise note plus the stub's `_act_chapters` parse on the outline
 stages.
 """
 
+import json
 import types
 
 import pytest
@@ -109,3 +110,12 @@ async def test_outline_prompt_markers(monkeypatch):
     assert number == 1 and act_chapters == chapters
     prompt = f'### Milo Voss\n{pm.VOICE_SAMPLES_LABEL}\n- "So."'
     assert pc.voice_samples(prompt) == {"Milo Voss": ["So."]}
+
+
+async def test_the_stub_forces_ensemble_rounds_per_beat(monkeypatch):
+    monkeypatch.setitem(stub_llm._STATE, "ensemble_rounds", 2)  # W13-3 dry run
+    review = "The beat to cover: w13{}\nCharacters present: Ann\nReview this draft:"
+    got = [json.loads(stub_llm._answer(review.format(x)))["satisfied"] for x in "aba"]
+    await stub_llm.reset()  # back to one round
+    assert got == [False, False, True]
+    assert json.loads(stub_llm._answer(review.format("a")))["satisfied"]

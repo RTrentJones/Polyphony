@@ -42,7 +42,7 @@ PROVIDERS: dict[str, Provider] = {
         label="Google Gemini",
         kind="openai",
         env_key="GEMINI_API_KEY",
-        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        base_url=os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/"),  # fmt: skip
         # The 2.5 models are served only to projects that already used them
         # (models page, re-checked 2026-10-16); a new key gets a 404.
         default_model="gemini-3.6-flash",
@@ -50,10 +50,10 @@ PROVIDERS: dict[str, Provider] = {
         max_rpm=8,  # AI Studio free tier is ~10 RPM; leave headroom
         # Google no longer publishes a universal free-tier table: limits are
         # per project and shown in AI Studio (re-checked 2026-10). The reset at
-        # midnight Pacific is documented. 250/day (2.5 Flash) and 1,000/day
-        # (Flash-Lite) are the last published figures and serve as conservative
-        # defaults; set LLM_MAX_RPD to the project's AI Studio value to override.
-        max_rpd=250,
+        # midnight Pacific is documented. 1,000/day (Flash-Lite) is the last published
+        # figure, unverified: flash's sibling figure (250) was 12.5x too high (W13-0);
+        # set LLM_MAX_RPD to the project's AI Studio value to override.
+        max_rpd=20,  # 3.6 Flash: free-tier quotaValue, W13-0 probe 2026-10-20
         fast_max_rpd=1000,
         rpd_reset_tz="America/Los_Angeles",
         # Gemini 3 models cannot turn thinking off, and thinking tokens count

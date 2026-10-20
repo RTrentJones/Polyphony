@@ -27,8 +27,7 @@ class TestVecMath:
 
 class TestStepRegistry:
     def test_all_six_steps_registered_in_order(self):
-        from evals.steps import pipeline  # noqa: F401 — registers steps
-        from evals.steps.base import all_steps, get_step
+        from evals.run import all_steps, get_step  # registers every step
 
         assert all_steps() == [
             "extraction",
@@ -39,7 +38,8 @@ class TestStepRegistry:
             "prose",
             "revise",
             "ensemble",
-            "attribution",  # last (S-3)
+            "attribution",  # last of the pipeline's (S-3)
+            "baseline",  # W12-5, never in a gated run
         ]
         # embedding-only steps must not require the API (so they run keyless)
         assert get_step("retrieval").needs_api is False

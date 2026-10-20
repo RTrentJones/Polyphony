@@ -14,15 +14,17 @@ class Price(NamedTuple):
 
 
 _FREE_MODELS = (  # free tiers and the stub; Gemini only on an unbilled project
-    "gemini-3.6-flash gemini-3.5-flash-lite openai/gpt-oss-120b openai/gpt-oss-20b"
-    " llama-3.3-70b llama3.1-8b google/gemma-4-31b-it:free mistral-small-latest"
+    "openai/gpt-oss-120b openai/gpt-oss-20b llama-3.3-70b llama3.1-8b"
+    " google/gemma-4-31b-it:free mistral-small-latest"
     " google/gemma-4-26b-a4b-it:free stub-default stub-fast"
 ).split()
 # No row carries a date on which nobody read its source (W12-9 re-prices).
 _CARRIED = "carried from Provider.rate_in @ e954eae; not re-verified"
 _FREE = Price(0, 0, "free tier or local stub, per the provider registry", "unverified")
+_READ = "gemini-3.6-flash gemini-3.5-flash-lite nvidia/nemotron-3-ultra-550b-a55b:free"
+_FREE_READ = Price(0, 0, "unbilled key (U6, user 2026-10-19) on the free tier (W13-0 quotaId …-FreeTier; https://ai.google.dev/gemini-api/docs/rate-limits); :free pricing 0 per https://openrouter.ai/api/v1/models", "2026-10-20")  # fmt: skip
 PRICES: dict[str, Price] = {"gpt-4o": Price(2.5, 10.0, _CARRIED, "unverified")}
-PRICES |= dict.fromkeys(_FREE_MODELS, _FREE)
+PRICES |= dict.fromkeys(_FREE_MODELS, _FREE) | dict.fromkeys(_READ.split(), _FREE_READ)
 
 
 def cost_usd(model: str, tokens_in: int, tokens_out: int) -> Optional[float]:

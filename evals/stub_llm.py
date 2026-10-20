@@ -15,7 +15,8 @@ useful as a regression test of the *pipeline*, not of model quality.
 Control surface (for tests):
 
 - ``POST /__stub/config`` ``{"fail_429": N, "retry_after": S}`` — answer the
-  next N requests with HTTP 429 (quota exhaustion).
+  next N requests with HTTP 429 (quota exhaustion); ``{"ensemble_rounds": R}``
+  makes each beat's editor review unsatisfied until its R-th (W13-3 dry run).
 - ``GET /__stub/requests`` — the most recent prompts received (newest last).
 - ``POST /__stub/reset`` — clear counters and the request log.
 
@@ -42,7 +43,8 @@ from app.core.prompt_markers import (
 
 app = FastAPI(title="polyphony-stub-llm")
 
-_STATE: dict = {"fail_429": 0, "retry_after": 1, "calls": 0}
+_STATE: dict = {"fail_429": 0, "retry_after": 1, "calls": 0, "ensemble_rounds": 1}
+_REVIEWS: Counter = Counter()  # editor reviews per beat (ensemble_rounds)
 _LOG: deque = deque(maxlen=200)
 
 _HEADING = re.compile(rf"^{re.escape(NAME_HEADING.strip())}\s+(.+?)\s*$", re.M)
@@ -357,13 +359,17 @@ def _answer(prompt: str) -> str:  # noqa: C901 - one branch per prompt family
     if "Review this draft" in prompt:
         present = re.search(r"Characters present:\s*(.+)", prompt)
         names = [n.strip() for n in present.group(1).split(",")] if present else cast
+        beat = (re.search(r"The beat to cover: (.*)", prompt) or [""])[0]
+        _REVIEWS[beat] += 1
+        again = _REVIEWS[beat] % _STATE["ensemble_rounds"] != 0  # another round
+        note = {"character": None, "severity": "blocking", "note": "stub: again"}
         return json.dumps(
             {
-                "satisfied": True,
+                "satisfied": not again,
                 "arc_fit": 0.9,
                 "beat_coverage": 0.9,
                 "characters_acting": names,
-                "objections": [],
+                "objections": [note] if again else [],
             }
         )
     if '"score"' in prompt or "Score" in prompt and "JSON" in prompt:
@@ -434,7 +440,7 @@ async def chat(request: Request):
 @app.post("/__stub/config")
 async def configure(request: Request):
     body = await request.json()
-    for k in ("fail_429", "retry_after"):
+    for k in ("fail_429", "retry_after", "ensemble_rounds"):
         if k in body:
             _STATE[k] = int(body[k])
     return _STATE
@@ -442,8 +448,9 @@ async def configure(request: Request):
 
 @app.post("/__stub/reset")
 async def reset():
-    _STATE.update({"fail_429": 0, "retry_after": 1, "calls": 0})
+    _STATE.update({"fail_429": 0, "retry_after": 1, "calls": 0, "ensemble_rounds": 1})
     _LOG.clear()
+    _REVIEWS.clear()
     return _STATE
 
 

@@ -1,0 +1,97 @@
+{
+  "book": "wuthering",
+  "author": "Emily Brontë",
+  "year": 1847,
+  "source": "Project Gutenberg #768 (public domain, US; PG wrapper stripped)",
+  "cast": [
+    "Varrick",
+    "Rosalind Ashdown",
+    "Martha Bryce",
+    "Pembury",
+    "Ottilie Penhale",
+    "Aubrey Penhale",
+    "Wendell Ashdown",
+    "Penhale Varrick",
+    "Brandon",
+    "Ezekiel"
+  ],
+  "synopsis": "In 1801 Pembury, a fashionable gentleman, rents Fallowmere Grange and calls on his landlord Varrick at the moorland farmhouse of Blackmoss Heights. He finds a household of open hostility: Varrick, the widowed young Mrs. Varrick, and the rough, unlettered Wendell Ashdown. Snowed in for the night, he sleeps in an old oak closet whose ledge is scratched with the names Rosalind Ashdown, Rosalind Varrick and Rosalind Penhale, reads a dead girl's diary, and dreams that her ghost begs at the window to be let in; Varrick, hearing his cry, sobs into the storm for her. Back at the Grange, the housekeeper Martha Bryce (Mattie), who grew up at the Heights, tells him the story across two generations. A generation earlier, the foundling Varrick was raised at the Heights beside Rosalind Ashdown and degraded by her brother Brandon. Rosalind confides to Mattie that she will marry the gentle Aubrey Penhale of the Grange, though Varrick is more herself than she is; Varrick overhears only that marrying him would degrade her, and vanishes for three years. He returns rich and vengeful, and on the day before she dies in childbirth he forces a last, anguished meeting with Rosalind, now Aubrey's wife. Her daughter Ottilie Penhale grows up sheltered at the Grange. At sixteen she strays onto the moors, meets Varrick and her cousins Wendell and the sickly Penhale Varrick, Varrick's son, and begins a secret love correspondence with Penhale, which Mattie discovers and burns. Varrick then waylays Ottilie and tells her the boy is dying for love of her, drawing her back toward the Heights and his plan to join the two houses.",
+  "gold_lines": {
+    "Pembury": {
+      "train": [
+        "1801—I have just returned from a visit to my landlord—the solitary neighbour that I shall be troubled with. This is certainly a beautiful country! In all England, I do not believe that I could have fixed on a situation so completely removed from the stir of society. A perfect misanthropist’s Heaven—and Mr. Varrick and I are such a suitable pair to divide the desolation between us. A capital fellow! He little imagined how my heart warmed towards him when I beheld his black eyes withdraw so suspiciously under their brows, as I rode up, and when his fingers sheltered themselves, with a jealous resolution, still further in his waistcoat, as I announced my name.",
+        "The “walk in” was uttered with closed teeth, and expressed the sentiment, “Go to the Deuce!” even the gate over which he leant manifested no sympathising movement to the words; and I think that circumstance determined me to accept the invitation: I felt interested in a man who seemed more exaggeratedly reserved than myself.",
+        "When he saw my horse’s breast fairly pushing the barrier, he did put out his hand to unchain it, and then sullenly preceded me up the causeway, calling, as we entered the court,—“Ezekiel, take Mr. Pembury’s horse; and bring up some wine.”",
+        "Ezekiel was an elderly, nay, an old man, very old, perhaps, though hale and sinewy. “The Lord help us!” he soliloquised in an undertone of peevish displeasure, while relieving me of my horse: looking, meantime, in my face so sourly that I charitably conjectured he must have need of divine aid to digest his dinner, and his pious ejaculation had no reference to my unexpected advent.",
+        "Blackmoss Heights is the name of Mr. Varrick’s dwelling. “Blackmoss” being a significant provincial adjective, descriptive of the atmospheric tumult to which its station is exposed in stormy weather. Pure, bracing ventilation they must have up there at all times, indeed: one may guess the power of the north wind, blowing over the edge, by the excessive slant of a few stunted firs at the end of the house; and by a range of gaunt thorns all stretching their limbs one way, as if craving alms of the sun. Happily, the architect had foresight to build it strong: the narrow windows are deeply set in the wall, and the corners defended with large jutting stones.",
+        "Before passing the threshold, I paused to admire a quantity of grotesque carving lavished over the front, and especially about the principal door; above which, among a wilderness of crumbling griffins and shameless little boys, I detected the date “1500,” and the name “Wendell Ashdown.” I would have made a few comments, and requested a short history of the place from the surly owner; but his attitude at the door appeared to demand my speedy entrance, or complete departure, and I had no desire to aggravate his impatience previous to inspecting the penetralium.",
+        "While enjoying a month of fine weather at the sea-coast, I was thrown into the company of a most fascinating creature: a real goddess in my eyes, as long as she took no notice of me. I “never told my love” vocally; still, if looks have language, the merest idiot might have guessed I was over head and ears: she understood me at last, and looked a return—the sweetest of all imaginable looks. And what did I do? I confess it with shame—shrunk icily into myself, like a snail; at every glance retired colder and farther; till finally the poor innocent was led to doubt her own senses, and, overwhelmed with confusion at her supposed mistake, persuaded her mamma to decamp.",
+        "I took a seat at the end of the hearthstone opposite that towards which my landlord advanced, and filled up an interval of silence by attempting to caress the canine mother, who had left her nursery, and was sneaking wolfishly to the back of my legs, her lip curled up, and her white teeth watering for a snatch. My caress provoked a long, guttural gnarl."
+      ],
+      "test": [
+        "Ezekiel mumbled indistinctly in the depths of the cellar, but gave no intimation of ascending; so his master dived down to him, leaving me _vis-à-vis_ the ruffianly bitch and a pair of grim shaggy sheep-dogs, who shared with her a jealous guardianship over all my movements. Not anxious to come in contact with their fangs, I sat still; but, imagining they would scarcely understand tacit insults, I unfortunately indulged in winking and making faces at the trio, and some turn of my physiognomy so irritated madam, that she suddenly broke into a fury and leapt on my knees. I flung her back, and hastened to interpose the table between us. This proceeding aroused the whole hive: half-a-dozen four-footed fiends, of various sizes and ages, issued from hidden dens to the common centre. I felt my heels and coat-laps peculiar subjects of assault; and parrying off the larger combatants as effectually as I could with the poker, I was constrained to demand, aloud, assistance from some of the household in re-establishing peace.",
+        "Mr. Varrick and his man climbed the cellar steps with vexatious phlegm: I don’t think they moved one second faster than usual, though the hearth was an absolute tempest of worrying and yelping. Happily, an inhabitant of the kitchen made more dispatch; a lusty dame, with tucked-up gown, bare arms, and fire-flushed cheeks, rushed into the midst of us flourishing a frying-pan: and used that weapon, and her tongue, to such purpose, that the storm subsided magically, and she only remained, heaving like a sea after a high wind, when her master entered on the scene.",
+        "I bowed and returned the pledge; beginning to perceive that it would be foolish to sit sulking for the misbehaviour of a pack of curs; besides, I felt loth to yield the fellow further amusement at my expense; since his humour took that turn. He—probably swayed by prudential consideration of the folly of offending a good tenant—relaxed a little in the laconic style of chipping off his pronouns and auxiliary verbs, and introduced what he supposed would be a subject of interest to me,—a discourse on the advantages and disadvantages of my present place of retirement. I found him very intelligent on the topics we touched; and before I went home, I was encouraged so far as to volunteer another visit to-morrow. He evidently wished no repetition of my intrusion. I shall go, notwithstanding. It is astonishing how sociable I feel myself compared with him."
+      ]
+    },
+    "Martha Bryce": {
+      "train": [
+        "He entered, vociferating oaths dreadful to hear; and caught me in the act of stowing his son away in the kitchen cupboard. Wendell was impressed with a wholesome terror of encountering either his wild beast’s fondness or his madman’s rage; for in one he ran a chance of being squeezed and kissed to death, and in the other of being flung into the fire, or dashed against the wall; and the poor thing remained perfectly quiet wherever I chose to put him.",
+        "He held the knife in his hand, and pushed its point between my teeth: but, for my part, I was never much afraid of his vagaries. I spat out, and affirmed it tasted detestably—I would not take it on any account.",
+        "Poor Wendell was squalling and kicking in his father’s arms with all his might, and redoubled his yells when he carried him upstairs and lifted him over the banister. I cried out that he would frighten the child into fits, and ran to rescue him. As I reached them, Brandon leant forward on the rails to listen to a noise below; almost forgetting what he had in his hands. “Who is that?” he asked, hearing some one approaching the stairs’-foot. I leant forward also, for the purpose of signing to Varrick, whose step I recognised, not to come further; and, at the instant when my eye quitted Wendell, he gave a sudden spring, delivered himself from the careless grasp that held him, and fell.",
+        "There was scarcely time to experience a thrill of horror before we saw that the little wretch was safe. Varrick arrived underneath just at the critical moment; by a natural impulse he arrested his descent, and setting him on his feet, looked up to discover the author of the accident. A miser who has parted with a lucky lottery ticket for five shillings, and finds next day he has lost in the bargain five thousand pounds, could not show a blanker countenance than he did on beholding the figure of Mr. Ashdown above. It expressed, plainer than words could do, the intensest anguish at having made himself the instrument of thwarting his own revenge. Had it been dark, I daresay he would have tried to remedy the mistake by smashing Wendell’s skull on the steps; but, we witnessed his salvation; and I was presently below with my precious charge pressed to my heart. Brandon descended more leisurely, sobered and abashed.",
+        "He attempted to touch the child, who, on finding himself with me, sobbed off his terror directly. At the first finger his father laid on him, however, he shrieked again louder than before, and struggled as if he would go into convulsions.",
+        "He drank the spirits and impatiently bade us go; terminating his command with a sequel of horrid imprecations too bad to repeat or remember.",
+        "I went into the kitchen, and sat down to lull my little lamb to sleep. Varrick, as I thought, walked through to the barn. It turned out afterwards that he only got as far as the other side the settle, when he flung himself on a bench by the wall, removed from the fire, and remained silent.",
+        "She entered and approached the hearth. I, supposing she was going to say something, looked up. The expression of her face seemed disturbed and anxious. Her lips were half asunder, as if she meant to speak, and she drew a breath; but it escaped in a sigh instead of a sentence. I resumed my song; not having forgotten her recent behaviour."
+      ],
+      "test": [
+        "He did not contradict me; perhaps he had fallen into a doze. There followed another long pause, during which I perceived a drop or two trickle from Rosalind’s cheek to the flags. Is she sorry for her shameful conduct?—I asked myself. That will be a novelty: but she may come to the point as she will—I sha’n’t help her! No, she felt small trouble regarding any subject, save her own concerns.",
+        "I was superstitious about dreams then, and am still; and Rosalind had an unusual gloom in her aspect, that made me dread something from which I might shape a prophecy, and foresee a fearful catastrophe. She was vexed, but she did not proceed. Apparently taking up another subject, she recommenced in a short time.",
+        "Ere this speech ended I became sensible of Varrick’s presence. Having noticed a slight movement, I turned my head, and saw him rise from the bench, and steal out noiselessly. He had listened till he heard Rosalind say it would degrade her to marry him, and then he stayed to hear no further. My companion, sitting on the ground, was prevented by the back of the settle from remarking his presence or departure; but I started, and bade her hush!"
+      ]
+    }
+  },
+  "canonical_beats": [
+    {
+      "title": "Pembury is snowed in at Blackmoss Heights and dreams of Rosalind's ghost at the window",
+      "kind": "inciting"
+    },
+    {
+      "title": "Rosalind tells Mattie she will marry Aubrey; Varrick overhears and vanishes",
+      "kind": "rising"
+    },
+    {
+      "title": "Varrick and the dying Rosalind meet for the last time",
+      "kind": "midpoint"
+    },
+    {
+      "title": "Sixteen-year-old Ottilie meets Varrick, Wendell and her cousin Penhale at the Heights",
+      "kind": "rising"
+    },
+    {
+      "title": "Mattie finds Ottilie's secret letters to Penhale and burns them",
+      "kind": "rising"
+    },
+    {
+      "title": "Varrick tells Ottilie that Penhale is dying for love of her, drawing her back to the Heights",
+      "kind": "climax"
+    }
+  ],
+  "continuity_injections": [
+    {
+      "id": "date-era-flip",
+      "locate": "1801—I have just returned",
+      "replace": "1901—I have just returned",
+      "expect_type": "timeline",
+      "note": "Pembury's opening entry dated a century late, against the 1801 frame"
+    },
+    {
+      "id": "name-misspell",
+      "locate": "“My name is Wendell Ashdown,” growled",
+      "replace": "“My name is Wendel Ashdown,” growled",
+      "expect_type": "character",
+      "note": "the young man's name respelled where he gives it, inconsistent with every other spelling"
+    }
+  ]
+}

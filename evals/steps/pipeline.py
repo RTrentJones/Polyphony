@@ -153,6 +153,7 @@ async def _index_voice(ctx: StepContext, book_id: str, names: list[str]) -> dict
         movement[c["name"]] = [r["text"] for r in rows if r not in said]
     return {
         "source_id": up["id"],
+        "indexed": bool(chars) and all(c.get("indexed_at") for c in chars),
         "chunks": chunks,
         "speech": speech,
         "movement": movement,

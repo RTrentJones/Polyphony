@@ -1,0 +1,28 @@
+name: boot-app
+description: Install and migrate (prepare), then the app on :8000 with a health wait (serve); the caller checks out and gives the DB.
+inputs:
+  prepare: {default: 'true'}
+  serve: {default: 'true'}
+runs:
+  using: composite
+  steps:
+    - {if: inputs.prepare == 'true', uses: actions/setup-python@v5, with: {python-version: '3.12', cache: pip}}
+    - if: inputs.prepare == 'true'
+      shell: bash
+      run: | # CI-only values on a throwaway DB; unbuffered, a crashed call's traceback reaches app.log
+        printf '%s\n' SECRET_KEY=ci_secret_key_minimum_32_characters_long PYTHONUNBUFFERED=1 \
+          DATABASE_URL=postgresql+asyncpg://postgres:ci_password_12345@localhost:5432/polyphony_eval \
+          ADMIN_EMAIL=eval-admin@example.com ADMIN_PASSWORD=eval_admin_pw_ci_only_12345 | tee -a "$GITHUB_ENV" > /tmp/ci.env
+        set -a; . /tmp/ci.env; set +a
+        sudo apt-get update && sudo apt-get install -y libmagic1 postgresql-client
+        pip install -r requirements.txt && python -m alembic upgrade head
+    - if: inputs.serve == 'true'
+      shell: bash
+      run: |
+        python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > app.log 2>&1 &
+        echo $! > /tmp/app.pid
+        for i in $(seq 1 40); do
+          curl -fsS http://localhost:8000/health >/dev/null 2>&1 && { echo "app healthy after ${i}s"; exit 0; }
+          sleep 1
+        done
+        tail -50 app.log; echo "::error::app did not become healthy"; exit 1

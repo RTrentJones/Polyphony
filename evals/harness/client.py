@@ -9,6 +9,8 @@ every generate returns an id and we poll the matching GET until terminal.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import hashlib
 import json
 import secrets
 import os
@@ -49,8 +51,15 @@ class PolyphonyClient:
             raise EvalClientError(f"login failed ({r.status_code}): {r.text[:400]}")
         return r.json()["access_token"]
 
-    async def bootstrap_eval_user(self, admin_email: str, admin_password: str) -> str:
-        """Admin-login → mint invite → register a fresh eval user; become them."""
+    async def bootstrap_eval_user(self, admin_email, admin_password, fixed=None) -> str:
+        """Admin-login → mint invite → register a fresh eval user; become them.
+        A resumable run's `fixed` user is logged into when the restored DB has it."""
+        key = hashlib.sha256(f"{admin_password}|{fixed}".encode()).hexdigest()[:24]
+        with contextlib.suppress(EvalClientError):  # never stored: derived
+            self._token = fixed and await self._login(fixed, f"eval-{key}")
+        if self._token:
+            self.user_email, self._login_as = fixed, (fixed, f"eval-{key}")
+            return fixed
         admin_token = await self._login(admin_email, admin_password)
         r = await self._http.post(
             "/api/v1/auth/invites",
@@ -62,8 +71,8 @@ class PolyphonyClient:
                 f"invite mint failed ({r.status_code}): {r.text[:400]}"
             )
         code = r.json()["code"]
-        email = f"eval+{secrets.token_hex(6)}@polyphony.eval"
-        password = "eval-" + secrets.token_urlsafe(16)
+        email = fixed or f"eval+{secrets.token_hex(6)}@polyphony.eval"
+        password = f"eval-{key}" if fixed else "eval-" + secrets.token_urlsafe(16)
         r = await self._http.post(
             "/api/v1/auth/register",
             json={
@@ -522,6 +531,10 @@ class PolyphonyClient:
         await self._post(
             f"/api/v1/books/scenes/{scene_id}/revisions/{revision_id}/discard"
         )
+
+    async def delete_scene(self, scene_id: str) -> None:
+        r = await self._send(self._http.delete, f"/api/v1/scenes/{scene_id}")
+        r.raise_for_status()  # a scene left live leaks into the next arm's tail
 
     async def create_chapter(self, book_id: str, title: str, summary: str = "") -> dict:
         r = await self._post(

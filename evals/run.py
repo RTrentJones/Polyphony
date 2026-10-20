@@ -25,6 +25,7 @@ from evals.harness.client import PolyphonyClient
 from evals.harness.config import load as load_config
 from evals.harness.judge import Judge
 from evals.preflight import RUNS, preflight
+from evals.baseline import arms  # noqa: F401 — registers `baseline` (W12-5)
 from evals.steps import pipeline  # noqa: F401 — registers the steps
 from evals.steps.base import StepContext, all_steps, get_step
 
@@ -184,7 +185,8 @@ async def run(
     have_creds = bool(cfg.admin_email and cfg.admin_password)
     if any(s.needs_api for s in steps) and have_creds:
         ctx.client = PolyphonyClient(cfg.base_url)
-        await ctx.client.bootstrap_eval_user(cfg.admin_email, cfg.admin_password)
+        fixed = name and not RUNS[name].fresh and f"eval-{name}@polyphony.eval"
+        await ctx.client.bootstrap_eval_user(cfg.admin_email, cfg.admin_password, fixed)
 
     try:
         if name:  # a declared run (SPEC-68) is preflighted before any draw
@@ -222,7 +224,7 @@ async def run(
                         quota_exhausted = True
             passes.append(one)
         result["steps"] = _aggregate(passes)
-        if cfg.relay_archive:
+        if cfg.relay_archive and "baseline" not in step_names:  # no contract draw
             # Over the whole run's archive, once (not per pass).
             try:
                 voice = (result["steps"].get("prose") or {}).get("voice") or {}
@@ -240,6 +242,10 @@ async def run(
     finally:
         if ctx.client:
             result["relogin"] = ctx.client.relogins
+            try:
+                result["usage"] = await ctx.client.usage()  # the report header (W13-1)
+            except Exception as e:  # noqa: BLE001 - never hide the run's error
+                result["usage"] = {"error": f"{type(e).__name__}: {e}"}
             await ctx.client.aclose()
 
     report.write(result, out)
@@ -282,7 +288,7 @@ def main() -> None:
     args = ap.parse_args()
 
     step_names = (
-        all_steps()
+        [s for s in all_steps() if s != "baseline"]  # its own run (SPEC-84)
         if args.steps == "all"
         else [s.strip() for s in args.steps.split(",")]
     )
@@ -310,6 +316,8 @@ def main() -> None:
                 asyncio.run(ingest_to_tracer(result, url, token, env_label))
             except Exception as e:  # noqa: BLE001 - telemetry is never fatal
                 print(f"tracer ingest failed (non-fatal): {type(e).__name__}: {e}")
+    if any("error" in s for s in result["steps"].values()):
+        raise SystemExit(1)  # a step error is red; a quota skip stays a skip (W13-7)
 
 
 if __name__ == "__main__":
