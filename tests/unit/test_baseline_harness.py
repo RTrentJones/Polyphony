@@ -179,6 +179,9 @@ async def test_restore_cancel_then_entry_trashes_orphans_and_resumes(
     cache.put("baseline-prep", "cel", {"book_id": "b", "slots": slots})
     for k in (1, 2):
         cache.put("baseline-slot", f"cel|{k}", [{"slot": f"cel-{k}", "arm": "B"}])
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("LLM_MODEL", "m")
+    cache.put("baseline-gen", "cel", "gemini/m")  # the generator the slots used
     done = sorted(p.read_bytes() for p in (tmp_path / "c").rglob("*.json"))
     ctx = SimpleNamespace(book="cel", cache=cache, client=client)
     with pytest.raises(arms.EvalClientError, match="B failed: daily request limit"):
@@ -186,3 +189,6 @@ async def test_restore_cancel_then_entry_trashes_orphans_and_resumes(
     client.delete_scene.assert_awaited_with(str(orphan.id))  # the orphan, trashed
     assert client.generate_scene.await_args[0][1]["planned_beat_id"] == "3"
     assert sorted(p.read_bytes() for p in (tmp_path / "c").rglob("*.json")) == done
+    monkeypatch.setenv("LLM_MODEL", "other")  # Codex P2: a resume never mixes
+    with pytest.raises(arms.EvalClientError, match="made by gemini/m"):
+        await arms.step_baseline(ctx)

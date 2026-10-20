@@ -207,6 +207,10 @@ async def run_slot(ctx, slot: str, s: dict) -> list[dict]:
 async def step_baseline(ctx) -> dict:
     """One manuscript; prep and slots memoised, so the next dispatch resumes.
     Outputs: EVAL_BASELINE_DIR (bundle, sheet), _KEY, _STATE (slots, records)."""
+    gen = f"{os.getenv('LLM_PROVIDER')}/{os.getenv('LLM_MODEL')}"  # one per bundle
+    if (was := ctx.cache.get("baseline-gen", ctx.book)) not in (None, gen):
+        raise EvalClientError(f"resumed with {gen}; the slots were made by {was}")
+    ctx.cache.put("baseline-gen", ctx.book, gen)
     prep = await ctx.cache.memo("baseline-prep", ctx.book, lambda: prepare(ctx))
     await ctx.client.get_book(prep["book_id"])  # N5: a 404 = cache without DB
     state = Path(os.getenv("EVAL_BASELINE_STATE", ".eval-baseline-state"))
