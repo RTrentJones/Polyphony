@@ -533,7 +533,8 @@ class PolyphonyClient:
         )
 
     async def delete_scene(self, scene_id: str) -> None:
-        await self._send(self._http.delete, f"/api/v1/scenes/{scene_id}")
+        r = await self._send(self._http.delete, f"/api/v1/scenes/{scene_id}")
+        r.raise_for_status()  # a scene left live leaks into the next arm's tail
 
     async def create_chapter(self, book_id: str, title: str, summary: str = "") -> dict:
         r = await self._post(

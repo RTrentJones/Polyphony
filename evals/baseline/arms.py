@@ -171,12 +171,14 @@ async def prepare(ctx) -> dict:
     slots = []
     for ch in chapters[:SLOTS]:
         detail = await ctx.client.get_chapter(ch["chapter_id"])
-        beat = (detail.get("planned_beats") or [{}])[0]
+        if not detail.get("planned_beats"):  # e.g. a quota stop in the beat stage
+            raise EvalClientError(f"chapter {ch['chapter_id']} has no planned beat")
+        beat = detail["planned_beats"][0]
         brief = {
             "character_ids": beat.get("character_ids") or detail.get("character_ids"),
             "scene_description": f"{beat.get('title')}. {beat.get('summary') or ''}",
             "setting": beat.get("setting") or "",
-            "emotional_tone": beat.get("emotional_tone") or "",
+            "emotional_tone": beat.get("tone") or "",  # the planned beat's field
             "target_word_count": 500,
             "planned_beat_id": beat.get("node_id"),
         }

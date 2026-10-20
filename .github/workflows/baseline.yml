@@ -49,10 +49,11 @@ jobs:
       - name: Restore the prior state; cancel its in-flight jobs before boot
         if: inputs.prior_run != ''
         run: |
+          set -o pipefail
           gh run download "$PRIOR" -n "baseline-state-$M" -D state -R "$GITHUB_REPOSITORY"
           psql "${PGURL%/*}/postgres" -qc 'DROP DATABASE polyphony_eval' -c 'CREATE DATABASE polyphony_eval'
           pg_restore --no-owner -d "$PGURL" state/db.dump
-          psql "$PGURL" -f evals/baseline/restore_cancel.sql | sed 's/^/restore-cancel: /' | tee -a "$GITHUB_STEP_SUMMARY"
+          psql "$PGURL" -v ON_ERROR_STOP=1 -f evals/baseline/restore_cancel.sql | sed 's/^/restore-cancel: /' | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Recorders (and the stub, if it is the generator)
         run: |
           case "$LLM_PROVIDER" in gemini|stub) ;; *) echo "::error::no recorder upstream for $LLM_PROVIDER"; exit 1 ;; esac
