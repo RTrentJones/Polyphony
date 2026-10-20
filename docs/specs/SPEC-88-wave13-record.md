@@ -29,3 +29,16 @@
 - **N5.** `sample_lift` and `plan_quotes_source` are not graded over the recorder archive (the contract assumes a gated draw's
   chapter shape: `773391f`); those readings wait for wave 14. W13-SL (ii)'s `voice_overlap --book` sweep is unaffected.
 
+
+## Amendment 2026-10-20: the W12-9 generator (pushed before the first W12-9 dispatch)
+- **Selected: `gemini-3.5-flash-lite`** by the signed B1 rule. `max_rpd` **800**; `LLM_MODEL` = `LLM_MODEL_FAST` = it; label `free
+  (gemini-3.5-flash-lite, not prod's prose model), model panel, not human`. (i) 800 ≥ 58; (iii) one run-day per manuscript.
+  **RPD 1,000** is the registry's `fast_max_rpd` (admitted, PM §1 condition 1), the weakest source: the same registry's flash 250 was
+  12.5× the measured 20, so the first dispatch's per-day `quotaValue`, if any, replaces it. **(ii) measured** by the W13-1 probe
+  (pushed `bc22ddc99ded3e518e29cf6061b1a2ac3d07512f`, run 39388305450, reverted by `64c225cdd6cb6e7ed86f1caa8a9f4bcad65d4ef4`):
+  52,372 prompt tokens accepted twice 7 s apart, so the per-minute cap is ≥ 104.7k > 42.7k.
+- **Not selected:** `gemini-3.6-flash` (RPD 20, measured: fails (i), (iii)); Groq `gpt-oss-120b` (8K TPM published: fails (ii)); the
+  OpenRouter pin was not reached.
+- **Operator limits** (principal sweep L1, L2): a failed outline memoized under `outline` makes every resume of that state stop at
+  prep; dispatch fresh (no `prior_run`). A resume with another `sha` reuses no memo (quota spent, never mixed): pass the same `sha`.
+- **Tests:** the S1/S2 rows landed in PR-A with the user's authorisation; tests **+738** against the 720 backstop.
