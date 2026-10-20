@@ -151,8 +151,11 @@ def test_win_rates_with_cluster_ci_on_a_known_ordering():
     assert out["P(C>B) descriptive"]["slots"] == 0
 
 
-async def test_an_ungrounded_prep_is_refused_before_the_outline(monkeypatch):
-    book = {"id": "b", "voice": {"error": "extraction failed"}}  # Codex P2
+@pytest.mark.parametrize(  # Codex P2 x2: extraction failed; indexing timed out
+    "voice", [{"error": "extraction failed"}, {"indexed": False, "chunks": {}}]
+)
+async def test_an_ungrounded_prep_is_refused_before_the_outline(monkeypatch, voice):
+    book = {"id": "b", "voice": voice}
     monkeypatch.setattr(arms, "_book_with_cast", AsyncMock(return_value=book))
     monkeypatch.setattr(arms, "_outline_into", outline := AsyncMock())
     with pytest.raises(arms.EvalClientError, match="voice preparation"):
