@@ -157,6 +157,9 @@ async def scene_record(slot: str, arm: str, scene_id, job_id=None, removed=None)
 async def prepare(ctx) -> dict:
     """SPEC-84's slot rule: slot k = (outline chapter k, its first planned beat)."""
     book = await _book_with_cast(ctx, f"eval-baseline-{ctx.book}", voice=True)
+    voice = book.get("voice") or {"error": "no voice corpus"}  # B's grounding
+    if voice.get("error"):  # never memoize an ungrounded prep
+        raise EvalClientError(f"baseline voice preparation: {voice['error']}")
     await _outline_into(ctx, book)
     chapters = sorted(
         (await ctx.client.promote_all(book["id"]))["chapters"],
