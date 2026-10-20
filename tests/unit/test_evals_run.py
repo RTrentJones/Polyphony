@@ -77,7 +77,8 @@ def test_main_exits_1_on_a_step_error_and_0_on_skips(monkeypatch, a):
     monkeypatch.setattr(r, "run", AsyncMock(return_value=steps))
     monkeypatch.setattr(r.report, "scorecard", lambda res: "")
     monkeypatch.setattr(r.report, "history", lambda h: "")
-    monkeypatch.setattr("sys.argv", ["run", "--steps", "a,b"])
+    monkeypatch.setattr("sys.argv", ["run"])  # --steps all: never `baseline`
     red = "error" in a
     with pytest.raises(SystemExit, match="1") if red else contextlib.nullcontext():
         r.main()
+    assert "baseline" not in r.run.await_args[0][1]

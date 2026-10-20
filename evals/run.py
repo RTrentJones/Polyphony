@@ -284,7 +284,7 @@ def main() -> None:
     args = ap.parse_args()
 
     step_names = (
-        all_steps()
+        [s for s in all_steps() if s != "baseline"]  # its own run (SPEC-84)
         if args.steps == "all"
         else [s.strip() for s in args.steps.split(",")]
     )
