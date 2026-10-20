@@ -6,10 +6,11 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { FileText, History, Pencil, Plus, Trash2 } from 'lucide-react'
+import { FileText, History, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react'
 import AddSourceModal from '@/components/AddSourceModal'
 import Button from '@/components/Button'
 import Card from '@/components/Card'
+import ExtractionRefusal, { refusedPreflight } from '@/components/ExtractionRefusal'
 import Input from '@/components/Input'
 import JobStatusBadge from '@/components/JobStatusBadge'
 import Loading from '@/components/Loading'
@@ -18,9 +19,9 @@ import VersionHistory from '@/components/VersionHistory'
 import type { ToastType } from '@/components/Toast'
 import apiClient from '@/lib/api-client'
 import { isActiveJob } from '@/lib/jobs'
-import { useSourceStore } from '@/lib/store'
+import { useExtractionStore, useSourceStore } from '@/lib/store'
 import { useBook } from '@/components/book/BookProvider'
-import type { Source } from '@/lib/types'
+import type { ExtractionPreflight, Source } from '@/lib/types'
 
 export default function SourcesPanel({
   addToast,
@@ -38,6 +39,15 @@ export default function SourcesPanel({
   const [saving, setSaving] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [historyFor, setHistoryFor] = useState<Source | null>(null)
+  const { startExtraction } = useExtractionStore()
+  // Per-source state of the Extract control: starting, the API's refusal
+  // message, or a preflight refusal offering the opening chapters (SPEC-09).
+  const [extractState, setExtractState] = useState<
+    Record<
+      string,
+      { busy?: boolean; error?: string; refused?: ExtractionPreflight }
+    >
+  >({})
 
   useEffect(() => {
     fetchSources(bookId).catch((err: any) =>
@@ -82,6 +92,27 @@ export default function SourcesPanel({
       addToast(err.message || 'Failed to update source', 'error')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const extract = async (source: Source, maxChapters?: number) => {
+    setExtractState((s) => ({
+      ...s,
+      [source.id]: { busy: true, refused: s[source.id]?.refused },
+    }))
+    try {
+      await startExtraction(bookId, source.id, maxChapters)
+      setExtractState((s) => ({ ...s, [source.id]: {} }))
+      // The refreshed row carries the new job, so its badge appears.
+      await fetchSources(bookId).catch(() => undefined)
+    } catch (err: any) {
+      const refused = maxChapters ? null : refusedPreflight(err)
+      setExtractState((s) => ({
+        ...s,
+        [source.id]: refused
+          ? { refused }
+          : { error: err?.message || 'Could not start extraction.' },
+      }))
     }
   }
 
@@ -130,6 +161,12 @@ export default function SourcesPanel({
               source.latest_extraction &&
               (source.latest_extraction.status === 'ready' ||
                 source.latest_extraction.status === 'pending')
+            // Anything else (none yet, failed, cancelled, committed, or an
+            // add-time preflight refusal) can be (re-)extracted from here.
+            const canExtract = !extracting && !pending
+            const failed =
+              canExtract && source.latest_extraction?.status === 'failed'
+            const ex = extractState[source.id] || {}
             return (
               <div
                 key={source.id}
@@ -161,6 +198,29 @@ export default function SourcesPanel({
                       Extraction ready for review
                     </p>
                   )}
+                  {failed && !ex.error && !ex.refused && (
+                    <p className="text-xs text-red-600 mt-1">Extraction failed</p>
+                  )}
+                  {canExtract && ex.error && (
+                    <p role="alert" className="text-xs text-red-600 mt-1">
+                      {ex.error}
+                    </p>
+                  )}
+                  {canExtract && ex.refused && (
+                    <div className="mt-2 space-y-2">
+                      <ExtractionRefusal
+                        preflight={ex.refused}
+                        compact
+                        busy={ex.busy}
+                        onExtractOpening={() =>
+                          extract(source, ex.refused?.max_chapters ?? undefined)
+                        }
+                        onDismiss={() =>
+                          setExtractState((s) => ({ ...s, [source.id]: {} }))
+                        }
+                      />
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {pending && (
@@ -174,6 +234,17 @@ export default function SourcesPanel({
                       }
                     >
                       Review
+                    </Button>
+                  )}
+                  {canExtract && !ex.refused && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => extract(source)}
+                      isLoading={ex.busy}
+                    >
+                      <Sparkles className="h-3.5 w-3.5 mr-1" />
+                      {source.latest_extraction ? 'Re-extract' : 'Extract'}
                     </Button>
                   )}
                   <Button variant="outline" size="sm" onClick={() => openEdit(source)}>
