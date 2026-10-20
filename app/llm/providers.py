@@ -50,9 +50,9 @@ PROVIDERS: dict[str, Provider] = {
         max_rpm=8,  # AI Studio free tier is ~10 RPM; leave headroom
         # Google no longer publishes a universal free-tier table: limits are
         # per project and shown in AI Studio (re-checked 2026-10). The reset at
-        # midnight Pacific is documented. 1,000/day (Flash-Lite) is the last
-        # published figure and serves as a conservative default; set
-        # LLM_MAX_RPD to the project's AI Studio value to override.
+        # midnight Pacific is documented. 1,000/day (Flash-Lite) is the last published
+        # figure, unverified: flash's sibling figure (250) was 12.5x too high (W13-0);
+        # set LLM_MAX_RPD to the project's AI Studio value to override.
         max_rpd=20,  # 3.6 Flash: free-tier quotaValue, W13-0 probe 2026-10-20
         fast_max_rpd=1000,
         rpd_reset_tz="America/Los_Angeles",

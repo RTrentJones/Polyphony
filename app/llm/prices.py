@@ -22,7 +22,7 @@ _FREE_MODELS = (  # free tiers and the stub; Gemini only on an unbilled project
 _CARRIED = "carried from Provider.rate_in @ e954eae; not re-verified"
 _FREE = Price(0, 0, "free tier or local stub, per the provider registry", "unverified")
 _READ = "gemini-3.6-flash gemini-3.5-flash-lite nvidia/nemotron-3-ultra-550b-a55b:free"
-_FREE_READ = Price(0, 0, "https://ai.google.dev/gemini-api/docs/rate-limits; https://openrouter.ai/api/v1/key", "2026-10-20")  # fmt: skip
+_FREE_READ = Price(0, 0, "unbilled key (U6, user 2026-10-19) on the free tier (W13-0 quotaId …-FreeTier; https://ai.google.dev/gemini-api/docs/rate-limits); :free pricing 0 per https://openrouter.ai/api/v1/models", "2026-10-20")  # fmt: skip
 PRICES: dict[str, Price] = {"gpt-4o": Price(2.5, 10.0, _CARRIED, "unverified")}
 PRICES |= dict.fromkeys(_FREE_MODELS, _FREE) | dict.fromkeys(_READ.split(), _FREE_READ)
 
