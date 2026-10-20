@@ -40,7 +40,9 @@ jobs:
       EVAL_POLL_SCALE: '6'
       EVAL_CACHE_DIR: state/cache
       EVAL_RELAY_DIR: state/relay-bc
-      EVAL_BASELINE_STATE: state # slots.json, records.json (sealed); bundle and key at E2's default paths
+      EVAL_BASELINE_STATE: state # slots.json, records.json (sealed)
+      EVAL_BASELINE_DIR: out/bundle # not hidden: upload-artifact v4.4+ skips hidden files
+      EVAL_BASELINE_KEY: out/key/key.json
     steps:
       - {uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5, with: {ref: '${{ inputs.sha }}'}} # v4.3.1
       - {uses: ./.github/actions/boot-app, with: {serve: 'false'}}
@@ -70,5 +72,5 @@ jobs:
             psql "$PGURL" -c "SELECT status, left(error, 400) AS error, count(*) FROM jobs WHERE error IS NOT NULL GROUP BY 1, 2"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           pg_dump -Fc -f state/db.dump "$PGURL"; cp app.log stub.log relay-*.log state/ 2>/dev/null || true
       - {if: always(), uses: actions/upload-artifact@v4, with: {name: 'baseline-state-${{ inputs.manuscript }}', path: state, retention-days: 30}}
-      - {if: always(), uses: actions/upload-artifact@v4, with: {name: 'baseline-bundle-${{ inputs.manuscript }}', path: .eval-baseline, retention-days: 30}}
-      - {if: always(), uses: actions/upload-artifact@v4, with: {name: 'baseline-key-${{ inputs.manuscript }}', path: .eval-baseline-key.json, retention-days: 30}}
+      - {if: always(), uses: actions/upload-artifact@v4, with: {name: 'baseline-bundle-${{ inputs.manuscript }}', path: out/bundle, retention-days: 30}}
+      - {if: always(), uses: actions/upload-artifact@v4, with: {name: 'baseline-key-${{ inputs.manuscript }}', path: out/key, retention-days: 30}}
