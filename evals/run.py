@@ -185,7 +185,8 @@ async def run(
     have_creds = bool(cfg.admin_email and cfg.admin_password)
     if any(s.needs_api for s in steps) and have_creds:
         ctx.client = PolyphonyClient(cfg.base_url)
-        await ctx.client.bootstrap_eval_user(cfg.admin_email, cfg.admin_password)
+        fixed = name and not RUNS[name].fresh and f"eval-{name}@polyphony.eval"
+        await ctx.client.bootstrap_eval_user(cfg.admin_email, cfg.admin_password, fixed)
 
     try:
         if name:  # a declared run (SPEC-68) is preflighted before any draw
@@ -223,7 +224,7 @@ async def run(
                         quota_exhausted = True
             passes.append(one)
         result["steps"] = _aggregate(passes)
-        if cfg.relay_archive:
+        if cfg.relay_archive and "baseline" not in step_names:  # no contract draw
             # Over the whole run's archive, once (not per pass).
             try:
                 voice = (result["steps"].get("prose") or {}).get("voice") or {}

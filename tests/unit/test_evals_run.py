@@ -2,10 +2,14 @@
 
 import contextlib
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from urllib.parse import parse_qsl
 
+import httpx
 import pytest
 
+from evals.harness.client import PolyphonyClient
 from evals.run import _is_quota_error
 
 pytestmark = pytest.mark.unit
@@ -82,3 +86,47 @@ def test_main_exits_1_on_a_step_error_and_0_on_skips(monkeypatch, a):
     with pytest.raises(SystemExit, match="1") if red else contextlib.nullcontext():
         r.main()
     assert "baseline" not in r.run.await_args[0][1]
+
+
+async def test_a_baseline_run_resumes_as_its_one_user_and_skips_the_contract(
+    tmp_path, monkeypatch
+):
+    """(F) run-W13dry: a resumed dispatch logs in as the user the restored DB
+    owns, and no prompt contract is graded over the recorder's archive."""
+    import evals.run as r
+    from tests.unit.test_evals_preflight import _cfg, _client
+
+    users = {"a@x": "pw"}
+
+    def app(req):  # login is a form, register and invites are JSON
+        b = dict(parse_qsl(req.content.decode())) or json.loads(req.content)
+        ok = users.get(b.get("username")) == b.get("password")
+        if "email" in b:
+            assert b["email"] not in users  # registered once, then logged into
+            users[b["email"]] = b["password"]
+        return httpx.Response(
+            401 if "username" in b and not ok else 200,
+            json={"access_token": "t", "code": "c"},
+        )
+
+    async def bootstrap(*args):  # a fresh runner per dispatch, the same DB
+        c = PolyphonyClient("http://app")
+        c._http = httpx.AsyncClient(
+            base_url="http://app", transport=httpx.MockTransport(app)
+        )
+        return await c.bootstrap_eval_user(*args)
+
+    cfg, judge = _cfg(tmp_path), SimpleNamespace(provider_id="r", is_self=False)
+    judge.model_override = judge.fell_back = judge.endpoint = None
+    fake = _client(10**7)
+    fake.bootstrap_eval_user = bootstrap
+    monkeypatch.setattr(r, "load_config", lambda: cfg)
+    monkeypatch.setattr(r, "Judge", lambda _cfg: judge)
+    monkeypatch.setattr(r, "PolyphonyClient", lambda url: fake)
+    monkeypatch.setattr(r.get_step("baseline"), "run", AsyncMock(return_value={}))
+    contract = AsyncMock(side_effect=ValueError("no drawn chapter"))
+    monkeypatch.setattr(r.pipeline, "prompt_contract_result", contract)
+    for _ in range(2):
+        out = await r.run("cel", ["baseline"], str(tmp_path / "r.json"), 1, "baseline")
+    assert "prompt_contract" not in out["steps"]
+    assert list(users) == ["a@x", "eval-baseline@polyphony.eval"]
