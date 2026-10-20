@@ -101,6 +101,13 @@ async def test_arm_a_differs_from_b_only_in_cast_context(
     rec = await arms.scene_record("cel-1", "A", a_id, a_job, removed)
     got = [rec[k] for k in ("cost_usd", "tokens", "unpriced_tokens", "requests")]
     assert got == [0.5, 17, 7, 2]
+    first_a = await async_session.get(Scene, a_id)  # trashed, as a resume's orphan
+    first_a.deleted_at = first_a.created_at
+    await async_session.commit()
+    failed = AsyncMock(return_value={"status": "failed", "error": "unusable"})
+    monkeypatch.setattr(prose, "run_prose_scene_workflow", failed)
+    with pytest.raises(arms.EvalClientError, match="arm A failed"):  # Codex P2
+        await arms.run_arm_a(b.id)  # never memoized as a done slot
 
 
 async def test_first_lines_are_eligible_in_source_order_and_count_the_later_cut(

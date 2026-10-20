@@ -110,7 +110,7 @@ async def run_arm_a(b_scene_id: UUID) -> tuple[UUID, UUID, int]:
     with job_context(JobContext(job_id=job_id)), patch.object(
         prose, "build_cast_context", a_cast_builder(removed)
     ):
-        await prose.run_prose_scene_workflow(
+        result = await prose.run_prose_scene_workflow(
             a_id,
             request,
             user_id,
@@ -120,6 +120,8 @@ async def run_arm_a(b_scene_id: UUID) -> tuple[UUID, UUID, int]:
             book_id=book_id,
             checkpoint=seeded,
         )
+    if result.get("status") == "failed":  # never memoize a failed A as a slot
+        raise EvalClientError(f"arm A failed: {result.get('error')}")
     return a_id, job_id, len(removed)
 
 
