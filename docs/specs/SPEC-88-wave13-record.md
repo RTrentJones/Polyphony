@@ -42,3 +42,7 @@
 - **Operator limits** (principal sweep L1, L2): a failed outline memoized under `outline` makes every resume of that state stop at
   prep; dispatch fresh (no `prior_run`). A resume with another `sha` reuses no memo (quota spent, never mixed): pass the same `sha`.
 - **Tests:** the S1/S2 rows landed in PR-A with the user's authorisation; tests **+738** against the 720 backstop.
+- **Amended 2026-10-20 21:00Z: Flash-Lite RPD is 500, measured.** Cel's run 39495277558 drew a provider 429 with `quotaId`
+  GenerateRequestsPerDayPerProjectPerModel-FreeTier, `quotaValue` **500** (stop-path row 3: `LLM_MAX_RPD` above the real RPD). It
+  replaces the registry's 1,000 (2× high). `max_rpd` becomes **400** for every later dispatch; (i) 400 ≥ 58 and (iii) one run-day per
+  manuscript still hold, so the selection stands. Frankenstein and Wuthering finished under 800 without reaching it (cap, not content).
