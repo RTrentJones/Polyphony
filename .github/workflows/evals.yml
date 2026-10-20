@@ -1,163 +1,166 @@
 name: evals
 
-# W13-1 TPM probe (wave 13, signed generator rule test (ii)). ONE-OFF, NEVER
-# MERGED: this branch's evals.yml replaces the eval job with the probe and drops
-# the push: and schedule: triggers, so it runs only by an explicit dispatch:
-#   gh workflow run evals.yml --ref <branch> -f run_tpm_probe=yes
-# Question: does ONE gemini-3.5-flash-lite request of ~42.7k+ prompt tokens fit
-# the free-tier per-minute token cap? It sends one ~210k-character prompt built
-# from the repo's public-domain corpora (maxOutputTokens 8) and, on a 200, one
-# identical call 5 s later. It writes tpm_probe.json (artifact `tpm-probe`) and
-# a job summary. Key VALUES are never printed or written: only names and
-# set/unset; any response text is scrubbed of every key value before it is
-# stored. Gemini auth is the x-goog-api-key header, never ?key= in a URL.
+# Runs the renamed-public-domain eval suite against a freshly-booted app and
+# ingests the scores into Tracer, so voice/plot/continuity quality is trended
+# release-over-release (not eyeballed). Manually dispatched (it spends shared
+# Gemini free-tier quota). No schedule: it returns sized to W13-0's measure.
+#
+# Secrets this needs on the Polyphony repo (Settings → Secrets and variables →
+# Actions):
+#   GEMINI_API_KEY      — the model under test boots with it (fail-fast without).
+#   TRACER_INGEST_TOKEN — bearer for Tracer /api/ingest; if unset, the run still
+#                         produces a report artifact, it just doesn't ingest.
+#   GROQ_API_KEY        — free-tier judge (EVAL_JUDGE_PROVIDER=groq); if unset,
+#                         the judge falls back to Gemini (self-graded, labelled).
+#                         CEREBRAS/OPENROUTER/MISTRAL_API_KEY are alternates.
+# ADMIN_* / SECRET_KEY below are throwaway CI values (ephemeral DB), not secrets.
 
 on:
   workflow_dispatch:
     inputs:
-      run_tpm_probe:
-        description: type yes to send the ~44k-token Flash-Lite probe
-        type: choice
-        options: ['no', 'yes']
-        default: 'no'
-
-permissions:
-  contents: read
+      book:
+        description: corpus(es) to grade, space-separated (dracula = training, frankenstein = held-out, cel = the fidelity gate)
+        default: dracula frankenstein cel
+      steps:
+        description: comma list of steps or 'all'
+        default: all
+      repeat:
+        description: run each step N times for a mean±std noise band (N× the LLM cost)
+        default: '1'
+      env_label:
+        description: env tag stored on the Tracer run
+        default: ci
+      base_url:
+        description: >-
+          grade an EXTERNAL running app (e.g. https://polyphony.rtrentjones.dev
+          for a deployed-prompts baseline) instead of booting one here. Leave
+          blank to boot this ref's app. External mode needs EVAL_ADMIN_* secrets.
+        default: ''
+  # On-demand trigger for when workflow_dispatch isn't available (e.g. an
+  # integration token can't press "Run workflow"): bump evals/.run-eval and push.
+  # Path-scoped so ordinary commits don't fire it (this run spends Gemini quota).
+  # A push run has no inputs, so it uses the boot-mode defaults: both corpora,
+  # all steps, base_url blank (boots this ref's app).
+  push:
+    paths:
+      - evals/.run-eval
 
 concurrency:
-  group: evals-probe
-  cancel-in-progress: false
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   eval:
-    if: ${{ github.event.inputs.run_tpm_probe == 'yes' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: ci_password_12345
+          POSTGRES_DB: polyphony_eval
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      PROBE_SHA: ${{ github.sha }}
+      LLM_PROVIDER: gemini
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      # CI-only: let the app's 500 handler name the real error (429/quota vs
+      # safety-block vs bug) in the response so the eval scorecard is
+      # self-diagnosing. DEBUG defaults False, so prod leaks nothing.
+      DEBUG: 'true'
+      # The eval user is a harness, not an author: a staged outline over a big
+      # corpus (thinking tokens count as output) can exceed the free tier's
+      # per-author 200k/day, which now pauses the job mid-run by design.
+      # The provider's own quota still applies.
+      USER_DAILY_TOKEN_LIMIT: '20000000'
+      # NOTE: do NOT force temperature to 0 here. Temp=0 homogenizes the voice
+      # steps (every character answers a prompt near-identically → attribution
+      # collapses, prose degenerates), which defeats the voice measurement. Let
+      # each call use its natural temperature; use `--repeat` for the noise band
+      # on the judge/voice steps instead of killing sampling.
+      # First-boot admin (empty DB): ADMIN_EMAIL/PASSWORD come from the boot-app action.
+      # Boot mode uses the CI admin above; external mode (base_url set) needs the
+      # target app's real admin — supply EVAL_ADMIN_* as repo secrets for that.
+      EVAL_ADMIN_EMAIL: ${{ secrets.EVAL_ADMIN_EMAIL || 'eval-admin@example.com' }}
+      EVAL_ADMIN_PASSWORD: ${{ secrets.EVAL_ADMIN_PASSWORD || 'eval_admin_pw_ci_only_12345' }}
+      EVAL_BASE_URL: ${{ github.event.inputs.base_url || 'http://localhost:8000' }}
+      EVAL_ENV_LABEL: ${{ github.event.inputs.env_label || 'ci' }}
+      EVAL_TRACER_URL: https://tracer.rtrentjones.dev
+      TRACER_INGEST_TOKEN: ${{ secrets.TRACER_INGEST_TOKEN }}
+      # Judge on a DIFFERENT free vendor than the model under test: removes
+      # self-preference bias and takes judge calls off the shared Gemini daily
+      # budget. Fail-soft — until GROQ_API_KEY is set the judge falls back to
+      # the app provider and the report labels the run self-graded.
+      EVAL_JUDGE_PROVIDER: ${{ vars.EVAL_JUDGE_PROVIDER || 'groq,openrouter' }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          persist-credentials: false
-      - name: Probe (Flash-Lite, one ~44k-token call, a second on 200)
+      - uses: actions/checkout@v4
+      - name: Preflight — Gemini key present (boot mode only)
+        if: ${{ github.event.inputs.base_url == '' }}
         run: |
-          python3 - <<'PY'
-          import json, os, time, urllib.error, urllib.request
-          from datetime import datetime, timezone
-
-          KEYS = ["GEMINI_API_KEY"]
-          SECRETS = [os.environ[k] for k in KEYS if os.environ.get(k)]
-          MODEL = "gemini-3.5-flash-lite"
-          URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent"
-          CORPORA = ["evals/corpora/wuthering/excerpts.txt", "evals/corpora/frankenstein/excerpts.txt"]
-          TARGET_CHARS, PASS_TOKENS, BUDGET_S = 210_000, 42_700, 10 * 60
-
-          def now():
-              return datetime.now(timezone.utc)
-
-          def scrub(text):
-              for s in SECRETS:
-                  text = text.replace(s, "***")
-              return text
-
-          def details(body, suffix):
-              try:
-                  ds = json.loads(body)["error"].get("details", [])
-              except Exception:
-                  return []
-              return [d for d in ds if d.get("@type", "").endswith(suffix)]
-
-          def per_minute_token(vs):
-              return [v for v in vs if "PerMinute" in v.get("quotaId", "") and "Token" in v.get("quotaId", "")]
-
-          # The prompt: both corpora, repeated as needed, cut to TARGET_CHARS, then the instruction.
-          corpus = "\n\n".join(open(p, encoding="utf-8").read() for p in CORPORA)
-          text = (corpus * (TARGET_CHARS // len(corpus) + 1))[:TARGET_CHARS]
-          prompt = text + "\n\nReply with the single word OK."
-          body = json.dumps({"contents": [{"parts": [{"text": prompt}]}],
-                             "generationConfig": {"maxOutputTokens": 8}}).encode()
-
-          t0 = now()
-          out = {"sha": os.environ["PROBE_SHA"], "model": MODEL, "utc_start": t0.isoformat(),
-                 "keys": {k: "set" if os.environ.get(k) else "unset" for k in KEYS},
-                 "prompt_chars": len(prompt), "calls": []}
-          print("keys:", json.dumps(out["keys"]), "prompt_chars:", len(prompt))
-
-          def probe(n):
-              left = BUDGET_S - (now() - t0).total_seconds()
-              if left < 5:
-                  return {"call": n, "skipped": "10-minute budget spent"}
-              req = urllib.request.Request(URL, data=body, method="POST", headers={
-                  "Content-Type": "application/json", "x-goog-api-key": os.environ["GEMINI_API_KEY"]})
-              rec = {"call": n, "at": now().isoformat()}
-              try:
-                  with urllib.request.urlopen(req, timeout=min(180, left)) as r:
-                      st, raw = r.status, scrub(r.read().decode("utf-8", "replace"))
-              except urllib.error.HTTPError as e:
-                  st, raw = e.code, scrub(e.read().decode("utf-8", "replace"))
-              except Exception as e:  # network error or timeout: record its type only
-                  st, raw = 0, type(e).__name__
-              rec["status"] = st
-              try:
-                  resp = json.loads(raw) if st == 200 else {}
-              except Exception:
-                  resp = {}
-              u = resp.get("usageMetadata", {})
-              rec["usageMetadata"] = {k: u.get(k) for k in ("promptTokenCount", "totalTokenCount")}
-              rec["modelVersion"] = resp.get("modelVersion")
-              if st == 429:
-                  rec["violations"] = [{k: v.get(k) for k in ("quotaId", "quotaValue", "quotaDimensions")}
-                                       for d in details(raw, "QuotaFailure") for v in d.get("violations", [])]
-                  rec["retryInfo"] = [d.get("retryDelay") for d in details(raw, "RetryInfo")]
-                  rec["per_minute_token_violation"] = bool(per_minute_token(rec["violations"]))
-              if st != 200:
-                  rec["body"] = raw[:4000]
-              print(json.dumps({k: rec.get(k) for k in ("call", "status", "usageMetadata", "modelVersion")}))
-              return rec
-
-          if os.environ.get("GEMINI_API_KEY"):
-              out["calls"].append(probe(1))
-              if out["calls"][0].get("status") == 200:
-                  time.sleep(5)
-                  out["calls"].append(probe(2))
-
-          c1 = out["calls"][0] if out["calls"] else {}
-          c2 = out["calls"][1] if len(out["calls"]) > 1 else {}
-          ptc = (c1.get("usageMetadata") or {}).get("promptTokenCount") or 0
-          if c1.get("status") == 200 and ptc >= PASS_TOKENS:
-              out["verdict"] = "pass"
-          elif c1.get("per_minute_token_violation"):
-              out["verdict"] = "fail"
-          else:
-              out["verdict"] = "inconclusive"
-          # A per-minute token 429 on the second call puts the cap between one and two prompts.
-          out["second_call_per_minute_token_429"] = bool(c2.get("per_minute_token_violation"))
-          out["utc_end"] = now().isoformat()
-
-          dump = scrub(json.dumps(out, indent=2))
-          assert not any(s in dump for s in SECRETS)
-          open("tpm_probe.json", "w").write(dump)
-          lines = ["## W13-1 TPM probe", "", f"{out['utc_start']} to {out['utc_end']}, sha {out['sha']}", "",
-                   "keys: " + ", ".join(f"{k} {v}" for k, v in out["keys"].items()),
-                   f"prompt chars: {out['prompt_chars']}", f"**verdict: {out['verdict']}**", ""]
-          for c in out["calls"]:
-              lines.append(f"- call {c['call']}: status {c.get('status', c.get('skipped'))}, "
-                           f"usage {json.dumps(c.get('usageMetadata'))}, modelVersion {c.get('modelVersion')}, "
-                           f"violations {json.dumps(c.get('violations'))}, retry {c.get('retryInfo')}")
-          if out["second_call_per_minute_token_429"]:
-              lines.append("")
-              lines.append("second call hit a per-minute token limit: cap between one and two prompts")
-          summary = scrub("\n".join(lines))
-          assert not any(s in summary for s in SECRETS)
-          open(os.environ["GITHUB_STEP_SUMMARY"], "a").write(summary + "\n")
-          print("tpm_probe.json written, verdict", out["verdict"])
-          PY
-      - name: Upload probe
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "::error::GEMINI_API_KEY is not set on this repo — the app can't boot for the eval. Add it in repo Actions secrets."
+            exit 1
+          fi
+      - uses: ./.github/actions/boot-app
+        with:
+          serve: ${{ github.event.inputs.base_url == '' }}
+      - name: Run evals + ingest to Tracer
+        env:
+          BASE_LABEL: ${{ github.event.inputs.env_label || 'ci' }}
+          STEPS: ${{ github.event.inputs.steps || 'all' }}
+        run: |
+          # Book selection: dispatch input wins; else on a push read the book
+          # names from the sentinel file (so a single push can grade just one
+          # book to stay inside the Gemini free-tier quota); else both.
+          BOOKS="${{ github.event.inputs.book }}"
+          if [ -z "$BOOKS" ]; then
+            BOOKS="$(grep -oiE 'dracula|frankenstein|cel' evals/.run-eval | tr '\n' ' ' || true)"
+          fi
+          BOOKS="${BOOKS:-dracula frankenstein cel}"
+          # Repeat count: dispatch input wins; else a "repeat: N" line in the
+          # sentinel (mean±std noise band; N× the LLM cost — budget for it).
+          REPEAT="${{ github.event.inputs.repeat }}"
+          if [ -z "$REPEAT" ]; then
+            REPEAT="$(grep -oiE 'repeat: *[0-9]+' evals/.run-eval | grep -oE '[0-9]+' || true)"
+          fi
+          REPEAT="${REPEAT:-1}"
+          echo "grading books: $BOOKS (repeat=$REPEAT)"
+          rc=0
+          for BK in $BOOKS; do
+            echo "::group::evals $BK"
+            # Distinct Tracer env per book so training vs held-out trend apart.
+            # cel is the synthetic fidelity corpus (no gold voice lines, no
+            # continuity injections): grade only what it was built for, to
+            # save quota.
+            BK_STEPS="$STEPS"
+            if [ "$BK" = "cel" ] && [ "$STEPS" = "all" ]; then BK_STEPS="outline"; fi
+            EVAL_ENV_LABEL="${BASE_LABEL}-${BK}" python -m evals.run \
+              --book "$BK" --steps "$BK_STEPS" --repeat "$REPEAT" \
+              --out "eval-report-$BK.json" --export "gl-export-$BK.json" --tracer || rc=1
+            # The BRD §7 acceptance gate: an outline that loses the author's
+            # cast fails the run (docs/BRD.md R1.4).
+            if [ "$BK" = "cel" ] && [ -f eval-report-cel.json ]; then
+              python -m evals.gate eval-report-cel.json "outline.cast_fidelity>=0.9" || rc=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $rc
+      - name: Stop app
+        if: ${{ always() && github.event.inputs.base_url == '' }}
+        run: kill "$(cat /tmp/app.pid)" 2>/dev/null || true
+      - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tpm-probe
-          path: tpm_probe.json
+          name: eval-report-${{ github.run_id }}
+          path: |
+            eval-report-*.json
+            gl-export-*.json
+            app.log
           if-no-files-found: warn
-          retention-days: 30
