@@ -1,7 +1,7 @@
 # SPEC-88 — Wave-13 record: counts, cuts, the W13-0 probe, run-W13dry, the stop path
 **Closes**: wave-13 §5.3, F5, N5 · **Size**: docs · **Depends on**: SPEC-81, SPEC-84. The W12-9 ledger is wave 14's first commit.
-- **Counts of record** (net against `275037c`, §0): product **+2** (F6: flash 250 → 20 from `quotaValue`; the dated row), tests **+680**,
-  YAML **+71**, docs **+46** before this file. Test cap: 690 → 720 at E2-2 (= backstop) → 660, W13-4 deferred → **680** at the code gate.
+- **Counts of record** (net against `275037c`, §0): product **+2** (F6) **+131** frontend (`55d8aae`, the user-reported Extract control, outside
+  the wave's caps), tests **+680**, YAML **+71**, docs **+46** before this file. Test cap 690 → 720 (E2-2) → 660 → **680** (code gate).
 - **Cut:** `LLM_ON_QUOTA`, the slot guard, `cancel_job` (now `restore_cancel.sql`), Cohen κ, Gemma, PR-0; the recorder was cut and
   restored (E2-3). **To wave 14:** the N1/N2 rows; the rate job, its leak guard, the stub panel; **W13-4**, at local `w14-panel-parked`
   `5350c2fea32b1fde379f2ad4b83e81e71c5acb4a` (2026-10-19 23:30Z, never pushed or rewritten; this line, pushed before the first W12-9
