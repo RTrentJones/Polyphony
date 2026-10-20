@@ -163,6 +163,17 @@ async def test_an_ungrounded_prep_is_refused_before_the_outline(monkeypatch, voi
     outline.assert_not_awaited()
 
 
+async def test_a_beatless_chapter_is_refused_as_a_slot(monkeypatch):  # sweep S2
+    book = {"id": "b", "voice": {"indexed": True}}
+    monkeypatch.setattr(arms, "_book_with_cast", AsyncMock(return_value=book))
+    monkeypatch.setattr(arms, "_outline_into", AsyncMock())
+    chapters = [{"chapter_id": str(k), "position": k} for k in range(6)]
+    client = SimpleNamespace(promote_all=AsyncMock(return_value={"chapters": chapters}))
+    client.get_chapter = AsyncMock(return_value={"planned_beats": []})
+    with pytest.raises(arms.EvalClientError, match="no planned beat"):
+        await arms.prepare(SimpleNamespace(book="cel", client=client))
+
+
 async def test_restore_cancel_then_entry_trashes_orphans_and_resumes(
     async_session, cel_book, monkeypatch, tmp_path
 ):
