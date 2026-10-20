@@ -69,8 +69,9 @@ def apply_aliases(text: str, aliases: dict[str, str]) -> str:
     return text
 
 
-def extract_sections(body: str, sections: list[str]) -> str:
-    """Slice the named top-level sections (e.g. 'CHAPTER II') and concatenate.
+def extract_sections(body: str, sections: list[str], aliases: dict, per: dict) -> str:
+    """Slice the named top-level sections (e.g. 'CHAPTER II'), rename each (its own
+    per-section overrides win), and concatenate.
 
     A section runs from its header line to the next chapter/section header. This
     keeps the committed corpus to a curated few chapters, not the whole book.
@@ -88,7 +89,7 @@ def extract_sections(body: str, sections: list[str]) -> str:
         # Skip table-of-contents entries (short) — only real chapter bodies.
         if len(chunk) < 1000:
             continue
-        out.append(chunk)
+        out.append(apply_aliases(chunk, aliases | per.get(name, {})))
     if not out:
         raise SystemExit(f"none of {sections} found among {[b[1] for b in boundaries]}")
     return "\n\n\n".join(out)
@@ -108,13 +109,14 @@ def main() -> None:
     raw = raw.replace("\r\n", "\n").replace("\r", "\n")
 
     body = strip_gutenberg(raw)
-    body = extract_sections(body, spec["sections"])
-    renamed = apply_aliases(body, spec["aliases"])
+    # A section may give a name another meaning (Wuthering's two Catherines).
+    per = spec.get("section_aliases", {})
+    renamed = extract_sections(body, spec["sections"], spec["aliases"], per)
 
     # Sanity: no original name should survive the rename (case-insensitive).
     leaks = [
         src
-        for src in spec["aliases"]
+        for src in spec["aliases"] | {k: 0 for v in per.values() for k in v}
         if re.search(rf"\b{re.escape(src)}\b", renamed, flags=re.IGNORECASE)
     ]
     if leaks:

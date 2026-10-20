@@ -1,5 +1,14 @@
 # SPEC-84 — Baseline harness and its pre-registration (W12-5 → wave 13: W13-1, the W12-9 run)
 **Closes**: W12-5, W13-1 · **Size**: M · **Depends on**: SPEC-17, SPEC-40, SPEC-72, SPEC-81, SPEC-87. Pre-registration first, at day-0.
+- **Slots and arms** (`evals/baseline/`, step `baseline`). **B** (today's retrieval-assisted prose) and **C** (the ensemble) run
+  through the API, `mode_used` checked (LLM_TIER=paid), and are trashed once read, so no arm reads another's prose as its prior tail.
+  **A** runs `run_prose_scene_workflow` in-process with `prose.build_cast_context` patched at call time (no product seam): B's beats
+  seeded through the checkpoint, casts rebuilt from B's `grounding[idx]` `character_id`s, B's job request, its own job id.
+- **Blinding.** Random ids; fences, `→`, beat labels, `[[eval-…]]` stripped; pair order and each slot's edit arm seeded; seed and key
+  sealed outside the bundle. Sheet: preference, continuity vs the canon sheet, edit-to-acceptable.
+- **Also reported:** continuity errors per scene, p50/p95 latency, cost per scene (one SQL sum over `api_usage.job_id` per arm;
+  unpriced tokens beside). **Tests** (F), `test_baseline_harness.py`: request diff, seeded beats, rebuilt casts, job-id cost; N3; the
+  leak test; the win rates.
 - **A's lines (N3, as signed):** per present character, the first 3 dialogue lines in source order, each of at least `SPEECH_MIN_WORDS`
   words and not in `scope.later_from`; no ranking, retrieval, movement or owned-phrase block. `later_plot_removed` counts candidates
   the later-plot cut dropped before the third pick (SPEC-72's errors show here).

@@ -123,11 +123,32 @@ def test_cel_uploads_a_manuscript_that_names_its_whole_cast():
         assert name in text, f"{name} is graded but never in the uploaded text"
 
 
-@pytest.mark.parametrize("book", ["dracula", "frankenstein"])
+@pytest.mark.parametrize("book", ["dracula", "frankenstein", "wuthering"])
 def test_corpora_without_a_synopsis_file_upload_their_excerpts(book):
     text, _ = pipeline.load_corpus(book)
     excerpts = (pipeline.CORPORA / book / "excerpts.txt").read_text(encoding="utf-8")
     assert text == excerpts
+
+
+@pytest.mark.parametrize("book", ["dracula", "frankenstein", "wuthering"])
+def test_a_renamed_corpus_leaks_no_original_and_renames_one_to_one(book):
+    """(F) W13-5: no original survives in the excerpt; one rename is one person
+    (shared only by a name and its part); a rename is never an original name."""
+    spec = json.loads((pipeline.CORPORA / book / "aliases.json").read_text())
+    maps = [spec["aliases"], *spec.get("section_aliases", {}).values()]
+    originals = {w for m in maps for k in m for w in k.split()} - {
+        "Mrs.",
+        "Lord",
+        "Count",
+    }
+    for m in maps:
+        for src, rep in m.items():
+            assert not re.search(
+                rf"\b{re.escape(src)}\b", pipeline.load_excerpts(book), re.I
+            )
+            same = [set(k.split()) for k, v in m.items() if v == rep]
+            assert all(k <= set(src.split()) or set(src.split()) <= k for k in same)
+            assert not set(rep.split()) & originals, rep
 
 
 async def test_attribution_creates_book_scoped_characters(tmp_path, monkeypatch):

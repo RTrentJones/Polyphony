@@ -1,0 +1,47 @@
+{
+  "_comment": "Data-only book spec consumed by evals/tools/build_gt.py. Wuthering Heights is the nonlinear manuscript: Pembury's dated frame (Chapters 1-3) and Mattie's narration of two timelines a generation apart (the mother's in Chapters 9 and 15, the daughter's in Chapters 21-22), with two Rosalind/Ottilie Catherines and every Penhale sharing one surname. Names renamed for anti-memorization (see PROVENANCE.md).",
+  "author": "Emily Brontë",
+  "year": 1847,
+  "source": "Project Gutenberg #768 (public domain, US; PG wrapper stripped)",
+  "cast": [
+    "Varrick",
+    "Rosalind Ashdown",
+    "Martha Bryce",
+    "Pembury",
+    "Ottilie Penhale",
+    "Aubrey Penhale",
+    "Wendell Ashdown",
+    "Penhale Varrick",
+    "Brandon",
+    "Ezekiel"
+  ],
+  "voice_sources": {
+    "Pembury": {"chapters": ["CHAPTER I", "CHAPTER II", "CHAPTER III"], "max_lines": 11},
+    "Martha Bryce": {"chapters": ["CHAPTER IX", "CHAPTER XXI", "CHAPTER XXII"], "max_lines": 11}
+  },
+  "synopsis": "In 1801 Pembury, a fashionable gentleman, rents Fallowmere Grange and calls on his landlord Varrick at the moorland farmhouse of Blackmoss Heights. He finds a household of open hostility: Varrick, the widowed young Mrs. Varrick, and the rough, unlettered Wendell Ashdown. Snowed in for the night, he sleeps in an old oak closet whose ledge is scratched with the names Rosalind Ashdown, Rosalind Varrick and Rosalind Penhale, reads a dead girl's diary, and dreams that her ghost begs at the window to be let in; Varrick, hearing his cry, sobs into the storm for her. Back at the Grange, the housekeeper Martha Bryce (Mattie), who grew up at the Heights, tells him the story across two generations. A generation earlier, the foundling Varrick was raised at the Heights beside Rosalind Ashdown and degraded by her brother Brandon. Rosalind confides to Mattie that she will marry the gentle Aubrey Penhale of the Grange, though Varrick is more herself than she is; Varrick overhears only that marrying him would degrade her, and vanishes for three years. He returns rich and vengeful, and on the day before she dies in childbirth he forces a last, anguished meeting with Rosalind, now Aubrey's wife. Her daughter Ottilie Penhale grows up sheltered at the Grange. At sixteen she strays onto the moors, meets Varrick and her cousins Wendell and the sickly Penhale Varrick, Varrick's son, and begins a secret love correspondence with Penhale, which Mattie discovers and burns. Varrick then waylays Ottilie and tells her the boy is dying for love of her, drawing her back toward the Heights and his plan to join the two houses.",
+  "canonical_beats": [
+    {"title": "Pembury is snowed in at Blackmoss Heights and dreams of Rosalind's ghost at the window", "kind": "inciting"},
+    {"title": "Rosalind tells Mattie she will marry Aubrey; Varrick overhears and vanishes", "kind": "rising"},
+    {"title": "Varrick and the dying Rosalind meet for the last time", "kind": "midpoint"},
+    {"title": "Sixteen-year-old Ottilie meets Varrick, Wendell and her cousin Penhale at the Heights", "kind": "rising"},
+    {"title": "Mattie finds Ottilie's secret letters to Penhale and burns them", "kind": "rising"},
+    {"title": "Varrick tells Ottilie that Penhale is dying for love of her, drawing her back to the Heights", "kind": "climax"}
+  ],
+  "continuity_injections": [
+    {
+      "id": "date-era-flip",
+      "locate": "1801—I have just returned",
+      "replace": "1901—I have just returned",
+      "expect_type": "timeline",
+      "note": "Pembury's opening entry dated a century late, against the 1801 frame"
+    },
+    {
+      "id": "name-misspell",
+      "locate": "“My name is Wendell Ashdown,” growled",
+      "replace": "“My name is Wendel Ashdown,” growled",
+      "expect_type": "character",
+      "note": "the young man's name respelled where he gives it, inconsistent with every other spelling"
+    }
+  ]
+}

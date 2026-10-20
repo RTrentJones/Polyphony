@@ -1,0 +1,35 @@
+{
+  "_comment": "Rename map for anti-memorization eval integrity (see PROVENANCE.md). Original public-domain names -> invented replacements, longest-first so multi-word names replace before their parts. Sections: Lockwood's frame (Chapters 1-3) and Nelly's narration of both timelines (Chapters 9, 15, 21, 22). 'Linton' is one invented surname for every Linton and for Linton Heathcliff's first name, preserving the book's own overlap. 'Catherine'/'Cathy' mean the mother in Chapters 1-3, 9 and 15 and the daughter in Chapters 21-22 (read occurrence by occurrence), so section_aliases renames the daughter there.",
+  "sections": ["CHAPTER I", "CHAPTER II", "CHAPTER III", "CHAPTER IX", "CHAPTER XV", "CHAPTER XXI", "CHAPTER XXII"],
+  "aliases": {
+    "Jabez Branderham": "Josiah Brackenbury",
+    "Thrushcross": "Fallowmere",
+    "Branderham": "Brackenbury",
+    "Penistone": "Kestlebrow",
+    "Heathcliff": "Varrick",
+    "Wuthering": "Blackmoss",
+    "Catherines": "Rosalinds",
+    "Catherine": "Rosalind",
+    "Gimmerton": "Harlby",
+    "Isabella": "Lavinia",
+    "Lockwood": "Pembury",
+    "Earnshaw": "Ashdown",
+    "Hindley": "Brandon",
+    "Frances": "Philippa",
+    "Kenneth": "Lorimer",
+    "Hareton": "Wendell",
+    "Linton": "Penhale",
+    "Joseph": "Ezekiel",
+    "Zillah": "Keziah",
+    "Edgar": "Aubrey",
+    "Ellen": "Martha",
+    "Nelly": "Mattie",
+    "Cathy": "Rosie",
+    "Jabez": "Josiah",
+    "Dean": "Bryce"
+  },
+  "section_aliases": {
+    "CHAPTER XXI": {"Catherine": "Ottilie", "Cathy": "Tilly"},
+    "CHAPTER XXII": {"Catherine": "Ottilie", "Cathy": "Tilly"}
+  }
+}
