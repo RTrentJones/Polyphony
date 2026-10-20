@@ -6,9 +6,9 @@
   seeded through the checkpoint, casts rebuilt from B's `grounding[idx]` `character_id`s, B's job request, its own job id.
 - **Blinding.** Random ids; fences, `→`, beat labels, `[[eval-…]]` stripped; pair order and each slot's edit arm seeded; seed and key
   sealed outside the bundle. Sheet: preference, continuity vs the canon sheet, edit-to-acceptable.
-- **Also reported:** continuity errors per scene, p50/p95 latency, cost per scene (one SQL sum over `api_usage.job_id` per arm;
-  unpriced tokens beside). **Tests** (F), `test_baseline_harness.py`: request diff, seeded beats, rebuilt casts, job-id cost; N3; the
-  leak test; the win rates.
+- **Also reported:** continuity errors per scene, p50/p95 latency, requests, tokens and cost per scene (one SQL sum over
+  `api_usage.job_id` per arm; cost is $0 here, unpriced tokens beside). **Tests** (F), `test_baseline_harness.py`: request diff,
+  seeded beats, rebuilt casts, job-id cost; N3; the leak test; the win rates.
 - **A's lines (N3, as signed):** per present character, the first 3 dialogue lines in source order, each of at least `SPEECH_MIN_WORDS`
   words and not in `scope.later_from`; no ranking, retrieval, movement or owned-phrase block. `later_plot_removed` counts candidates
   the later-plot cut dropped before the third pick (SPEC-72's errors show here).
@@ -41,3 +41,5 @@
   > - The re-pin rule applies to the OpenRouter member.
   - **n = 12 (PM §7):** If the chosen generator fits Frankenstein + Wuthering in 7 days but not all three manuscripts, cel is dropped
     and n = 12, with wider CIs.
+- **Rating is wave 14:** the panel and `score`'s rated path are parked at `w14-panel-parked` (`5350c2f`, pushed before the first
+  W12-9 dispatch); wave 13 ends at sealed bundles. Every results line also states that C is the paid-tier ensemble.

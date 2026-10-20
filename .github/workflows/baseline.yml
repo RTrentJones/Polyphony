@@ -7,9 +7,9 @@ on:
       label: {description: the run label, e.g. W12-9 or demo, required: true}
       sha: {description: the app sha every dispatch runs (the cache is keyed by it), required: true}
       prior_run: {description: the run id whose state this dispatch resumes, default: ''}
-      provider: {description: the generator, by the signed rule (LLM_PROVIDER), default: gemini}
-      model: {description: the generator id (LLM_MODEL and LLM_MODEL_FAST), default: gemini-3.5-flash-lite}
-      max_rpd: {description: 'floor(0.8 x RPD) -> LLM_MAX_RPD (empty = unset)', default: ''}
+      provider: {description: "the generator, by the signed rule (LLM_PROVIDER)", required: true}
+      model: {description: the generator id (LLM_MODEL and LLM_MODEL_FAST), required: true}
+      max_rpd: {description: "⌊0.8 × RPD⌋ from SPEC-88's feasibility table (LLM_MAX_RPD)", required: true}
 permissions: {contents: read, actions: read}
 concurrency: {group: baseline, cancel-in-progress: false}
 env: # with the boot-app action's CI values (SECRET_KEY, DATABASE_URL, ADMIN_*)
@@ -33,7 +33,7 @@ jobs:
       LLM_MODEL: ${{ inputs.model }}
       LLM_MODEL_FAST: ${{ inputs.model }}
       LLM_MAX_RPM: '8'
-      LLM_MAX_RPD: ${{ inputs.max_rpd || '0' }} # 0 = unset on paid
+      LLM_MAX_RPD: ${{ inputs.max_rpd }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GEMINI_BASE_URL: http://127.0.0.1:8091/v1
       STUB_LLM_BASE_URL: http://127.0.0.1:8091/v1

@@ -242,7 +242,10 @@ async def run(
     finally:
         if ctx.client:
             result["relogin"] = ctx.client.relogins
-            result["usage"] = await ctx.client.usage()  # the report header (W13-1)
+            try:
+                result["usage"] = await ctx.client.usage()  # the report header (W13-1)
+            except Exception as e:  # noqa: BLE001 - never hide the run's error
+                result["usage"] = {"error": f"{type(e).__name__}: {e}"}
             await ctx.client.aclose()
 
     report.write(result, out)
