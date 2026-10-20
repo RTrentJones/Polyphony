@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       manuscript: {description: 'frankenstein | wuthering | cel', required: true}
-      label: {description: the run label, e.g. W12-9 or demo, required: true}
+      label: {description: "the run label, e.g. W12-9 or demo", required: true}
       sha: {description: the app sha every dispatch runs (the cache is keyed by it), required: true}
       prior_run: {description: the run id whose state this dispatch resumes, default: ''}
       provider: {description: "the generator, by the signed rule (LLM_PROVIDER)", required: true}
