@@ -67,7 +67,13 @@ Full digests and state-artifact ids are in the orchestrator's ledger; keys and r
 tokens (ValueError), memoized at P; no kappa.json · rate-state 12341190753, 126 replies, 1 invalid (`panel-4c92d396408f6e102cf0`).
 39594561205 · `sha=P″` (`19838a1`) · prior 39594493758 (the rate-state re-uploaded without that reply) · red: Groq 1 reply then its
 tokens-per-day stop; Nemotron 2 valid bare-JSON replies, then one unparseable (ValueError) · rate-state 12343242346, 128 replies, 0
-invalid. From P‴ (`c51d49e`) on, one row each, plus Nemotron requests spent, replies cached and re-asks: run id · `sha=19838a1` (P + the recorded `panel.py` lines) · `prior_run` · rate-state check (invalid
+invalid. From P‴ (`c51d49e`) on, one row each, plus Nemotron requests spent, replies cached and re-asks:
+39598043470 · `sha=P‴` (`c51d49e`) · prior 39594561205 · green, a clean stop on both members: Groq 0 replies (tokens-per-day,
+195,445/200K); Nemotron 46 requests, 39 replies cached, 4 re-asks that then parsed, 1 prompt left unrated after 3
+(`panel-9d1545248cbffb2ce2dd`, a nested `{"errors": {"count": 0, …}` missing its closing brace), then OpenRouter's 50/day ·
+rate-state 12347567923: 167 checked against P⁗'s range rule, 0 removed · `unrated` 85 · f = 7/46 ≈ 0.15, Nemotron 121 prompts
+left: ⌈121 × 1.3 / 50⌉ = 4 days (about 10-25). Next resumes check out P⁗ (`5dd2d7a`).
+ run id · `sha=19838a1` (P + the recorded `panel.py` lines) · `prior_run` · rate-state check (invalid
 entries removed, by key, or none) · `unrated` after the dispatch.
 
 ## Panel feasibility record (wave 14, before the first rating call)
