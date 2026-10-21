@@ -47,7 +47,10 @@ def load(path: Path) -> dict:
 
 def last_answer(text: str, what: str) -> int:
     """The reply's last JSON object: an inline reasoner may quote the prompt's first."""
-    return int(extract_json_object(text[text.rindex("{") : text.rindex("}") + 1])[what])
+    v = extract_json_object(text[text.rindex("{") : text.rindex("}") + 1])[what]
+    if type(v) is not int or (v not in (1, 2) if what == "preferred" else v < 0):
+        raise ValueError(f"{what} out of range: {v!r}")  # re-asked, as if unparseable
+    return v
 
 
 async def rate(member: str, bundles: list[dict], cache: Cache) -> dict:
