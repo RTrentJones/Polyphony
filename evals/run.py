@@ -256,7 +256,9 @@ async def run(
 async def ingest_to_tracer(result: dict, url: str, token: str, env: str) -> None:
     """POST the run to Tracer's /api/ingest (bearer-authed) so the score trend
     shows release-over-release. Best-effort: a failed ingest never fails a run."""
-    payload = report.tracer_export(result, model=result["model"], env=env)
+    payload = report.tracer_export(
+        result, model=result["model"], env=env, provenance=report.github_provenance()
+    )
     async with httpx.AsyncClient(timeout=30) as h:
         r = await h.post(
             f"{url.rstrip('/')}/api/ingest",

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import re
 from pathlib import Path
 from statistics import mean
@@ -193,48 +194,141 @@ def tracer_export(
     model: str,
     env: str = "eval",
     threshold: float = TRACER_PASS_THRESHOLD,
+    provenance: dict | None = None,
 ) -> dict:
     """Shape an eval run as Tracer's EvalRunInput (POST /api/ingest).
 
     One eval_run + one case per scored step. `model` is the model UNDER TEST
     (what we're trending), not the judge. Skipped/errored steps are dropped so a
-    partial run (e.g. keyless, retrieval-only) still ingests cleanly.
+    partial run (e.g. keyless, retrieval-only) still ingests cleanly, but they
+    are named in `labels.skipped` / `labels.errored` so an absent step reads as
+    "didn't run", not "fine".
+
+    The book is the Tracer `suite`, so training (dracula), held-out
+    (frankenstein) and the fidelity gate (cel) trend as separate series. Each
+    step's numeric fields ride along as case `metrics`, and `<step>.<metric>`
+    run metrics, so Tracer charts F1 / MRR / cast_fidelity over time rather than
+    only the coarse pass flag. `provenance` (repo / branch / source_url) comes
+    from `github_provenance()` in CI.
     """
     cases, gated = [], []
+    run_metrics: dict[str, float] = {}
+    skipped, errored = [], []
     for name, res in run["steps"].items():
-        if res.get("skipped") or "error" in res or res.get("score") is None:
+        if res.get("skipped"):
+            skipped.append(name)
+            continue
+        if "error" in res:
+            errored.append(name)
+            continue
+        if res.get("score") is None:
             continue
         score = round(min(1.0, max(0.0, float(res.get("score", 0.0)))), 4)
         out = _case_output(name, res)
         # Tracer's case schema has no std field, so fold the noise band into the
         # output text — otherwise a stable 0.50±0.00 and a noisy 0.50±0.40 look
-        # identical on the trend.
+        # identical on the trend. (It is also a case metric, below.)
         if res.get("score_std") is not None:
             out = f"score={score} ±{res['score_std']} (n={res.get('repeats')})  {out}"
+        metrics = _numeric_fields(res)
+        for k in _TRACER_RUN_METRICS.get(name, ("score",)):
+            if k in metrics:
+                run_metrics[f"{name}.{k}"] = metrics[k]
         cases.append(
             {
                 "name": f"eval:{name}",
+                "category": "reported" if res.get("status") == "reported" else "gated",
                 "score": score,
                 "passed": score >= threshold,
                 "output": out,
                 "judge_rationale": (res.get("judge_explanation") or "")[:16000] or None,
+                "metrics": metrics,
             }
         )
         if res.get("status") != "reported":  # SPEC-60: trended, never gated
             gated.append(cases[-1])
     n = len(gated)
     n_pass = sum(1 for c in gated if c["passed"])
-    return {
+    judge = run.get("judge") or {}
+    labels = {
+        k: str(v)[:255]
+        for k, v in {
+            "judge_provider": judge.get("provider"),
+            "judge_model": judge.get("model"),
+            "judge_self_graded": judge.get("self"),
+            "harness_sha": run.get("harness_sha"),
+            "declared_run": run.get("run"),
+            "repeat": run.get("repeat"),
+            "skipped": ",".join(skipped) or None,
+            "errored": ",".join(errored) or None,
+        }.items()
+        if v is not None
+    }
+    out_run = {
         "tool": "polyphony",
         "model": model,
         "mode": "eval",
         "env": env,
+        "suite": run.get("book"),
         "git_sha": run.get("app_sha"),
         # No gated case, no pass (a reported-only run, e.g. attribution alone).
         "passed": n > 0 and n_pass == n,
         "pass_rate": round(n_pass / n, 4) if n else 0.0,
+        "metrics": dict(list(run_metrics.items())[:64]),
+        "labels": labels,
         "cases": cases,
     }
+    for k, v in (provenance or {}).items():
+        if k in ("repo", "branch", "source_url") and v:
+            out_run[k] = v
+        elif k == "labels" and v:
+            out_run["labels"] = {**v, **out_run["labels"]}
+    return out_run
+
+
+# The headline numbers per step that become run-level `<step>.<metric>` trends
+# (every numeric field still rides on the case). Unlisted steps trend `score`.
+_TRACER_RUN_METRICS: dict[str, tuple[str, ...]] = {
+    "extraction": ("score", "f1", "precision", "recall"),
+    "retrieval": ("score", "precision_at_k", "mrr"),
+    "attribution": ("score", "accuracy", "chance"),
+    "continuity": ("score", "detection_recall", "false_positive_rate"),
+    "outline": ("score", "cast_fidelity", "unknown_rate"),
+    "prose": ("score", "words"),
+}
+
+
+def _numeric_fields(res: dict) -> dict[str, float]:
+    """Top-level finite numbers of a step result (bools excluded), Tracer-safe keys."""
+    out: dict[str, float] = {}
+    for k, v in res.items():
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            continue
+        if v != v or v in (float("inf"), float("-inf")):
+            continue
+        key = re.sub(r"[^\w.:/-]", "_", str(k))[:80]
+        out[key] = round(float(v), 6) if isinstance(v, float) else v
+        if len(out) >= 64:
+            break
+    return out
+
+
+def github_provenance(environ: dict | None = None) -> dict:
+    """repo / branch / CI run URL / trigger from the GitHub Actions env (empty locally)."""
+    e = os.environ if environ is None else environ
+    out: dict = {}
+    if e.get("GITHUB_REPOSITORY"):
+        out["repo"] = e["GITHUB_REPOSITORY"]
+        if e.get("GITHUB_RUN_ID"):
+            server = e.get("GITHUB_SERVER_URL", "https://github.com")
+            out["source_url"] = (
+                f"{server}/{e['GITHUB_REPOSITORY']}/actions/runs/{e['GITHUB_RUN_ID']}"
+            )
+    if e.get("GITHUB_REF_NAME"):
+        out["branch"] = e["GITHUB_REF_NAME"]
+    if e.get("GITHUB_EVENT_NAME"):
+        out["labels"] = {"trigger": e["GITHUB_EVENT_NAME"]}
+    return out
 
 
 def _case_output(name: str, res: dict) -> str:

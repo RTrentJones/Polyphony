@@ -663,3 +663,84 @@ def test_names_the_fact_needs_a_full_name_or_alias():
     assert hits["names_the_fact"] is False
     hits = plot.source_fact_hits(gt, None, [OLD_FEN, CONFLICTS[0]])["bell_sent_under"]
     assert hits["names_the_fact"] is True
+
+
+class TestTracerExportProvenance:
+    def _run(self):
+        return {
+            "book": "frankenstein",
+            "app_sha": "abc1234",
+            "harness_sha": "def5678",
+            "model": "gemini-3.5-flash-lite",
+            "run": None,
+            "repeat": 1,
+            "judge": {"provider": "groq", "model": "llama-x", "self": False},
+            "steps": {
+                "extraction": {
+                    "score": 0.8,
+                    "f1": 0.8,
+                    "precision": 1.0,
+                    "recall": 0.67,
+                    "ok": True,
+                },
+                "retrieval": {
+                    "score": 0.6,
+                    "precision_at_k": 0.6,
+                    "mrr": 0.75,
+                    "note": "x",
+                },
+                "attribution": {"score": 0.4, "accuracy": 0.4, "status": "reported"},
+                "prose": {"skipped": True, "reason": "quota"},
+                "continuity": {"error": "boom"},
+            },
+        }
+
+    def test_book_is_the_suite_and_metrics_ride_along(self):
+        from evals.harness import report
+
+        out = report.tracer_export(self._run(), model="gemini-3.5-flash-lite", env="ci")
+        assert out["suite"] == "frankenstein" and out["env"] == "ci"
+        by = {c["name"]: c for c in out["cases"]}
+        # numeric fields only (bools and strings dropped) become case metrics
+        assert by["eval:extraction"]["metrics"] == {
+            "score": 0.8,
+            "f1": 0.8,
+            "precision": 1.0,
+            "recall": 0.67,
+        }
+        assert by["eval:attribution"]["category"] == "reported"
+        assert by["eval:retrieval"]["category"] == "gated"
+        assert out["metrics"]["extraction.f1"] == 0.8
+        assert out["metrics"]["retrieval.mrr"] == 0.75
+        assert out["metrics"]["attribution.accuracy"] == 0.4
+
+    def test_labels_name_judge_and_missing_steps(self):
+        from evals.harness import report
+
+        out = report.tracer_export(self._run(), model="m")
+        assert out["labels"]["judge_provider"] == "groq"
+        assert out["labels"]["judge_self_graded"] == "False"
+        assert out["labels"]["harness_sha"] == "def5678"
+        assert out["labels"]["skipped"] == "prose"
+        assert out["labels"]["errored"] == "continuity"
+        assert "declared_run" not in out["labels"]  # None values are omitted
+
+    def test_provenance_from_github_env(self):
+        from evals.harness import report
+
+        prov = report.github_provenance(
+            {
+                "GITHUB_REPOSITORY": "RTrentJones/Polyphony",
+                "GITHUB_RUN_ID": "7",
+                "GITHUB_REF_NAME": "main",
+                "GITHUB_EVENT_NAME": "workflow_dispatch",
+            }
+        )
+        assert (
+            prov["source_url"]
+            == "https://github.com/RTrentJones/Polyphony/actions/runs/7"
+        )
+        out = report.tracer_export(self._run(), model="m", provenance=prov)
+        assert out["repo"] == "RTrentJones/Polyphony" and out["branch"] == "main"
+        assert out["labels"]["trigger"] == "workflow_dispatch"
+        assert report.github_provenance({}) == {}

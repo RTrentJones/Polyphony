@@ -173,13 +173,28 @@ python -m evals.run --book dracula --steps all --tracer --out report.json
 ```
 
 The mapping (`report.tracer_export`) trends the model **under test** (`EVAL_MODEL_LABEL`
-/ `LLM_MODEL`, default `gemini-2.5-flash`), keyed by the app's `/__version` sha,
-so a prompt/architecture change shows as a step-score delta on the dashboard.
+/ `LLM_MODEL`, else the active provider's default model), keyed by the app's
+`/__version` sha, so a prompt/architecture change shows as a step-score delta on
+the dashboard. Each run carries:
+
+- `suite` = the book, and `env` = `EVAL_ENV_LABEL` (CI: `ci`, or the dispatch's
+  experiment label), so each book × label trends as its own series;
+- one case per scored step (`category` `gated` or `reported`), with the step's
+  numeric fields as case `metrics` and headline `<step>.<metric>` run metrics
+  (e.g. `extraction.f1`, `retrieval.mrr`, `outline.cast_fidelity`) that Tracer
+  charts per run;
+- `labels` for the effective judge (and whether it self-graded), the harness
+  sha, the declared run, and any skipped or errored steps — so a missing step
+  reads as "didn't run", not "fine";
+- in CI, `repo` / `branch` / `source_url` (the Actions run), so the Tracer run
+  page links back to the commit and the logs.
 
 **CI:** `.github/workflows/evals.yml` boots a fresh app (pgvector service +
-`GEMINI_API_KEY`), runs the suite, and ingests to Tracer — dispatchable on demand
-(before/after a change) and weekly for a baseline. It needs `GEMINI_API_KEY` and
-`TRACER_INGEST_TOKEN` as repo Actions secrets.
+`GEMINI_API_KEY`), runs the suite, and ingests to Tracer. It is dispatched on
+demand (before/after a change) or by pushing `evals/.run-eval`; there is no
+schedule, because each run spends the shared Gemini free-tier quota. It needs
+`GEMINI_API_KEY` and `TRACER_INGEST_TOKEN` as repo Actions secrets. Results:
+<https://tracer.rtrentjones.dev/projects/polyphony>.
 
 ## Judge
 
@@ -267,8 +282,8 @@ python -m evals.tools.build_gt --book dracula                                 # 
 - **`frankenstein`** — the **held-out validation** corpus (Walton's letters,
   Victor's creation chapter, the creature's quoted tale). A prompt/architecture
   change counts only if it improves **both**: a gain on Dracula alone is likely
-  overfitting to one book's ground truth. CI grades both and tags them as
-  separate Tracer runs (`env=<label>-dracula` / `-frankenstein`).
+  overfitting to one book's ground truth. CI grades both; Tracer keys each book
+  as its own suite (`suite=dracula` / `frankenstein`), so they trend apart.
 - **`cel`** — the synthetic fidelity corpus (the outline gate, and the harness v2
   book). `load_corpus` uploads the 17k-char `synopsis.txt` + the excerpt.
   `excerpts.txt` is ~4.7k chars of synthetic prose with tagged and inverted lines,
