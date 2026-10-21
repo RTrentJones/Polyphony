@@ -91,7 +91,7 @@ async def main(root: str, out: Path) -> None:
     (px, ex), (py, ey) = [(g["prefer"], g["errors"]) for g in got]  # two, counted
     out.mkdir(parents=True, exist_ok=True)
     for m, g in zip(members, got):
-        write(out / f"sheet-{re.sub(r'\W', '_', m)}.csv", g["prefer"], g["errors"])
+        write(out / ("sheet-%s.csv" % re.sub(r"\W", "_", m)), g["prefer"], g["errors"])
     agreed = {p: px[p] if px[p] == py[p] else "tie" for p in px if p in py}
     errors = {i: (n + ey[i]) / 2 for i, n in ex.items() if i in ey}
     write(out / "sheet-panel.csv", agreed, errors)
