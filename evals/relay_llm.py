@@ -92,7 +92,8 @@ async def chat(request: Request):
         rec = dict(id=rid, purpose=purpose, messages=messages, answer=ans)
         rec |= dict(status=r.status_code, created=time.time())
         answered.write_text(json.dumps(rec, indent=2))  # never a header
-        return Response(r.content, r.status_code, {}, r.headers.get("content-type"))
+        keep = {k: v for k, v in r.headers.items() if k == "retry-after"}  # N2
+        return Response(r.content, r.status_code, keep, r.headers.get("content-type"))
     pending.write_text(
         json.dumps(
             {
