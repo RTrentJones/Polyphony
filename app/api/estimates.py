@@ -16,6 +16,7 @@ from app.core import estimates
 from app.core.database import get_db
 from app.core.orm_models import Book, Source, User as UserORM
 from app.core.security import get_current_active_user
+from app.llm.providers import ModelChoice
 from app.orchestration.revise import SpanSpec
 
 router = APIRouter()
@@ -33,6 +34,7 @@ class EstimateRequest(SpanSpec):
     target_word_count: int = Field(default=800, ge=100, le=3000)
     mode: Literal["prose", "ensemble", "staged", "single"] = "prose"
     max_chapters: Optional[int] = Field(default=None, ge=1)
+    model: ModelChoice = None  # scene/revise: count the chosen model's day (U1)
 
 
 async def _owned_book(db: AsyncSession, book_id: Optional[UUID], user: UserORM) -> Book:
@@ -101,6 +103,7 @@ async def estimate(
             mode="ensemble" if payload.mode == "ensemble" else "prose",
             cast_size=len(cast),
         )
+        return await estimates.assess(db, current_user.id, est, payload.model)
     elif payload.action == "outline":
         from app.planning.continuity import source_texts
 
@@ -134,4 +137,4 @@ async def _revise_estimate(
     scene = await owned_scene(payload.scene_id, user, db)
     span = await request_span(db, scene, payload)
     est, _ = await revise_estimate(db, scene, span)
-    return await estimates.assess(db, user.id, est)
+    return await estimates.assess(db, user.id, est, payload.model)

@@ -136,7 +136,6 @@ class LLMClient:
                 user_id,
                 purpose,
                 response_format,
-                fast,
             )
         except CircuitBreakerError as e:
             llm_requests_total.labels(
@@ -168,7 +167,6 @@ class LLMClient:
         user_id: Optional[UUID],
         purpose: str,
         response_format: Optional[dict] = None,
-        fast: bool = False,
     ) -> GenResult:
         """The paced retry loop; a single logical generation. Raised failures
         here count as ONE breaker failure (see generate())."""
@@ -186,7 +184,7 @@ class LLMClient:
         extra_body, max_tokens = _thinking_guard(
             self.provider, resolved_model, max_tokens
         )
-        rpd = effective_rpd(self.provider, fast)
+        rpd = effective_rpd(self.provider, resolved_model)
         last_error: Optional[Exception] = None
         waited = 0.0
         for attempt in range(_MAX_ATTEMPTS):

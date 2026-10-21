@@ -255,6 +255,19 @@ async def test_a_secondary_added_to_the_cast_since_promote_is_cast(
     assert third["secondary_names"] == []
 
 
+async def test_a_chosen_model_rides_every_scene_of_the_batch(
+    client, auth_headers, async_session, test_book
+):
+    """U1 (F): flash is on every request of the batch, not only the first."""
+    _, promoted, _ = await _beat_book(client, auth_headers, async_session, test_book)
+    body = {"model": "gemini-3.6-flash"}
+    url = _PLANNED.format(promoted["chapter_id"])
+    assert (await client.post(url, json=body, headers=auth_headers)).is_success
+    assert [q["model"] for q in await _requests(async_session)] == [body["model"]] * 3
+    (job,) = (await async_session.execute(select(Job))).scalars().all()
+    assert job.payload["model"] == body["model"]  # the chain copies it per job
+
+
 async def test_the_preflight_sums_each_beats_cast(
     client, auth_headers, async_session, test_book, monkeypatch
 ):
@@ -268,7 +281,7 @@ async def test_the_preflight_sums_each_beats_cast(
         seen.setdefault("sizes", []).append(kw["cast_size"])
         return real(**kw)
 
-    async def refuse(db, user_id, est):
+    async def refuse(db, user_id, est, model=None):
         seen["calls"] = est.calls
         return {"allowed": False, "reason": "no"}
 

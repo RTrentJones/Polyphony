@@ -48,6 +48,7 @@ from app.exports.builder import (
 )
 from app.jobs import repository as jobs_repo
 from app.jobs import scene_batch
+from app.llm.providers import ModelChoice
 from app.llm.tier import get_tier
 from app.planning.canon import build_canon, render_character
 from app.planning.outline import CastIndex, classify_people
@@ -130,6 +131,7 @@ class ChapterSceneRequest(BaseModel):
     # The planned beat this scene is written from (SPEC-23): links the scene to
     # the beat, so "Generate all planned scenes" counts that beat as written.
     planned_beat_id: Optional[str] = Field(default=None, max_length=64)
+    model: ModelChoice = None  # the book's prose model (U1); omitted = default
 
     @model_validator(mode="before")
     @classmethod
@@ -157,6 +159,7 @@ class PlannedScenesRequest(BaseModel):
     target_word_count: int = Field(default=800, ge=100, le=3000)
     style_notes: Optional[str] = None
     mode: str = Field(default="prose", pattern="^(prose|ensemble)$")
+    model: ModelChoice = None
 
 
 class SceneContentUpdate(BaseModel):
@@ -993,7 +996,7 @@ async def generate_scene_into_chapter(
         mode=payload.mode,
         cast_size=len(cast),
     )
-    assessed = await estimates.assess(db, current_user.id, est)
+    assessed = await estimates.assess(db, current_user.id, est, payload.model)
     if not assessed["allowed"]:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -1206,7 +1209,7 @@ async def generate_planned_scenes(
         output_tokens=sum(e.output_tokens for e in head),
         notes=[*head[0].notes, f"{len(head)} scene(s), written one after another."],
     )
-    assessed = await estimates.assess(db, current_user.id, est)
+    assessed = await estimates.assess(db, current_user.id, est, payload.model)
     if not assessed["allowed"]:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -1237,6 +1240,7 @@ async def generate_planned_scenes(
             "target_word_count": payload.target_word_count,
             "style_notes": payload.style_notes,
             "mode": payload.mode,
+            "model": payload.model,  # every scene of the batch, not only the first
         }
         for beat, ids, secondary in plans
     ]
