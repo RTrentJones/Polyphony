@@ -21,8 +21,7 @@ describe('Usage page (SPEC-12)', () => {
       allow_ensemble: false,
       month_cost_usd: 0,
       monthly_cost_ceiling_usd: null,
-      requests_left_today: 230,
-      requests_per_day: 250,
+      models: { 'gemini-3.5-flash-lite': { left: 230, per_day: 250 } },
       by_purpose_30d: [{ purpose: 'beat_prose', tokens: 9000, usd: 0, calls: 5 }],
       deployment_cost_30d_usd: 0,
     })
@@ -30,6 +29,7 @@ describe('Usage page (SPEC-12)', () => {
     expect(await screen.findByTestId('usage-page')).toBeTruthy()
     expect(screen.getByText('12,000 / 200,000')).toBeTruthy()
     expect(screen.getByText('20 / 250')).toBeTruthy()
+    expect(screen.getByText(/gemini-3.5-flash-lite requests today/)).toBeTruthy() // per model (U1)
     expect(screen.getByText('beat_prose')).toBeTruthy()
     expect(screen.getByText(/pauses and resumes/)).toBeTruthy()
   })
@@ -38,7 +38,7 @@ describe('Usage page (SPEC-12)', () => {
     getUsage.mockResolvedValue({
       tier: 'paid', on_quota: 'fail', tokens_used_24h: 0, tokens_remaining_24h: 5_000_000,
       daily_token_limit: 5_000_000, allow_ensemble: true, month_cost_usd: 0,
-      monthly_cost_ceiling_usd: 50, requests_left_today: null, requests_per_day: null,
+      monthly_cost_ceiling_usd: 50, models: {},
       by_purpose_30d: [], deployment_cost_30d_usd: 1.5,
     })
     render(<UsagePage />)

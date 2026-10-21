@@ -330,7 +330,7 @@ function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: stri
     )
   }
 
-  const pov = (scene.scene_request as SceneRequest | undefined)?.pov_character
+  const { pov_character: pov, model } = (scene.scene_request ?? {}) as Partial<SceneRequest>
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <ToastContainer toasts={toasts} removeToast={removeToast} />
@@ -365,6 +365,7 @@ function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: stri
           </h1>
           <p className="text-sm text-gray-600">
             {[pov && `POV: ${pov}`, scene.characters?.join(', ')].filter(Boolean).join(' · ')}
+            {model && <span data-testid="scene-model"> · Written by {model}</span>}
           </p>
           <p className="text-sm text-gray-600">
             {scene.status === 'paused'
@@ -457,6 +458,7 @@ function SceneEditorContent({ sceneId, bookId }: { sceneId: string; bookId: stri
           </Card>
           <RevisePanel
             sceneId={scene.id}
+            bookId={bookId}
             content={content}
             isDirty={isDirty}
             canRevise={scene.status !== 'processing' && scene.status !== 'paused'}

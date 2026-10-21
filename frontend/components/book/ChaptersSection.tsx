@@ -42,6 +42,7 @@ import type { BookChapter } from '@/lib/types'
 import { SCENE_STATUS_STYLES } from '@/components/book/styles'
 import JobStatusBadge from '@/components/JobStatusBadge'
 import { isActiveJob } from '@/lib/jobs'
+import { modelFor } from '@/lib/usage-api'
 import { displayChapterTitle } from '@/lib/utils'
 
 /** "chapter 3, Paperwork": two same-title rows never read alike (SPEC-32). */
@@ -153,7 +154,7 @@ export default function ChaptersSection({
     if (plannedBusy[chapter.id]) return
     setPlannedBusy((m) => ({ ...m, [chapter.id]: true }))
     try {
-      const r = await generatePlannedScenes(chapter.id)
+      const r = await generatePlannedScenes(chapter.id, modelFor(chapter.book_id))
       onPlannedDone(
         chapter,
         plannedScenesMessage(r),

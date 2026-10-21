@@ -17,6 +17,7 @@ import { Layers } from 'lucide-react'
 import Button from '@/components/Button'
 import { GENERATE_BLOCKER_ID } from '@/components/book/GenerateSceneModal'
 import { useBookStore } from '@/lib/books-store'
+import { modelFor } from '@/lib/usage-api'
 import type { BookChapter, PlannedScenesResponse } from '@/lib/types'
 
 export function plannedScenesMessage(r: PlannedScenesResponse): string {
@@ -53,7 +54,7 @@ export default function GeneratePlannedScenesButton({
     if (busy) return
     setBusy(true)
     try {
-      const r = await generatePlannedScenes(chapter.id)
+      const r = await generatePlannedScenes(chapter.id, modelFor(chapter.book_id))
       onDone(
         plannedScenesMessage(r),
         r.queued > 0 && !r.already_running ? 'success' : 'info'

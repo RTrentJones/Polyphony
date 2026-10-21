@@ -27,7 +27,7 @@ import type {
   ChapterSceneRequest,
   PlannedBeat,
 } from '@/lib/types'
-import type { Estimate } from '@/lib/usage-api'
+import { getUsage, modelFor, rememberModel, type Estimate } from '@/lib/usage-api'
 
 /** Why no scene can be generated in this book yet, or null (SPEC-32). */
 export const generateBlocker = (book: Pick<BookDetail, 'chapters' | 'character_count'> | null) =>
@@ -92,6 +92,10 @@ export default function GenerateSceneModal({
   const [wordCount, setWordCount] = useState(800)
   const [styleNotes, setStyleNotes] = useState('')
   const [mode, setMode] = useState<'prose' | 'ensemble'>('prose')
+  // The book's model (U1): the server's list, default first; this browser's pick.
+  const [models, setModels] = useState<string[]>([])
+  const [picked, setPicked] = useState(() => modelFor(bookId).model)
+  const model = picked && models.includes(picked) ? picked : models[0]
   const [est, setEst] = useState<Estimate | null>(null)
   // One key per modal: every submit from this form is the same request.
   const [idempotencyKey] = useState(() =>
@@ -119,6 +123,10 @@ export default function GenerateSceneModal({
       cancelled = true
     }
   }, [bookId])
+
+  useEffect(() => {
+    getUsage().then((u) => setModels(Object.keys(u.models ?? {})), () => setModels([]))
+  }, [])
 
   const byId = useMemo(() => new Map(cast.map((c) => [c.id, c])), [cast])
 
@@ -184,6 +192,7 @@ export default function GenerateSceneModal({
       target_word_count: Math.min(3000, Math.max(100, wordCount || 800)),
       ...(styleNotes.trim() ? { style_notes: styleNotes.trim() } : {}),
       mode,
+      model,
     }
     setSubmitting(true)
     try {
@@ -394,6 +403,27 @@ export default function GenerateSceneModal({
           </div>
         </div>
 
+        {models.length > 1 && (
+          <div>
+            <label htmlFor="scene-model" className="block text-sm font-medium text-gray-700 mb-1">
+              Model (remembered for this book in this browser)
+            </label>
+            <select
+              id="scene-model"
+              value={model}
+              onChange={(e) => (setPicked(e.target.value), rememberModel(bookId, e.target.value))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+            >
+              {models.map((m) => <option key={m}>{m}</option>)}
+            </select>
+            {est?.remaining_requests_today != null && est.calls > 0 && (
+              <p className="text-xs text-gray-500 mt-1" data-testid="generations-left">
+                {Math.floor(est.remaining_requests_today / est.calls)} {model} generations left today
+              </p>
+            )}
+          </div>
+        )}
+
         <EstimateHint
           request={
             selected.length > 0 && bookId
@@ -403,6 +433,7 @@ export default function GenerateSceneModal({
                   character_ids: selected,
                   target_word_count: Math.min(3000, Math.max(100, wordCount || 800)),
                   mode,
+                  model,
                 }
               : null
           }

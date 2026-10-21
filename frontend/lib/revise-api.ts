@@ -56,6 +56,7 @@ export interface ReviseRequest {
   /** The text at `range` (or the beat's / whole draft's text) as the client
    *  sees it; the server refuses a mismatch with 409. */
   selected_text?: string
+  model?: string
 }
 
 export interface ReviseResponse {

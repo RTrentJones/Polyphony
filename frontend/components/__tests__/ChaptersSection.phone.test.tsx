@@ -119,7 +119,7 @@ describe('ChaptersSection at phone width (B4)', () => {
     await waitFor(() =>
       expect(addToast).toHaveBeenCalledWith('Writing 2 planned scenes in order.', 'success')
     )
-    expect(generatePlannedScenes).toHaveBeenCalledWith('ch-3')
+    expect(generatePlannedScenes).toHaveBeenCalledWith('ch-3', {})
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
 
     fireEvent.click(within(row).getByRole('button', { name: /More actions for/ }))

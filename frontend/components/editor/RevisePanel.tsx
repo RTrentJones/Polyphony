@@ -31,6 +31,7 @@ import {
 } from '@/lib/revise-api'
 import { selectionToDraftRange, sha256Hex } from '@/lib/text-offsets'
 import type { Job } from '@/lib/types'
+import { modelFor } from '@/lib/usage-api'
 import { voiceApi } from '@/lib/voice-api'
 
 type Target =
@@ -45,6 +46,7 @@ interface BeatOption {
 
 export interface RevisePanelProps {
   sceneId: string
+  bookId: string // its per-book model rides the request (U1)
   /** The editor's text, and whether it differs from the saved draft. */
   content: string
   isDirty: boolean
@@ -64,6 +66,7 @@ function targetLabel(target: Target): string {
 
 export default function RevisePanel({
   sceneId,
+  bookId,
   content,
   isDirty,
   canRevise,
@@ -181,6 +184,7 @@ export default function RevisePanel({
       const request: ReviseRequest = {
         instruction: instruction.trim(),
         base_text_hash: await sha256Hex(content),
+        ...modelFor(bookId),
       }
       if (target.kind === 'range') {
         request.range = { start: target.start, end: target.end }

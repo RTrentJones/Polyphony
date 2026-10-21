@@ -181,6 +181,8 @@ export interface SceneRequest {
   style_notes?: string
   /** The planned beat this scene was written from (SPEC-23). */
   planned_beat_id?: string
+  /** The model that wrote it (U1). */
+  model?: string
 }
 
 export type SceneStatus =
@@ -409,6 +411,7 @@ export interface ChapterSceneRequest {
   character_ids: string[]
   /** Generation mode: prose (default) or the ensemble loop (tier-gated). */
   mode?: 'prose' | 'ensemble'
+  model?: string // one of GET /usage `models`; omitted = the default (U1)
   scene_description: string
   setting: string
   emotional_tone: string
@@ -445,6 +448,7 @@ export interface PlannedScenesRequest {
   target_word_count?: number
   style_notes?: string | null
   mode?: 'prose' | 'ensemble'
+  model?: string
 }
 
 /** Its response: the first scene of the chain, or the batch already running. */
