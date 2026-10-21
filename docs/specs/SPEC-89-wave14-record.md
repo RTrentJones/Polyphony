@@ -22,4 +22,5 @@
 - **Deferred to wave 15:** W14-9 (estimate gate; PM-signed, no author hits it), W14-12 (N1/N2 rows), the client's two rules for the
   book's model (N2/N4), `_reason`'s split on `" - "` (N1), `run.py`'s label for external apps (N2), W14-14 outline-JSON
   diagnosis, the panel-memo (F) row.
-- **Deploy check (N5):** before PR-14's prod deploy, prod had no queued or paused scene-writing job (recorded at deploy).
+- **Deploy check (N5):** before PR-14's prod deploy, the user was asked about queued or paused scene-writing jobs and chose to
+  deploy anyway (2026-10-21); a job queued before the deploy runs on the new default model.
