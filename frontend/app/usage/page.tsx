@@ -54,10 +54,6 @@ export default function UsagePage() {
   if (!usage) return <Loading text="Loading usage..." />
 
   const tokensUsed = usage.tokens_used_24h
-  const requestsUsed =
-    usage.requests_per_day !== null && usage.requests_left_today !== null
-      ? usage.requests_per_day - usage.requests_left_today
-      : null
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 space-y-6" data-testid="usage-page">
@@ -76,12 +72,17 @@ export default function UsagePage() {
             total={usage.daily_token_limit}
             label="Your tokens, rolling 24 hours"
           />
-          {requestsUsed !== null && usage.requests_per_day !== null && (
-            <Meter
-              used={requestsUsed}
-              total={usage.requests_per_day}
-              label="Model requests today (shared by everyone on this site)"
-            />
+          {Object.entries(usage.models).map(
+            ([model, r]) =>
+              r.left !== null &&
+              r.per_day !== null && (
+                <Meter
+                  key={model}
+                  used={r.per_day - r.left}
+                  total={r.per_day}
+                  label={`${model} requests today (shared by everyone on this site)`}
+                />
+              )
           )}
           <p className="text-sm text-gray-600">
             {usage.on_quota === 'pause'

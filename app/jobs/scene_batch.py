@@ -137,6 +137,7 @@ async def add_scene_job(
         "request": request,
         "user_id": str(user_id),
         "book_id": str(book_id),
+        "model": request.get("model"),  # the job's model (JobContext, U1)
     }
     if batch is not None:
         payload["batch"] = batch

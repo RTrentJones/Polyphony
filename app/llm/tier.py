@@ -86,10 +86,10 @@ def effective_rpm(provider_max_rpm: int) -> int:
     return tier.max_rpm or provider_max_rpm
 
 
-def effective_rpd(provider, fast: bool) -> int | None:
+def effective_rpd(provider, model: str) -> int | None:
     """The requests-per-day ceiling to enforce for one model, or None."""
     if settings.LLM_MAX_RPD:
         return settings.LLM_MAX_RPD
     if not get_tier().enforce_rpd:
         return None
-    return provider.fast_max_rpd if fast else provider.max_rpd
+    return provider.rpd.get(model)

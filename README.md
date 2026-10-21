@@ -59,7 +59,7 @@ Select with env config, no code changes:
 ```
 LLM_PROVIDER=gemini          # default; needs GEMINI_API_KEY (stub = local tests)
 LLM_TIER=free                # the one graduation switch: free | paid
-LLM_MODEL=                   # optional override (default gemini-3.6-flash)
+LLM_MODEL=                   # optional override (default gemini-3.5-flash-lite)
 LLM_MODEL_FAST=              # optional override (default gemini-3.5-flash-lite)
 ```
 

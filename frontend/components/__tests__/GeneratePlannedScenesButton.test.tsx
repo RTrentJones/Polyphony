@@ -75,7 +75,7 @@ describe('GeneratePlannedScenesButton (SPEC-10)', () => {
     await waitFor(() =>
       expect(onDone).toHaveBeenCalledWith('Writing 2 planned scenes in order.', 'success')
     )
-    expect(generatePlannedScenes).toHaveBeenCalledWith('ch-1')
+    expect(generatePlannedScenes).toHaveBeenCalledWith('ch-1', {})
   })
 
   it('surfaces a refusal (e.g. the preflight estimate) as an error', async () => {

@@ -3,7 +3,9 @@
 import types
 
 import pytest
+from sqlalchemy import update
 
+from app.core.orm_models import ExtractionRun as Run
 from app.parsing.canon_extractor import _normalize_proposals
 
 pytestmark = pytest.mark.unit
@@ -301,7 +303,7 @@ class TestPasteSource:
         assert r2.json()["extraction_run_id"] != created["extraction_run_id"]
 
     async def test_source_list_surfaces_latest_extraction(
-        self, client, auth_headers, test_book
+        self, client, auth_headers, test_book, async_session
     ):
         await client.post(
             "/api/v1/sources/paste",
@@ -321,3 +323,9 @@ class TestPasteSource:
         latest = listing[0]["latest_extraction"]
         assert latest is not None  # so the Sources tab can offer "Review"
         assert latest["status"] in ("pending", "ready")
+        err = f"key {'k' * 39} refused - {{'body': 1}}\nTrace"
+        await async_session.execute(update(Run).values(status="failed", error=err))
+        await async_session.commit()
+        url = f"/api/v1/sources/?book_id={test_book.id}"
+        r = await client.get(url, headers=auth_headers)
+        assert r.json()["sources"][0]["latest_extraction"]["error"] == "key … refused"

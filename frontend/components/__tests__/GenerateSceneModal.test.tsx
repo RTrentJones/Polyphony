@@ -4,21 +4,28 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import GenerateSceneModal from '@/components/book/GenerateSceneModal'
 import type { BookChapter, Character } from '@/lib/types'
 
-const { listCharacters, generateScene } = vi.hoisted(() => ({
+const { listCharacters, generateScene, getUsage, est } = vi.hoisted(() => ({
   listCharacters: vi.fn(),
   generateScene: vi.fn(),
+  getUsage: vi.fn(async () => ({ models: {} })),
+  est: { value: null as unknown },
 }))
 
 vi.mock('@/lib/canon-store', () => ({ canonApi: { listCharacters } }))
 vi.mock('@/lib/books-store', () => ({ useBookStore: () => ({ generateScene }) }))
 // The estimate's request, as EstimateHint receives it.
 const estimated: { character_ids: string[] }[] = []
-vi.mock('@/components/EstimateHint', () => ({
-  default: ({ request }: { request: { character_ids: string[] } | null }) => {
-    if (request) estimated.push(request)
-    return null
-  },
-}))
+vi.mock('@/lib/usage-api', async (orig) => ({ ...(await orig<object>()), getUsage }))
+vi.mock('@/components/EstimateHint', async () => {
+  const { useEffect } = await import('react')
+  return {
+    default: function EstimateHint({ request, onEstimate }: { request: any; onEstimate?: any }) {
+      if (request) estimated.push(request)
+      useEffect(() => onEstimate?.(est.value), [onEstimate])
+      return null
+    },
+  }
+})
 
 const chapter: BookChapter = { id: 'ch-1', book_id: 'book-1', position: 0, number: 1, title: 'One' }
 const cast: Character[] = [
@@ -42,6 +49,19 @@ describe('GenerateSceneModal cast picker', () => {
   beforeEach(() => {
     listCharacters.mockReset()
     generateScene.mockReset()
+    est.value = null
+  })
+
+  it('remembers the picked model per book and counts its generations left (U1)', async () => {
+    getUsage.mockResolvedValueOnce({ models: { lite: {}, flash: {} } })
+    est.value = { calls: 4, remaining_requests_today: 18, allowed: true }
+    listCharacters.mockResolvedValue(cast)
+    renderModal()
+    fireEvent.click(await screen.findByRole('button', { name: /Ada/ }))
+    fireEvent.change(await screen.findByLabelText(/^Model/), { target: { value: 'flash' } })
+    expect(screen.getByTestId('generations-left')).toHaveTextContent('4 flash generations left today')
+    expect(localStorage.getItem('scene-model:book-1')).toBe('flash')
+    expect(estimated.at(-1)).toMatchObject({ model: 'flash' }) // counted on flash's day
   })
 
   it("renders the book's characters", async () => {

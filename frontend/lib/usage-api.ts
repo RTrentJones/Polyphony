@@ -24,8 +24,8 @@ export interface Usage {
   allow_ensemble: boolean
   month_cost_usd: number
   monthly_cost_ceiling_usd: number | null
-  requests_left_today: number | null
-  requests_per_day: number | null
+  /** Today's model requests per selectable model, the default first (U1). */
+  models: Record<string, { left: number | null; per_day: number | null }>
   by_purpose_30d: UsagePurpose[]
   deployment_cost_30d_usd: number
 }
@@ -41,6 +41,7 @@ export interface EstimateRequest {
   target_word_count?: number
   mode?: 'prose' | 'ensemble' | 'staged' | 'single'
   max_chapters?: number
+  model?: string
 }
 
 export interface Estimate {
@@ -58,6 +59,22 @@ export interface Estimate {
   share_of_remaining: number | null
   allowed: boolean
   reason: string | null
+}
+
+/** The book's scene-writing model, remembered by this browser only (BRD R7.8). */
+export function modelFor(bookId: string): { model?: string } {
+  try {
+    const model = localStorage.getItem(`scene-model:${bookId}`)
+    return model ? { model } : {}
+  } catch {
+    return {} // storage blocked: the server's default
+  }
+}
+
+export function rememberModel(bookId: string, model: string) {
+  try {
+    localStorage.setItem(`scene-model:${bookId}`, model)
+  } catch {} // storage blocked: not remembered
 }
 
 export async function getUsage(): Promise<Usage> {

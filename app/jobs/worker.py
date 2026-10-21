@@ -232,6 +232,7 @@ class JobWorker:
             )
             was_paused = job.paused_since is not None
             ctx = JobContext(job_id=job_id, kind=kind, checkpoint=job.checkpoint)
+            ctx.model = (payload or {}).get("model")  # U1: resolve_model reads it
 
         log_business_event(
             logger, "job_claimed", job_id=str(job_id), kind=kind, attempts=attempts

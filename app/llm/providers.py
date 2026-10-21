@@ -8,9 +8,12 @@ env key. Add a vendor by appending a row.
 
 import os
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
+
+from pydantic import AfterValidator, Field
 
 from app.core.config import settings
+from app.jobs.context import current_job
 
 
 @dataclass(frozen=True)
@@ -24,12 +27,11 @@ class Provider:
     fast_model: str
     # Free-tier requests-per-minute pacing default (overridable via LLM_MAX_RPM)
     max_rpm: int = 10
-    # Free-tier requests-per-DAY ceilings for the default and fast models, as
-    # published by the vendor (None = not tracked). The binding free-tier limit
-    # is usually this, not tokens (docs/BRD.md §6.1). Enforced on the free tier
-    # by app/llm/ledger.py; overridable via LLM_MAX_RPD.
-    max_rpd: Optional[int] = None
-    fast_max_rpd: Optional[int] = None
+    # Free-tier requests-per-DAY ceiling per model (absent = not tracked); the
+    # binding free-tier limit (docs/BRD.md §6.1), enforced by app/llm/ledger.py,
+    # overridable via LLM_MAX_RPD. Its keys are the models an author may choose
+    # for a scene, default first (U1): one table for "selectable" and "how many".
+    rpd: dict[str, int] = field(default_factory=dict)
     # The IANA zone the vendor's daily quota resets in.
     rpd_reset_tz: str = "UTC"
     # Extra JSON body fields for chat.completions (provider-specific knobs).
@@ -45,16 +47,17 @@ PROVIDERS: dict[str, Provider] = {
         base_url=os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/"),  # fmt: skip
         # The 2.5 models are served only to projects that already used them
         # (models page, re-checked 2026-10-16); a new key gets a 404.
-        default_model="gemini-3.6-flash",
+        default_model="gemini-3.5-flash-lite",  # U1: the whole pipeline
         fast_model="gemini-3.5-flash-lite",
         max_rpm=8,  # AI Studio free tier is ~10 RPM; leave headroom
         # Google no longer publishes a universal free-tier table: limits are
         # per project and shown in AI Studio (re-checked 2026-10). The reset at
-        # midnight Pacific is documented. 1,000/day (Flash-Lite) is the last published
-        # figure, unverified: flash's sibling figure (250) was 12.5x too high (W13-0);
+        # midnight Pacific is documented. Both figures are measured quotaValues;
         # set LLM_MAX_RPD to the project's AI Studio value to override.
-        max_rpd=20,  # 3.6 Flash: free-tier quotaValue, W13-0 probe 2026-10-20
-        fast_max_rpd=1000,
+        rpd={
+            "gemini-3.5-flash-lite": 500,  # quotaValue, run 39495277558, 2026-10-20
+            "gemini-3.6-flash": 20,  # quotaValue, W13-0 probe 2026-10-20 (opt-in)
+        },
         rpd_reset_tz="America/Los_Angeles",
         # Gemini 3 models cannot turn thinking off, and thinking tokens count
         # against max_tokens. This app's calls are structured, so ask for the
@@ -188,7 +191,21 @@ def enabled_providers() -> list[Provider]:
 
 
 def resolve_model(provider: Provider, fast: bool) -> str:
-    """The configured model, falling back to the provider's registry default."""
+    """The running job's chosen model (U1), else the configured model, else the
+    provider's registry default. The ONE read of a job's model."""
     if fast:
         return settings.LLM_MODEL_FAST or provider.fast_model
-    return settings.LLM_MODEL or provider.default_model
+    return current_job().model or settings.LLM_MODEL or provider.default_model
+
+
+def _job_model(model: Optional[str]) -> str:
+    """A scene-writing request's model (U1): a key of `rpd` (else 422), or the
+    default when none is chosen; stamped into the job payload as given."""
+    if model is not None and model not in active_provider().rpd:
+        raise ValueError(f"unknown model; choose one of {list(active_provider().rpd)}")
+    return model or resolve_model(active_provider(), fast=False)
+
+
+ModelChoice = Annotated[
+    Optional[str], AfterValidator(_job_model), Field(validate_default=True)
+]

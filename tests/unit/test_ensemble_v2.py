@@ -176,7 +176,7 @@ async def test_ensemble_request_refused_when_requests_cannot_cover_it(
 
     monkeypatch.setattr(settings, "LLM_TIER", "paid")
 
-    async def three_left():
+    async def three_left(*_):
         return 3
 
     monkeypatch.setattr(estimates, "requests_left_today", three_left)

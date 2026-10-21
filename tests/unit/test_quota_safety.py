@@ -7,7 +7,12 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from openai import APIConnectionError, RateLimitError
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    RateLimitError,
+)
 from sqlalchemy import select
 
 from app.core.config import settings
@@ -19,6 +24,7 @@ from app.llm import client as client_mod
 from app.llm.errors import DailyRequestLimitError, QuotaExhaustedError
 
 pytestmark = pytest.mark.unit
+LITE = "gemini-3.5-flash-lite"
 
 
 class _Ctx:
@@ -80,21 +86,70 @@ async def test_quota_storm_never_opens_the_breaker(llm, monkeypatch):
     assert llm._breaker.state == "closed"
 
 
-async def test_connection_storm_opens_breaker_then_pauses_not_fails(llm, monkeypatch):
+def _overload():
+    return InternalServerError(
+        "high demand",
+        response=httpx.Response(503, request=httpx.Request("POST", "http://t")),
+        body=None,
+    )
+
+
+_TRANSIENTS = {
+    "connection": lambda: APIConnectionError(request=httpx.Request("POST", "http://t")),
+    "timeout": lambda: APITimeoutError(request=httpx.Request("POST", "http://t")),
+    "503": _overload,
+}
+
+
+@pytest.mark.parametrize("make", _TRANSIENTS.values(), ids=_TRANSIENTS.keys())
+async def test_exhausted_transient_error_pauses(llm, monkeypatch, make):
+    """W14-8 (F): a sustained transient error is a pause, not a failure."""
     from app.llm.errors import ProviderUnavailableError
 
-    err = APIConnectionError(request=httpx.Request("POST", "http://t"))
+    err = make()
     monkeypatch.setattr(
         llm._client.chat.completions, "create", AsyncMock(side_effect=err)
     )
+    with pytest.raises(ProviderUnavailableError) as ei:
+        await llm.generate([{"role": "user", "content": "hi"}])
+    assert ei.value.__cause__ is err and ei.value.reset_after is None
+
+
+async def test_overload_storm_opens_breaker_then_pauses(llm, monkeypatch):
+    """W14-8 (R): pausing outside the breaker still lets overloads open it."""
+    from app.llm.errors import ProviderUnavailableError
+
+    monkeypatch.setattr(
+        llm._client.chat.completions, "create", AsyncMock(side_effect=_overload())
+    )
     monkeypatch.setattr(settings, "LLM_TIER", "paid")
-    for _ in range(4):
-        with pytest.raises(APIConnectionError):
+    for _ in range(4):  # the type raised is the (F) row's; this row is the breaker
+        with pytest.raises((InternalServerError, ProviderUnavailableError)):
             await llm.generate([{"role": "user", "content": "hi"}])
     assert llm._breaker.state == "open"
     with pytest.raises(ProviderUnavailableError) as ei:
         await llm.generate([{"role": "user", "content": "hi"}])
     assert ei.value.reset_after and ei.value.reset_after > 0
+
+
+async def test_a_flash_job_is_called_and_charged_as_flash(llm, monkeypatch):
+    """U1 (F): the job's model is called and counted against its own 20."""
+    from app.jobs.context import JobContext, job_context
+
+    reserve = AsyncMock()
+    monkeypatch.setattr("app.llm.ledger.reserve", reserve)
+    monkeypatch.setattr(llm, "_record_usage", AsyncMock(return_value=True))
+    ok = SimpleNamespace(message=SimpleNamespace(content="."))
+    create = AsyncMock(return_value=SimpleNamespace(choices=[ok], usage=None))
+    monkeypatch.setattr(llm._client.chat.completions, "create", create)
+    hi = [{"role": "user", "content": "hi"}]
+    with job_context(JobContext(model="gemini-3.6-flash")):
+        await llm.generate(hi)
+        await llm.generate(hi, fast=True)  # fast calls keep the fast model
+    sent = [c.kwargs["model"] for c in create.await_args_list]
+    charged = [(r.args[1], r.args[2]) for r in reserve.await_args_list]
+    assert charged == list(zip(sent, [20, 500]))
+    assert sent == ["gemini-3.6-flash", LITE]
 
 
 async def test_ten_quota_jobs_all_pause_none_die(async_session, test_user, monkeypatch):
@@ -161,14 +216,22 @@ class TestTierOwnsLimits:
         monkeypatch.setattr(settings, "LLM_TIER", "free")
         free = get_tier()
         assert effective_rpm(gemini.max_rpm) == gemini.max_rpm
-        assert effective_rpd(gemini, fast=False) == gemini.max_rpd
+        assert effective_rpd(gemini, "gemini-3.6-flash") == 20
+        assert effective_rpd(gemini, "gemini-3.5-flash-lite") == 500  # W14-7
         assert free.daily_token_limit == 200_000 and not free.allow_ensemble
 
         monkeypatch.setattr(settings, "LLM_TIER", "paid")
         paid = get_tier()
         assert effective_rpm(gemini.max_rpm) == 60
-        assert effective_rpd(gemini, fast=False) is None
+        assert effective_rpd(gemini, gemini.default_model) is None
         assert paid.daily_token_limit == 5_000_000 and paid.allow_ensemble
+
+    def test_every_limited_provider_lists_its_default_and_fast_model(self):
+        """U1 (R): a model missing from `rpd` would go unenforced (rpd.get)."""
+        from app.llm.providers import PROVIDERS
+
+        for p in (p for p in PROVIDERS.values() if p.rpd):
+            assert list(p.rpd)[0] == p.default_model and p.fast_model in p.rpd
 
     def test_explicit_overrides_still_win(self, monkeypatch):
         from app.llm.tier import get_tier

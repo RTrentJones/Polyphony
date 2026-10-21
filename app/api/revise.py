@@ -33,6 +33,7 @@ from app.core.orm_models import (
 )
 from app.core.security import get_current_active_user
 from app.jobs import repository as jobs_repo
+from app.llm.providers import ModelChoice
 from app.orchestration import revise as rv
 
 router = APIRouter()
@@ -48,6 +49,7 @@ class ReviseRequest(rv.SpanSpec):
     # wrong words.
     base_text_hash: Optional[str] = Field(None, max_length=64)
     selected_text: Optional[str] = None
+    model: ModelChoice = None  # the book's prose model (U1)
 
     @model_validator(mode="after")
     def _instruction(self):
@@ -148,7 +150,7 @@ async def revise_scene(
     from app.core import estimates
 
     est, _ = await revise_estimate(db, scene, span)
-    assessed = await estimates.assess(db, current_user.id, est)
+    assessed = await estimates.assess(db, current_user.id, est, payload.model)
     if not assessed["allowed"]:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -163,6 +165,7 @@ async def revise_scene(
         "range": [span.start, span.end],
         "beat_index": payload.beat_index,
         "base_text_hash": draft_hash,
+        "model": payload.model,
     }
     job, inserted = await jobs_repo.enqueue_reporting(
         db,

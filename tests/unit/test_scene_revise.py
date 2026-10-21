@@ -93,7 +93,7 @@ class FakeStore:
         ]
 
 
-async def _none():
+async def _none(*_):
     return None
 
 

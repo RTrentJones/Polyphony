@@ -182,7 +182,7 @@ async def test_migration_converts_links_strips_titles_and_round_trips(monkeypatc
     Session = async_sessionmaker(engine, expire_on_commit=False)
     monkeypatch.setattr(db_mod, "get_session_factory", lambda: Session)
 
-    async def _none():
+    async def _none(*_):
         return None
 
     monkeypatch.setattr(estimates, "requests_left_today", _none)
@@ -424,7 +424,7 @@ async def test_promote_and_generate_planned_on_postgres(monkeypatch):
     Session = async_sessionmaker(engine, expire_on_commit=False)
     monkeypatch.setattr(db_mod, "get_session_factory", lambda: Session)
 
-    async def _none():
+    async def _none(*_):
         return None
 
     monkeypatch.setattr(estimates, "requests_left_today", _none)

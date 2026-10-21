@@ -72,6 +72,7 @@ class TestProviderRegistry:
         monkeypatch.setattr(settings, "LLM_MODEL_FAST", None)
         gemini = PROVIDERS["gemini"]
         assert resolve_model(gemini, fast=False) == gemini.default_model
+        assert gemini.default_model == "gemini-3.5-flash-lite"  # U1 (F)
         assert resolve_model(gemini, fast=True) == gemini.fast_model
 
     def test_resolve_model_env_override(self, monkeypatch):

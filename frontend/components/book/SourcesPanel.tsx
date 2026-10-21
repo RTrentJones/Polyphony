@@ -199,7 +199,9 @@ export default function SourcesPanel({
                     </p>
                   )}
                   {failed && !ex.error && !ex.refused && (
-                    <p className="text-xs text-red-600 mt-1">Extraction failed</p>
+                    <p className="text-xs text-red-600 mt-1">
+                      Extraction failed{source.latest_extraction?.error ? `: ${source.latest_extraction.error}` : ''}
+                    </p>
                   )}
                   {canExtract && ex.error && (
                     <p role="alert" className="text-xs text-red-600 mt-1">
