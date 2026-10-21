@@ -44,10 +44,16 @@ def load(path: Path) -> dict:
     return b | {"canon": f"<canon>\n{canon}\n</canon>"}
 
 
+def last_answer(text: str, what: str) -> int:
+    """The reply's last JSON object: an inline reasoner may quote the prompt's first."""
+    return int(extract_json_object(text[text.rindex("{") : text.rindex("}") + 1])[what])
+
+
 async def rate(member: str, bundles: list[dict], cache: Cache) -> dict:
     """{(a, b): winner id | "tie"} and {item: errors}; a quota stop ends it cleanly."""
     provider, model = member.split(":", 1)
     llm, out = LLMClient(PROVIDERS[provider]), {"prefer": {}, "errors": {}}
+    kw = JSON | {"max_tokens": {"openrouter": 4096}.get(provider, 640)}
 
     async def ask(canon: str, what: str, *texts: str) -> int:
         fenced = [f"<passage_{k}>\n{t}\n</passage_{k}>" for k, t in enumerate(texts, 1)]
@@ -55,12 +61,12 @@ async def rate(member: str, bundles: list[dict], cache: Cache) -> dict:
         msg = [{"role": "user", "content": prompt}]
 
         async def call() -> str:
-            text = (await llm.generate(msg, model=model, **JSON)).text
-            int(extract_json_object(text)[what])  # raises before memo stores it
+            text = (await llm.generate(msg, model=model, **kw)).text
+            last_answer(text, what)  # raises before memo stores it
             return text
 
         answer = await cache.memo("panel", f"{member}|{prompt}", call)
-        return int(extract_json_object(answer)[what])
+        return last_answer(answer, what)
 
     try:
         for b in bundles:
