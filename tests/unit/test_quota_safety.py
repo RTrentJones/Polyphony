@@ -7,7 +7,12 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from openai import APIConnectionError, RateLimitError
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    RateLimitError,
+)
 from sqlalchemy import select
 
 from app.core.config import settings
@@ -80,16 +85,45 @@ async def test_quota_storm_never_opens_the_breaker(llm, monkeypatch):
     assert llm._breaker.state == "closed"
 
 
-async def test_connection_storm_opens_breaker_then_pauses_not_fails(llm, monkeypatch):
+def _overload():
+    return InternalServerError(
+        "high demand",
+        response=httpx.Response(503, request=httpx.Request("POST", "http://t")),
+        body=None,
+    )
+
+
+_TRANSIENTS = {
+    "connection": lambda: APIConnectionError(request=httpx.Request("POST", "http://t")),
+    "timeout": lambda: APITimeoutError(request=httpx.Request("POST", "http://t")),
+    "503": _overload,
+}
+
+
+@pytest.mark.parametrize("make", _TRANSIENTS.values(), ids=_TRANSIENTS.keys())
+async def test_exhausted_transient_error_pauses(llm, monkeypatch, make):
+    """W14-8 (F): a sustained transient error is a pause, not a failure."""
     from app.llm.errors import ProviderUnavailableError
 
-    err = APIConnectionError(request=httpx.Request("POST", "http://t"))
+    err = make()
     monkeypatch.setattr(
         llm._client.chat.completions, "create", AsyncMock(side_effect=err)
     )
+    with pytest.raises(ProviderUnavailableError) as ei:
+        await llm.generate([{"role": "user", "content": "hi"}])
+    assert ei.value.__cause__ is err and ei.value.reset_after is None
+
+
+async def test_overload_storm_opens_breaker_then_pauses(llm, monkeypatch):
+    """W14-8 (R): pausing outside the breaker still lets overloads open it."""
+    from app.llm.errors import ProviderUnavailableError
+
+    monkeypatch.setattr(
+        llm._client.chat.completions, "create", AsyncMock(side_effect=_overload())
+    )
     monkeypatch.setattr(settings, "LLM_TIER", "paid")
-    for _ in range(4):
-        with pytest.raises(APIConnectionError):
+    for _ in range(4):  # the type raised is the (F) row's; this row is the breaker
+        with pytest.raises((InternalServerError, ProviderUnavailableError)):
             await llm.generate([{"role": "user", "content": "hi"}])
     assert llm._breaker.state == "open"
     with pytest.raises(ProviderUnavailableError) as ei:
@@ -162,6 +196,7 @@ class TestTierOwnsLimits:
         free = get_tier()
         assert effective_rpm(gemini.max_rpm) == gemini.max_rpm
         assert effective_rpd(gemini, fast=False) == gemini.max_rpd
+        assert effective_rpd(gemini, fast=True) == 500  # W14-7: measured quotaValue
         assert free.daily_token_limit == 200_000 and not free.allow_ensemble
 
         monkeypatch.setattr(settings, "LLM_TIER", "paid")

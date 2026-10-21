@@ -19,7 +19,12 @@ from app.jobs.context import JobContext, job_context
 from app.jobs.handlers import Handler
 from app.llm import client as client_mod
 from app.llm import spend
-from app.llm.errors import MONTHLY_CEILING, PAUSE_REASON, SpendPausedError
+from app.llm.errors import (
+    MONTHLY_CEILING,
+    PAUSE_REASON,
+    ProviderUnavailableError,
+    SpendPausedError,
+)
 from app.llm.providers import PROVIDERS
 from tests.unit.test_job_lifecycle import _bind, _worker
 from tests.unit.test_quota_safety import _Ctx, _no_sleep, _NoPacer
@@ -121,7 +126,7 @@ async def test_client_holds_records_and_reports(
     # 5: an error before a response releases; a failed record keeps holding.
     create = llm._client.chat.completions.create
     create.side_effect = APIConnectionError(request=httpx.Request("POST", "http://t"))
-    with pytest.raises(APIConnectionError):
+    with pytest.raises(ProviderUnavailableError):
         await llm.generate(HI)
     assert spend._inflight == 0
     create.side_effect = None
