@@ -59,3 +59,6 @@
   JSON once and with no parseable answer another time): an unparseable reply is re-asked up to 3 times and, failing that, left
   unrated (D1 counts it; `score` refuses until 0; the next resume re-asks only those); a pair is recorded only when both orders
   parse. P‴ = `c51d49e`. The 128 cached replies parse identically.
+- **Amendment, 2026-10-21, failure handling only** (Codex P2 on PR #52): a preference must be the integer 1 or 2 and an error count a
+  non-negative integer; anything else is re-asked and, failing that, left unrated. P⁗ = `5dd2d7a`. All 128 cached replies are in
+  range (92 preferences, 36 error counts) and read identically.

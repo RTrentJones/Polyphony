@@ -14,7 +14,9 @@
   **P‴** = `c51d49e` = P″ + a bounded re-ask (3 tries, then the prompt is logged and left unrated; a pair needs both orders).
   Verified once with a stub: three prose replies leave the pair unrated with no cache file and the run continues; the next run
   re-asks only that prompt; a reply quoting `{"preferred": 2}` before its final `{"preferred": 1}` reads 1. 128/128 cached replies
-  parse identically. Rate dispatches from 39594561205's state check out P‴. With P′–P‴, `evals/` tests stand at about +389 against
+  parse identically. **P⁗** = `5dd2d7a` = P‴ + a range check (1 or 2; a non-negative int), checked with a stub (3, 1.9, `true`, -7
+  and `"2"` raise; 2 and 0 pass). Run 39598043470 rated at P‴; its new replies are range-checked before the next resume, which
+  checks out P⁗. With P′–P⁗, `evals/` tests stand at about +392 against
   the +370 backstop;
   the crossing goes to the user, and PR-14 does not merge until they answer.
 - **Deferred to wave 15:** W14-9 (estimate gate; PM-signed, no author hits it), W14-12 (N1/N2 rows), the client's two rules for the
