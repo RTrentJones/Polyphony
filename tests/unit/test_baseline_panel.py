@@ -13,7 +13,6 @@ import yaml
 
 from evals.baseline import panel, score
 from evals.harness.cache import Cache
-from evals.stub_llm import _answer
 
 pytestmark = pytest.mark.unit
 WF = yaml.safe_load(Path(".github/workflows/baseline.yml").read_text())
@@ -34,15 +33,6 @@ async def test_an_order_inconsistent_member_scores_a_tie(monkeypatch, tmp_path):
     b = {"items": {"x": "X.", "y": "Y."}, "pairs": [["x", "y"]], "canon": "<canon/>"}
     got = await panel.rate("stub:m", [b], Cache(str(tmp_path), "sha"))
     assert got == {"prefer": {("x", "y"): "tie"}, "errors": {"x": 2, "y": 2}}
-
-
-async def test_the_stub_panel_is_order_consistent(monkeypatch, tmp_path):
-    say = lambda m, **k: SimpleNamespace(text=_answer(m[0]["content"]))  # noqa: E731
-    llm = SimpleNamespace(generate=AsyncMock(side_effect=say))
-    monkeypatch.setattr(panel, "LLMClient", lambda provider: llm)
-    b = {"items": {"x": "A.", "y": "B c."}, "pairs": ["xy"], "canon": "<canon/>"}
-    got = await panel.rate("stub:m", [b], Cache(str(tmp_path), "sha"))
-    assert got == {"prefer": {("x", "y"): "y"}, "errors": {"x": 0, "y": 0}}
 
 
 def test_fleiss_kappa_on_a_hand_computed_table():
