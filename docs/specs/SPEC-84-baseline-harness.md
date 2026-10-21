@@ -55,3 +55,7 @@
   object could be the prompt's own quoted example. At P″ = `19838a1` the panel reads each reply's last JSON object, and the OpenRouter
   member sends `max_tokens=4096`; Groq stays at 640, and its 125 cached replies parse identically under the new reader (125/125).
   Each member keeps one condition across all 54 pairs.
+- **Amendment, 2026-10-21, failure handling only** (run 39594561205: Nemotron at temperature 0 answered the same prompt with bare
+  JSON once and with no parseable answer another time): an unparseable reply is re-asked up to 3 times and, failing that, left
+  unrated (D1 counts it; `score` refuses until 0; the next resume re-asks only those); a pair is recorded only when both orders
+  parse. P‴ = `c51d49e`. The 128 cached replies parse identically.

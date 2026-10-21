@@ -65,7 +65,9 @@ Full digests and state-artifact ids are in the orchestrator's ledger; keys and r
 **Rate dispatches** (W14-5; workflow blob `6d26176` throughout). 39574086903 · `sha=P` (`9312365`) · no prior · red after
 2h05m: Groq 125 replies, then stopped cleanly at its 200K tokens-per-day limit; Nemotron's first reply was reasoning cut off at 640
 tokens (ValueError), memoized at P; no kappa.json · rate-state 12341190753, 126 replies, 1 invalid (`panel-4c92d396408f6e102cf0`).
-From P″ on, one row each: run id · `sha=19838a1` (P + the recorded `panel.py` lines) · `prior_run` · rate-state check (invalid
+39594561205 · `sha=P″` (`19838a1`) · prior 39594493758 (the rate-state re-uploaded without that reply) · red: Groq 1 reply then its
+tokens-per-day stop; Nemotron 2 valid bare-JSON replies, then one unparseable (ValueError) · rate-state 12343242346, 128 replies, 0
+invalid. From P‴ (`c51d49e`) on, one row each, plus Nemotron requests spent, replies cached and re-asks: run id · `sha=19838a1` (P + the recorded `panel.py` lines) · `prior_run` · rate-state check (invalid
 entries removed, by key, or none) · `unrated` after the dispatch.
 
 ## Panel feasibility record (wave 14, before the first rating call)

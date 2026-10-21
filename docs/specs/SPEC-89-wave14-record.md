@@ -11,7 +11,11 @@
   panel memo never stores an unparseable reply" carries to wave 15.
 - **P″** = `19838a1` = P′ + the reply's last JSON object + OpenRouter at 4096 (SPEC-84's failure-driven amendment; Nemotron reasons
   inline). Checked offline on rate-state 12341190753: 125/125 Groq replies parse identically, the one Nemotron reply still raises.
-  Rate dispatches after 39574086903 check out P″. With P′ and P″, `evals/` tests stand at about +378 against the +370 backstop;
+  **P‴** = `c51d49e` = P″ + a bounded re-ask (3 tries, then the prompt is logged and left unrated; a pair needs both orders).
+  Verified once with a stub: three prose replies leave the pair unrated with no cache file and the run continues; the next run
+  re-asks only that prompt; a reply quoting `{"preferred": 2}` before its final `{"preferred": 1}` reads 1. 128/128 cached replies
+  parse identically. Rate dispatches from 39594561205's state check out P‴. With P′–P‴, `evals/` tests stand at about +389 against
+  the +370 backstop;
   the crossing goes to the user, and PR-14 does not merge until they answer.
 - **Deferred to wave 15:** W14-9 (estimate gate; PM-signed, no author hits it), W14-12 (N1/N2 rows), the client's two rules for the
   book's model (N2/N4), `_reason`'s split on `" - "` (N1), `run.py`'s label for external apps (N2), W14-14 outline-JSON
