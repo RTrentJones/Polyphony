@@ -55,7 +55,9 @@ async def rate(member: str, bundles: list[dict], cache: Cache) -> dict:
         msg = [{"role": "user", "content": prompt}]
 
         async def call() -> str:
-            return (await llm.generate(msg, model=model, **JSON)).text
+            text = (await llm.generate(msg, model=model, **JSON)).text
+            int(extract_json_object(text)[what])  # raises before memo stores it
+            return text
 
         answer = await cache.memo("panel", f"{member}|{prompt}", call)
         return int(extract_json_object(answer)[what])
