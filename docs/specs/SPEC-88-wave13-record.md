@@ -62,6 +62,10 @@ All runs `baseline.yml` at app sha `e428c77`; generator `gemini-3.5-flash-lite` 
 
 Full digests and state-artifact ids are in the orchestrator's ledger; keys and records stay unopened until W14-5.
 
+**Rate dispatches** (W14-5; workflow blob `6d26176` throughout). 39574086903 · `sha=P` (`9312365`) · no prior · running. From P′ on,
+one row each: run id · `sha=4c70d0d` (P + 2 recorded `evals/baseline` lines) · `prior_run` · rate-state check (invalid entries
+removed, by key, or none) · `unrated` after the dispatch.
+
 ## Panel feasibility record (wave 14, before the first rating call)
 - **P** = `931236534a962414c31944ab6049c99bf35d885d` (`app/` identical to `e428c77`); `baseline.yml` blob `6d26176b25aa9a57f1b44f13b0a8a06a732aa43b`.
   Every rate dispatch runs `sha=P`; `baseline.yml` and `evals/baseline/` stay frozen at P until `unrated` = 0. Tags are refused by

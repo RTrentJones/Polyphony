@@ -46,3 +46,7 @@
 - **Amendment, 2026-10-21, non-data-driven** (before any rating; principal panel gate P1): panel refuses empty input; score
   refuses incomplete slot coverage, three pairs per slot (P1). D1's `unrated` refusal (`2446afa`) was pre-approved.
 - **Amendment, 2026-10-21, non-data-driven** (before any rating; principal panel `max_tokens` ruling): every panel call sends `max_tokens=640` (Groq gpt-oss 1,664 after the thinking guard), so cel's largest request (6,052 o200k prompt tokens) fits Groq's 8,000 TPM with 284 to spare; both members, all 54 pairs, one condition.
+- **Amendment, 2026-10-21, failure handling only** (Codex P2 on PR #52, found in review, not in data): each panel reply is parsed
+  before it is memoized, so an unparseable reply is re-asked on resume instead of replayed; valid replies are stored and parsed as
+  before under the same keys. The rating continues at P′ = `4c70d0d` (P + this line + `panel.py:94`'s syntax-only rewrite) from the
+  same rate-state.
