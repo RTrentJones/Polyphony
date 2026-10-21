@@ -43,3 +43,22 @@
     and n = 12, with wider CIs.
 - **Rating is wave 14:** the panel and `score`'s rated path are parked at `w14-panel-parked` (`5350c2f`, pushed before the first
   W12-9 dispatch); wave 13 ends at sealed bundles. Every results line also states that C is the paid-tier ensemble.
+- **Amendment, 2026-10-21, non-data-driven** (before any rating; principal panel gate P1): panel refuses empty input; score
+  refuses incomplete slot coverage, three pairs per slot (P1). D1's `unrated` refusal (`2446afa`) was pre-approved.
+- **Amendment, 2026-10-21, non-data-driven** (before any rating; principal panel `max_tokens` ruling): every panel call sends `max_tokens=640` (Groq gpt-oss 1,664 after the thinking guard), so cel's largest request (6,052 o200k prompt tokens) fits Groq's 8,000 TPM with 284 to spare; both members, all 54 pairs, one condition.
+- **Amendment, 2026-10-21, failure handling only** (Codex P2 on PR #52, found in review, not in data): each panel reply is parsed
+  before it is memoized, so an unparseable reply is re-asked on resume instead of replayed; valid replies are stored and parsed as
+  before under the same keys. The rating continues at P′ = `4c70d0d` (P + this line + `panel.py:94`'s syntax-only rewrite) from the
+  same rate-state.
+- **Amendment, 2026-10-21, failure-driven, not outcome-driven** (run 39574086903; no Nemotron rating existed): Nemotron reasons
+  inline in the reply, so at 640 tokens its first reply was cut off before any JSON, and with room to finish, the reply's first JSON
+  object could be the prompt's own quoted example. At P″ = `19838a1` the panel reads each reply's last JSON object, and the OpenRouter
+  member sends `max_tokens=4096`; Groq stays at 640, and its 125 cached replies parse identically under the new reader (125/125).
+  Each member keeps one condition across all 54 pairs.
+- **Amendment, 2026-10-21, failure handling only** (run 39594561205: Nemotron at temperature 0 answered the same prompt with bare
+  JSON once and with no parseable answer another time): an unparseable reply is re-asked up to 3 times and, failing that, left
+  unrated (D1 counts it; `score` refuses until 0; the next resume re-asks only those); a pair is recorded only when both orders
+  parse. P‴ = `c51d49e`. The 128 cached replies parse identically.
+- **Amendment, 2026-10-21, failure handling only** (Codex P2 on PR #52): a preference must be the integer 1 or 2 and an error count a
+  non-negative integer; anything else is re-asked and, failing that, left unrated. P⁗ = `5dd2d7a`. All 128 cached replies are in
+  range (92 preferences, 36 error counts) and read identically.

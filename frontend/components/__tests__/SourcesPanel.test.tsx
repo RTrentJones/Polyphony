@@ -53,9 +53,9 @@ describe('SourcesPanel Extract control', () => {
   })
 
   it('offers Re-extract (and says so) after a failed extraction', () => {
-    renderPanel(source({ latest_extraction: { id: 'run-1', status: 'failed', job: null } }))
+    renderPanel(source({ latest_extraction: { id: 'run-1', status: 'failed', job: null, error: 'Error code: 400' } }))
     expect(screen.getByRole('button', { name: 'Re-extract' })).toBeInTheDocument()
-    expect(screen.getByText('Extraction failed')).toBeInTheDocument()
+    expect(screen.getByText('Extraction failed: Error code: 400')).toBeInTheDocument() // why (W14-11)
   })
 
   it('is hidden while extracting or pending review', () => {

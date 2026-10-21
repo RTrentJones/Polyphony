@@ -206,15 +206,16 @@ def affordable(per_scene: list[Estimate], remaining: int) -> int:
     )
 
 
-async def requests_left_today() -> Optional[int]:
-    """Provider requests left today for the default model, or None if untracked."""
+async def requests_left_today(model: Optional[str] = None) -> Optional[int]:
+    """Provider requests left today for `model` (else the default), or None."""
     from app.core.database import get_async_session
     from app.llm.ledger import used_today
     from app.llm.providers import active_provider, resolve_model
     from app.llm.tier import effective_rpd
 
     provider = active_provider()
-    ceiling = effective_rpd(provider, fast=False)
+    model = model or resolve_model(provider, False)
+    ceiling = effective_rpd(provider, model)
     if not ceiling:
         return None
     try:
@@ -222,7 +223,7 @@ async def requests_left_today() -> Optional[int]:
             used = await used_today(
                 session,
                 provider.id,
-                resolve_model(provider, False),
+                model,
                 provider.rpd_reset_tz,
             )
     except Exception:
@@ -230,10 +231,10 @@ async def requests_left_today() -> Optional[int]:
     return max(0, ceiling - used)
 
 
-async def assess(db: AsyncSession, user_id: UUID, est: Estimate) -> dict:
+async def assess(db: AsyncSession, user_id: UUID, est: Estimate, model=None) -> dict:
     """The estimate plus what the author can afford, and whether it is allowed."""
     remaining = await remaining_budget_24h(db, user_id)
-    requests = await requests_left_today()
+    requests = await requests_left_today(model)
     out = est.as_dict()
     out["remaining_tokens_24h"] = remaining
     out["remaining_requests_today"] = requests

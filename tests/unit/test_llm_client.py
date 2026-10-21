@@ -107,7 +107,9 @@ async def test_failed_generate_is_one_breaker_failure(monkeypatch):
     )
     monkeypatch.setattr(client._client.chat.completions, "create", create)
 
-    with pytest.raises(APITimeoutError):
+    from app.llm.errors import ProviderUnavailableError
+
+    with pytest.raises(ProviderUnavailableError):  # exhausted: pauses (W14-8)
         await client.generate([{"role": "user", "content": "hi"}])
 
     assert create.await_count == 4  # all retries ran

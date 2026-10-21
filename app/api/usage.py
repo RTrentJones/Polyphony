@@ -46,9 +46,10 @@ async def get_usage(
     ).one()
 
     from app.core.estimates import requests_left_today
-    from app.llm.providers import active_provider
+    from app.llm.providers import active_provider, selectable
     from app.llm.tier import effective_rpd
 
+    provider = active_provider()
     by_purpose = (
         await db.execute(
             select(
@@ -67,8 +68,14 @@ async def get_usage(
     deployment_30d = await budget.deployment_cost_30d(db)
 
     return {
-        "requests_left_today": await requests_left_today(),
-        "requests_per_day": effective_rpd(active_provider(), fast=False),
+        # Today's requests per model (U1): the running default first, then rpd's.
+        "models": {
+            m: {
+                "left": await requests_left_today(m),
+                "per_day": effective_rpd(provider, m),
+            }
+            for m in selectable(provider)
+        },
         "by_purpose_30d": [
             {
                 "purpose": purpose or "llm",

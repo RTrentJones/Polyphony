@@ -1,31 +1,34 @@
 name: baseline # W12-9's three-arm baseline, one manuscript per generate dispatch (SPEC-84; tpm-plan-wave13 D4)
-run-name: baseline ${{ inputs.manuscript }} ${{ inputs.label }} # rating (the panel) is wave 14's
+run-name: baseline ${{ inputs.stage }} ${{ inputs.manuscript }} ${{ inputs.label }}
 on:
   workflow_dispatch:
     inputs:
-      manuscript: {description: 'frankenstein | wuthering | cel', required: true}
+      stage: {type: choice, options: [generate, rate], default: generate}
+      manuscript: {description: 'frankenstein | wuthering | cel (generate)', default: ''}
       label: {description: "the run label, e.g. W12-9 or demo", required: true}
       sha: {description: the app sha every dispatch runs (the cache is keyed by it), required: true}
       prior_run: {description: the run id whose state this dispatch resumes, default: ''}
-      provider: {description: "the generator, by the signed rule (LLM_PROVIDER)", required: true}
-      model: {description: the generator id (LLM_MODEL and LLM_MODEL_FAST), required: true}
-      max_rpd: {description: "⌊0.8 × RPD⌋ from SPEC-88's feasibility table (LLM_MAX_RPD)", required: true}
+      provider: {description: "the generator, by the signed rule (LLM_PROVIDER; generate)", default: ''}
+      model: {description: the generator id (LLM_MODEL and LLM_MODEL_FAST; generate), default: ''}
+      max_rpd: {description: "⌊0.8 × RPD⌋ from SPEC-88's feasibility table (LLM_MAX_RPD; generate)", default: ''}
+      bundles: {description: 'comma-separated generate run ids (rate)', default: ''}
+      panel: {description: 'BASELINE_PANEL "<provider>:<id>,<provider>:<id>", by the B1 rule in SPEC-88 (rate)', default: ''}
 permissions: {contents: read, actions: read}
-concurrency: {group: baseline, cancel-in-progress: false}
+concurrency: {group: 'baseline-${{ inputs.stage }}', cancel-in-progress: false}
 env: # with the boot-app action's CI values (SECRET_KEY, DATABASE_URL, ADMIN_*)
   PGURL: postgresql://postgres:ci_password_12345@localhost:5432/polyphony_eval
   LLM_TIER: paid
   MONTHLY_COST_CEILING_USD: '1'
   USER_DAILY_TOKEN_LIMIT: '20000000'
   STUB_LLM_API_KEY: stub
-  GH_TOKEN: ${{ github.token }}
   M: ${{ inputs.manuscript }}
   PRIOR: ${{ inputs.prior_run }}
 jobs:
   generate: # restore, cancel the snapshot's in-flight jobs BEFORE boot, record B/C (:8091) and A (:8092), dump
+    if: inputs.stage == 'generate'
     runs-on: ubuntu-24.04
     timeout-minutes: 350
-    services:
+    services: &pg
       postgres: {image: pgvector/pgvector:pg16, env: {POSTGRES_PASSWORD: ci_password_12345, POSTGRES_DB: polyphony_eval}, ports: ['5432:5432'],
         options: '--health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10'}
     env:
@@ -44,10 +47,12 @@ jobs:
       EVAL_BASELINE_DIR: out/bundle # not hidden: upload-artifact v4.4+ skips hidden files
       EVAL_BASELINE_KEY: out/key/key.json
     steps:
-      - {uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5, with: {ref: '${{ inputs.sha }}'}} # v4.3.1
-      - {uses: ./.github/actions/boot-app, with: {serve: 'false'}}
+      - run: for v in M LLM_PROVIDER LLM_MODEL LLM_MAX_RPD; do [ -n "${!v}" ] || { echo "::error::generate needs $v"; exit 1; }; done
+      - &checkout {uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5, with: {ref: '${{ inputs.sha }}'}} # v4.3.1
+      - &prepare {uses: ./.github/actions/boot-app, with: {serve: 'false'}}
       - name: Restore the prior state; cancel its in-flight jobs before boot
         if: inputs.prior_run != ''
+        env: {GH_TOKEN: '${{ github.token }}'}
         run: |
           set -o pipefail
           gh run download "$PRIOR" -n "baseline-state-$M" -D state -R "$GITHUB_REPOSITORY"
@@ -75,3 +80,38 @@ jobs:
       - {if: always(), uses: actions/upload-artifact@v4, with: {name: 'baseline-state-${{ inputs.manuscript }}', path: state, retention-days: 30}}
       - {if: always(), uses: actions/upload-artifact@v4, with: {name: 'baseline-bundle-${{ inputs.manuscript }}', path: out/bundle, retention-days: 30}}
       - {if: always(), uses: actions/upload-artifact@v4, with: {name: 'baseline-key-${{ inputs.manuscript }}', path: out/key, retention-days: 30}}
+  rate: # the model panel reads only baseline-bundle-* artifacts; LLM_MAX_RPD is never set here
+    if: inputs.stage == 'rate'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    services: *pg
+    env: # only the chosen members' keys
+      BASELINE_PANEL: ${{ inputs.panel }}
+      BUNDLES: ${{ inputs.bundles }}
+      LLM_MAX_RPM: '1' # Groq admits on prompt + max_tokens: floor(8000 / L) = 1 for L in 3.5k-7.2k (panel load ruling)
+      GEMINI_API_KEY: ${{ contains(inputs.panel, 'gemini:') && secrets.GEMINI_API_KEY || '' }}
+      GROQ_API_KEY: ${{ contains(inputs.panel, 'groq:') && secrets.GROQ_API_KEY || '' }}
+      OPENROUTER_API_KEY: ${{ contains(inputs.panel, 'openrouter:') && secrets.OPENROUTER_API_KEY || '' }}
+      CEREBRAS_API_KEY: ${{ contains(inputs.panel, 'cerebras:') && secrets.CEREBRAS_API_KEY || '' }}
+      MISTRAL_API_KEY: ${{ contains(inputs.panel, 'mistral:') && secrets.MISTRAL_API_KEY || '' }}
+      EVAL_CACHE_DIR: rate-state/cache # the memo: a quota stop resumes from it next dispatch (prior_run)
+    steps:
+      - *checkout
+      - *prepare
+      - name: Download the bundles only (never a key or a state)
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          [ -n "$BUNDLES" ] && [ -n "$BASELINE_PANEL" ] || { echo "::error::rate needs bundles and panel"; exit 1; }
+          for r in ${BUNDLES//,/ }; do gh run download "$r" -p 'baseline-bundle-*' -D "bundles/$r" -R "$GITHUB_REPOSITORY"; done
+          [ -z "$PRIOR" ] || gh run download "$PRIOR" -n baseline-rate-state -D rate-state -R "$GITHUB_REPOSITORY"
+      - name: Leak guard
+        run: |
+          if ls -d bundles/*/* | grep -v '/baseline-bundle-[^/]*$'; then echo "::error::not a bundle artifact"; exit 1; fi
+      - name: Rate
+        timeout-minutes: 320
+        run: |
+          case "$BASELINE_PANEL" in *stub:*) (python -m evals.stub_llm --port 8099 > stub.log 2>&1 &); sleep 3 ;; esac
+          python -m evals.baseline.panel bundles --out ratings
+          { cat ratings/kappa.json; echo " memoized requests: $(ls rate-state/cache/panel | wc -l)"; } >> "$GITHUB_STEP_SUMMARY"
+      - {if: always(), uses: actions/upload-artifact@v4, with: {name: baseline-ratings, path: ratings, retention-days: 30}}
+      - {if: always(), uses: actions/upload-artifact@v4, with: {name: baseline-rate-state, path: rate-state, retention-days: 30}}

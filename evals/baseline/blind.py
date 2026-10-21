@@ -7,6 +7,8 @@ import random
 import re
 from collections import defaultdict
 
+PREFER = "prefer: the better next scene (item, other or tie)"
+CONTINUITY = "continuity: contradictions of the canon sheet (count)"
 # Fences, the current-beat arrow, beat labels and [[eval-…]] tags.
 MARKERS = re.compile(
     r"```\w*|→|\[\[eval-[^\]]*\]\]|^[ \t*_#]*beat \d+\s*[:.)-]?[ \t*_]*", re.M | re.I
@@ -47,14 +49,8 @@ def unblind(prefs: list, key: dict) -> list[tuple]:
 
 def sheet(bundle: dict) -> str:
     """The rater sheet: one row per task; raters fill `answer` (and `minutes`)."""
-    tasks = [
-        ("prefer: the better next scene (item, other or tie)", a, b)
-        for a, b in bundle["pairs"]
-    ]
-    tasks += [
-        ("continuity: contradictions of the canon sheet (count)", i, "")
-        for i in bundle["items"]
-    ]
+    tasks = [(PREFER, a, b) for a, b in bundle["pairs"]]
+    tasks += [(CONTINUITY, i, "") for i in bundle["items"]]
     tasks += [("edit to acceptable (paste the edit)", i, "") for i in bundle["edit"]]
     out = io.StringIO()
     csv.writer(out).writerows([("task", "item", "other", "answer", "minutes"), *tasks])

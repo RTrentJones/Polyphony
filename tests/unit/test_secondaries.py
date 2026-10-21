@@ -259,7 +259,7 @@ async def test_the_owned_note_never_stands_without_its_block(monkeypatch):
     assert ctx.OWNED_PHRASES_NOTE not in present
 
 
-async def _none():
+async def _none(*_):
     return []
 
 

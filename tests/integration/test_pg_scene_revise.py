@@ -95,7 +95,7 @@ class _NoStore:
         return []
 
 
-async def _none():
+async def _none(*_):
     return None
 
 

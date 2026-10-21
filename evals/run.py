@@ -19,6 +19,7 @@ from pathlib import Path
 
 import httpx
 
+from app.llm.providers import active_provider
 from evals.harness import report
 from evals.harness.cache import Cache
 from evals.harness.client import PolyphonyClient
@@ -160,10 +161,10 @@ async def run(
         "app_sha": app_sha,
         "harness_sha": _git_sha(),
         # Label of the model under test — what Tracer trends. The app's own
-        # LLM_MODEL if set, else the provider's flash default.
+        # LLM_MODEL if set, else the active provider's registry default.
         "model": os.getenv("EVAL_MODEL_LABEL")
         or os.getenv("LLM_MODEL")
-        or "gemini-3.6-flash",
+        or active_provider().default_model,
         # Effective judge (post fail-soft fallback), not merely the requested
         # one — so a run whose judge key was missing is honestly labelled as
         # self-graded in the report/Tracer.

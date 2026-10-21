@@ -280,6 +280,12 @@ describe('Scene editor safety net and header (SPEC-16 B1, SPEC-37)', () => {
     expect(screen.getByRole('button', { name: 'Previous scene' })).toBeDisabled()
   })
 
+  it('labels the scene with the model that wrote it (U1)', async () => {
+    booksApi.getScene.mockResolvedValue({ ...scene, scene_request: { model: 'gemini-3.6-flash' } })
+    await renderEditor()
+    expect(screen.getByTestId('scene-model')).toHaveTextContent('Written by gemini-3.6-flash')
+  })
+
   it('Next goes through the unsaved-changes guard', async () => {
     const editor = await renderEditor()
     type(editor, 'Unsaved.')

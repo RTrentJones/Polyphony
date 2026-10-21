@@ -48,6 +48,8 @@ from .providers import (
 logger = setup_logging("llm.client")
 
 _MAX_ATTEMPTS = 4
+# Transient provider failures: retried per call, then the job pauses (W14-8).
+_TRANSIENT = (APIConnectionError, APITimeoutError, InternalServerError)
 
 
 class LLMConfigurationError(RuntimeError):
@@ -134,7 +136,6 @@ class LLMClient:
                 user_id,
                 purpose,
                 response_format,
-                fast,
             )
         except CircuitBreakerError as e:
             llm_requests_total.labels(
@@ -147,6 +148,8 @@ class LLMClient:
                 str(e),
                 reset_after=max(5.0, self._breaker.seconds_until_retry()),
             ) from e
+        except _TRANSIENT as e:  # outside the breaker, so it still counts these
+            raise ProviderUnavailableError(str(e)) from e
         finally:
             if result is None:
                 await spend.release(hold)  # no response: nothing was spent
@@ -164,7 +167,6 @@ class LLMClient:
         user_id: Optional[UUID],
         purpose: str,
         response_format: Optional[dict] = None,
-        fast: bool = False,
     ) -> GenResult:
         """The paced retry loop; a single logical generation. Raised failures
         here count as ONE breaker failure (see generate())."""
@@ -182,7 +184,7 @@ class LLMClient:
         extra_body, max_tokens = _thinking_guard(
             self.provider, resolved_model, max_tokens
         )
-        rpd = effective_rpd(self.provider, fast)
+        rpd = effective_rpd(self.provider, resolved_model)
         last_error: Optional[Exception] = None
         waited = 0.0
         for attempt in range(_MAX_ATTEMPTS):
@@ -224,7 +226,7 @@ class LLMClient:
                 waited += (
                     await backoff_after_429(retry_after, attempt, cap=remaining) or 0.0
                 )
-            except (APIConnectionError, APITimeoutError, InternalServerError) as e:
+            except _TRANSIENT as e:
                 last_error = e
                 remaining = settings.LLM_MAX_RETRY_WAIT_SECONDS - waited
                 if remaining <= 0:

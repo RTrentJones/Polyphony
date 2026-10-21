@@ -70,6 +70,7 @@ export interface SourceLatestExtraction {
   id: string
   status: 'pending' | 'ready' | 'failed' | 'committed' | string
   job?: JobSummary | null
+  error?: string | null // why it failed: bounded, no provider body (W14-11)
 }
 
 /** Raw source item as returned by the API (list + detail). Book-scoped. */
@@ -181,6 +182,8 @@ export interface SceneRequest {
   style_notes?: string
   /** The planned beat this scene was written from (SPEC-23). */
   planned_beat_id?: string
+  /** The model that wrote it (U1). */
+  model?: string
 }
 
 export type SceneStatus =
@@ -409,6 +412,7 @@ export interface ChapterSceneRequest {
   character_ids: string[]
   /** Generation mode: prose (default) or the ensemble loop (tier-gated). */
   mode?: 'prose' | 'ensemble'
+  model?: string // one of GET /usage `models`; omitted = the default (U1)
   scene_description: string
   setting: string
   emotional_tone: string
@@ -445,6 +449,7 @@ export interface PlannedScenesRequest {
   target_word_count?: number
   style_notes?: string | null
   mode?: 'prose' | 'ensemble'
+  model?: string
 }
 
 /** Its response: the first scene of the chain, or the batch already running. */

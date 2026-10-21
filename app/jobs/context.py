@@ -24,6 +24,7 @@ class JobContext:
     job_id: Optional[UUID] = None
     kind: str = ""
     checkpoint: Optional[dict] = None
+    model: Optional[str] = None  # the payload's chosen model (U1; resolve_model)
     # Set for hooks: the job's error (on_dead) and when it resumes (on_pause).
     error: Optional[str] = None
     resume_at: Optional[datetime] = None

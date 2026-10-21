@@ -6,6 +6,7 @@ from app.core import estimates
 from app.core.config import settings
 
 pytestmark = pytest.mark.unit
+FLASH, LITE, STUB = "gemini-3.6-flash", "gemini-3.5-flash-lite", "stub-x"
 
 
 def test_free_tier_ensemble_estimate_reports_the_mode_that_runs(monkeypatch):
@@ -132,13 +133,16 @@ class TestEndpoints:
         self, client, auth_headers, monkeypatch
     ):
         monkeypatch.setattr(estimates, "requests_left_today", _none)
+        monkeypatch.setattr(settings, "LLM_MAX_RPD", None)
         r = await client.get("/api/v1/usage", headers=auth_headers)
         assert r.status_code == 200
         body = r.json()
-        assert "by_purpose_30d" in body and "requests_left_today" in body
+        assert "by_purpose_30d" in body
+        per_day = {m: v["per_day"] for m, v in body["models"].items()}
+        assert list(per_day.items()) == [(LITE, 500), (FLASH, 20)]  # U1 (F)
 
 
-async def _none():
+async def _none(*_):
     return None
 
 
@@ -184,6 +188,24 @@ class TestSceneModeReporting:
         body = r.json()
         assert body["mode_requested"] == "ensemble" and body["mode_used"] == "prose"
         assert "free tier" in body["mode_reason"]
+
+    async def test_the_scene_records_its_model_and_unknown_is_422(
+        self, client, auth_headers, monkeypatch
+    ):
+        ch, c = await self._chapter_and_cast(client, auth_headers)
+        url = f"/api/v1/books/chapters/{ch['id']}/scenes/generate"
+        body = {"character_ids": [c["id"]], "setting": "s", "emotional_tone": "t"}
+        body["scene_description"] = "A quiet moment here."
+        client.headers.update(auth_headers)
+        cases = ("nope", None), (FLASH, FLASH), (None, LITE), (STUB, STUB)
+        for m, want in cases:  # STUB: no rpd, and an LLM_MODEL /usage offers first
+            monkeypatch.setattr(settings, "LLM_PROVIDER", ("gemini", "stub")[m == STUB])
+            monkeypatch.setattr(settings, "LLM_MODEL", (None, STUB)[m == STUB])
+            r = await client.post(url, json={**body, "model": m})
+            assert r.status_code == (422 if want is None else 200), r.text
+            if want:  # U1 (F): the scene payload exposes the model that wrote it
+                s = await client.get(f"/api/v1/scenes/{r.json()['scene_id']}")
+                assert s.json()["scene_request"]["model"] == want
 
 
 async def test_active_jobs_list_is_owner_scoped(
