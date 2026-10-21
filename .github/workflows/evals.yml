@@ -1,35 +1,166 @@
 name: evals
 
-# W14 OpenRouter key probe (wave 14, feasibility record). ONE-OFF, NEVER MERGED:
-# replaces the eval job on this branch, runs only by dispatch, reverted after one
-# run. GET /api/v1/key, whitelisted fields only (never the label); key values
-# are never printed.
+# Runs the renamed-public-domain eval suite against a freshly-booted app and
+# ingests the scores into Tracer, so voice/plot/continuity quality is trended
+# release-over-release (not eyeballed). Manually dispatched (it spends shared
+# Gemini free-tier quota). No schedule: it returns sized to W13-0's measure.
+#
+# Secrets this needs on the Polyphony repo (Settings → Secrets and variables →
+# Actions):
+#   GEMINI_API_KEY      — the model under test boots with it (fail-fast without).
+#   TRACER_INGEST_TOKEN — bearer for Tracer /api/ingest; if unset, the run still
+#                         produces a report artifact, it just doesn't ingest.
+#   GROQ_API_KEY        — free-tier judge (EVAL_JUDGE_PROVIDER=groq); if unset,
+#                         the judge falls back to Gemini (self-graded, labelled).
+#                         CEREBRAS/OPENROUTER/MISTRAL_API_KEY are alternates.
+# ADMIN_* / SECRET_KEY below are throwaway CI values (ephemeral DB), not secrets.
 
 on:
   workflow_dispatch:
     inputs:
-      run_key_probe: {type: choice, options: ['no', 'yes'], default: 'no'}
+      book:
+        description: corpus(es) to grade, space-separated (dracula = training, frankenstein = held-out, cel = the fidelity gate)
+        default: dracula frankenstein cel
+      steps:
+        description: comma list of steps or 'all'
+        default: all
+      repeat:
+        description: run each step N times for a mean±std noise band (N× the LLM cost)
+        default: '1'
+      env_label:
+        description: env tag stored on the Tracer run
+        default: ci
+      base_url:
+        description: >-
+          grade an EXTERNAL running app (e.g. https://polyphony.rtrentjones.dev
+          for a deployed-prompts baseline) instead of booting one here. Leave
+          blank to boot this ref's app. External mode needs EVAL_ADMIN_* secrets.
+        default: ''
+  # On-demand trigger for when workflow_dispatch isn't available (e.g. an
+  # integration token can't press "Run workflow"): bump evals/.run-eval and push.
+  # Path-scoped so ordinary commits don't fire it (this run spends Gemini quota).
+  # A push run has no inputs, so it uses the boot-mode defaults: both corpora,
+  # all steps, base_url blank (boots this ref's app).
+  push:
+    paths:
+      - evals/.run-eval
 
-permissions:
-  contents: read
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   eval:
-    if: inputs.run_key_probe == 'yes'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: ci_password_12345
+          POSTGRES_DB: polyphony_eval
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     env:
+      LLM_PROVIDER: gemini
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      # CI-only: let the app's 500 handler name the real error (429/quota vs
+      # safety-block vs bug) in the response so the eval scorecard is
+      # self-diagnosing. DEBUG defaults False, so prod leaks nothing.
+      DEBUG: 'true'
+      # The eval user is a harness, not an author: a staged outline over a big
+      # corpus (thinking tokens count as output) can exceed the free tier's
+      # per-author 200k/day, which now pauses the job mid-run by design.
+      # The provider's own quota still applies.
+      USER_DAILY_TOKEN_LIMIT: '20000000'
+      # NOTE: do NOT force temperature to 0 here. Temp=0 homogenizes the voice
+      # steps (every character answers a prompt near-identically → attribution
+      # collapses, prose degenerates), which defeats the voice measurement. Let
+      # each call use its natural temperature; use `--repeat` for the noise band
+      # on the judge/voice steps instead of killing sampling.
+      # First-boot admin (empty DB): ADMIN_EMAIL/PASSWORD come from the boot-app action.
+      # Boot mode uses the CI admin above; external mode (base_url set) needs the
+      # target app's real admin — supply EVAL_ADMIN_* as repo secrets for that.
+      EVAL_ADMIN_EMAIL: ${{ secrets.EVAL_ADMIN_EMAIL || 'eval-admin@example.com' }}
+      EVAL_ADMIN_PASSWORD: ${{ secrets.EVAL_ADMIN_PASSWORD || 'eval_admin_pw_ci_only_12345' }}
+      EVAL_BASE_URL: ${{ github.event.inputs.base_url || 'http://localhost:8000' }}
+      EVAL_ENV_LABEL: ${{ github.event.inputs.env_label || 'ci' }}
+      EVAL_TRACER_URL: https://tracer.rtrentjones.dev
+      TRACER_INGEST_TOKEN: ${{ secrets.TRACER_INGEST_TOKEN }}
+      # Judge on a DIFFERENT free vendor than the model under test: removes
+      # self-preference bias and takes judge calls off the shared Gemini daily
+      # budget. Fail-soft — until GROQ_API_KEY is set the judge falls back to
+      # the app provider and the report labels the run self-graded.
+      EVAL_JUDGE_PROVIDER: ${{ vars.EVAL_JUDGE_PROVIDER || 'groq,openrouter' }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
     steps:
-      - name: Probe
-        shell: python
+      - uses: actions/checkout@v4
+      - name: Preflight — Gemini key present (boot mode only)
+        if: ${{ github.event.inputs.base_url == '' }}
         run: |
-          import json, os, urllib.request
-          k = os.environ["OPENROUTER_API_KEY"]
-          req = urllib.request.Request("https://openrouter.ai/api/v1/key", headers={"Authorization": f"Bearer {k}", "User-Agent": "polyphony-probe/1"})
-          d = json.load(urllib.request.urlopen(req, timeout=30)).get("data", {})
-          keep = ("is_free_tier", "limit", "limit_remaining", "limit_reset", "usage", "usage_daily", "free_model_daily_requests", "rate_limit")
-          text = json.dumps({f: d.get(f) for f in keep}, indent=1)
-          assert k not in text
-          print(text)
-          open(os.environ["GITHUB_STEP_SUMMARY"], "a").write("```\n" + text + "\n```\n")
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "::error::GEMINI_API_KEY is not set on this repo — the app can't boot for the eval. Add it in repo Actions secrets."
+            exit 1
+          fi
+      - uses: ./.github/actions/boot-app
+        with:
+          serve: ${{ github.event.inputs.base_url == '' }}
+      - name: Run evals + ingest to Tracer
+        env:
+          BASE_LABEL: ${{ github.event.inputs.env_label || 'ci' }}
+          STEPS: ${{ github.event.inputs.steps || 'all' }}
+        run: |
+          # Book selection: dispatch input wins; else on a push read the book
+          # names from the sentinel file (so a single push can grade just one
+          # book to stay inside the Gemini free-tier quota); else both.
+          BOOKS="${{ github.event.inputs.book }}"
+          if [ -z "$BOOKS" ]; then
+            BOOKS="$(grep -oiE 'dracula|frankenstein|cel' evals/.run-eval | tr '\n' ' ' || true)"
+          fi
+          BOOKS="${BOOKS:-dracula frankenstein cel}"
+          # Repeat count: dispatch input wins; else a "repeat: N" line in the
+          # sentinel (mean±std noise band; N× the LLM cost — budget for it).
+          REPEAT="${{ github.event.inputs.repeat }}"
+          if [ -z "$REPEAT" ]; then
+            REPEAT="$(grep -oiE 'repeat: *[0-9]+' evals/.run-eval | grep -oE '[0-9]+' || true)"
+          fi
+          REPEAT="${REPEAT:-1}"
+          echo "grading books: $BOOKS (repeat=$REPEAT)"
+          rc=0
+          for BK in $BOOKS; do
+            echo "::group::evals $BK"
+            # Distinct Tracer env per book so training vs held-out trend apart.
+            # cel is the synthetic fidelity corpus (no gold voice lines, no
+            # continuity injections): grade only what it was built for, to
+            # save quota.
+            BK_STEPS="$STEPS"
+            if [ "$BK" = "cel" ] && [ "$STEPS" = "all" ]; then BK_STEPS="outline"; fi
+            EVAL_ENV_LABEL="${BASE_LABEL}-${BK}" python -m evals.run \
+              --book "$BK" --steps "$BK_STEPS" --repeat "$REPEAT" \
+              --out "eval-report-$BK.json" --export "gl-export-$BK.json" --tracer || rc=1
+            # The BRD §7 acceptance gate: an outline that loses the author's
+            # cast fails the run (docs/BRD.md R1.4).
+            if [ "$BK" = "cel" ] && [ -f eval-report-cel.json ]; then
+              python -m evals.gate eval-report-cel.json "outline.cast_fidelity>=0.9" || rc=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $rc
+      - name: Stop app
+        if: ${{ always() && github.event.inputs.base_url == '' }}
+        run: kill "$(cat /tmp/app.pid)" 2>/dev/null || true
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report-${{ github.run_id }}
+          path: |
+            eval-report-*.json
+            gl-export-*.json
+            app.log
+          if-no-files-found: warn
