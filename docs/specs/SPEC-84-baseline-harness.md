@@ -50,3 +50,8 @@
   before it is memoized, so an unparseable reply is re-asked on resume instead of replayed; valid replies are stored and parsed as
   before under the same keys. The rating continues at P′ = `4c70d0d` (P + this line + `panel.py:94`'s syntax-only rewrite) from the
   same rate-state.
+- **Amendment, 2026-10-21, failure-driven, not outcome-driven** (run 39574086903; no Nemotron rating existed): Nemotron reasons
+  inline in the reply, so at 640 tokens its first reply was cut off before any JSON, and with room to finish, the reply's first JSON
+  object could be the prompt's own quoted example. At P″ = `19838a1` the panel reads each reply's last JSON object, and the OpenRouter
+  member sends `max_tokens=4096`; Groq stays at 640, and its 125 cached replies parse identically under the new reader (125/125).
+  Each member keeps one condition across all 54 pairs.
