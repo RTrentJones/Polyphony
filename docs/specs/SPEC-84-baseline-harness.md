@@ -45,3 +45,4 @@
   W12-9 dispatch); wave 13 ends at sealed bundles. Every results line also states that C is the paid-tier ensemble.
 - **Amendment, 2026-10-21, non-data-driven** (before any rating; principal panel gate P1): panel refuses empty input; score
   refuses incomplete slot coverage, three pairs per slot (P1). D1's `unrated` refusal (`2446afa`) was pre-approved.
+- **Amendment, 2026-10-21, non-data-driven** (before any rating; principal panel `max_tokens` ruling): every panel call sends `max_tokens=640` (Groq gpt-oss 1,664 after the thinking guard), so cel's largest request (6,052 o200k prompt tokens) fits Groq's 8,000 TPM with 284 to spare; both members, all 54 pairs, one condition.

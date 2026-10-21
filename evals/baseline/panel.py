@@ -23,7 +23,7 @@ ASK = {
 }
 JSON = dict(
     temperature=0.0, purpose="eval_panel", response_format={"type": "json_object"}
-)
+) | {"max_tokens": 640}
 
 
 def fleiss(table: list[list[int]]) -> float:
