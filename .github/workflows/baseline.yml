@@ -88,6 +88,7 @@ jobs:
     env: # only the chosen members' keys
       BASELINE_PANEL: ${{ inputs.panel }}
       BUNDLES: ${{ inputs.bundles }}
+      LLM_MAX_RPM: '1' # Groq admits on prompt + max_tokens: floor(8000 / L) = 1 for L in 3.5k-7.2k (panel load ruling)
       GEMINI_API_KEY: ${{ contains(inputs.panel, 'gemini:') && secrets.GEMINI_API_KEY || '' }}
       GROQ_API_KEY: ${{ contains(inputs.panel, 'groq:') && secrets.GROQ_API_KEY || '' }}
       OPENROUTER_API_KEY: ${{ contains(inputs.panel, 'openrouter:') && secrets.OPENROUTER_API_KEY || '' }}
