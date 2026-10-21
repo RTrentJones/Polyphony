@@ -253,20 +253,63 @@ async def run(
     return result
 
 
-async def ingest_to_tracer(result: dict, url: str, token: str, env: str) -> None:
+async def ingest_to_tracer(
+    result: dict,
+    url: str,
+    token: str,
+    env: str,
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> bool:
     """POST the run to Tracer's /api/ingest (bearer-authed) so the score trend
-    shows release-over-release. Best-effort: a failed ingest never fails a run."""
-    payload = report.tracer_export(
-        result, model=result["model"], env=env, provenance=report.github_provenance()
-    )
-    async with httpx.AsyncClient(timeout=30) as h:
-        r = await h.post(
-            f"{url.rstrip('/')}/api/ingest",
-            json=payload,
-            headers={"authorization": f"Bearer {token}"},
+    shows release-over-release. Best-effort: a failed ingest never fails a run,
+    and never raises — but the outcome is always visible (log line, an Actions
+    warning on failure, and the job summary), so a silent 401 can't hide a gap.
+    Returns whether the run landed."""
+    book = result.get("book") or "?"
+    if not token:
+        _report_ingest(book, "skipped (TRACER_INGEST_TOKEN unset)", ok=False)
+        return False
+    try:
+        payload = report.tracer_export(
+            result,
+            model=result["model"],
+            env=env,
+            provenance=report.github_provenance(),
         )
-        r.raise_for_status()
-        print(f"tracer ingest -> {r.status_code} {r.json()}")
+        async with httpx.AsyncClient(timeout=30, transport=transport) as h:
+            r = await h.post(
+                f"{url.rstrip('/')}/api/ingest",
+                json=payload,
+                headers={"authorization": f"Bearer {token}"},
+            )
+    except Exception as e:  # noqa: BLE001 - telemetry is never fatal
+        _report_ingest(book, f"failed: {type(e).__name__}: {e}", ok=False)
+        return False
+    try:
+        body = r.json()
+    except ValueError:
+        body = r.text[:200]
+    ok = r.is_success
+    _report_ingest(book, f"{r.status_code} {body}", ok=ok)
+    return ok
+
+
+def _report_ingest(book: str, outcome: str, *, ok: bool) -> None:
+    """One outcome, three sinks: stdout, an Actions warning when it didn't land,
+    and a line in the job summary when running in Actions."""
+    outcome = " ".join(str(outcome).split())[:300]  # one line: workflow commands
+    print(f"tracer ingest -> {outcome}")
+    if not ok:
+        print(f"::warning title=Tracer ingest::{book}: {outcome}")
+    summary = os.getenv("GITHUB_STEP_SUMMARY")
+    if summary:
+        mark = "ok" if ok else "NOT ingested"
+        try:
+            with open(summary, "a", encoding="utf-8") as f:
+                f.write(f"- Tracer ingest `{book}`: {mark} — `{outcome}`\n")
+        except OSError:
+            pass
 
 
 def main() -> None:
@@ -307,18 +350,16 @@ def main() -> None:
         print(f"greenlight export -> {args.export}")
 
     if args.tracer:
-        url = os.getenv("EVAL_TRACER_URL", "https://tracer.rtrentjones.dev")
-        token = os.getenv("TRACER_INGEST_TOKEN", "")
-        if not token:
-            print("tracer ingest skipped: TRACER_INGEST_TOKEN unset")
-        else:
-            env_label = os.getenv("EVAL_ENV_LABEL", "prod")
-            # Best-effort: a Tracer outage / token mismatch (401) must NOT fail
-            # the eval run or discard the scorecard we just computed.
-            try:
-                asyncio.run(ingest_to_tracer(result, url, token, env_label))
-            except Exception as e:  # noqa: BLE001 - telemetry is never fatal
-                print(f"tracer ingest failed (non-fatal): {type(e).__name__}: {e}")
+        # Best-effort: a Tracer outage / token mismatch (401) must NOT fail
+        # the eval run or discard the scorecard we just computed.
+        asyncio.run(
+            ingest_to_tracer(
+                result,
+                os.getenv("EVAL_TRACER_URL", "https://tracer.rtrentjones.dev"),
+                os.getenv("TRACER_INGEST_TOKEN", ""),
+                os.getenv("EVAL_ENV_LABEL", "prod"),
+            )
+        )
     if any("error" in s for s in result["steps"].values()):
         raise SystemExit(1)  # a step error is red; a quota skip stays a skip (W13-7)
 

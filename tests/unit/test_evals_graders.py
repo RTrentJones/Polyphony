@@ -744,3 +744,118 @@ class TestTracerExportProvenance:
         assert out["repo"] == "RTrentJones/Polyphony" and out["branch"] == "main"
         assert out["labels"]["trigger"] == "workflow_dispatch"
         assert report.github_provenance({}) == {}
+
+    def test_runs_are_labelled_on_demand(self, monkeypatch):
+        # Dispatched, not scheduled: Tracer must not read a quiet week as stale.
+        from evals.harness import report
+
+        monkeypatch.delenv("EVAL_EXPERIMENT", raising=False)
+        out = report.tracer_export(self._run(), model="m")
+        assert out["labels"]["cadence"] == "on-demand"
+        assert "experiment" not in out["labels"]
+
+    def test_experiment_is_a_label_not_the_env(self, monkeypatch):
+        from evals.harness import report
+
+        monkeypatch.setenv("EVAL_EXPERIMENT", "spec-merge-" + "x" * 300)
+        out = report.tracer_export(self._run(), model="m", env="ci")
+        assert out["env"] == "ci"
+        assert out["labels"]["experiment"].startswith("spec-merge-")
+        assert len(out["labels"]["experiment"]) == 255
+
+    def test_metric_keys_are_ascii(self):
+        # Python's \w is Unicode by default; Tracer's metric keys are ASCII-only.
+        from evals.harness import report
+
+        out = report.tracer_export(
+            {"steps": {"outline": {"score": 0.9, "fidélité": 0.8}}}, model="m"
+        )
+        assert out["cases"][0]["metrics"] == {"score": 0.9, "fid_lit_": 0.8}
+
+
+class TestTracerIngestOutcome:
+    """`ingest_to_tracer` never raises, and its outcome is always visible."""
+
+    RESULT = {"book": "dracula", "model": "m", "steps": {"outline": {"score": 0.9}}}
+
+    def _ingest(self, handler, monkeypatch, tmp_path, token="tok"):
+        import asyncio
+
+        import httpx
+
+        from evals.run import ingest_to_tracer
+
+        summary = tmp_path / "summary.md"
+        monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+        ok = asyncio.run(
+            ingest_to_tracer(
+                self.RESULT,
+                "https://tracer.test/",
+                token,
+                "ci",
+                transport=httpx.MockTransport(handler),
+            )
+        )
+        return ok, summary.read_text() if summary.exists() else ""
+
+    def test_created(self, monkeypatch, tmp_path, capsys):
+        import httpx
+
+        seen = {}
+
+        def handler(req):
+            seen["url"] = str(req.url)
+            seen["auth"] = req.headers["authorization"]
+            return httpx.Response(201, json={"id": "r1", "cases": 1})
+
+        ok, summary = self._ingest(handler, monkeypatch, tmp_path)
+        out = capsys.readouterr().out
+        assert ok is True
+        assert seen == {
+            "url": "https://tracer.test/api/ingest",
+            "auth": "Bearer tok",
+        }
+        assert "tracer ingest -> 201" in out and "::warning" not in out
+        assert "`dracula`: ok" in summary
+
+    def test_unauthorized_warns(self, monkeypatch, tmp_path, capsys):
+        import httpx
+
+        ok, summary = self._ingest(
+            lambda req: httpx.Response(401, json={"error": "unauthorized"}),
+            monkeypatch,
+            tmp_path,
+        )
+        out = capsys.readouterr().out
+        assert ok is False
+        assert "tracer ingest -> 401" in out
+        assert "::warning title=Tracer ingest::dracula: 401" in out
+        assert "NOT ingested" in summary and "401" in summary
+
+    def test_non_json_body_and_transport_error(self, monkeypatch, tmp_path, capsys):
+        import httpx
+
+        ok, _ = self._ingest(
+            lambda req: httpx.Response(502, text="<html>bad gateway</html>"),
+            monkeypatch,
+            tmp_path,
+        )
+        assert ok is False and "502 <html>bad gateway</html>" in capsys.readouterr().out
+
+        def boom(req):
+            raise httpx.ConnectError("down")
+
+        ok, _ = self._ingest(boom, monkeypatch, tmp_path)
+        assert ok is False
+        assert "failed: ConnectError: down" in capsys.readouterr().out
+
+    def test_no_token(self, monkeypatch, tmp_path, capsys):
+        def handler(req):  # pragma: no cover - must not be called
+            raise AssertionError("posted without a token")
+
+        ok, summary = self._ingest(handler, monkeypatch, tmp_path, token="")
+        out = capsys.readouterr().out
+        assert ok is False
+        assert "skipped (TRACER_INGEST_TOKEN unset)" in out
+        assert "::warning title=Tracer ingest::" in out
+        assert "NOT ingested" in summary

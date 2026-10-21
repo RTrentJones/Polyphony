@@ -261,6 +261,12 @@ def tracer_export(
             "repeat": run.get("repeat"),
             "skipped": ",".join(skipped) or None,
             "errored": ",".join(errored) or None,
+            # Dispatched on demand, not on a schedule: Tracer must not read a
+            # quiet week as "stale".
+            "cadence": "on-demand",
+            # An experiment is a label, not an env, so every CI run of a book
+            # stays on one `env=ci` series and the experiments stay comparable.
+            "experiment": os.environ.get("EVAL_EXPERIMENT") or None,
         }.items()
         if v is not None
     }
@@ -306,7 +312,7 @@ def _numeric_fields(res: dict) -> dict[str, float]:
             continue
         if v != v or v in (float("inf"), float("-inf")):
             continue
-        key = re.sub(r"[^\w.:/-]", "_", str(k))[:80]
+        key = re.sub(r"[^\w.:/-]", "_", str(k), flags=re.ASCII)[:80]
         out[key] = round(float(v), 6) if isinstance(v, float) else v
         if len(out) >= 64:
             break

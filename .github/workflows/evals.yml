@@ -28,8 +28,14 @@ on:
         description: run each step N times for a mean±std noise band (N× the LLM cost)
         default: '1'
       env_label:
-        description: env tag stored on the Tracer run
+        description: where the run happened (keep `ci`); put experiment names in a label, not the env
         default: ci
+      model:
+        description: model under test (sets LLM_MODEL); blank = provider default
+        default: ''
+      experiment:
+        description: optional experiment tag stored as labels.experiment
+        default: ''
       base_url:
         description: >-
           grade an EXTERNAL running app (e.g. https://polyphony.rtrentjones.dev
@@ -87,6 +93,7 @@ jobs:
       EVAL_ADMIN_PASSWORD: ${{ secrets.EVAL_ADMIN_PASSWORD || 'eval_admin_pw_ci_only_12345' }}
       EVAL_BASE_URL: ${{ github.event.inputs.base_url || 'http://localhost:8000' }}
       EVAL_ENV_LABEL: ${{ github.event.inputs.env_label || 'ci' }}
+      EVAL_EXPERIMENT: ${{ github.event.inputs.experiment || '' }}
       EVAL_TRACER_URL: https://tracer.rtrentjones.dev
       TRACER_INGEST_TOKEN: ${{ secrets.TRACER_INGEST_TOKEN }}
       # Judge on a DIFFERENT free vendor than the model under test: removes
@@ -107,6 +114,14 @@ jobs:
             echo "::error::GEMINI_API_KEY is not set on this repo — the app can't boot for the eval. Add it in repo Actions secrets."
             exit 1
           fi
+      # The model under test: exported only when the dispatch names one, so a
+      # blank input (or a push run) leaves LLM_MODEL unset and the app boots on
+      # its provider default. run.py labels the Tracer run from LLM_MODEL.
+      - name: Model under test
+        env:
+          MODEL: ${{ github.event.inputs.model || '' }}
+        run: |
+          if [ -n "$MODEL" ]; then echo "LLM_MODEL=$MODEL" >> "$GITHUB_ENV"; fi
       - uses: ./.github/actions/boot-app
         with:
           serve: ${{ github.event.inputs.base_url == '' }}
