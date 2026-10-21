@@ -2,6 +2,7 @@
 python -m evals.baseline.panel <bundles dir> --out <ratings dir>"""
 
 import asyncio
+import contextlib
 import csv
 import json
 import os
@@ -55,28 +56,38 @@ async def rate(member: str, bundles: list[dict], cache: Cache) -> dict:
     llm, out = LLMClient(PROVIDERS[provider]), {"prefer": {}, "errors": {}}
     kw = JSON | {"max_tokens": {"openrouter": 4096}.get(provider, 640)}
 
-    async def ask(canon: str, what: str, *texts: str) -> int:
+    async def ask(canon: str, what: str, *texts: str) -> int | None:
         fenced = [f"<passage_{k}>\n{t}\n</passage_{k}>" for k, t in enumerate(texts, 1)]
         prompt = "\n\n".join([canon, *fenced, ASK[what]])
         msg = [{"role": "user", "content": prompt}]
 
-        async def call() -> str:
-            text = (await llm.generate(msg, model=model, **kw)).text
-            last_answer(text, what)  # raises before memo stores it
-            return text
+        async def call() -> str:  # an unparseable reply is re-asked, never stored
+            for _ in range(3):
+                text = (await llm.generate(msg, model=model, **kw)).text
+                with contextlib.suppress(ValueError, KeyError, TypeError):
+                    last_answer(text, what)
+                    return text
+            raise ValueError(f"3 unparseable; last {len(text)} chars: {text[-300:]!r}")
 
-        answer = await cache.memo("panel", f"{member}|{prompt}", call)
-        return last_answer(answer, what)
+        key = f"{member}|{prompt}"
+        try:
+            return last_answer(await cache.memo("panel", key, call), what)
+        except ValueError as e:  # unrated: kappa.json counts it; a resume re-asks it
+            print(f"{member} left {cache._path('panel', key).name} unrated: {e}")
+            return None
 
     try:
         for b in bundles:
             it, canon = b["items"], b["canon"]
             for a, c in b["pairs"]:  # both orders; inconsistent = a tie (1/2)
-                one = await ask(canon, "preferred", it[a], it[c]) == 1
-                two = await ask(canon, "preferred", it[c], it[a]) == 2
-                out["prefer"][(a, c)] = (a if one else c) if one == two else "tie"
+                x = await ask(canon, "preferred", it[a], it[c])
+                y = await ask(canon, "preferred", it[c], it[a])
+                if None not in (x, y):  # half a pair is never recorded
+                    one, two = x == 1, y == 2
+                    out["prefer"][(a, c)] = (a if one else c) if one == two else "tie"
             for i, text in it.items():
-                out["errors"][i] = await ask(canon, "errors", text)
+                if (n := await ask(canon, "errors", text)) is not None:
+                    out["errors"][i] = n
     except QuotaExhaustedError as e:
         print(f"panel member {member} stopped: {e}")
     return out
