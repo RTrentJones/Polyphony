@@ -6,7 +6,7 @@ from app.core import estimates
 from app.core.config import settings
 
 pytestmark = pytest.mark.unit
-FLASH, LITE, STUB = "gemini-3.6-flash", "gemini-3.5-flash-lite", "stub-default"
+FLASH, LITE, STUB = "gemini-3.6-flash", "gemini-3.5-flash-lite", "stub-x"
 
 
 def test_free_tier_ensemble_estimate_reports_the_mode_that_runs(monkeypatch):
@@ -198,8 +198,9 @@ class TestSceneModeReporting:
         body["scene_description"] = "A quiet moment here."
         client.headers.update(auth_headers)
         cases = ("nope", None), (FLASH, FLASH), (None, LITE), (STUB, STUB)
-        for m, want in cases:  # STUB: a provider without rpd allows its default
+        for m, want in cases:  # STUB: no rpd, and an LLM_MODEL /usage offers first
             monkeypatch.setattr(settings, "LLM_PROVIDER", ("gemini", "stub")[m == STUB])
+            monkeypatch.setattr(settings, "LLM_MODEL", (None, STUB)[m == STUB])
             r = await client.post(url, json={**body, "model": m})
             assert r.status_code == (422 if want is None else 200), r.text
             if want:  # U1 (F): the scene payload exposes the model that wrote it

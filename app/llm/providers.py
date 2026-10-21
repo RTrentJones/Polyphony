@@ -198,11 +198,15 @@ def resolve_model(provider: Provider, fast: bool) -> str:
     return current_job().model or settings.LLM_MODEL or provider.default_model
 
 
+def selectable(provider: Provider) -> list[str]:
+    """The models an author may choose (U1): the running default first, then rpd's."""
+    return list(dict.fromkeys([resolve_model(provider, False), *provider.rpd]))
+
+
 def _job_model(model: Optional[str]) -> str:
-    """A scene-writing request's model (U1): a key of `rpd`, or the default of a
-    provider without limits (else 422); the default when none is chosen. Stamped
-    into the job payload as given."""
-    allowed = list(active_provider().rpd or [active_provider().default_model])
+    """A scene-writing request's model (U1): one of `selectable` (else 422), or
+    the default when none is chosen. Stamped into the job payload as given."""
+    allowed = selectable(active_provider())
     if model is not None and model not in allowed:
         raise ValueError(f"unknown model; choose one of {allowed}")
     return model or resolve_model(active_provider(), fast=False)

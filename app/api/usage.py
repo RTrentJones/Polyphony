@@ -46,7 +46,7 @@ async def get_usage(
     ).one()
 
     from app.core.estimates import requests_left_today
-    from app.llm.providers import active_provider, resolve_model
+    from app.llm.providers import active_provider, selectable
     from app.llm.tier import effective_rpd
 
     provider = active_provider()
@@ -74,7 +74,7 @@ async def get_usage(
                 "left": await requests_left_today(m),
                 "per_day": effective_rpd(provider, m),
             }
-            for m in dict.fromkeys([resolve_model(provider, False), *provider.rpd])
+            for m in selectable(provider)
         },
         "by_purpose_30d": [
             {
