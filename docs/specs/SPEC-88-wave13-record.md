@@ -61,3 +61,18 @@ All runs `baseline.yml` at app sha `e428c77`; generator `gemini-3.5-flash-lite` 
 | 39495277558 | cel | — | 800 | red: 2/6, provider 429 `quotaValue` 500 (row 3) | — |
 
 Full digests and state-artifact ids are in the orchestrator's ledger; keys and records stay unopened until W14-5.
+
+## Panel feasibility record (wave 14, before the first rating call)
+- **P** = `931236534a962414c31944ab6049c99bf35d885d` (`app/` identical to `e428c77`); `baseline.yml` blob `6d26176b25aa9a57f1b44f13b0a8a06a732aa43b`.
+  Every rate dispatch runs `sha=P`; `baseline.yml` and `evals/baseline/` stay frozen at P until `unrated` = 0. Tags are refused by
+  the remote, so P is named by sha. The stub rate demo at P (run 39567897491, bundle 39462843795) was green: `unrated` 0, and score
+  read it end to end.
+- **Panel:** `groq:openai/gpt-oss-120b,openrouter:nvidia/nemotron-3-ultra-550b-a55b:free`, two vendors and families, both priced at
+  `e428c77` (P2). Groq re-probe through the openai SDK (run 39546316560, reverted `91fb912`): 200; `x-ratelimit` 1000 RPD,
+  8000 TPM. The wave-13 403/1010 was the probe's urllib client. Groq TPD **200K** (console.groq.com/docs/rate-limits, read
+  2026-10-21, undated). OpenRouter `/api/v1/key` (run 39568324733, reverted `a9f0696`): `free_model_daily_requests` limit **50**.
+- **Load at P** (o200k_base over the real `panel.rate` prompts; every call `max_tokens` 640, Groq sent 1,664 after the thinking guard):
+  largest request L = Frankenstein 3,151, Wuthering 4,055, cel 7,716 (≤ 8,000 TPM, test (ii) holds); `LLM_MAX_RPM` 1.
+  Input 427,296 tokens per member over 162 requests (54 per manuscript).
+- **Days** = ⌈(Σ prompt + Σ completion) / TPD⌉ for Groq ≈ 3 (≤ 4 at the 1,664 output bound); Nemotron ⌈162 / 50⌉ = 4. Rating ends
+  before the 2026-11-14 re-upload line (W14-6). The completion total is replaced by the first dispatch's `api_usage` sum.
