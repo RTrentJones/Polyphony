@@ -9,6 +9,7 @@ single-source-per-book flow stays one step.
 
 import hashlib
 import os
+import re
 
 from fastapi import (
     APIRouter,
@@ -464,6 +465,7 @@ async def list_sources(
                         "id": str(latest_by_source[s.id].id),
                         "status": latest_by_source[s.id].status,
                         "job": run_jobs.get(str(latest_by_source[s.id].id)),
+                        "error": _reason(latest_by_source[s.id].error),
                     }
                     if s.id in latest_by_source
                     else None
@@ -475,6 +477,13 @@ async def list_sources(
         "skip": skip,
         "limit": limit,
     }
+
+
+def _reason(error: Optional[str]) -> Optional[str]:
+    """Why a run failed, for the list (W14-11): the first line before any
+    provider body, long opaque tokens (keys) masked, at most 200 chars."""
+    head = (error or "").split(" - {")[0].split("\n")[0]
+    return re.sub(r"[\w-]{30,}", "…", head)[:200] or None
 
 
 async def _owned_source(

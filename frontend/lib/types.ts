@@ -70,6 +70,7 @@ export interface SourceLatestExtraction {
   id: string
   status: 'pending' | 'ready' | 'failed' | 'committed' | string
   job?: JobSummary | null
+  error?: string | null // why it failed: bounded, no provider body (W14-11)
 }
 
 /** Raw source item as returned by the API (list + detail). Book-scoped. */
