@@ -84,6 +84,8 @@ def write(path: Path, prefer: dict, errors: dict) -> None:
 async def main(root: str, out: Path) -> None:
     members = os.environ["BASELINE_PANEL"].split(",")
     bundles = [load(p) for p in sorted(Path(root).rglob("bundle.json"))]
+    if not bundles:
+        raise SystemExit("no bundle to rate")
     cache = Cache(os.getenv("EVAL_CACHE_DIR", ".eval-cache"), "panel")
     got = [await rate(m, bundles, cache) for m in members]
     (px, ex), (py, ey) = [(g["prefer"], g["errors"]) for g in got]  # two, counted

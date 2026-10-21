@@ -1,17 +1,22 @@
 """W13-4 (SPEC-84's panel amendment): the model panel and score's rated path."""
 
 import json
+import re
 import runpy
+import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+import yaml
 
 from evals.baseline import panel, score
 from evals.harness.cache import Cache
 from evals.stub_llm import _answer
 
 pytestmark = pytest.mark.unit
+WF = yaml.safe_load(Path(".github/workflows/baseline.yml").read_text())
 
 
 def test_a_bundle_with_an_arm_marker_is_refused(tmp_path):
@@ -63,9 +68,28 @@ async def test_a_partial_panel_records_unrated_and_score_refuses(monkeypatch, tm
     monkeypatch.setattr(panel, "load", lambda p: {"items": "xy", "pairs": ["xy"]})
     monkeypatch.setenv("BASELINE_PANEL", "a:m,b:m")
     monkeypatch.setenv("EVAL_CACHE_DIR", str(tmp_path))
+    with pytest.raises(SystemExit, match="no bundle to rate"):
+        await panel.main(str(tmp_path), tmp_path)
     (tmp_path / "bundle.json").touch()
     await panel.main(str(tmp_path), tmp_path)
     assert json.loads((tmp_path / "kappa.json").read_text())["unrated"] == 3
-    monkeypatch.setattr("sys.argv", ["score", str(tmp_path)])
+    key = tmp_path / "key.json"  # a second slot (z1) the ratings never reached
+    key.write_text(json.dumps({"items": {i: [s, i] for i, s in ["x0", "y0", "z1"]}}))
+    monkeypatch.setattr("sys.argv", ["score", str(tmp_path), str(key)])
     with pytest.raises(SystemExit, match="panel incomplete: re-run the rate dispatch"):
         runpy.run_module("evals.baseline.score", run_name="__main__")
+    (tmp_path / "kappa.json").write_text('{"unrated": 0, "fleiss_kappa": 1}')
+    with pytest.raises(SystemExit, match="ratings do not cover the key's slots"):
+        runpy.run_module("evals.baseline.score", run_name="__main__")
+
+
+@pytest.mark.parametrize("kind, code", [("key", 1), ("state", 1), ("bundle", 0)])
+def test_the_rate_job_gets_bundles_only_and_its_guard_fails(tmp_path, kind, code):
+    rate, ok = WF["jobs"]["rate"], r"-p 'baseline-bundle-\*'|-n baseline-rate-state "
+    runs = "".join(s.get("run", "") for s in rate["steps"])
+    gets = re.findall(r"gh run download .*", runs)
+    assert gets and all(re.search(ok, g) for g in gets) and "GH_TOKEN" not in WF["env"]
+    assert not re.search(r"baseline-(key|state)-|LLM_MAX_RPD", f"{rate}{WF['env']}")
+    (tmp_path / f"bundles/1/baseline-{kind}-cel").mkdir(parents=True)
+    g = next(s["run"] for s in rate["steps"] if s.get("name") == "Leak guard")
+    assert subprocess.run(["bash", "-ec", g], cwd=tmp_path).returncode == code

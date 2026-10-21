@@ -78,4 +78,6 @@ if __name__ == "__main__":  # <ratings dir> <key.json and records.json files>
     if (kappa := json.loads((ratings / "kappa.json").read_text()))["unrated"]:
         raise SystemExit("panel incomplete: re-run the rate dispatch")
     judgments, cont = rated(ratings / "sheet-panel.csv", key)
+    if len(judgments) != 3 * len({v[0] for v in key["items"].values()}):
+        raise SystemExit("ratings do not cover the key's slots")
     print(json.dumps(score(records, judgments, cont, kappa["fleiss_kappa"]), indent=1))

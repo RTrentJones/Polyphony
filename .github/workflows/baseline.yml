@@ -47,6 +47,7 @@ jobs:
       EVAL_BASELINE_DIR: out/bundle # not hidden: upload-artifact v4.4+ skips hidden files
       EVAL_BASELINE_KEY: out/key/key.json
     steps:
+      - run: for v in M LLM_PROVIDER LLM_MODEL LLM_MAX_RPD; do [ -n "${!v}" ] || { echo "::error::generate needs $v"; exit 1; }; done
       - &checkout {uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5, with: {ref: '${{ inputs.sha }}'}} # v4.3.1
       - &prepare {uses: ./.github/actions/boot-app, with: {serve: 'false'}}
       - name: Restore the prior state; cancel its in-flight jobs before boot
@@ -60,7 +61,6 @@ jobs:
           psql "$PGURL" -v ON_ERROR_STOP=1 -f evals/baseline/restore_cancel.sql | sed 's/^/restore-cancel: /' | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Recorders (and the stub, if it is the generator)
         run: |
-          for v in M LLM_MODEL LLM_MAX_RPD; do [ -n "${!v}" ] || { echo "::error::generate needs $v"; exit 1; }; done
           case "$LLM_PROVIDER" in gemini|stub) ;; *) echo "::error::no recorder upstream for $LLM_PROVIDER"; exit 1 ;; esac
           UP=https://generativelanguage.googleapis.com/v1beta/openai
           [ "$LLM_PROVIDER" != stub ] || { UP=http://127.0.0.1:8099/v1; (python -m evals.stub_llm --port 8099 > stub.log 2>&1 &); }
@@ -100,6 +100,7 @@ jobs:
       - name: Download the bundles only (never a key or a state)
         env: {GH_TOKEN: '${{ github.token }}'}
         run: |
+          [ -n "$BUNDLES" ] && [ -n "$BASELINE_PANEL" ] || { echo "::error::rate needs bundles and panel"; exit 1; }
           for r in ${BUNDLES//,/ }; do gh run download "$r" -p 'baseline-bundle-*' -D "bundles/$r" -R "$GITHUB_REPOSITORY"; done
           [ -z "$PRIOR" ] || gh run download "$PRIOR" -n baseline-rate-state -D rate-state -R "$GITHUB_REPOSITORY"
       - name: Leak guard
