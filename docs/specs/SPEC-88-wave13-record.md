@@ -46,3 +46,18 @@
   GenerateRequestsPerDayPerProjectPerModel-FreeTier, `quotaValue` **500** (stop-path row 3: `LLM_MAX_RPD` above the real RPD). It
   replaces the registry's 1,000 (2× high). `max_rpd` becomes **400** for every later dispatch; (i) 400 ≥ 58 and (iii) one run-day per
   manuscript still hold, so the selection stands. Frankenstein and Wuthering finished under 800 without reaching it (cap, not content).
+
+## W12-9 dispatch ledger (wave 14, W14-0)
+All runs `baseline.yml` at app sha `e428c77`; generator `gemini-3.5-flash-lite` unless noted. Artifacts expire 2026-11-19 (W14-6).
+
+| Run | Manuscript | Prior | `max_rpd` | Result | Sealed artifacts (id, sha256 of the zip) |
+|---|---|---|---|---|---|
+| 39389623526 | cel demo (stub) | — | 100 | red: 2/6, estimate-gate 429 (row 1) | — |
+| 39462843795 | cel demo (stub) | 39389623526 | 800 | green 6/6 (A 18, B 24, C 78) | bundle 12283578300, key 12283912980 |
+| 39466797409 | frankenstein | — | 800 | red: 4/6, slot 5 arm B Gemini 503 (first 503) | — |
+| 39475808924 | frankenstein | 39466797409 | 800 | green 6/6 | bundle 12288159864 `f841cbe9…de24`; key 12291070021 `a96c1609…76e5` |
+| 39480425231 | wuthering | — | 800 | green 6/6, one pass | bundle 12294107221 `029e3a1f…5df3`; key 12293832683 `04ddc599…c7ff` |
+| 39487847529 | cel | — | 800 | red: outline "no parseable JSON array" (L1: dispatch fresh) | — |
+| 39495277558 | cel | — | 800 | red: 2/6, provider 429 `quotaValue` 500 (row 3) | — |
+
+Full digests and state-artifact ids are in the orchestrator's ledger; keys and records stay unopened until W14-5.
