@@ -95,7 +95,8 @@ async def main(root: str, out: Path) -> None:
     write(out / "sheet-panel.csv", agreed, errors)
     table = [[(px[p] == v) + (py[p] == v) for v in (*p, "tie")] for p in agreed]
     kappa = {"members": members, "fleiss_kappa": fleiss(table) if table else None}
-    (out / "kappa.json").write_text(json.dumps(kappa))
+    left = sum(len(b["pairs"]) + len(b["items"]) for b in bundles) - len(agreed)
+    (out / "kappa.json").write_text(json.dumps(kappa | {"unrated": left - len(errors)}))
 
 
 if __name__ == "__main__":

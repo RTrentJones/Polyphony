@@ -1,6 +1,7 @@
 """W13-4 (SPEC-84's panel amendment): the model panel and score's rated path."""
 
 import json
+import runpy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -44,3 +45,17 @@ def test_a_panel_sheet_gives_continuity_per_scene_and_low_kappa_no_decision(tmp_
     out = score.score([record | {"arm": a} for a in "AB"], judgments, cont, 3 / 19)
     assert out["decision"] == "no decision (panel κ < 0.2)"
     assert [out[a]["continuity_per_scene"] for a in "AB"] == [1.5, 0.0]
+
+
+async def test_a_partial_panel_records_unrated_and_score_refuses(monkeypatch, tmp_path):
+    cut = [{"prefer": {"xy": "x"}, "errors": {"x": 0}}, {"prefer": {}, "errors": {}}]
+    monkeypatch.setattr(panel, "rate", AsyncMock(side_effect=cut))  # b hit its quota
+    monkeypatch.setattr(panel, "load", lambda p: {"items": "xy", "pairs": ["xy"]})
+    monkeypatch.setenv("BASELINE_PANEL", "a:m,b:m")
+    monkeypatch.setenv("EVAL_CACHE_DIR", str(tmp_path))
+    (tmp_path / "bundle.json").touch()
+    await panel.main(str(tmp_path), tmp_path)
+    assert json.loads((tmp_path / "kappa.json").read_text())["unrated"] == 3
+    monkeypatch.setattr("sys.argv", ["score", str(tmp_path)])
+    with pytest.raises(SystemExit, match="panel incomplete: re-run the rate dispatch"):
+        runpy.run_module("evals.baseline.score", run_name="__main__")

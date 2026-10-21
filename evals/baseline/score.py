@@ -75,6 +75,7 @@ if __name__ == "__main__":  # <ratings dir> <key.json and records.json files>
     got = [json.loads(p.read_text()) for p in files]
     key = {"items": {i: v for k in got if "items" in k for i, v in k["items"].items()}}
     records = [r for rs in got if isinstance(rs, list) for r in rs]
+    if (kappa := json.loads((ratings / "kappa.json").read_text()))["unrated"]:
+        raise SystemExit("panel incomplete: re-run the rate dispatch")
     judgments, cont = rated(ratings / "sheet-panel.csv", key)
-    kappa = json.loads((ratings / "kappa.json").read_text())["fleiss_kappa"]
-    print(json.dumps(score(records, judgments, cont, kappa), indent=1))
+    print(json.dumps(score(records, judgments, cont, kappa["fleiss_kappa"]), indent=1))
