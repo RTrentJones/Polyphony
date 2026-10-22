@@ -63,3 +63,7 @@ class SpendPausedError(QuotaExhaustedError):  # not admitted under a ceiling
 class UnpricedModelError(RuntimeError):  # under a ceiling: fails the job
     def __init__(self, model: str):
         super().__init__(f"'{model}' has no PRICES row; add one with source and date")
+
+
+class ProviderRefusalError(RuntimeError):  # a declined request: fails the job, no retry
+    """The provider read the request and declined it (Claude's `refusal`)."""

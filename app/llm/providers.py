@@ -9,6 +9,7 @@ env key. Add a vendor by appending a row.
 import os
 from dataclasses import dataclass, field
 from typing import Annotated, Literal, Optional
+from uuid import UUID
 
 from pydantic import AfterValidator, Field
 
@@ -31,7 +32,8 @@ class Provider:
     # binding free-tier limit (docs/BRD.md §6.1), enforced by app/llm/ledger.py,
     # overridable via LLM_MAX_RPD. Its keys are the models an author may choose
     # for a scene, default first (U1): one table for "selectable" and "how many".
-    rpd: dict[str, int] = field(default_factory=dict)
+    # None = selectable, with no daily ceiling to track (a paid provider).
+    rpd: dict[str, Optional[int]] = field(default_factory=dict)
     # The IANA zone the vendor's daily quota resets in.
     rpd_reset_tz: str = "UTC"
     # Extra JSON body fields for chat.completions (provider-specific knobs).
@@ -98,6 +100,21 @@ PROVIDERS: dict[str, Provider] = {
         default_model="gpt-4o",
         fast_model="gpt-4o-mini",
         max_rpm=60,
+    ),
+    # Paid, and only for the authors named in ANTHROPIC_USERS (provider_for):
+    # everyone else stays on LLM_PROVIDER. The native SDK (kind "anthropic",
+    # app/llm/client.py), priced in app/llm/prices.py so the monthly ceiling
+    # holds it.
+    "anthropic": Provider(
+        id="anthropic",
+        label="Anthropic Claude",
+        kind="anthropic",
+        env_key="ANTHROPIC_API_KEY",
+        base_url=None,
+        default_model="claude-opus-5-5",
+        fast_model="claude-sonnet-5-5",
+        max_rpm=50,
+        rpd={"claude-opus-5-5": None, "claude-sonnet-5-5": None},
     ),
     # --- additional free-tier vendors (all OpenAI-compatible) ---------------
     # Primary use today: the EVAL JUDGE (EVAL_JUDGE_PROVIDER) — a judge from a
@@ -190,26 +207,63 @@ def enabled_providers() -> list[Provider]:
     return [p for p in PROVIDERS.values() if provider_api_key(p)]
 
 
-def resolve_model(provider: Provider, fast: bool) -> str:
-    """The running job's chosen model (U1), else the configured model, else the
-    provider's registry default. The ONE read of a job's model."""
+def _configured(provider: Provider, fast: bool) -> str:
+    """LLM_MODEL(_FAST) for the deployment's provider, else the registry default."""
+    if provider.id != settings.LLM_PROVIDER:
+        return provider.fast_model if fast else provider.default_model
     if fast:
         return settings.LLM_MODEL_FAST or provider.fast_model
-    return current_job().model or settings.LLM_MODEL or provider.default_model
+    return settings.LLM_MODEL or provider.default_model
+
+
+def resolve_model(provider: Provider, fast: bool) -> str:
+    """The running job's chosen model (U1) when this provider serves it, else
+    the configured model. The ONE read of a job's model."""
+    chosen = None if fast else current_job().model
+    return chosen if chosen in selectable(provider) else _configured(provider, fast)
 
 
 def selectable(provider: Provider) -> list[str]:
-    """The models an author may choose (U1): the running default first, then rpd's."""
-    return list(dict.fromkeys([resolve_model(provider, False), *provider.rpd]))
+    """The models an author may choose (U1): the configured default first, then rpd's."""
+    return list(dict.fromkeys([_configured(provider, False), *provider.rpd]))
 
 
 def _job_model(model: Optional[str]) -> str:
-    """A scene-writing request's model (U1): one of `selectable` (else 422), or
-    the default when none is chosen. Stamped into the job payload as given."""
-    allowed = selectable(active_provider())
+    """A scene-writing request's model (U1): one any enabled provider offers
+    (else 422), or the default when none is chosen. Stamped into the job payload
+    as given; the author's own provider (provider_for) serves it, and a model it
+    does not offer falls back to that provider's default (resolve_model)."""
+    providers = [
+        active_provider(),
+        *(p for p in enabled_providers() if p.kind == "anthropic"),
+    ]
+    allowed = list(dict.fromkeys(m for p in providers for m in selectable(p)))
     if model is not None and model not in allowed:
         raise ValueError(f"unknown model; choose one of {allowed}")
     return model or resolve_model(active_provider(), fast=False)
+
+
+_emails: dict[UUID, str] = {}  # user id -> email; an email does not change
+
+
+async def provider_for(user_id: Optional[UUID]) -> Provider:
+    """The author's provider: Anthropic for an ANTHROPIC_USERS email when its
+    key is set, else the deployment's LLM_PROVIDER."""
+    raw = os.getenv("ANTHROPIC_USERS", "")  # comma-separated author emails
+    users = {e.strip().lower() for e in raw.split(",") if e.strip()}
+    anthropic = PROVIDERS["anthropic"]
+    if user_id is None or not users or not provider_api_key(anthropic):
+        return active_provider()
+    if user_id not in _emails:
+        from app.core.database import get_async_session
+        from app.core.orm_models import User
+
+        async with get_async_session() as session:
+            user = await session.get(User, user_id)
+        if user is None:
+            return active_provider()
+        _emails[user_id] = user.email.lower()
+    return anthropic if _emails[user_id] in users else active_provider()
 
 
 ModelChoice = Annotated[
