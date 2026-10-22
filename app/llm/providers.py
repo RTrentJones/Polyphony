@@ -258,8 +258,13 @@ async def provider_for(user_id: Optional[UUID]) -> Provider:
         from app.core.database import get_async_session
         from app.core.orm_models import User
 
-        async with get_async_session() as session:
-            user = await session.get(User, user_id)
+        from app.llm.errors import ProviderUnavailableError
+
+        try:
+            async with get_async_session() as session:
+                user = await session.get(User, user_id)
+        except Exception as e:  # not knowing whose call it is pauses the job
+            raise ProviderUnavailableError(f"cannot read the author: {e}") from e
         if user is None:
             return active_provider()
         _emails[user_id] = user.email.lower()

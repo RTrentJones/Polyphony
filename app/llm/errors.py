@@ -67,3 +67,9 @@ class UnpricedModelError(RuntimeError):  # under a ceiling: fails the job
 
 class ProviderRefusalError(RuntimeError):  # a declined request: fails the job, no retry
     """The provider read the request and declined it (Claude's `refusal`)."""
+
+
+class TruncatedReplyError(
+    RuntimeError
+):  # the cap ran out before any answer: fails the job
+    """The reply hit max_tokens with no text (a thinking model spent it all)."""

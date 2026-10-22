@@ -39,6 +39,21 @@ def _daily_limit() -> int:
     return get_tier().daily_token_limit
 
 
+async def _user_limit(user_id: UUID) -> int:
+    """The author's daily cap: none for a Claude author (BRD R7.9), whom the
+    monthly spend ceiling bounds instead; their thinking would spend a free-tier
+    cap in a handful of scenes."""
+    from app.llm.errors import QuotaExhaustedError
+    from app.llm.providers import provider_for
+
+    try:
+        if (await provider_for(user_id)).kind == "anthropic":
+            return 0
+    except QuotaExhaustedError:  # the author unreadable: keep the tier's cap
+        pass
+    return _daily_limit()
+
+
 async def deployment_cost_30d(db: AsyncSession) -> float:
     """Deployment-wide trailing-30-day spend (USD) — what the monthly ceiling
     is enforced against (all users share one provider bill)."""
@@ -94,7 +109,7 @@ async def check_monthly_ceiling(db: AsyncSession) -> None:
 
 async def remaining_budget_24h(db: AsyncSession, user_id: UUID) -> int:
     """Tokens the user may still spend today. A huge number when the cap is off."""
-    limit = _daily_limit()
+    limit = await _user_limit(user_id)
     if not limit:
         return 10**12  # effectively unlimited
     return max(0, limit - await tokens_used_24h(db, user_id))
@@ -109,7 +124,7 @@ async def check_user_budget(db: AsyncSession, user_id: UUID) -> None:
     """Raise 429 if the user has exhausted their rolling-24h token budget, or the
     deployment has reached its monthly spending ceiling."""
     await check_monthly_ceiling(db)
-    limit = _daily_limit()
+    limit = await _user_limit(user_id)
     if not limit:
         return
     used = await tokens_used_24h(db, user_id)

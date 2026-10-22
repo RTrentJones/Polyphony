@@ -35,6 +35,7 @@ from .errors import (
     ProviderRefusalError,
     ProviderUnavailableError,
     QuotaExhaustedError,
+    TruncatedReplyError,
     UserBudgetExhaustedError,
 )
 from . import spend
@@ -115,6 +116,7 @@ class LLMClient:
                 BadRequestError,
                 anthropic.BadRequestError,
                 ProviderRefusalError,
+                TruncatedReplyError,
             ),
         )
 
@@ -241,10 +243,13 @@ class LLMClient:
                             **extra_kwargs,
                         )
                         usage = getattr(response, "usage", None)
+                        tokens_in = getattr(usage, "prompt_tokens", 0) or 0
+                        tokens_out = getattr(usage, "completion_tokens", 0) or 0
                         reply = (
                             response.choices[0].message.content or "",
-                            getattr(usage, "prompt_tokens", 0) or 0,
-                            getattr(usage, "completion_tokens", 0) or 0,
+                            tokens_in,
+                            tokens_out,
+                            cost_usd(resolved_model, tokens_in, tokens_out),
                         )
                 return await self._account(reply, resolved_model, start)
             except _RATE_LIMITED as e:
@@ -286,7 +291,7 @@ class LLMClient:
 
     async def _claude(
         self, messages: list[dict], model: str, max_tokens: int
-    ) -> tuple[str, int, int]:
+    ) -> tuple[str, int, int, Optional[float]]:
         """One Messages API call: system turns lifted out, no temperature (the
         API refuses it), Anthropic's default fallback on a refusal it can
         rescue, and a refusal it cannot is the author's error, not a retry."""
@@ -307,23 +312,36 @@ class LLMClient:
                 + (f" ({details.category})" if details and details.category else "")
             )
         text = "".join(b.text for b in response.content if b.type == "text")
-        u = response.usage
-        tokens_in = (
-            u.input_tokens
-            + (u.cache_creation_input_tokens or 0)
-            + (u.cache_read_input_tokens or 0)
-        )
-        return text, tokens_in, u.output_tokens
+        if response.stop_reason == "max_tokens" and not text.strip():
+            raise TruncatedReplyError(
+                f"Claude spent all {max_tokens:,} tokens before answering"
+            )
+        # A fallback bills each model that ran, at its own price (iterations);
+        # without one, the top-level usage is the one model's.
+        runs = getattr(response.usage, "iterations", None) or [response.usage]
+        tokens_in = tokens_out = 0
+        cost: Optional[float] = 0.0
+        for run in runs:
+            n_in = (
+                run.input_tokens
+                + (run.cache_creation_input_tokens or 0)
+                + (run.cache_read_input_tokens or 0)
+            )
+            price = cost_usd(
+                getattr(run, "model", None) or model, n_in, run.output_tokens
+            )
+            cost = None if cost is None or price is None else cost + price
+            tokens_in, tokens_out = tokens_in + n_in, tokens_out + run.output_tokens
+        return text, tokens_in, tokens_out, cost
 
     async def _account(
         self,
-        reply: tuple[str, int, int],
+        reply: tuple[str, int, int, Optional[float]],
         model: str,
         start: float,
     ) -> GenResult:
         latency_ms = int((time.monotonic() - start) * 1000)
-        text, tokens_in, tokens_out = reply
-        cost = cost_usd(model, tokens_in, tokens_out)
+        text, tokens_in, tokens_out, cost = reply
         text = text.strip()
 
         llm_requests_total.labels(service="app", model=model, status="success").inc()
@@ -435,6 +453,7 @@ class LLMRouter:
 
     def __init__(self):
         default = LLMClient()
+        self.provider = default.provider  # the deployment's (startup logs it)
         self._clients = {default.provider.id: default}
 
     async def generate(

@@ -30,6 +30,15 @@ PRICES: dict[str, Price] = {
     "gpt-4o": Price(2.5, 10.0, _CARRIED, "unverified"),
     "claude-opus-5-5": Price(4.0, 20.0, _CLAUDE, "2026-10-22"),
     "claude-sonnet-5-5": Price(2.0, 10.0, _CLAUDE, "2026-10-22"),
+    # Where a refused request's server-side fallback may run (client.py).
+    "claude-fable-5-1": Price(10.0, 50.0, _CLAUDE, "2026-10-22"),
+    "claude-fable-5": Price(10.0, 50.0, _CLAUDE, "2026-10-22"),
+    "claude-opus-5": Price(5.0, 25.0, _CLAUDE, "2026-10-22"),
+    "claude-opus-4-8": Price(5.0, 25.0, _CLAUDE, "2026-10-22"),
+    "claude-opus-4-7": Price(5.0, 25.0, _CLAUDE, "2026-10-22"),
+    "claude-sonnet-5": Price(2.0, 10.0, _CLAUDE, "2026-10-22"),
+    "claude-sonnet-4-6": Price(3.0, 15.0, _CLAUDE, "2026-10-22"),
+    "claude-haiku-5-5": Price(0.1, 0.5, _CLAUDE, "2026-10-22"),
 }
 PRICES |= dict.fromkeys(_FREE_MODELS, _FREE) | dict.fromkeys(_READ.split(), _FREE_READ)
 
