@@ -71,8 +71,8 @@ _SINGLE_QUOTED = re.compile(r"(?<!\w)'(?=\S).*?(?<=\S)'(?!\w)", re.DOTALL)
 def _narration_only(paragraph: str) -> str:
     """The paragraph minus quoted speech — a narrator's "I" is outside quotes.
     Both dialogue styles are stripped: double and single quotation marks."""
-    # An unclosed quote runs to the paragraph's end (a continued quote).
-    text = re.sub(r'"[^"]*(?:"|$)', " ", normalize_quotes(paragraph))
+    # A paragraph that opens a quote it never closes is a continued quote.
+    text = re.sub(r'^"[^"]*$|"[^"]*"', " ", normalize_quotes(paragraph))
     return _SINGLE_QUOTED.sub(" ", text)
 
 
@@ -283,9 +283,11 @@ SPEECH_MIN_WORDS = 3
 def is_speech(span: dict) -> bool:
     """A quoted span that counts as someone speaking (SPEC-17): credited, or
     uncredited of SPEECH_MIN_WORDS+ words (a vocative or a scare-quote is not).
-    An embedded narrative (`attribute_speech`) is narration, not speech."""
+    An embedded narrative (`attribute_speech`) is narration, not speech, unless
+    it quotes someone ('…' of SPEECH_MIN_WORDS+ words)."""
     if span.get("narrated"):
-        return False
+        inner = _SINGLE_QUOTED.findall(span["text"])
+        return any(len(q.split()) >= SPEECH_MIN_WORDS for q in inner)
     return bool(span["speaker"]) or len(span["text"].split()) >= SPEECH_MIN_WORDS
 
 
@@ -444,16 +446,19 @@ def attribute_speech(text: str) -> list[list[dict]]:
     inherits a speaker only when it continues an open quote, or when the
     exchange so far strictly alternates between two named speakers. Nothing
     else crosses a blank line or another quotation. An uncredited quote kept
-    open across paragraphs (each opens a quote, only the last closes it) is an
-    embedded narrative, not speech: its spans are marked ``narrated`` (W15-6).
+    open across paragraphs (each opens a quote, only the last closes it) that
+    follows a heading, a letter or document header, or a line ending in ":",
+    "--" or "—" is an embedded narrative, not speech: its spans are marked
+    ``narrated`` (W15-6). Anywhere else it stays speech.
     """
     result: list[list[dict]] = []
     exchange: list[str] = []  # speakers of the current back-and-forth
     carry: Optional[str] = None  # speaker of the last paragraph's open quote
     run: list[dict] = []  # the uncredited open quote's spans, one per paragraph
+    prev = ""  # the last non-blank paragraph
 
     def close_run() -> None:
-        for s in run if len(run) > 1 else ():
+        for s in run:
             s["narrated"] = True
         run.clear()
 
@@ -465,7 +470,7 @@ def attribute_speech(text: str) -> list[list[dict]]:
         spans, narration = _attribute_paragraph(para)
         if not spans:
             close_run()
-            exchange, carry = [], None
+            exchange, carry, prev = [], None, para
             result.append([])
             continue
         continued = False
@@ -490,11 +495,13 @@ def attribute_speech(text: str) -> list[list[dict]]:
         opens = para[0] == '"' and spans[0]["speaker"] is None
         if not (run and opens):
             close_run()
-        if opens and (run or (len(spans) == 1 and not spans[0]["closed"])):
+        introduced = any(_heading(prev)) or prev.endswith((":", "--", "—"))
+        if opens and (run or (introduced and spans[0]["closed"] is False)):
             run.append(out[0])
             if spans[0]["closed"] or len(spans) > 1:
                 close_run()
         result.append(out)
+        prev = para
     close_run()
     return result
 

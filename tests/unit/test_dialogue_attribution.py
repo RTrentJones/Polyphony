@@ -23,6 +23,7 @@ from app.core.prompt_markers import CHARACTERS_SECTION, STORY_POSITION
 from app.parsing.character_extractor import (
     CharacterExtractor,
     attribute_speech,
+    is_speech,
     source_paragraphs,
     speaker_matches,
 )
@@ -1336,7 +1337,18 @@ def test_an_embedded_narrative_is_narration_and_indexes_its_cast():
     assert ex.extract_narration(NESTED, "Rowan Merrow", is_narrator=True) == []
 
 
-def test_a_tagged_multi_paragraph_speech_stays_the_speakers():
-    text = '"Listen," said Zara, "for this is long.\n\n"And it goes on.\n\n"Then ends."'
-    assert [s[0]["speaker"] for s in attribute_speech(text)] == ["Zara"] * 3
+def test_an_unintroduced_multi_paragraph_quote_stays_speech():
+    """Only a quote run after a heading, a header or a ":"/"—" line is a tale."""
+    text = (
+        'Zara leaned toward the fire.\n\n"I have a long story.\n\n'
+        '"Maria walked out of the hotel in Paris.\n\n"That is all."'
+    )
     assert not any(s.get("narrated") for p in attribute_speech(text) for s in p)
+    assert CharacterExtractor().extract_character_content(text, "Maria") == []
+
+
+def test_a_tale_that_quotes_someone_is_still_speech_there():
+    text = "He began:--\n\n\u201cI went.\n\n\u201c\u2018Stay with me now,\u2019 she said.\u201d"
+    spans = [p[0] for p in attribute_speech(text)[1:]]
+    assert [s["narrated"] for s in spans] == [True, True]
+    assert [is_speech(s) for s in spans] == [False, True]
