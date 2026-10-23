@@ -51,7 +51,9 @@ voice-bearing excerpt. Corpora without `characters` keep the placeholder cast.
   (SPEC-34). Each scene gets deterministic checks first (cast recall caps R1; a beat-seam or
   scene-seam 6-gram overlap caps R4; invented names; the R1 rule is harness v3's, below), then R1–R5 from the judge for the first
   five scenes. R2 sees each speaker's gold lines and the scene's
-  spoken lines with tags and names removed. Each inner beat's description and prose come from
+  spoken lines with tags and names removed: since SPEC-90 (W15-3) only the lines the product's
+  speech rule credits to a cast member with voice samples (kept per scene as `spoken_lines`), and
+  R2 is `None` (not applicable, no judge call) under two such speakers. Each inner beat's description and prose come from
   `GET /api/v1/scenes/{id}` (`beats`): the harness reads the app through its API only.
 - **continuity** on `cel` injects its five planted contradictions into the excerpt (a synopsis is
   not prose).
@@ -62,6 +64,14 @@ voice-bearing excerpt. Corpora without `characters` keep the placeholder cast.
   `voice_dialogue` (samples cross-checked against `gold_lines` / `other_lines`), `beats_stage`,
   `outline_no_repr` and `style_first`, plus the wave-2 checks of harness v3 (below). Standalone:
   `python -m evals.graders.prompt_contract <answered-dir> --book cel`.
+
+A judge answer that says the input was absent ("no dialogue was provided") is asked once more;
+if it says so again the rubric is `None` with `judge_claimed_empty: true`, never 0 (W15-2).
+Outline R3 gets its own body: the chapter summaries as THE PLAN, the scenes as THE TEXT TO CHECK.
+
+**Comparability (SPEC-90 D6).** R2 and the outline score changed meaning with SPEC-90 PR A:
+every row of `evals/history.csv` (W4b2–W11b) was graded by the old harness, whose R2 graded every
+quoted line and scored a scene without dialogue 0.
 
 The rubric texts and score arithmetic are in `graders/rubrics.py`, the n-gram seam check in
 `graders/seams.py`. A deterministic failure caps its rubric at 0 whatever the judge says.

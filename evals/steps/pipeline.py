@@ -209,18 +209,33 @@ async def _judge(ctx, rubric: str, content: str) -> tuple[float | None, str]:
     return j.score, j.explanation
 
 
+# W15-2: a judge answer that says the input was absent when it was given.
+_CLAIMS_EMPTY = re.compile(
+    r"no (artifact|dialogue|text|outline|prose)[^.]{0,40}(was |were )?"
+    r"(provided|given|supplied)",
+    re.I,
+)
+_NOT_EMPTY = "\n\n(Note: the text to score is given above in full; it is not empty.)"
+
+
 async def _judge_rubrics(
     ctx, contents: dict[str, str], caps: dict[str, str] | None = None
 ) -> dict[str, dict]:
     """One judge call per rubric: {rid: {score, explanation[, capped]}}.
 
     A rubric capped by a deterministic failure is still judged (its
-    explanation is useful) but scores 0 (rubrics.apply_caps)."""
+    explanation is useful) but scores 0 (rubrics.apply_caps). An answer
+    claiming nothing was provided is asked once more; if it claims so again
+    the rubric is unscored (None, `judge_claimed_empty`), never 0 (W15-2)."""
     caps = caps or {}
     out: dict[str, dict] = {}
     for rid, content in contents.items():
         score, why = await _judge(ctx, rubrics.rubric(rid), content)
+        if score is not None and _CLAIMS_EMPTY.search(why):
+            score, why = await _judge(ctx, rubrics.rubric(rid), content + _NOT_EMPTY)
         out[rid] = {"score": score, "explanation": why}
+        if score is not None and _CLAIMS_EMPTY.search(why):
+            out[rid].update(score=None, judge_claimed_empty=True)
         if rid in caps:
             out[rid].update(score=0.0, capped=caps[rid])
     return out
@@ -283,25 +298,34 @@ def named_in(text: str, forms: list[str]) -> bool:
     return False
 
 
-_QUOTE = re.compile(r"\"([^\"]+)\"|“([^”]+)”")
+def mask_names(line: str, names: list[str]) -> str:
+    """`line` with each cast name or alias in it masked as "[name]", longest
+    first, so a vocative does not give the speaker away to the R2 judge."""
+    for f in sorted({n for n in names if n}, key=len, reverse=True):
+        line = re.sub(rf"(?<!\w){re.escape(f)}(?!\w)", "[name]", line)
+    return line
 
 
-def strip_tags(text: str, names: list[str]) -> list[str]:
-    """The scene's spoken lines with speaker tags removed: every quoted span,
-    in order, with any cast name or alias inside it masked as "[name]".
+def cast_spoken_lines(text: str, cast: list[str], forms: dict) -> list[dict]:
+    """[{speaker, line}] for each quoted span the product's own speech rule
+    (SPEC-17: `attribute_speech` + `speaker_matches`) credits to one of the
+    scene's `cast`, in order (W15-3). A pronoun tag, an invented speaker and an
+    untagged line credit no one, so they are not R2's to grade."""
+    from app.parsing.character_extractor import attribute_speech, speaker_matches
 
-    This is what the R2 judge attributes: no narration, so no "said Zara", no
-    action beat naming the speaker, and no vocative giving the answer away."""
-    forms = sorted({n for n in names if n}, key=len, reverse=True)
-    lines = []
-    for m in _QUOTE.finditer(text or ""):
-        line = (m.group(1) or m.group(2) or "").strip()
-        if not line:
-            continue
-        for f in forms:
-            line = re.sub(rf"(?<!\w){re.escape(f)}(?!\w)", "[name]", line)
-        lines.append(line)
-    return lines
+    members = [{"name": n, "aliases": forms.get(n, [n])[1:]} for n in cast]
+    out = []
+    for para in attribute_speech(text or ""):
+        for span in para:
+            who = [
+                m["name"]
+                for m in members
+                if span["text"]
+                and speaker_matches(span["speaker"], m["name"], m["aliases"], members)
+            ]
+            if who:
+                out.append({"speaker": who[0], "line": span["text"]})
+    return out
 
 
 def known_names(gt: dict) -> set[str]:
@@ -599,6 +623,24 @@ def outline_text(nodes: list[dict]) -> str:
     return "\n".join(out)
 
 
+def outline_r3_text(nodes: list[dict]) -> str:
+    """Outline R3's body (W15-2): the chapter summaries as THE PLAN, the
+    scene/beat lines under each chapter as THE TEXT TO CHECK against it."""
+    plan, text = [], []
+    for i, n in enumerate(nodes):
+        plan.append(f"{i + 1}. {n.get('title')}: {n.get('summary', '')}")
+        text.append(f"Chapter {i + 1}. {n.get('title')}")
+        rows = n.get("children", []) or []
+        text += [f"   - {c.get('title')}: {c.get('summary', '')}" for c in rows]
+        text += [] if rows else ["   (no scenes)"]
+    plan_txt, text_txt = "\n".join(plan), "\n".join(text)
+    return (
+        f"THE PLAN (chapter summaries):\n{plan_txt or '(empty outline)'}\n\n"
+        f"THE TEXT TO CHECK (each chapter's scenes, in order):\n"
+        f"{text_txt or '(empty outline)'}"
+    )
+
+
 def premise_text(premise: dict | None, edit: dict | None = None) -> str:
     """The confirmed premise as plain lines (the author's edit wins). Plain
     text, not the JSON keys: the judge reads it, and so does the e2e stub,
@@ -782,9 +824,9 @@ async def step_outline(ctx: StepContext) -> dict:
         f"\n\nCHAPTERS REQUESTED: {chapters_target}\n\n"
         f"OUTLINE TO SCORE:\n{outline_text(nodes) or '(empty outline)'}"
     )
-    judged = await _judge_rubrics(
-        ctx, {rid: body for rid in rubrics.OUTLINE_RUBRICS}, caps
-    )
+    contents = {rid: body for rid in rubrics.OUTLINE_RUBRICS}
+    contents["R3"] = f"CANON:\n{canon}\n\n{outline_r3_text(nodes)}"
+    judged = await _judge_rubrics(ctx, contents, caps)
     result["rubrics"] = judged
     result["deterministic_failures"] = caps
     score = rubrics.outline_score(_scores(judged))
@@ -1191,6 +1233,7 @@ async def step_prose(ctx: StepContext) -> dict:
     planned = chapter.get("planned_beats") or []
     alias_forms = [f for fs in forms.values() for f in fs]
     owned = gt.get("owned_phrases") or {}
+    gold = gt.get("gold_lines") or {}
     detail, prev_text = [], ""
     for i, sc in enumerate(scenes):
         checks = _grade_scene_checks(sc, prev_text, forms)
@@ -1215,6 +1258,9 @@ async def step_prose(ctx: StepContext) -> dict:
             "borrowed_phrase": plot.borrowed_phrase(
                 sc["content"], checks["cast"], owned
             ),
+            "spoken_lines": cast_spoken_lines(
+                sc["content"], sc.get("characters") or [], forms
+            ),
         }
         if i < _JUDGED_SCENES:
             prior = " ".join(prev_text.split()[-_PRIOR_WORDS:]) or "(the scene opens)"
@@ -1228,20 +1274,32 @@ async def step_prose(ctx: StepContext) -> dict:
                 f"PRIOR TEXT (end of the previous scene):\n{prior}\n\n"
                 f"SCENE TO SCORE:\n{sc['content']}"
             )
-            lines = strip_tags(sc["content"], alias_forms)
-            voice = (
+            # W15-3: R2 grades only lines credited to a cast speaker who has
+            # voice samples, and is not applicable under two such speakers.
+            voiced = [r for r in row["spoken_lines"] if gold.get(r["speaker"])]
+            contents = {rid: base for rid in rubrics.SCENE_RUBRICS}
+            contents["R2"] = (
                 f"VOICE SAMPLES (each character's own lines from the book):\n"
                 f"{_voice_block(gt, sc.get('characters') or [])}\n\n"
                 f"CHARACTERS IN THE SCENE: {', '.join(sc.get('characters') or [])}\n\n"
                 "SPOKEN LINES (speaker tags and names removed; attribute each):\n"
-                + (
-                    "\n".join(f"{n + 1}. {ln}" for n, ln in enumerate(lines))
-                    or "(no dialogue)"
+                + "\n".join(
+                    f"{n + 1}. {mask_names(r['line'], alias_forms)}"
+                    for n, r in enumerate(voiced)
                 )
             )
-            contents = {rid: base for rid in rubrics.SCENE_RUBRICS}
-            contents["R2"] = voice
+            if len({r["speaker"] for r in voiced}) < 2:
+                del contents["R2"]
             judged = await _judge_rubrics(ctx, contents, checks["caps"])
+            judged.setdefault(
+                "R2",
+                {
+                    "score": None,
+                    "explanation": "not applicable: under two cast speakers "
+                    "with voice samples have attributed lines",
+                    "not_applicable": True,
+                },
+            )
             row["rubrics"] = judged
             row["score"] = rubrics.scene_score(_scores(judged))
         detail.append(row)

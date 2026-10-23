@@ -11,10 +11,12 @@ the weekly live run:
 
 import json
 import re
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
+from evals.graders import rubrics
 from evals.harness import embed
 from evals.harness.cache import Cache
 from evals.harness.client import EvalClientError, PolyphonyClient
@@ -505,15 +507,22 @@ async def test_continuity_runs_on_the_excerpt_for_cel(tmp_path):
     assert books == [gt["synopsis"], summary] * 2
 
 
-def test_strip_tags_leaves_only_spoken_lines_with_names_masked():
+def test_r2_lines_are_the_ones_credited_to_the_scene_cast():
+    # (F) W15-3: an invented crewman's line and a pronoun-tagged line credit no
+    # cast member, so R2 never sees them; a vocative is masked.
     text = (
         'Zara set down her pen. "Read it, Milo," said Zara Okafor.\n\n'
-        "“Is that normal?” Milo asked."
+        "“Is that normal?” Milo asked.\n\n"
+        '"Ice ahead, sir," said the bosun.\n\n"Hold fast," she said.'
     )
-    assert pipeline.strip_tags(text, ["Milo Voss", "Milo", "Zara Okafor", "Zara"]) == [
-        "Read it, [name],",
-        "Is that normal?",
+    got = pipeline.cast_spoken_lines(text, ["Milo Voss", "Zara Okafor"], _cel_forms())
+    assert got == [
+        {"speaker": "Zara Okafor", "line": "Read it, Milo,"},
+        {"speaker": "Milo Voss", "line": "Is that normal?"},
     ]
+    assert pipeline.mask_names(got[0]["line"], ["Milo Voss", "Milo"]) == (
+        "Read it, [name],"
+    )
 
 
 async def test_prose_writes_the_planned_scenes_of_chapter_1(tmp_path):
@@ -540,7 +549,14 @@ async def test_prose_writes_the_planned_scenes_of_chapter_1(tmp_path):
     # Scene 1 repeats a sentence across its beat seam: R4 is capped at 0.
     assert s1["beat_seam_max_overlap"] >= 1
     assert s1["rubrics"]["R4"]["score"] == 0.0 and "R4" in s1["deterministic_failures"]
-    assert s1["score"] == pytest.approx(1.0 * (0.8 + 0.6 + 0.0 + 0.7) / 4)
+    # (F) W15-3: scene 1 has no cast dialogue, so R2 is not applicable (None,
+    # no judge call) and its mean skips R2; scene 2 keeps its credited lines.
+    assert s1["rubrics"]["R2"]["not_applicable"] and s1["spoken_lines"] == []
+    assert s1["score"] == pytest.approx((0.6 + 0.0 + 0.7) / 3, abs=1e-4)
+    assert sum(rid == "R2" for rid, _ in judge.seen) == 1
+    assert [r["speaker"] for r in s2["spoken_lines"]] == ["Milo Voss"] * 2 + [
+        "Zara Okafor"
+    ] * 2
     assert s2["beat_seam_max_overlap"] == 0 and s2["deterministic_failures"] == {}
     assert s2["score"] == pytest.approx(1.0 * (0.8 + 0.6 + 0.9 + 0.7) / 4)
     assert out["score"] == pytest.approx((s1["score"] + s2["score"]) / 2, abs=1e-4)
@@ -655,8 +671,33 @@ async def test_outline_confirms_the_authors_premise_and_caps_r1(tmp_path):
     # Prava is in the synopsis; Elara is invented.
     assert out["unknown_canon"] == ["Elara"]
     assert [rid for rid, _ in judge.seen] == ["R1", "R6", "R3"]
+    # (F) W15-2: R3's own body labels the chapter plan and the scenes to check.
+    r3 = judge.seen[2][1]
+    assert r3.index("THE PLAN") < r3.index("1. Elara arrives") < r3.index("THE TEXT")
     assert gt["premise_edit"]["premise_restated"] in judge.seen[0][1]
     assert "premise_restated" not in judge.seen[0][1]
+
+
+@pytest.mark.parametrize("second, score", [("No text was given.", None), ("ok", 0.7)])
+async def test_a_judge_claiming_no_input_is_asked_again_then_unscored(
+    tmp_path, second, score
+):
+    # (F) W15-2: one retry; a second "nothing provided" is None, never 0, and
+    # an unscored R1 leaves the outline score None rather than crashing.
+    replies = iter([("No artifact was provided to score.", 0.0), (second, 0.7)])
+
+    class Judge:
+        async def score(self, rubric, content):
+            why, s = next(replies)
+            return SimpleNamespace(score=s, explanation=why)
+
+    ctx = SimpleNamespace(judge=Judge())
+    (j,) = (await pipeline._judge_rubrics(ctx, {"R1": "body"})).values()
+    assert j["score"] == score
+    assert j.get("judge_claimed_empty", False) == (score is None)
+    assert rubrics.outline_score({"R1": j["score"], "R6": 0.5, "R3": 0.6}) == (
+        None if score is None else pytest.approx(0.385)
+    )
 
 
 async def test_outline_score_is_r1_times_mean_r6_r3(tmp_path):
