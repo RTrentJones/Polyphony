@@ -36,6 +36,16 @@ on:
           for a deployed-prompts baseline) instead of booting one here. Leave
           blank to boot this ref's app. External mode needs EVAL_ADMIN_* secrets.
         default: ''
+      claude:
+        description: >-
+          write with Claude (Anthropic, BRD R7.9) instead of Gemini: the eval's own users
+          (@polyphony.eval) are listed in ANTHROPIC_USERS for this run. PAID — needs the ANTHROPIC_API_KEY repo secret.
+        type: choice
+        options: ['no', 'yes']
+        default: 'no'
+      claude_usd_cap:
+        description: with claude=yes, this run's spend ceiling in USD (the app pauses past it)
+        default: '5'
   # On-demand trigger for when workflow_dispatch isn't available (e.g. an
   # integration token can't press "Run workflow"): bump evals/.run-eval and push.
   # Path-scoped so ordinary commits don't fire it (this run spends Gemini quota).
@@ -107,6 +117,31 @@ jobs:
             echo "::error::GEMINI_API_KEY is not set on this repo — the app can't boot for the eval. Add it in repo Actions secrets."
             exit 1
           fi
+      # Opt-in and paid: only a dispatch with claude=yes lists the eval users for Claude, and the
+      # run's spend ceiling (the app's MONTHLY_COST_CEILING_USD, counted over this run's empty
+      # database) caps what it can spend. A push run never uses Claude.
+      - name: Claude for the eval users (claude=yes)
+        if: ${{ github.event.inputs.claude == 'yes' && github.event.inputs.base_url == '' }}
+        env:
+          KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CAP: ${{ github.event.inputs.claude_usd_cap || '5' }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::ANTHROPIC_API_KEY is not set on this repo — add it in repo Actions secrets."
+            exit 1
+          fi
+          # A zero or blank ceiling reads as "no ceiling" to the app (app/llm/spend.py): refuse it.
+          if ! printf '%s' "$CAP" | grep -Eq '^[0-9]+(\.[0-9]+)?$' || ! awk -v c="$CAP" 'BEGIN { exit !(c > 0) }'; then
+            echo "::error::claude_usd_cap must be a positive number of dollars (got '$CAP')."
+            exit 1
+          fi
+          {
+            echo "ANTHROPIC_API_KEY=$KEY"
+            # The eval writes as users it registers under @polyphony.eval (evals/harness/client.py)
+            echo "ANTHROPIC_USERS=@polyphony.eval"
+            echo "MONTHLY_COST_CEILING_USD=$CAP"
+            echo "EVAL_MODEL_LABEL=claude-opus-5-5"
+          } >> "$GITHUB_ENV"
       - uses: ./.github/actions/boot-app
         with:
           serve: ${{ github.event.inputs.base_url == '' }}

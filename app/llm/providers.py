@@ -247,9 +247,9 @@ _emails: dict[UUID, str] = {}  # user id -> email; an email does not change
 
 
 async def provider_for(user_id: Optional[UUID]) -> Provider:
-    """The author's provider: Anthropic for an ANTHROPIC_USERS email when its
-    key is set, else the deployment's LLM_PROVIDER."""
-    raw = os.getenv("ANTHROPIC_USERS", "")  # comma-separated author emails
+    """The author's provider: Anthropic for an ANTHROPIC_USERS email (or an
+    `@domain` entry covering it) when its key is set, else LLM_PROVIDER."""
+    raw = os.getenv("ANTHROPIC_USERS", "")  # comma-separated emails or @domains
     users = {e.strip().lower() for e in raw.split(",") if e.strip()}
     anthropic = PROVIDERS["anthropic"]
     if user_id is None or not users or not provider_api_key(anthropic):
@@ -268,7 +268,9 @@ async def provider_for(user_id: Optional[UUID]) -> Provider:
         if user is None:
             return active_provider()
         _emails[user_id] = user.email.lower()
-    return anthropic if _emails[user_id] in users else active_provider()
+    email = _emails[user_id]
+    listed = email in users or email[email.rfind("@") :] in users
+    return anthropic if listed else active_provider()
 
 
 ModelChoice = Annotated[
