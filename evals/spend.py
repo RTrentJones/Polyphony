@@ -30,9 +30,10 @@ def run_spend(
     reports: list[dict], ceiling: float | None = None, done: bool = True
 ) -> float:
     """One attempt's spend: the largest deployment cost among its boot-mode book
-    reports (a report without `mode` counts); an unfinished attempt with a
-    `ceiling` counts at least that."""
-    costs = []
+    reports (a report without `mode` counts). An attempt with a `ceiling` counts
+    at least that unless it is `done` and every book reported a numeric total
+    (a failed usage read leaves its book's spend unknown)."""
+    costs, unknown = [], False
     for r in reports:
         if not isinstance(r, dict) or r.get("mode", "boot") != "boot":
             continue
@@ -40,7 +41,10 @@ def run_spend(
         cost = usage.get("deployment_cost_30d_usd") if isinstance(usage, dict) else None
         if isinstance(cost, (int, float)):
             costs.append(float(cost))
-    floor = 0.0 if done or ceiling is None else float(ceiling)
+        else:
+            unknown = True
+    settled = done and not unknown
+    floor = 0.0 if settled or ceiling is None else float(ceiling)
     return max([floor, *costs])
 
 

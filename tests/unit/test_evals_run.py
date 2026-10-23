@@ -162,6 +162,9 @@ def test_month_spend_counts_each_runs_max_report_and_missing_usage_as_zero(
     assert spend.month_spent(tmp_path) == want
     (tmp_path / "3/a1/eval-done.json").write_text("{}")  # it ran to the end
     assert spend.month_spent(tmp_path)["3/a1"] == 1.0
+    (tmp_path / "3/a1/eval-report-9.json").write_text('{"usage": {"error": "x"}}')
+    assert spend.month_spent(tmp_path)["3/a1"] == 4.0  # its last read failed
+    (tmp_path / "3/a1/eval-report-9.json").unlink()
     assert spend.main([str(tmp_path), "--budget", "40", "--cap", "5"]) == 0
     assert capsys.readouterr().out.strip() == "5.00"  # min(32.40 left, cap)
     assert spend.main([str(tmp_path), "--budget", "40", "--cap", "0.001"]) == 1
