@@ -282,6 +282,15 @@ class TestAttribution:
         mean = attribution.accuracy([milo, zara])["mean_gap"]
         assert mean == pytest.approx((0.0029 + 0.118) / 2, abs=1e-4)
 
+    def test_topic_baseline_lets_an_off_topic_voice_win_its_own_line(self):
+        # (F) W15-4: A and B share the probe's topic (dim 4), C does not; C's
+        # own on-topic line ranks C last raw, first less each baseline.
+        refs = {"A": [[1, 0, 0, 1]], "B": [[0, 1, 0, 1]], "C": [[0, 0, 1, 0]]}
+        base = attribution.baselines(refs)
+        assert base == pytest.approx({"A": 0.25, "B": 0.25, "C": 0.0})
+        assert attribution.attribute("C", [0, 0, 1, 2], refs).ranking[-1][0] == "C"
+        assert attribution.attribute("C", [0, 0, 1, 2], refs, base).correct
+
 
 class TestRetrieval:
     def test_precision_and_mrr(self):

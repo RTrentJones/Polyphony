@@ -553,7 +553,11 @@ async def step_attribution(ctx: StepContext) -> dict:
         )
         char_ids[char] = created["id"]
 
-    results, probes = [], []
+    # W15-4: every probe is one situation, so its topic draws lines to the
+    # centroids on that topic; rank by similarity less each centroid's own
+    # baseline over the other characters' train lines (topic control).
+    base = attribution.baselines(ref_vecs)
+    results, raw, probes = [], [], []
     empty = 0
     for char, draw in ((c, d) for c in gold for d in range(ATTRIBUTION_DRAWS)):
         # W9-2 (a): one symmetric situation for every character (SPEC-67).
@@ -567,11 +571,9 @@ async def step_attribution(ctx: StepContext) -> dict:
         if not line:
             empty += 1
             continue
-        results.append(
-            attribution.attribute(
-                char, await embed.embed_one(attribution.mask(line, forms)), ref_vecs
-            )
-        )
+        vec = await embed.embed_one(attribution.mask(line, forms))
+        results.append(attribution.attribute(char, vec, ref_vecs, base))
+        raw.append(attribution.attribute(char, vec, ref_vecs))
         probes.append(probe)
     per = {  # W8-2: reported per character, with its Wilson interval
         c: {"correct": k, "k": n, "accuracy": round(k / n, 4) if n else None}
@@ -599,7 +601,14 @@ async def step_attribution(ctx: StepContext) -> dict:
         "w9_9_p0": not any((r["wilson95"] or (0, 0))[0] > 0.33 for r in per.values()),
         "status": "reported",
         "reference": "train",
-        "detail": [{**r.as_dict(), "probe": p} for r, p in zip(results, probes)],
+        # W15-4: the score is the topic-normalised accuracy; raw beside it.
+        "normalisation": "sim - mean sim of the other characters' train lines",
+        "baseline": {c: round(b, 4) for c, b in base.items()},
+        "raw": attribution.accuracy(raw),
+        "detail": [
+            {**r.as_dict(), "raw_predicted": w.predicted, "probe": p}
+            for r, w, p in zip(results, raw, probes)
+        ],
     }
 
 
