@@ -1311,3 +1311,32 @@ async def test_p19_released_by_another_scene_fails_samples_not_plot(monkeypatch)
     counts = dict(classified=0, later_plot_slots=0)
     why = pc.check_samples_not_plot(prompt, gold, {"corner office": 1}, counts)[0]
     assert why == ["Milo Voss: paragraph 19: narrates corner office (ch 1)"]
+
+
+# W15-6: a Victorian embedded narrative — each paragraph opens a quote and only
+# the last closes it — is the narrator's story, not one uncredited speech.
+NESTED = """Chapter 13
+
+“I now hasten to the more moving part of my story.
+
+“It was on one of these days that I observed the countenance of Fenwick was
+melancholy beyond expression; Alina asked a question.
+
+“Fenwick seemed ravished with delight when he saw her.”"""
+
+
+def test_an_embedded_narrative_is_narration_and_indexes_its_cast():
+    attributed = attribute_speech(NESTED)
+    assert all(s.get("narrated") for spans in attributed[1:] for s in spans)
+    assert speech_paragraphs(NESTED) == frozenset()
+    ex = CharacterExtractor()
+    assert len(ex.extract_character_content(NESTED, "Fenwick")) == 2
+    assert len(ex.extract_character_content(NESTED, "Alina")) == 1
+    # A narrator's "I" is outside quotes: the narrator role does not take it.
+    assert ex.extract_narration(NESTED, "Rowan Merrow", is_narrator=True) == []
+
+
+def test_a_tagged_multi_paragraph_speech_stays_the_speakers():
+    text = '"Listen," said Zara, "for this is long.\n\n"And it goes on.\n\n"Then ends."'
+    assert [s[0]["speaker"] for s in attribute_speech(text)] == ["Zara"] * 3
+    assert not any(s.get("narrated") for p in attribute_speech(text) for s in p)

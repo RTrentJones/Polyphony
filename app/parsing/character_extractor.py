@@ -71,7 +71,8 @@ _SINGLE_QUOTED = re.compile(r"(?<!\w)'(?=\S).*?(?<=\S)'(?!\w)", re.DOTALL)
 def _narration_only(paragraph: str) -> str:
     """The paragraph minus quoted speech — a narrator's "I" is outside quotes.
     Both dialogue styles are stripped: double and single quotation marks."""
-    text = re.sub(r'"[^"]*"', " ", normalize_quotes(paragraph))
+    # An unclosed quote runs to the paragraph's end (a continued quote).
+    text = re.sub(r'"[^"]*(?:"|$)', " ", normalize_quotes(paragraph))
     return _SINGLE_QUOTED.sub(" ", text)
 
 
@@ -281,7 +282,10 @@ SPEECH_MIN_WORDS = 3
 
 def is_speech(span: dict) -> bool:
     """A quoted span that counts as someone speaking (SPEC-17): credited, or
-    uncredited of SPEECH_MIN_WORDS+ words (a vocative or a scare-quote is not)."""
+    uncredited of SPEECH_MIN_WORDS+ words (a vocative or a scare-quote is not).
+    An embedded narrative (`attribute_speech`) is narration, not speech."""
+    if span.get("narrated"):
+        return False
     return bool(span["speaker"]) or len(span["text"].split()) >= SPEECH_MIN_WORDS
 
 
@@ -439,11 +443,20 @@ def attribute_speech(text: str) -> list[list[dict]]:
     the paragraph's one named speaker; an untagged paragraph of pure speech
     inherits a speaker only when it continues an open quote, or when the
     exchange so far strictly alternates between two named speakers. Nothing
-    else crosses a blank line or another quotation.
+    else crosses a blank line or another quotation. An uncredited quote kept
+    open across paragraphs (each opens a quote, only the last closes it) is an
+    embedded narrative, not speech: its spans are marked ``narrated`` (W15-6).
     """
     result: list[list[dict]] = []
     exchange: list[str] = []  # speakers of the current back-and-forth
     carry: Optional[str] = None  # speaker of the last paragraph's open quote
+    run: list[dict] = []  # the uncredited open quote's spans, one per paragraph
+
+    def close_run() -> None:
+        for s in run if len(run) > 1 else ():
+            s["narrated"] = True
+        run.clear()
+
     for raw in source_paragraphs(text):
         para = normalize_quotes(raw.strip())
         if not para:
@@ -451,6 +464,7 @@ def attribute_speech(text: str) -> list[list[dict]]:
             continue
         spans, narration = _attribute_paragraph(para)
         if not spans:
+            close_run()
             exchange, carry = [], None
             result.append([])
             continue
@@ -472,7 +486,16 @@ def attribute_speech(text: str) -> list[list[dict]]:
         else:
             exchange = []  # unknown, mixed or pronoun-only: not a named exchange
         carry = None if spans[-1]["closed"] else spans[-1]["speaker"]
-        result.append([{"text": s["text"], "speaker": s["speaker"]} for s in spans])
+        out = [{"text": s["text"], "speaker": s["speaker"]} for s in spans]
+        opens = para[0] == '"' and spans[0]["speaker"] is None
+        if not (run and opens):
+            close_run()
+        if opens and (run or (len(spans) == 1 and not spans[0]["closed"])):
+            run.append(out[0])
+            if spans[0]["closed"] or len(spans) > 1:
+                close_run()
+        result.append(out)
+    close_run()
     return result
 
 
