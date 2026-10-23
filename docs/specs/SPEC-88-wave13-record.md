@@ -73,6 +73,11 @@ invalid. From P‴ (`c51d49e`) on, one row each, plus Nemotron requests spent, r
 (`panel-9d1545248cbffb2ce2dd`, a nested `{"errors": {"count": 0, …}` missing its closing brace), then OpenRouter's 50/day ·
 rate-state 12347567923: 167 checked against P⁗'s range rule, 0 removed · `unrated` 85 · f = 7/46 ≈ 0.15, Nemotron 121 prompts
 left: ⌈121 × 1.3 / 50⌉ = 4 days (about 10-25). Next resumes check out P⁗ (`5dd2d7a`).
+39698076332 · `sha=P⁗` (`5dd2d7a`) · prior 39598043470 · green, a clean stop on both members: Groq 23 replies, then its
+tokens-per-day stop (13 prompts left); Nemotron 51 requests, 29 replies cached (yesterday's unrated prompt among them), 2 prompts
+left unrated after 3 (`panel-c4e91c81004ae9a06d1c`, `panel-a2bb6330b737efba623f`: a nested `{"errors": {"count": …}}`, the shape
+the prompt does not ask for), then OpenRouter's 50/day · rate-state 12395515272: 219 checked, 0 removed · `unrated` 65 · f ≈
+22/51 ≈ 0.43, Nemotron 92 prompts left: ⌈92 × 1.86 / 50⌉ = 4 days (about 10-26), inside 11-10.
  run id · `sha=19838a1` (P + the recorded `panel.py` lines) · `prior_run` · rate-state check (invalid
 entries removed, by key, or none) · `unrated` after the dispatch.
 
