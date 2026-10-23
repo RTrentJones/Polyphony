@@ -38,8 +38,8 @@ on:
         default: ''
       claude:
         description: >-
-          write with Claude (Anthropic, BRD R7.9) instead of Gemini: the eval admin is listed in
-          ANTHROPIC_USERS for this run. PAID — needs the ANTHROPIC_API_KEY repo secret.
+          write with Claude (Anthropic, BRD R7.9) instead of Gemini: the eval's own users
+          (@polyphony.eval) are listed in ANTHROPIC_USERS for this run. PAID — needs the ANTHROPIC_API_KEY repo secret.
         type: choice
         options: ['no', 'yes']
         default: 'no'
@@ -117,10 +117,10 @@ jobs:
             echo "::error::GEMINI_API_KEY is not set on this repo — the app can't boot for the eval. Add it in repo Actions secrets."
             exit 1
           fi
-      # Opt-in and paid: only a dispatch with claude=yes lists the eval admin for Claude, and the
+      # Opt-in and paid: only a dispatch with claude=yes lists the eval users for Claude, and the
       # run's spend ceiling (the app's MONTHLY_COST_CEILING_USD, counted over this run's empty
       # database) caps what it can spend. A push run never uses Claude.
-      - name: Claude for the eval admin (claude=yes)
+      - name: Claude for the eval users (claude=yes)
         if: ${{ github.event.inputs.claude == 'yes' && github.event.inputs.base_url == '' }}
         env:
           KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -132,7 +132,8 @@ jobs:
           fi
           {
             echo "ANTHROPIC_API_KEY=$KEY"
-            echo "ANTHROPIC_USERS=$EVAL_ADMIN_EMAIL"
+            # The eval writes as users it registers under @polyphony.eval (evals/harness/client.py)
+            echo "ANTHROPIC_USERS=@polyphony.eval"
             echo "MONTHLY_COST_CEILING_USD=$CAP"
             echo "EVAL_MODEL_LABEL=claude-opus-5-5"
           } >> "$GITHUB_ENV"
