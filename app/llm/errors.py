@@ -63,3 +63,21 @@ class SpendPausedError(QuotaExhaustedError):  # not admitted under a ceiling
 class UnpricedModelError(RuntimeError):  # under a ceiling: fails the job
     def __init__(self, model: str):
         super().__init__(f"'{model}' has no PRICES row; add one with source and date")
+
+
+class UnusableReplyError(RuntimeError):  # fails the job, no retry
+    """The provider answered, and billed it, but the reply cannot be used.
+    `spent` is the reply's (text, tokens_in, tokens_out, cost), so the caller
+    can still record what it cost."""
+
+    def __init__(self, message: str, spent=None):
+        super().__init__(message)
+        self.spent = spent
+
+
+class ProviderRefusalError(UnusableReplyError):
+    """The provider read the request and declined it (Claude's `refusal`)."""
+
+
+class TruncatedReplyError(UnusableReplyError):
+    """The reply hit max_tokens with no text (a thinking model spent it all)."""

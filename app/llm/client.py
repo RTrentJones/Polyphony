@@ -1,15 +1,17 @@
 """Paced, accounted LLM generation client.
 
 The single entry point every feature uses: `get_llm_client().generate(...)`.
-One `openai.AsyncOpenAI` client per provider (parameterized by base_url),
-wrapped with the provider pacer, retry + circuit breaker, Prometheus counters,
-and per-user usage rows in `api_usage`.
+One `openai.AsyncOpenAI` client per provider (parameterized by base_url), or
+the native `anthropic` client for kind "anthropic", wrapped with the provider
+pacer, retry + circuit breaker, Prometheus counters, and per-user usage rows in
+`api_usage`. Each call goes to its author's provider (`provider_for`).
 """
 
 import time
 from typing import Optional
 from uuid import UUID
 
+import anthropic
 from openai import (
     APIConnectionError,
     APITimeoutError,
@@ -30,8 +32,11 @@ from app.core.metrics import (
 from app.core.resilience import CircuitBreaker, CircuitBreakerError
 
 from .errors import (
+    ProviderRefusalError,
     ProviderUnavailableError,
     QuotaExhaustedError,
+    TruncatedReplyError,
+    UnusableReplyError,
     UserBudgetExhaustedError,
 )
 from . import spend
@@ -42,6 +47,7 @@ from .providers import (
     Provider,
     active_provider,
     provider_api_key,
+    provider_for,
     resolve_model,
 )
 
@@ -49,7 +55,21 @@ logger = setup_logging("llm.client")
 
 _MAX_ATTEMPTS = 4
 # Transient provider failures: retried per call, then the job pauses (W14-8).
-_TRANSIENT = (APIConnectionError, APITimeoutError, InternalServerError)
+_TRANSIENT = (
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    anthropic.APIConnectionError,  # its timeout is one too
+    anthropic.InternalServerError,
+    anthropic.OverloadedError,
+    anthropic.ServiceUnavailableError,
+    anthropic.DeadlineExceededError,
+)
+_RATE_LIMITED = (RateLimitError, anthropic.RateLimitError)
+# Opus-class answers think first and can run minutes; one cap would time out.
+_ANTHROPIC_TIMEOUT_SECONDS = 600
+# Adaptive thinking spends from max_tokens before the answer does.
+_ANTHROPIC_THINKING = 8192
 
 
 class LLMConfigurationError(RuntimeError):
@@ -67,12 +87,19 @@ class LLMClient:
                 f"LLM provider '{self.provider.id}' selected but "
                 f"{self.provider.env_key} is not set"
             )
-        self._client = AsyncOpenAI(
-            api_key=api_key,
-            base_url=self.provider.base_url,
-            timeout=settings.LLM_TIMEOUT_SECONDS,
-            max_retries=0,  # retries are ours: they must go through the pacer
-        )
+        if self.provider.kind == "anthropic":
+            self._client = anthropic.AsyncAnthropic(
+                api_key=api_key,
+                timeout=max(settings.LLM_TIMEOUT_SECONDS, _ANTHROPIC_TIMEOUT_SECONDS),
+                max_retries=0,
+            )
+        else:
+            self._client = AsyncOpenAI(
+                api_key=api_key,
+                base_url=self.provider.base_url,
+                timeout=settings.LLM_TIMEOUT_SECONDS,
+                max_retries=0,  # retries are ours: they must go through the pacer
+            )
         # The breaker trips on evidence the PROVIDER is unhealthy (connection
         # errors, timeouts, 5xx). A quota 429 is not that — the provider is
         # healthy and saying "not now" — and neither is a request it rejected
@@ -85,7 +112,12 @@ class LLMClient:
             recovery_timeout=45,
             expected_exception=Exception,
             name=f"llm_{self.provider.id}",
-            ignore_exceptions=(QuotaExhaustedError, BadRequestError),
+            ignore_exceptions=(
+                QuotaExhaustedError,
+                BadRequestError,
+                anthropic.BadRequestError,
+                UnusableReplyError,
+            ),
         )
 
     async def generate(
@@ -150,6 +182,12 @@ class LLMClient:
             ) from e
         except _TRANSIENT as e:  # outside the breaker, so it still counts these
             raise ProviderUnavailableError(str(e)) from e
+        except UnusableReplyError as e:
+            if e.spent:  # billed though unusable: the ceiling must still see it
+                result = await self._account(e.spent, resolved_model, start)
+                if await self._record_usage(user_id, purpose, result):
+                    await spend.release(hold)
+            raise
         finally:
             if result is None:
                 await spend.release(hold)  # no response: nothing was spent
@@ -199,16 +237,28 @@ class LLMClient:
                         self.provider.rpd_reset_tz,
                     )
                 async with get_pacer(self.provider):
-                    response = await self._client.chat.completions.create(
-                        model=resolved_model,
-                        messages=messages,
-                        max_tokens=max_tokens,
-                        temperature=temperature,
-                        extra_body=extra_body,
-                        **extra_kwargs,
-                    )
-                return await self._account(response, resolved_model, start)
-            except RateLimitError as e:
+                    if self.provider.kind == "anthropic":
+                        reply = await self._claude(messages, resolved_model, max_tokens)
+                    else:
+                        response = await self._client.chat.completions.create(
+                            model=resolved_model,
+                            messages=messages,
+                            max_tokens=max_tokens,
+                            temperature=temperature,
+                            extra_body=extra_body,
+                            **extra_kwargs,
+                        )
+                        usage = getattr(response, "usage", None)
+                        tokens_in = getattr(usage, "prompt_tokens", 0) or 0
+                        tokens_out = getattr(usage, "completion_tokens", 0) or 0
+                        reply = (
+                            response.choices[0].message.content or "",
+                            tokens_in,
+                            tokens_out,
+                            cost_usd(resolved_model, tokens_in, tokens_out),
+                        )
+                return await self._account(reply, resolved_model, start)
+            except _RATE_LIMITED as e:
                 last_error = e
                 retry_after = _retry_after_seconds(e)
                 logger.warning(
@@ -239,24 +289,63 @@ class LLMClient:
         # Classify the give-up: a persistent 429 is QUOTA (the job may pause and
         # resume), distinct from a transient connection/timeout failure. This is
         # what lets the free tier never lose work (docs/BRD.md R7.2).
-        if isinstance(last_error, RateLimitError):
+        if isinstance(last_error, _RATE_LIMITED):
             raise QuotaExhaustedError(
                 str(last_error), reset_after=_retry_after_seconds(last_error)
             )
         raise last_error if last_error else RuntimeError("LLM generation failed")
 
+    async def _claude(
+        self, messages: list[dict], model: str, max_tokens: int
+    ) -> tuple[str, int, int, Optional[float]]:
+        """One Messages API call: system turns lifted out and no temperature
+        (the API refuses it). No server-side fallback: it can bill further
+        models past what the monthly ceiling admitted (spend.admit prices one
+        call of this model). A refusal, or a cap spent before any text, fails
+        the job with its reason and what it cost (UnusableReplyError)."""
+        system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
+        turns = [m for m in messages if m["role"] != "system"]
+        response = await self._client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            messages=turns,
+            **({"system": system} if system else {}),
+        )
+        text = "".join(b.text for b in response.content if b.type == "text")
+        u = response.usage
+        tokens_in = (
+            u.input_tokens
+            + (u.cache_creation_input_tokens or 0)
+            + (u.cache_read_input_tokens or 0)
+        )
+        reply = (
+            text,
+            tokens_in,
+            u.output_tokens,
+            cost_usd(model, tokens_in, u.output_tokens),
+        )
+        if response.stop_reason == "refusal":
+            details = getattr(response, "stop_details", None)
+            category = getattr(details, "category", None)
+            raise ProviderRefusalError(
+                "Claude declined this request" + (f" ({category})" if category else ""),
+                spent=reply,
+            )
+        if response.stop_reason == "max_tokens" and not text.strip():
+            raise TruncatedReplyError(
+                f"Claude spent all {max_tokens:,} tokens before answering", spent=reply
+            )
+        return reply
+
     async def _account(
         self,
-        response,
+        reply: tuple[str, int, int, Optional[float]],
         model: str,
         start: float,
     ) -> GenResult:
         latency_ms = int((time.monotonic() - start) * 1000)
-        usage = getattr(response, "usage", None)
-        tokens_in = getattr(usage, "prompt_tokens", 0) or 0
-        tokens_out = getattr(usage, "completion_tokens", 0) or 0
-        cost = cost_usd(model, tokens_in, tokens_out)
-        text = (response.choices[0].message.content or "").strip()
+        text, tokens_in, tokens_out, cost = reply
+        text = text.strip()
 
         llm_requests_total.labels(service="app", model=model, status="success").inc()
         llm_request_duration_seconds.labels(service="app", model=model).observe(
@@ -345,10 +434,12 @@ def _thinking_guard(provider: Provider, model: str, max_tokens: int):
             return extra, max_tokens + _GEMINI_MINIMAL_THINKING
         extra = {k: v for k, v in (extra or {}).items() if k != "reasoning_effort"}
         return (extra or None), max_tokens + 4096
+    if provider.kind == "anthropic":
+        return None, max_tokens + _ANTHROPIC_THINKING
     return extra, max_tokens
 
 
-def _retry_after_seconds(error: RateLimitError) -> Optional[float]:
+def _retry_after_seconds(error: Exception) -> Optional[float]:
     response = getattr(error, "response", None)
     headers = getattr(response, "headers", None) or {}
     value = headers.get("retry-after") or headers.get("Retry-After")
@@ -358,14 +449,35 @@ def _retry_after_seconds(error: RateLimitError) -> Optional[float]:
         return None
 
 
-_client: Optional[LLMClient] = None
+class LLMRouter:
+    """The app's client: each call goes to its author's provider (provider_for),
+    one LLMClient per provider. The deployment's provider is built up front so a
+    missing key still fails at startup."""
+
+    def __init__(self):
+        default = LLMClient()
+        self.provider = default.provider  # the deployment's (startup logs it)
+        self._clients = {default.provider.id: default}
+
+    async def generate(
+        self, messages: list[dict], *, user_id: Optional[UUID] = None, **kwargs
+    ) -> GenResult:
+        provider = await provider_for(user_id)
+        if provider.id not in self._clients:
+            self._clients[provider.id] = LLMClient(provider)
+        return await self._clients[provider.id].generate(
+            messages, user_id=user_id, **kwargs
+        )
 
 
-def get_llm_client() -> LLMClient:
-    """Singleton client for the active provider."""
+_client: Optional[LLMRouter] = None
+
+
+def get_llm_client() -> LLMRouter:
+    """Singleton router over the providers' clients."""
     global _client
     if _client is None:
-        _client = LLMClient()
+        _client = LLMRouter()
     return _client
 
 

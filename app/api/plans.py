@@ -985,7 +985,7 @@ async def start_continuity_check(
             },
         )
 
-    from app.llm.providers import active_provider, resolve_model
+    from app.llm.providers import provider_for, resolve_model
 
     dedupe_key = f"continuity:{book.id}:{payload.chapter_id or 'book'}"
     existing = await jobs_repo.find_active(db, dedupe_key)
@@ -1001,7 +1001,7 @@ async def start_continuity_check(
         chapter_id=payload.chapter_id,
         scope="chapter" if payload.chapter_id else "book",
         status="processing",
-        model=resolve_model(active_provider(), fast=False),
+        model=resolve_model(await provider_for(current_user.id), fast=False),
     )
     db.add(report)
     await db.flush()

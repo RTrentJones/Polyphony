@@ -55,12 +55,21 @@ class Estimate:
         return d
 
 
-def _usd(tokens_in: int, tokens_out: int) -> Optional[float]:
+def _model(provider, model: Optional[str]):
+    """The provider and the model it would serve: `model` when it offers it."""
+    from app.llm.providers import active_provider, resolve_model, selectable
+
+    provider = provider or active_provider()
+    return provider, (
+        model if model in selectable(provider) else resolve_model(provider, False)
+    )
+
+
+def _usd(tokens_in: int, tokens_out: int, provider=None, model=None) -> Optional[float]:
     from app.llm.prices import cost_usd
-    from app.llm.providers import active_provider, resolve_model
 
     try:
-        model = resolve_model(active_provider(), fast=False)
+        _, model = _model(provider, model)
     except Exception:  # unknown provider: no price to show
         return None
     cost = cost_usd(model, tokens_in, tokens_out)
@@ -206,15 +215,15 @@ def affordable(per_scene: list[Estimate], remaining: int) -> int:
     )
 
 
-async def requests_left_today(model: Optional[str] = None) -> Optional[int]:
-    """Provider requests left today for `model` (else the default), or None."""
+async def requests_left_today(
+    model: Optional[str] = None, provider=None
+) -> Optional[int]:
+    """The provider's requests left today for `model` (else its default), or None."""
     from app.core.database import get_async_session
     from app.llm.ledger import used_today
-    from app.llm.providers import active_provider, resolve_model
     from app.llm.tier import effective_rpd
 
-    provider = active_provider()
-    model = model or resolve_model(provider, False)
+    provider, model = _model(provider, model)
     ceiling = effective_rpd(provider, model)
     if not ceiling:
         return None
@@ -233,9 +242,13 @@ async def requests_left_today(model: Optional[str] = None) -> Optional[int]:
 
 async def assess(db: AsyncSession, user_id: UUID, est: Estimate, model=None) -> dict:
     """The estimate plus what the author can afford, and whether it is allowed."""
+    from app.llm.providers import provider_for
+
+    provider = await provider_for(user_id)
     remaining = await remaining_budget_24h(db, user_id)
-    requests = await requests_left_today(model)
+    requests = await requests_left_today(model, provider)
     out = est.as_dict()
+    out["usd"] = _usd(est.input_tokens, est.output_tokens, provider, model)
     out["remaining_tokens_24h"] = remaining
     out["remaining_requests_today"] = requests
     out["share_of_remaining"] = round(est.tokens / remaining, 4) if remaining else None
