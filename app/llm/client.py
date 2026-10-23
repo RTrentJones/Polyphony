@@ -36,6 +36,7 @@ from .errors import (
     ProviderUnavailableError,
     QuotaExhaustedError,
     TruncatedReplyError,
+    UnusableReplyError,
     UserBudgetExhaustedError,
 )
 from . import spend
@@ -115,8 +116,7 @@ class LLMClient:
                 QuotaExhaustedError,
                 BadRequestError,
                 anthropic.BadRequestError,
-                ProviderRefusalError,
-                TruncatedReplyError,
+                UnusableReplyError,
             ),
         )
 
@@ -182,6 +182,12 @@ class LLMClient:
             ) from e
         except _TRANSIENT as e:  # outside the breaker, so it still counts these
             raise ProviderUnavailableError(str(e)) from e
+        except UnusableReplyError as e:
+            if e.spent:  # billed though unusable: the ceiling must still see it
+                result = await self._account(e.spent, resolved_model, start)
+                if await self._record_usage(user_id, purpose, result):
+                    await spend.release(hold)
+            raise
         finally:
             if result is None:
                 await spend.release(hold)  # no response: nothing was spent
@@ -292,47 +298,44 @@ class LLMClient:
     async def _claude(
         self, messages: list[dict], model: str, max_tokens: int
     ) -> tuple[str, int, int, Optional[float]]:
-        """One Messages API call: system turns lifted out, no temperature (the
-        API refuses it), Anthropic's default fallback on a refusal it can
-        rescue, and a refusal it cannot is the author's error, not a retry."""
+        """One Messages API call: system turns lifted out and no temperature
+        (the API refuses it). No server-side fallback: it can bill further
+        models past what the monthly ceiling admitted (spend.admit prices one
+        call of this model). A refusal, or a cap spent before any text, fails
+        the job with its reason and what it cost (UnusableReplyError)."""
         system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
         turns = [m for m in messages if m["role"] != "system"]
-        response = await self._client.beta.messages.create(
+        response = await self._client.messages.create(
             model=model,
             max_tokens=max_tokens,
             messages=turns,
             **({"system": system} if system else {}),
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
+        )
+        text = "".join(b.text for b in response.content if b.type == "text")
+        u = response.usage
+        tokens_in = (
+            u.input_tokens
+            + (u.cache_creation_input_tokens or 0)
+            + (u.cache_read_input_tokens or 0)
+        )
+        reply = (
+            text,
+            tokens_in,
+            u.output_tokens,
+            cost_usd(model, tokens_in, u.output_tokens),
         )
         if response.stop_reason == "refusal":
             details = getattr(response, "stop_details", None)
+            category = getattr(details, "category", None)
             raise ProviderRefusalError(
-                "Claude declined this request"
-                + (f" ({details.category})" if details and details.category else "")
+                "Claude declined this request" + (f" ({category})" if category else ""),
+                spent=reply,
             )
-        text = "".join(b.text for b in response.content if b.type == "text")
         if response.stop_reason == "max_tokens" and not text.strip():
             raise TruncatedReplyError(
-                f"Claude spent all {max_tokens:,} tokens before answering"
+                f"Claude spent all {max_tokens:,} tokens before answering", spent=reply
             )
-        # A fallback bills each model that ran, at its own price (iterations);
-        # without one, the top-level usage is the one model's.
-        runs = getattr(response.usage, "iterations", None) or [response.usage]
-        tokens_in = tokens_out = 0
-        cost: Optional[float] = 0.0
-        for run in runs:
-            n_in = (
-                run.input_tokens
-                + (run.cache_creation_input_tokens or 0)
-                + (run.cache_read_input_tokens or 0)
-            )
-            price = cost_usd(
-                getattr(run, "model", None) or model, n_in, run.output_tokens
-            )
-            cost = None if cost is None or price is None else cost + price
-            tokens_in, tokens_out = tokens_in + n_in, tokens_out + run.output_tokens
-        return text, tokens_in, tokens_out, cost
+        return reply
 
     async def _account(
         self,
