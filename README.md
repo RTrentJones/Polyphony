@@ -1,5 +1,7 @@
 # Polyphony
 
+[![evals](https://tracer.rtrentjones.dev/api/badge/polyphony?label=evals)](https://tracer.rtrentjones.dev/projects/polyphony)
+
 A multi-user, multi-character AI book-writing platform. The **book is the root
 of every concept** (docs/ADR-002-book-as-root.md): you create a book, add
 **sources** (uploaded files or pasted text) and characters to it, index each

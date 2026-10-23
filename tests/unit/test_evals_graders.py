@@ -663,3 +663,246 @@ def test_names_the_fact_needs_a_full_name_or_alias():
     assert hits["names_the_fact"] is False
     hits = plot.source_fact_hits(gt, None, [OLD_FEN, CONFLICTS[0]])["bell_sent_under"]
     assert hits["names_the_fact"] is True
+
+
+class TestTracerExportProvenance:
+    def _run(self):
+        return {
+            "book": "frankenstein",
+            "app_sha": "abc1234",
+            "harness_sha": "def5678",
+            "model": "gemini-3.5-flash-lite",
+            "run": None,
+            "repeat": 1,
+            "judge": {"provider": "groq", "model": "llama-x", "self": False},
+            "steps": {
+                "extraction": {
+                    "score": 0.8,
+                    "f1": 0.8,
+                    "precision": 1.0,
+                    "recall": 0.67,
+                    "ok": True,
+                },
+                "retrieval": {
+                    "score": 0.6,
+                    "precision_at_k": 0.6,
+                    "mrr": 0.75,
+                    "note": "x",
+                },
+                "attribution": {"score": 0.4, "accuracy": 0.4, "status": "reported"},
+                "prose": {"skipped": True, "reason": "quota"},
+                "continuity": {"error": "boom"},
+            },
+        }
+
+    def test_book_is_the_suite_and_metrics_ride_along(self):
+        from evals.harness import report
+
+        out = report.tracer_export(self._run(), model="gemini-3.5-flash-lite", env="ci")
+        assert out["suite"] == "frankenstein" and out["env"] == "ci"
+        by = {c["name"]: c for c in out["cases"]}
+        # numeric fields only (bools and strings dropped) become case metrics
+        assert by["eval:extraction"]["metrics"] == {
+            "score": 0.8,
+            "f1": 0.8,
+            "precision": 1.0,
+            "recall": 0.67,
+        }
+        assert by["eval:attribution"]["category"] == "reported"
+        assert by["eval:retrieval"]["category"] == "gated"
+        assert out["metrics"]["extraction.f1"] == 0.8
+        assert out["metrics"]["retrieval.mrr"] == 0.75
+        assert out["metrics"]["attribution.accuracy"] == 0.4
+
+    def test_labels_name_judge_and_missing_steps(self):
+        from evals.harness import report
+
+        out = report.tracer_export(self._run(), model="m")
+        assert out["labels"]["judge_provider"] == "groq"
+        assert out["labels"]["judge_self_graded"] == "False"
+        assert out["labels"]["harness_sha"] == "def5678"
+        assert out["labels"]["skipped"] == "prose"
+        assert out["labels"]["errored"] == "continuity"
+        assert "declared_run" not in out["labels"]  # None values are omitted
+
+    def test_provenance_from_github_env(self):
+        from evals.harness import report
+
+        prov = report.github_provenance(
+            {
+                "GITHUB_REPOSITORY": "RTrentJones/Polyphony",
+                "GITHUB_RUN_ID": "7",
+                "GITHUB_REF_NAME": "main",
+                "GITHUB_EVENT_NAME": "workflow_dispatch",
+            }
+        )
+        assert (
+            prov["source_url"]
+            == "https://github.com/RTrentJones/Polyphony/actions/runs/7"
+        )
+        out = report.tracer_export(self._run(), model="m", provenance=prov)
+        assert out["repo"] == "RTrentJones/Polyphony" and out["branch"] == "main"
+        assert out["labels"]["trigger"] == "workflow_dispatch"
+        assert report.github_provenance({}) == {}
+
+    def test_runs_are_labelled_on_demand(self, monkeypatch):
+        # Dispatched, not scheduled: Tracer must not read a quiet week as stale.
+        from evals.harness import report
+
+        monkeypatch.delenv("EVAL_EXPERIMENT", raising=False)
+        out = report.tracer_export(self._run(), model="m")
+        assert out["labels"]["cadence"] == "on-demand"
+        assert "experiment" not in out["labels"]
+
+    def test_experiment_is_a_label_not_the_env(self, monkeypatch):
+        from evals.harness import report
+
+        monkeypatch.setenv("EVAL_EXPERIMENT", "spec-merge-" + "x" * 300)
+        out = report.tracer_export(self._run(), model="m", env="ci")
+        assert out["env"] == "ci"
+        assert out["labels"]["experiment"].startswith("spec-merge-")
+        assert len(out["labels"]["experiment"]) == 255
+
+    def test_metric_keys_are_ascii(self):
+        # Python's \w is Unicode by default; Tracer's metric keys are ASCII-only.
+        from evals.harness import report
+
+        out = report.tracer_export(
+            {"steps": {"outline": {"score": 0.9, "fidélité": 0.8}}}, model="m"
+        )
+        assert out["cases"][0]["metrics"] == {"score": 0.9, "fid_lit_": 0.8}
+
+
+class TestTracerIngestOutcome:
+    """`ingest_to_tracer` never raises, and its outcome is always visible."""
+
+    RESULT = {"book": "dracula", "model": "m", "steps": {"outline": {"score": 0.9}}}
+
+    def _ingest(self, handler, monkeypatch, tmp_path, token="tok"):
+        import asyncio
+
+        import httpx
+
+        from evals.run import ingest_to_tracer
+
+        summary = tmp_path / "summary.md"
+        monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+        ok = asyncio.run(
+            ingest_to_tracer(
+                self.RESULT,
+                "https://tracer.test/",
+                token,
+                "ci",
+                transport=httpx.MockTransport(handler),
+            )
+        )
+        return ok, summary.read_text() if summary.exists() else ""
+
+    def test_created(self, monkeypatch, tmp_path, capsys):
+        import httpx
+
+        seen = {}
+
+        def handler(req):
+            seen["url"] = str(req.url)
+            seen["auth"] = req.headers["authorization"]
+            return httpx.Response(201, json={"id": "r1", "cases": 1})
+
+        ok, summary = self._ingest(handler, monkeypatch, tmp_path)
+        out = capsys.readouterr().out
+        assert ok is True
+        assert seen == {
+            "url": "https://tracer.test/api/ingest",
+            "auth": "Bearer tok",
+        }
+        assert "tracer ingest -> 201" in out and "::warning" not in out
+        assert "`dracula`: ok" in summary
+
+    def test_unauthorized_warns(self, monkeypatch, tmp_path, capsys):
+        import httpx
+
+        ok, summary = self._ingest(
+            lambda req: httpx.Response(401, json={"error": "unauthorized"}),
+            monkeypatch,
+            tmp_path,
+        )
+        out = capsys.readouterr().out
+        assert ok is False
+        assert "tracer ingest -> 401" in out
+        assert "::warning title=Tracer ingest::dracula: 401" in out
+        assert "NOT ingested" in summary and "401" in summary
+
+    def test_non_json_body_and_transport_error(self, monkeypatch, tmp_path, capsys):
+        import httpx
+
+        ok, _ = self._ingest(
+            lambda req: httpx.Response(502, text="<html>bad gateway</html>"),
+            monkeypatch,
+            tmp_path,
+        )
+        assert ok is False and "502 <html>bad gateway</html>" in capsys.readouterr().out
+
+        def boom(req):
+            raise httpx.ConnectError("down")
+
+        ok, _ = self._ingest(boom, monkeypatch, tmp_path)
+        assert ok is False
+        assert "failed: ConnectError: down" in capsys.readouterr().out
+
+    def test_no_token(self, monkeypatch, tmp_path, capsys):
+        def handler(req):  # pragma: no cover - must not be called
+            raise AssertionError("posted without a token")
+
+        ok, summary = self._ingest(handler, monkeypatch, tmp_path, token="")
+        out = capsys.readouterr().out
+        assert ok is False
+        assert "skipped (TRACER_INGEST_TOKEN unset)" in out
+        assert "::warning title=Tracer ingest::" in out
+        assert "NOT ingested" in summary
+
+
+class TestTracerExportCompleteness:
+    def test_unscored_step_marks_the_run_incomplete(self):
+        # A judge outage leaves score=None with no error/skip key; it must not
+        # vanish and leave a run that reads complete and all-green.
+        from evals.harness import report
+
+        run = {
+            "book": "dracula",
+            "judge": {"provider": "groq", "partial": True},
+            "steps": {
+                "retrieval": {"score": 0.8, "precision_at_k": 0.8},
+                "outline": {"score": None, "n_nodes": 12},
+            },
+        }
+        out = report.tracer_export(run, model="m")
+        assert [c["name"] for c in out["cases"]] == ["eval:retrieval"]
+        assert out["labels"]["skipped"] == "outline"
+        assert out["labels"]["unscored"] == "outline"
+        assert out["labels"]["judge_partial"] == "True"
+        assert "judge_unavailable" not in out["labels"]
+
+    def test_repeated_step_publishes_only_its_averaged_score(self):
+        # _aggregate averages `score` only; f1 here is the last draw's and must
+        # not be charted as the repeated experiment's.
+        from evals.harness import report
+
+        run = {
+            "book": "dracula",
+            "steps": {
+                "extraction": {"score": 0.6, "score_std": 0.4, "repeats": 2, "f1": 1.0},
+                "retrieval": {"score": 0.8, "mrr": 0.9},
+            },
+        }
+        out = report.tracer_export(run, model="m")
+        by = {c["name"]: c for c in out["cases"]}
+        assert by["eval:extraction"]["metrics"] == {
+            "score": 0.6,
+            "score_std": 0.4,
+            "repeats": 2,
+        }
+        assert "extraction.f1" not in out["metrics"]
+        assert out["metrics"]["extraction.score"] == 0.6
+        assert (
+            out["metrics"]["retrieval.mrr"] == 0.9
+        )  # single-draw steps keep every metric

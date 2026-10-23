@@ -173,13 +173,75 @@ python -m evals.run --book dracula --steps all --tracer --out report.json
 ```
 
 The mapping (`report.tracer_export`) trends the model **under test** (`EVAL_MODEL_LABEL`
-/ `LLM_MODEL`, default `gemini-2.5-flash`), keyed by the app's `/__version` sha,
-so a prompt/architecture change shows as a step-score delta on the dashboard.
+/ `LLM_MODEL`, else the active provider's default model), keyed by the app's
+`/__version` sha, so a prompt/architecture change shows as a step-score delta on
+the dashboard. Each run carries:
+
+- `suite` = the book, and `env` = `EVAL_ENV_LABEL` (where the run happened; CI:
+  `ci`), so each book trends as its own series;
+- one case per scored step (`category` `gated` or `reported`), with the step's
+  numeric fields as case `metrics` and headline `<step>.<metric>` run metrics
+  (e.g. `extraction.f1`, `retrieval.mrr`, `outline.cast_fidelity`) that Tracer
+  charts per run. A repeated step (`--repeat N`) publishes only its averaged
+  score and spread, since its other fields are the last draw's;
+- `labels` for the effective judge (whether it self-graded, and whether it was
+  unavailable or gave out partway), the harness sha, the declared run, and any
+  skipped, unscored (ran but no score, e.g. a judge outage) or errored steps, so
+  a missing step reads as "didn't run", not "fine". Tracer reads these: a run with
+  a skipped, unscored or errored step is shown as *incomplete* and never counts
+  as a regression, and a
+  judge change against the previous run marks it *not comparable*;
+- `labels.cadence = on-demand`, so a quiet week between dispatches doesn't read
+  as stale on the dashboard; and `labels.experiment` when `EVAL_EXPERIMENT` is set;
+- in CI, `repo` / `branch` / `source_url` (the Actions run), so the Tracer run
+  page links back to the commit and the logs.
 
 **CI:** `.github/workflows/evals.yml` boots a fresh app (pgvector service +
-`GEMINI_API_KEY`), runs the suite, and ingests to Tracer — dispatchable on demand
-(before/after a change) and weekly for a baseline. It needs `GEMINI_API_KEY` and
-`TRACER_INGEST_TOKEN` as repo Actions secrets.
+`GEMINI_API_KEY`), runs the suite, and ingests to Tracer. It is dispatched on
+demand (before/after a change) or by pushing `evals/.run-eval`; there is no
+schedule, because each run spends the shared Gemini free-tier quota. It needs
+`GEMINI_API_KEY` and `TRACER_INGEST_TOKEN` as repo Actions secrets. Results:
+<https://tracer.rtrentjones.dev/projects/polyphony>.
+
+**The ingest token.** `TRACER_INGEST_TOKEN` must hold the same value as the
+wrapper repo's `TF_VAR_TRACER_INGEST_TOKEN` (the bearer Tracer checks):
+
+```bash
+gh secret set TRACER_INGEST_TOKEN -R RTrentJones/Polyphony   # paste the value at the hidden prompt
+```
+
+To confirm it worked, dispatch a cheap run (e.g. `book=cel`, `steps=outline`)
+and read the job summary: each book gets a `Tracer ingest` line, `ok — 201 {...}`
+when it landed. Anything else (an unset token, a `401`, Tracer down) is
+`NOT ingested` plus a `Tracer ingest` warning annotation on the run. The eval
+itself never fails on an ingest problem, so check the summary rather than the
+job's colour.
+
+**`env_label` vs `experiment`.** `env_label` says *where* the run happened; keep
+it `ci` for CI runs. An experiment name ("spec-merge", "judge-fix") goes in the
+`experiment` input, which is stored as `labels.experiment`. Putting it in the env
+would split every experiment into its own series, which then can't be compared
+with the main line or with each other.
+
+**Comparing models.** Dispatch the workflow twice on the same ref with the same
+`book` and a different `model` input (blank = the provider's default; otherwise
+it sets `LLM_MODEL`, which the app boots with and the run is labelled by). Then
+open
+<https://tracer.rtrentjones.dev/compare?tool=polyphony&mode=eval&suite=dracula&env=ci>
+(swap `suite` for the book you ran). Each model is a column with its latest run,
+and both columns show the same commit, so any difference is the model and not
+the code.
+
+**Reported steps.** A step whose status is `reported` (SPEC-60, e.g.
+attribution) is sent as a case with `category: "reported"`. Tracer shows it as
+"· reported": its score is trended, but it is left out of the pass rate, the
+flaky/flip counts and the run's verdict.
+
+**Legacy runs.** Runs from before the book became the suite used `env=ci-<book>`
+(`ci-dracula`, `ci-frankenstein`). Tracer relabelled those to `env=ci`,
+`suite=<book>` so they sit on the same series as new runs; the original value is
+kept in `labels.legacy_env`. Older `ci-<experiment>-cel` envs were left as they
+were.
 
 ## Judge
 
@@ -267,8 +329,8 @@ python -m evals.tools.build_gt --book dracula                                 # 
 - **`frankenstein`** — the **held-out validation** corpus (Walton's letters,
   Victor's creation chapter, the creature's quoted tale). A prompt/architecture
   change counts only if it improves **both**: a gain on Dracula alone is likely
-  overfitting to one book's ground truth. CI grades both and tags them as
-  separate Tracer runs (`env=<label>-dracula` / `-frankenstein`).
+  overfitting to one book's ground truth. CI grades both; Tracer keys each book
+  as its own suite (`suite=dracula` / `frankenstein`), so they trend apart.
 - **`cel`** — the synthetic fidelity corpus (the outline gate, and the harness v2
   book). `load_corpus` uploads the 17k-char `synopsis.txt` + the excerpt.
   `excerpts.txt` is ~4.7k chars of synthetic prose with tagged and inverted lines,
