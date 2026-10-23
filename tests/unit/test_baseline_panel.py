@@ -35,6 +35,23 @@ async def test_an_order_inconsistent_member_scores_a_tie(monkeypatch, tmp_path):
     assert got == {"prefer": {("x", "y"): "tie"}, "errors": {"x": 2, "y": 2}}
 
 
+async def test_an_unparseable_panel_reply_is_never_memoised(monkeypatch, tmp_path):
+    # (F) W15-9: three blank replies leave the item unrated with no cache file;
+    # the resume asks again, stores the parseable reply and rates it.
+    replies = ["", "", "", '{"errors": 1}']
+    llm = SimpleNamespace(
+        generate=AsyncMock(side_effect=[SimpleNamespace(text=t) for t in replies])
+    )
+    monkeypatch.setattr(panel, "LLMClient", lambda provider: llm)
+    b, cache = {"items": {"x": "X."}, "pairs": [], "canon": "<canon/>"}, Cache(
+        str(tmp_path), "sha"
+    )
+    assert await panel.rate("stub:m", [b], cache) == {"prefer": {}, "errors": {}}
+    assert list(tmp_path.rglob("panel-*.json")) == []
+    assert await panel.rate("stub:m", [b], cache) == {"prefer": {}, "errors": {"x": 1}}
+    assert len(list(tmp_path.rglob("panel-*.json"))) == 1
+
+
 def test_fleiss_kappa_on_a_hand_computed_table():
     # p = (3, 4, 1) / 8, so Pe = 13/32; P = (1 + 1 + 0 + 0) / 4; (1/2 - 13/32) / (19/32)
     table = [[2, 0, 0], [0, 2, 0], [1, 1, 0], [0, 1, 1]]
