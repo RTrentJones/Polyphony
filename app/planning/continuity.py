@@ -29,6 +29,7 @@ as one chunk, the sources as the fact sheet under `SOURCE_FACTS_NOTE`.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import NamedTuple, Optional, TypedDict
 from uuid import UUID
@@ -148,6 +149,48 @@ def chunk_scenes(
         )
         for g in _pack(pieces, lambda s: len(s.text.split()), chunk_words)
     ]
+
+
+_ORDINALS = "eleventh twelfth thirteenth fourteenth fifteenth sixteenth seventeenth \
+eighteenth nineteenth twentieth twenty-first".split()
+# "17—" (a year the text elides), "1797", "the eighteenth century".
+_ERA = re.compile(
+    r"(?<![\w—–-])(1[6-9])(?:[—–]|-{1,2})(?![\w—–-])|(?<![\w.,])(1\d|20)\d\d(?!\w)"
+    rf"|\b({'|'.join(_ORDINALS)})[ -]century\b",
+    re.I,
+)
+
+
+def era_findings(scenes: list[ProseScene]) -> list[Finding]:
+    """Deterministic era ledger over the WHOLE prose (W15-7): when at least 3
+    dates name a century and 75%+ agree, each date in another century is a
+    timeline finding. A chunk sees only its predecessor's tail, so a date a
+    century off on page one was never compared with the rest."""
+    hits = [
+        (s, m, m[1] or m[2] or str(_ORDINALS.index(m[3].lower()) + 10))
+        for s in scenes
+        for m in _ERA.finditer(s.text)
+    ]
+    votes = Counter(era for *_, era in hits)
+    era, n = votes.most_common(1)[0] if votes else ("", 0)
+    if n < 3 or n * 4 < len(hits) * 3:
+        return []
+    out: list[Finding] = []
+    for s, m, other in hits:
+        if other != era:
+            a, b = max(0, m.start() - 40), m.end() + 40
+            words = s.text[a:b].split()
+            out.append(
+                {
+                    "type": "timeline",
+                    "severity": "major",
+                    "detail": f'"{m[0]}" is dated in the {other}00s; {n} of the '
+                    f"text's {len(hits)} dates are in the {era}00s.",
+                    "quote": " ".join(words[bool(a) : len(words) - (b < len(s.text))]),
+                    "scene_id": s.scene_id,
+                }
+            )
+    return out
 
 
 def _found(quote: str, text: str) -> bool:
@@ -485,7 +528,7 @@ async def run_continuity_check(
     chunk instead of re-paying for the ones it finished (SPEC-08). A checkpoint
     taken against different chunks or facts is discarded: findings from two
     versions of the book must not be merged."""
-    all_findings: list[dict] = []
+    all_findings: list[dict] = list(era_findings(scenes))
     total_tokens = 0
     chunks = chunk_scenes(scenes)
     checked, unchecked = 0, []
