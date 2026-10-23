@@ -38,12 +38,37 @@ ABBREVIATED_HONORIFICS = frozenset({"dr", "hon", "mr", "mrs", "ms", "prof", "st"
 
 # Name tokens that are words, not names ("Old Fen", "The Lich", "Van Helsing"):
 # never counted on their own.
-NON_NAME_TOKENS = frozenset(
-    {"the", "a", "an", "of", "old", "young", "big", "little", "elder", "younger"}
-    | {"de", "van", "von", "der", "den", "la", "le", "du", "del", "da", "di", "al"}
+PARTICLES = frozenset(
+    {"de", "van", "von", "der", "den", "la", "le", "du", "del", "da", "di", "al"}
+)
+NON_NAME_TOKENS = (
+    frozenset(
+        {"the", "a", "an", "of", "old", "young", "big", "little", "elder", "younger"}
+    )
+    | PARTICLES
 )
 
 _PUNCT = re.compile(r"[^\w\s'-]+")
+# Words that stand for a person but never name one: not an alias (W15-6).
+PRONOUNS = frozenset(
+    {"i", "me", "myself", "we", "us", "you", "thou", "thee", "he", "him", "she"}
+    | {"her", "it", "they", "them"}
+)
+_NOTE = re.compile(r"\([^()]*\)|\[[^\[\]]*\]")
+_LEAD = re.compile(r"^(?:(?:the|a|an|my|our|his|her|their|your|this|that)\s+)+", re.I)
+
+
+def strip_notes(name: str) -> str:
+    """A name without parenthetical notes, whitespace collapsed:
+    "Robert (not used)" -> "Robert" (W15-5)."""
+    return " ".join(_NOTE.sub(" ", name or "").split())
+
+
+def name_core(name: str) -> str:
+    """The name without notes or a leading determiner or possessive: "my dear
+    sister" -> "dear sister". A core with no capitalised word is a descriptor,
+    not a proper name."""
+    return _LEAD.sub("", strip_notes(name))
 
 
 def norm(name: str) -> str:
