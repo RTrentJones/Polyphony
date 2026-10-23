@@ -321,17 +321,26 @@ def cast_spoken_lines(text: str, cast: list[str], forms: dict) -> list[dict]:
     from app.parsing.character_extractor import attribute_speech, speaker_matches
 
     members = [{"name": n, "aliases": forms.get(n, [n])[1:]} for n in cast]
-    out = []
+    out: list[dict] = []
     for para in attribute_speech(text or ""):
+        last = None  # a split quote by one speaker is one line (review N4)
         for span in para:
-            who = [
-                m["name"]
-                for m in members
-                if span["text"]
-                and speaker_matches(span["speaker"], m["name"], m["aliases"], members)
-            ]
-            if who:
-                out.append({"speaker": who[0], "line": span["text"]})
+            who = next(
+                (
+                    m["name"]
+                    for m in members
+                    if span["text"]
+                    and speaker_matches(
+                        span["speaker"], m["name"], m["aliases"], members
+                    )
+                ),
+                None,
+            )
+            if who and who == last:
+                out[-1]["line"] += " " + span["text"]
+            elif who:
+                out.append({"speaker": who, "line": span["text"]})
+            last = who
     return out
 
 
@@ -1254,7 +1263,7 @@ async def step_prose(ctx: StepContext) -> dict:
     alias_forms = [f for fs in forms.values() for f in fs]
     owned = gt.get("owned_phrases") or {}
     gold = gt.get("gold_lines") or {}
-    detail, prev_text = [], ""
+    detail, prev_text, r2_lines = [], "", 0
     for i, sc in enumerate(scenes):
         checks = _grade_scene_checks(sc, prev_text, forms)
         rate, unknown = _unknown_canon(sc["content"], gt)
@@ -1310,6 +1319,8 @@ async def step_prose(ctx: StepContext) -> dict:
             )
             if len({r["speaker"] for r in voiced}) < 2:
                 del contents["R2"]
+            else:
+                r2_lines += len(voiced)
             judged = await _judge_rubrics(ctx, contents, checks["caps"])
             judged.setdefault(
                 "R2",
@@ -1339,6 +1350,7 @@ async def step_prose(ctx: StepContext) -> dict:
             if r.get("rubrics") and r["rubrics"][rid]["score"] is not None
         ]
         means[rid] = round(sum(vals) / len(vals), 4) if vals else None
+    r2s = [r["rubrics"]["R2"]["score"] for r in detail if r.get("rubrics")]
     explanations = [
         f"scene {n + 1} {rid}: {j['explanation']}"
         for n, r in enumerate(detail)
@@ -1348,6 +1360,11 @@ async def step_prose(ctx: StepContext) -> dict:
         **result,
         "score": round(sum(scored) / len(scored), 4) if scored else None,
         "rubric_means": means,
+        # Review N3: how much R2 rests on (W15-3 makes it not applicable).
+        "r2_applicable": (
+            round(sum(r2 is not None for r2 in r2s) / len(r2s), 4) if r2s else None
+        ),
+        "r2_lines": r2_lines,
         "words": len(prose.split()),
         "cast_named": round(len(named) / max(1, len(principals)), 4),
         "beat_seam_max_overlap": max(r["beat_seam_max_overlap"] for r in detail),

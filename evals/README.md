@@ -53,7 +53,9 @@ voice-bearing excerpt. Corpora without `characters` keep the placeholder cast.
   five scenes. R2 sees each speaker's gold lines and the scene's
   spoken lines with tags and names removed: since SPEC-90 (W15-3) only the lines the product's
   speech rule credits to a cast member with voice samples (kept per scene as `spoken_lines`), and
-  R2 is `None` (not applicable, no judge call) under two such speakers. Each inner beat's description and prose come from
+  R2 is `None` (not applicable, no judge call) under two such speakers. A split quote by one
+  speaker is one line; the step reports `r2_applicable` (judged scenes with an R2 score) and
+  `r2_lines` (lines graded). Each inner beat's description and prose come from
   `GET /api/v1/scenes/{id}` (`beats`): the harness reads the app through its API only.
 - **continuity** on `cel` injects its five planted contradictions into the excerpt (a synopsis is
   not prose).

@@ -554,9 +554,12 @@ async def test_prose_writes_the_planned_scenes_of_chapter_1(tmp_path):
     assert s1["rubrics"]["R2"]["not_applicable"] and s1["spoken_lines"] == []
     assert s1["score"] == pytest.approx((0.6 + 0.0 + 0.7) / 3, abs=1e-4)
     assert sum(rid == "R2" for rid, _ in judge.seen) == 1
-    assert [r["speaker"] for r in s2["spoken_lines"]] == ["Milo Voss"] * 2 + [
-        "Zara Okafor"
-    ] * 2
+    # Review N4: a split quote is one line; N3: R2 graded 1 of 2 scenes.
+    assert [r["line"] for r in s2["spoken_lines"]] == [
+        "Is that normal? Zara, is it?",
+        "No, Bring nothing.",
+    ]
+    assert (out["r2_applicable"], out["r2_lines"]) == (0.5, 2)
     assert s2["beat_seam_max_overlap"] == 0 and s2["deterministic_failures"] == {}
     assert s2["score"] == pytest.approx(1.0 * (0.8 + 0.6 + 0.9 + 0.7) / 4)
     assert out["score"] == pytest.approx((s1["score"] + s2["score"]) / 2, abs=1e-4)
@@ -572,8 +575,8 @@ async def test_prose_writes_the_planned_scenes_of_chapter_1(tmp_path):
     assert "PLANNED BEATS (in order):\n1. Milo signs\n2. Zara warns" in shown["R3"]
     assert "Chief Executive Lich" in shown["R1"]
     # ...and for R2, only the untagged lines plus each speaker's own samples.
-    assert "said Zara" not in shown["R2"] and "1. Is that normal?" in shown["R2"]
-    assert "2. [name], is it?" in shown["R2"]
+    assert "said Zara" not in shown["R2"]
+    assert "1. Is that normal? [name], is it?" in shown["R2"]
     assert "Bring nothing. Sign nothing." in shown["R2"]
 
 

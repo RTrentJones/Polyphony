@@ -50,3 +50,12 @@ the Gemini free tier never finished one. Two read-only investigations split its 
   Product cap **160** lines (PR B's three fixes; PR A changes `evals/` and YAML only).
 - **D10 Codex.** Per the user (2026-10-23), small targeted fixes merge on a green gate and CI without waiting for a
   Codex re-review; findings that arrive later are still answered.
+
+## PR A review (coordinator's decisions, 2026-10-23)
+- **B1.** "Nothing provided" is a claim only at a score <= 0.1 with the tight, word-bounded phrase; three false-positive sentences are test rows.
+- **B2.** Each attempt uploads its own report artifact with `eval-ceiling.json`; a run killed before usage counts at its ceiling; Claude runs share one never-cancelled concurrency group.
+- **N1.** Reports record `mode` (boot | external); the budget counts boot-mode reports only.
+- **N2.** Attribution's score stays the raw accuracy; `normalised` is reported beside it, baseline = mean similarity to the other characters' generated lines.
+- **N3.** Prose reports `r2_applicable` and `r2_lines` beside `rubric_means`.
+- **N4.** Consecutive spans by one speaker in a paragraph join into one R2 line.
+- **N5.** The guard refuses under $3 left (one book); report artifacts are kept 90 days.
