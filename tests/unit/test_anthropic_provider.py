@@ -40,6 +40,10 @@ async def test_only_a_listed_author_with_the_key_gets_claude(listed, monkeypatch
     assert (await providers.provider_for(listed)).id == "anthropic"
     assert (await providers.provider_for(other)).id == settings.LLM_PROVIDER
     assert (await providers.provider_for(None)).id == settings.LLM_PROVIDER
+    evaluator = uuid4()  # an @domain entry covers every email under it (the evals)
+    monkeypatch.setitem(providers._emails, evaluator, "eval+1a2b@polyphony.eval")
+    monkeypatch.setenv("ANTHROPIC_USERS", "@polyphony.eval")
+    assert (await providers.provider_for(evaluator)).id == "anthropic"
     monkeypatch.delenv("ANTHROPIC_API_KEY")
     assert (await providers.provider_for(listed)).id == settings.LLM_PROVIDER
 
