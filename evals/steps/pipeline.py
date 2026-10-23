@@ -211,10 +211,17 @@ async def _judge(ctx, rubric: str, content: str) -> tuple[float | None, str]:
 
 # W15-2: a judge answer that says the input was absent when it was given.
 _CLAIMS_EMPTY = re.compile(
-    r"no (artifact|dialogue|text|outline|prose)[^.]{0,40}(was |were )?"
-    r"(provided|given|supplied)",
+    r"\bno (artifact|dialogue|text|outline|prose|lines?)( text)? "
+    r"(was|were|is|has been) (provided|given|supplied)\b",
     re.I,
 )
+
+
+def _claims_empty(score: float | None, why: str) -> bool:
+    """A near-zero score whose explanation says the input was absent."""
+    return score is not None and score <= 0.1 and bool(_CLAIMS_EMPTY.search(why))
+
+
 _NOT_EMPTY = "\n\n(Note: the text to score is given above in full; it is not empty.)"
 
 
@@ -231,10 +238,10 @@ async def _judge_rubrics(
     out: dict[str, dict] = {}
     for rid, content in contents.items():
         score, why = await _judge(ctx, rubrics.rubric(rid), content)
-        if score is not None and _CLAIMS_EMPTY.search(why):
+        if _claims_empty(score, why):
             score, why = await _judge(ctx, rubrics.rubric(rid), content + _NOT_EMPTY)
         out[rid] = {"score": score, "explanation": why}
-        if score is not None and _CLAIMS_EMPTY.search(why):
+        if _claims_empty(score, why):
             out[rid].update(score=None, judge_claimed_empty=True)
         if rid in caps:
             out[rid].update(score=0.0, capped=caps[rid])

@@ -678,25 +678,38 @@ async def test_outline_confirms_the_authors_premise_and_caps_r1(tmp_path):
     assert "premise_restated" not in judge.seen[0][1]
 
 
-@pytest.mark.parametrize("second, score", [("No text was given.", None), ("ok", 0.7)])
+_EMPTY = "No artifact was provided to score."
+
+
+@pytest.mark.parametrize(
+    "first, second, score",
+    [
+        (_EMPTY, "No text was given.", None),
+        (_EMPTY, "ok", 0.7),
+        # Not a claim of absent input: scored as answered, never re-asked.
+        ("There is no outline deviation; every beat given is realised", "", 0.0),
+        ("Text provided: no dialogue errors, beats given in order", "", 0.0),
+        ("No dialogue tag was provided for line 3", "", 0.0),
+    ],
+)
 async def test_a_judge_claiming_no_input_is_asked_again_then_unscored(
-    tmp_path, second, score
+    first, second, score
 ):
     # (F) W15-2: one retry; a second "nothing provided" is None, never 0, and
     # an unscored R1 leaves the outline score None rather than crashing.
-    replies = iter([("No artifact was provided to score.", 0.0), (second, 0.7)])
+    replies = iter([first, second])
 
     class Judge:
         async def score(self, rubric, content):
-            why, s = next(replies)
-            return SimpleNamespace(score=s, explanation=why)
+            why = next(replies)
+            return SimpleNamespace(score=0.7 if why == "ok" else 0.0, explanation=why)
 
     ctx = SimpleNamespace(judge=Judge())
     (j,) = (await pipeline._judge_rubrics(ctx, {"R1": "body"})).values()
     assert j["score"] == score
     assert j.get("judge_claimed_empty", False) == (score is None)
     assert rubrics.outline_score({"R1": j["score"], "R6": 0.5, "R3": 0.6}) == (
-        None if score is None else pytest.approx(0.385)
+        None if score is None else pytest.approx(score * 0.55)
     )
 
 
