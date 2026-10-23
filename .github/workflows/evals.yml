@@ -130,6 +130,11 @@ jobs:
             echo "::error::ANTHROPIC_API_KEY is not set on this repo — add it in repo Actions secrets."
             exit 1
           fi
+          # A zero or blank ceiling reads as "no ceiling" to the app (app/llm/spend.py): refuse it.
+          if ! printf '%s' "$CAP" | grep -Eq '^[0-9]+(\.[0-9]+)?$' || ! awk -v c="$CAP" 'BEGIN { exit !(c > 0) }'; then
+            echo "::error::claude_usd_cap must be a positive number of dollars (got '$CAP')."
+            exit 1
+          fi
           {
             echo "ANTHROPIC_API_KEY=$KEY"
             # The eval writes as users it registers under @polyphony.eval (evals/harness/client.py)
