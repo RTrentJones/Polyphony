@@ -49,9 +49,14 @@ on:
         type: choice
         options: ['no', 'yes']
         default: 'no'
+      claude_monthly_usd:
+        description: >-
+          with claude=yes, the month's Claude eval budget in USD (SPEC-90 D1); earlier runs' spend this
+          UTC month is subtracted. Blank = the EVAL_CLAUDE_MONTHLY_USD repo variable, else 40.
+        default: ''
       claude_usd_cap:
-        description: with claude=yes, this run's spend ceiling in USD (the app pauses past it)
-        default: '5'
+        description: with claude=yes, an optional tighter per-run ceiling in USD (blank = the month's remainder)
+        default: ''
   # On-demand trigger for when workflow_dispatch isn't available (e.g. an
   # integration token can't press "Run workflow"): bump evals/.run-eval and push.
   # Path-scoped so ordinary commits don't fire it (this run spends Gemini quota).
@@ -68,6 +73,8 @@ concurrency:
 jobs:
   eval:
     runs-on: ubuntu-latest
+    # actions: read lets the Claude step read this month's earlier eval reports (W15-0).
+    permissions: {contents: read, actions: read}
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -132,29 +139,53 @@ jobs:
           MODEL: ${{ github.event.inputs.model || '' }}
         run: |
           if [ -n "$MODEL" ]; then echo "LLM_MODEL=$MODEL" >> "$GITHUB_ENV"; fi
-      # Opt-in and paid: only a dispatch with claude=yes lists the eval users for Claude, and the
-      # run's spend ceiling (the app's MONTHLY_COST_CEILING_USD, counted over this run's empty
-      # database) caps what it can spend. A push run never uses Claude.
+      # Opt-in and paid: only a dispatch with claude=yes lists the eval users for Claude. Each run
+      # boots an empty database, so the app's MONTHLY_COST_CEILING_USD sees only this run: it is set
+      # to what is left of the month's eval budget after earlier runs' spend, read from their
+      # eval-report artifacts (evals/spend.py; W15-0). A push run never uses Claude.
       - name: Claude for the eval users (claude=yes)
         if: ${{ github.event.inputs.claude == 'yes' && github.event.inputs.base_url == '' }}
         env:
           KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          CAP: ${{ github.event.inputs.claude_usd_cap || '5' }}
+          BUDGET: ${{ github.event.inputs.claude_monthly_usd || vars.EVAL_CLAUDE_MONTHLY_USD || '40' }}
+          CAP: ${{ github.event.inputs.claude_usd_cap || '' }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$KEY" ]; then
             echo "::error::ANTHROPIC_API_KEY is not set on this repo — add it in repo Actions secrets."
             exit 1
           fi
           # A zero or blank ceiling reads as "no ceiling" to the app (app/llm/spend.py): refuse it.
-          if ! printf '%s' "$CAP" | grep -Eq '^[0-9]+(\.[0-9]+)?$' || ! awk -v c="$CAP" 'BEGIN { exit !(c > 0) }'; then
-            echo "::error::claude_usd_cap must be a positive number of dollars (got '$CAP')."
+          positive() { printf '%s' "$1" | grep -Eq '^[0-9]+(\.[0-9]+)?$' && awk -v c="$1" 'BEGIN { exit !(c > 0) }'; }
+          if ! positive "$BUDGET"; then
+            echo "::error::claude_monthly_usd must be a positive number of dollars (got '$BUDGET')."
             exit 1
           fi
+          if [ -n "$CAP" ] && ! positive "$CAP"; then
+            echo "::error::claude_usd_cap must be blank or a positive number of dollars (got '$CAP')."
+            exit 1
+          fi
+          # This month's earlier runs (any outcome: a failed or cancelled run spent too). A run
+          # whose report artifact is missing or expired is skipped.
+          RUNS="$RUNNER_TEMP/eval-spend"
+          mkdir -p "$RUNS"
+          gh api --paginate -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/evals.yml/runs" \
+            -f created=">=$(date -u +%Y-%m-01)" -f per_page=100 --jq '.workflow_runs[].id' |
+            while read -r id; do
+              [ "$id" = "$GITHUB_RUN_ID" ] && continue
+              gh run download "$id" -R "$GITHUB_REPOSITORY" -n "eval-report-$id" -D "$RUNS/$id" \
+                >/dev/null 2>&1 || echo "run $id: no eval-report artifact, counted as 0"
+            done
+          if ! CEILING="$(python3 -m evals.spend "$RUNS" --budget "$BUDGET" ${CAP:+--cap "$CAP"})"; then
+            echo "$CEILING"
+            exit 1
+          fi
+          echo "this run's ceiling: \$$CEILING" | tee -a "$GITHUB_STEP_SUMMARY"
           {
             echo "ANTHROPIC_API_KEY=$KEY"
             # The eval writes as users it registers under @polyphony.eval (evals/harness/client.py)
             echo "ANTHROPIC_USERS=@polyphony.eval"
-            echo "MONTHLY_COST_CEILING_USD=$CAP"
+            echo "MONTHLY_COST_CEILING_USD=$CEILING"
             echo "EVAL_MODEL_LABEL=claude-opus-5-5"
           } >> "$GITHUB_ENV"
       - uses: ./.github/actions/boot-app

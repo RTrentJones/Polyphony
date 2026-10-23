@@ -130,3 +130,23 @@ async def test_a_baseline_run_resumes_as_its_one_user_and_skips_the_contract(
         out = await r.run("cel", ["baseline"], str(tmp_path / "r.json"), 1, "baseline")
     assert "prompt_contract" not in out["steps"]
     assert list(users) == ["a@x", "eval-baseline@polyphony.eval"]
+
+
+def test_month_spend_counts_each_runs_max_report_and_missing_usage_as_zero(
+    tmp_path, capsys, monkeypatch
+):
+    # (F) W15-0: a run's book reports each hold the run DB's cumulative spend,
+    # so the run counts its max (not the sum); a report without usage counts 0.
+    from evals import spend
+
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    for run, costs in {"1": [0.8, 2.1, 2.6], "2": [None]}.items():
+        for k, c in enumerate(costs):
+            body = {"usage": {"month_cost_usd": c}} if c is not None else {}
+            (tmp_path / run).mkdir(exist_ok=True)
+            (tmp_path / run / f"eval-report-{k}.json").write_text(json.dumps(body))
+    assert spend.month_spent(tmp_path) == {"1": 2.6, "2": 0.0}
+    assert spend.main([str(tmp_path), "--budget", "40", "--cap", "5"]) == 0
+    assert capsys.readouterr().out.strip() == "5.00"  # min(37.40 left, cap)
+    assert spend.main([str(tmp_path), "--budget", "2.8"]) == 1  # $0.20 left
+    assert "::error::" in capsys.readouterr().out
