@@ -237,6 +237,9 @@ jobs:
             fi
             echo "::endgroup::"
           done
+          # Every book ran to its end: the last report's spend is the attempt's whole
+          # spend. Without this marker (killed mid-book) the budget charges the ceiling.
+          echo '{}' > eval-done.json
           exit $rc
       - name: Stop app
         if: ${{ always() && github.event.inputs.base_url == '' }}
@@ -251,6 +254,7 @@ jobs:
           path: |
             eval-report-*.json
             eval-ceiling.json
+            eval-done.json
             gl-export-*.json
             app.log
           if-no-files-found: warn

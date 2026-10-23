@@ -26,9 +26,12 @@ from pathlib import Path
 MIN_LEFT_USD = 3.0  # one book costs about $2.60 with Opus (SPEC-90 D1)
 
 
-def run_spend(reports: list[dict], ceiling: float | None = None) -> float:
+def run_spend(
+    reports: list[dict], ceiling: float | None = None, done: bool = True
+) -> float:
     """One attempt's spend: the largest deployment cost among its boot-mode book
-    reports (a report without `mode` counts); with none, its `ceiling`."""
+    reports (a report without `mode` counts); an unfinished attempt with a
+    `ceiling` counts at least that."""
     costs = []
     for r in reports:
         if not isinstance(r, dict) or r.get("mode", "boot") != "boot":
@@ -37,7 +40,8 @@ def run_spend(reports: list[dict], ceiling: float | None = None) -> float:
         cost = usage.get("deployment_cost_30d_usd") if isinstance(usage, dict) else None
         if isinstance(cost, (int, float)):
             costs.append(float(cost))
-    return max(costs) if costs else float(ceiling or 0.0)
+    floor = 0.0 if done or ceiling is None else float(ceiling)
+    return max([floor, *costs])
 
 
 def _json(path: Path):
@@ -57,7 +61,9 @@ def month_spent(runs_dir: Path) -> dict[str, float]:
         cap = cap.get("ceiling") if isinstance(cap, dict) else None
         reports = [_json(f) for f in sorted(d.glob("eval-report-*.json"))]
         out[str(d.relative_to(runs_dir))] = run_spend(
-            reports, cap if isinstance(cap, (int, float)) else None
+            reports,
+            cap if isinstance(cap, (int, float)) else None,
+            (d / "eval-done.json").exists(),
         )
     return out
 
@@ -94,7 +100,11 @@ def main(argv: list[str] | None = None) -> int:
             f"${left:.2f} left; refusing to run."
         )
         return 1
-    print(f"{ceiling(a.budget, spent, a.cap):.2f}")
+    run_ceiling = ceiling(a.budget, spent, a.cap)
+    if run_ceiling <= 0:  # the app reads 0 as "no ceiling" (app/llm/spend.py)
+        print(f"::error::a run ceiling of ${run_ceiling:.2f} would disable the cap.")
+        return 1
+    print(f"{run_ceiling:.2f}")
     return 0
 
 

@@ -149,15 +149,21 @@ def test_month_spend_counts_each_runs_max_report_and_missing_usage_as_zero(
             for c in (0.8, 2.1, 2.6)
         ],
         "2/a1": [{}, usage | {"mode": "external"}],
-        "2/a2": [{"ceiling": 4.0}],
+        "2/a2": [{"ceiling": 4.0}],  # killed before any report
+        "3/a1": [{"usage": {"deployment_cost_30d_usd": 1.0}}, {"ceiling": 4.0}],
     }
     for run, bodies in runs.items():
         (tmp_path / run).mkdir(parents=True)
         for k, body in enumerate(bodies):
             name = "eval-ceiling.json" if "ceiling" in body else f"eval-report-{k}.json"
             (tmp_path / run / name).write_text(json.dumps(body))
-    assert spend.month_spent(tmp_path) == {"1/a1": 2.6, "2/a1": 0.0, "2/a2": 4.0}
+    # 3/a1 finished one book, then was killed mid-book: at least its ceiling.
+    want = {"1/a1": 2.6, "2/a1": 0.0, "2/a2": 4.0, "3/a1": 4.0}
+    assert spend.month_spent(tmp_path) == want
+    (tmp_path / "3/a1/eval-done.json").write_text("{}")  # it ran to the end
+    assert spend.month_spent(tmp_path)["3/a1"] == 1.0
     assert spend.main([str(tmp_path), "--budget", "40", "--cap", "5"]) == 0
-    assert capsys.readouterr().out.strip() == "5.00"  # min(33.40 left, cap)
-    assert spend.main([str(tmp_path), "--budget", "9.5"]) == 1  # $2.90 < one book
+    assert capsys.readouterr().out.strip() == "5.00"  # min(32.40 left, cap)
+    assert spend.main([str(tmp_path), "--budget", "40", "--cap", "0.001"]) == 1
+    assert spend.main([str(tmp_path), "--budget", "10.5"]) == 1  # $2.90 < one book
     assert "::error::" in capsys.readouterr().out
