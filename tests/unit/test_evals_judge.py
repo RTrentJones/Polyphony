@@ -83,14 +83,16 @@ def test_chain_with_unknown_member_raises(monkeypatch):
         Judge(_cfg(monkeypatch, "groq,nonsense"))
 
 
-async def test_a_retired_judge_model_falls_through_the_chain(monkeypatch):
-    """A 404 (model retired) is not transient: the judge grades with the next
+@pytest.mark.parametrize("status", [404, 413])
+async def test_a_retired_judge_model_falls_through_the_chain(monkeypatch, status):
+    """A 404 (model retired), or a 413 (one request over the vendor's whole
+    per-minute limit: run 40030061261's cel outline on Groq), is not transient: the judge grades with the next
     chain provider instead of failing the step (the weekly run's outline step
     died on a retired Groq model)."""
     import types
 
     import httpx
-    from openai import NotFoundError
+    from openai import APIStatusError, NotFoundError
 
     monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
     monkeypatch.setenv("OPENROUTER_API_KEY", "or_test")
@@ -105,10 +107,11 @@ async def test_a_retired_judge_model_falls_through_the_chain(monkeypatch):
         async def generate(self, *a, **kw):
             used.append(self.pid)
             if self.pid == "groq":
-                raise NotFoundError(
+                err = NotFoundError if status == 404 else APIStatusError
+                raise err(
                     "model_not_found",
                     response=httpx.Response(
-                        404, request=httpx.Request("POST", "http://t")
+                        status, request=httpx.Request("POST", "http://t")
                     ),
                     body=None,
                 )

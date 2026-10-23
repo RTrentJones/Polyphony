@@ -7,9 +7,10 @@ for the ceiling:
 
     python -m evals.spend <runs dir> --budget 40 [--cap 5]
 
-An attempt's spend is the MAX of `usage.month_cost_usd` over its boot-mode book
-reports (each holds the database's cumulative spend, so summing them
-double-counts). An attempt that recorded no cost but left its
+An attempt's spend is the MAX of `usage.deployment_cost_30d_usd` over its
+boot-mode book reports: each holds the database's cumulative spend, so summing
+them double-counts. (`month_cost_usd` is the report's user only, and every book
+registers its own user; the app's ceiling is deployment-wide, like this.) An attempt that recorded no cost but left its
 `eval-ceiling.json` (killed mid-book) counts at that ceiling; otherwise 0.
 Prints the ceiling; refuses when under MIN_LEFT_USD (one book) is left.
 """
@@ -26,14 +27,14 @@ MIN_LEFT_USD = 3.0  # one book costs about $2.60 with Opus (SPEC-90 D1)
 
 
 def run_spend(reports: list[dict], ceiling: float | None = None) -> float:
-    """One attempt's spend: the largest month_cost_usd among its boot-mode book
+    """One attempt's spend: the largest deployment cost among its boot-mode book
     reports (a report without `mode` counts); with none, its `ceiling`."""
     costs = []
     for r in reports:
         if not isinstance(r, dict) or r.get("mode", "boot") != "boot":
             continue
         usage = r.get("usage")
-        cost = usage.get("month_cost_usd") if isinstance(usage, dict) else None
+        cost = usage.get("deployment_cost_30d_usd") if isinstance(usage, dict) else None
         if isinstance(cost, (int, float)):
             costs.append(float(cost))
     return max(costs) if costs else float(ceiling or 0.0)

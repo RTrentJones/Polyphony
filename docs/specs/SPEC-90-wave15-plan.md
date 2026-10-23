@@ -59,3 +59,19 @@ the Gemini free tier never finished one. Two read-only investigations split its 
 - **N3.** Prose reports `r2_applicable` and `r2_lines` beside `rubric_means`.
 - **N4.** Consecutive spans by one speaker in a paragraph join into one R2 line.
 - **N5.** The guard refuses under $3 left (one book); report artifacts are kept 90 days.
+
+## W15-1 (run 40030061261, `a52817c`, old harness) and what it changed in PR A
+| book | extraction | ingestion | retrieval | outline | continuity | prose (R2) | revise | attribution |
+|---|---|---|---|---|---|---|---|---|
+| dracula | 0.480 | 0.750 | 0.818 | 0.500 | 1.000 (fpr 0.5) | 0.766 (0.10) | 0.838 | 0.533 |
+| frankenstein | 0.571 | 0.429 | 0.815 | 0.200 | 0.500 | 0.781 (0.175) | 0.875 | 0.567 |
+| cel (outline only) | — | — | — | error | — | — | — | — |
+
+Spend **$5.66** (deployment-wide). Two more PR A fixes from it:
+- **The guard read the wrong field.** `month_cost_usd` is the report's own user, and each book registers a new one
+  (this run: 2.52 of 5.66); the guard now reads `deployment_cost_30d_usd`, which is what the app's ceiling counts.
+- **cel's outline judge got a 413** (Groq free tier: one request over its 8,000 tokens-per-minute limit; Claude's outline
+  is longer). A 413 now fails over to the next judge in the chain, as a retired model's 404 does; the report labels
+  the judges that graded.
+W15-1 is regraded under PR A by re-running it at PR A's merge with `app/` unchanged (a judge regrade of a stored
+artifact is not possible: the report does not keep the scene text before PR A).

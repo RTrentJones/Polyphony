@@ -183,7 +183,7 @@ class Judge:
         return False
 
     async def score(self, rubric: str, content: str) -> Judgment:
-        from openai import NotFoundError
+        from openai import APIStatusError, NotFoundError
 
         prompt = f"RUBRIC:\n{rubric}\n\nRESPONSE TO SCORE:\n{content}\n\nJSON:"
         while True:
@@ -193,10 +193,14 @@ class Judge:
                     self.graded_by.append(self.provider_id)
                 self.graded_is_self = self.graded_is_self or self.is_self
                 return judgment
-            except NotFoundError as e:
-                # A vendor retired the judge model (a 404 is not transient):
-                # grade with the next provider in the chain instead of failing
-                # the whole step it belongs to.
+            except (NotFoundError, APIStatusError) as e:
+                # A vendor retired the judge model (a 404), or this one request
+                # is larger than its whole per-minute limit (a 413: Groq's free
+                # tier refuses a long outline). Neither is transient: grade
+                # with the next provider in the chain instead of failing the
+                # whole step it belongs to.
+                if not isinstance(e, NotFoundError) and e.status_code != 413:
+                    raise
                 if not self._next_in_chain():
                     self.exhausted = True
                     raise JudgeUnavailable(

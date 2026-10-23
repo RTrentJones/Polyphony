@@ -142,9 +142,12 @@ def test_month_spend_counts_each_runs_max_report_and_missing_usage_as_zero(
     from evals import spend
 
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
-    usage = {"usage": {"month_cost_usd": 9.0}}
-    runs = {
-        "1/a1": [{"usage": {"month_cost_usd": c}} for c in (0.8, 2.1, 2.6)],
+    usage = {"usage": {"deployment_cost_30d_usd": 9.0}}
+    runs = {  # month_cost_usd is one book's user (run 40030061261: 2.52 of 5.66)
+        "1/a1": [
+            {"usage": {"deployment_cost_30d_usd": c, "month_cost_usd": 0.6}}
+            for c in (0.8, 2.1, 2.6)
+        ],
         "2/a1": [{}, usage | {"mode": "external"}],
         "2/a2": [{"ceiling": 4.0}],
     }
