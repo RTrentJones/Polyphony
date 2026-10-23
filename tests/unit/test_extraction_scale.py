@@ -1172,6 +1172,14 @@ class TestCanonicalNames:
         )
         assert set(merged) == {"Emeric Vandel", "Soraya"}
 
+    def test_a_shared_name_with_a_particle_still_links(self):
+        merged = self._merged(
+            (0, [_cand("Abraham Van Helsing", ["Van Helsing"])]),
+            (1, [_cand("The Professor", ["Van Helsing"])]),
+            (2, [_cand("The Doctor"), _cand("d'Artagnan", ["the Gascon"])]),
+        )
+        assert set(merged) == {"Abraham Van Helsing", "The Doctor", "d'Artagnan"}
+
     def test_reduce_cannot_hand_one_candidate_another_ones_name(self):
         batch = [
             {"name": "Emeric Vandel", "aliases": ["Vandel"], "role_hints": []},

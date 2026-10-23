@@ -38,9 +38,14 @@ ABBREVIATED_HONORIFICS = frozenset({"dr", "hon", "mr", "mrs", "ms", "prof", "st"
 
 # Name tokens that are words, not names ("Old Fen", "The Lich", "Van Helsing"):
 # never counted on their own.
-NON_NAME_TOKENS = frozenset(
-    {"the", "a", "an", "of", "old", "young", "big", "little", "elder", "younger"}
-    | {"de", "van", "von", "der", "den", "la", "le", "du", "del", "da", "di", "al"}
+PARTICLES = frozenset(
+    {"de", "van", "von", "der", "den", "la", "le", "du", "del", "da", "di", "al"}
+)
+NON_NAME_TOKENS = (
+    frozenset(
+        {"the", "a", "an", "of", "old", "young", "big", "little", "elder", "younger"}
+    )
+    | PARTICLES
 )
 
 _PUNCT = re.compile(r"[^\w\s'-]+")

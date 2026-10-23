@@ -62,6 +62,7 @@ from app.parsing.character_extractor import normalize_quotes, tag_spans
 from app.parsing.names import (
     HONORIFICS,
     NON_NAME_TOKENS,
+    PARTICLES,
     PRONOUNS,
     name_core,
     norm,
@@ -564,8 +565,8 @@ def merge_characters(window_answers: list[tuple[int, dict]], text: str = "") -> 
     1. the same name (normalised: case, punctuation, whitespace);
     2. a candidate whose name is another candidate's alias — unless two
        incompatible people claim that alias ("Harker" for Jonathan and Mina);
-    3. a shared alias, when it holds two proper-name words or its owners are
-       compatible ("the stranger" links no one);
+    3. a shared alias, when it is a proper name of two or more significant
+       words or its owners are compatible ("the stranger" links no one);
     4. names differing only by honorifics, when at least two significant
        tokens remain ("Miss Nora Vance" ~ "Nora Vance");
     5. a group whose every name is contained in a fuller name of exactly ONE
@@ -601,20 +602,21 @@ def merge_characters(window_answers: list[tuple[int, dict]], text: str = "") -> 
 
     alias_owners: dict[str, set[str]] = defaultdict(set)
     alias_cands: dict[str, list[int]] = defaultdict(list)
-    alias_proper: dict[str, int] = defaultdict(int)
+    alias_named: dict[str, bool] = defaultdict(bool)
     for i, c in enumerate(cands):
         for a in c["aliases"]:
             alias_owners[norm(a)].add(c["name"])
             alias_cands[norm(a)].append(i)
-            alias_proper[norm(a)] = max(alias_proper[norm(a)], _proper(a))
+            # Two name words, a particle counting ("Van Helsing", "Mr. de
+            # Winter"); "the young Englishman" is one.
+            particles = sum(norm(w) in PARTICLES for w in name_core(a).split())
+            alias_named[norm(a)] |= _proper(a) >= 1 and _proper(a) + particles >= 2
     for key, owners in alias_owners.items():
         owners_ok = _all_compatible(owners)
         if key in by_primary and owners_ok:  # rule 2
             for i in alias_cands[key]:
                 uf.union(by_primary[key][0], i)
-        if len(alias_cands[key]) > 1 and (  # rule 3
-            alias_proper[key] >= 2 or owners_ok
-        ):
+        if len(alias_cands[key]) > 1 and (alias_named[key] or owners_ok):  # rule 3
             first = alias_cands[key][0]
             for i in alias_cands[key][1:]:
                 uf.union(first, i)
@@ -681,14 +683,16 @@ def merge_characters(window_answers: list[tuple[int, dict]], text: str = "") -> 
 
 def _name_tokens(form: str) -> list[str]:
     """The capitalised, significant surface tokens of a name form ("Mr. Voss"
-    -> ["Voss"]; "Milo Voss" -> ["Milo", "Voss"])."""
+    -> ["Voss"]; "Milo Voss" -> ["Milo", "Voss"]). An elision prefix is not
+    the case test ("d'Artagnan", "al-Rashid"), and a caseless script is."""
     out = []
     for raw in form.split():
         tok = raw.strip(".,;:!?\"'()[]")
         key = norm(tok)
+        head = re.sub(r"^(?:[dl]['’]|al-)", "", tok, flags=re.I)[:1]
         if (
             len(tok) >= 2
-            and tok[0].isupper()
+            and (head.isupper() or head.isalpha() and not head.islower())
             and key
             and key not in HONORIFICS
             and key not in NON_NAME_TOKENS
@@ -702,6 +706,13 @@ def _proper(form: str) -> int:
     determiner or possessive are gone: 0 for a descriptor ("my dear sister",
     "Fenwick's father")."""
     return sum(not _possessive(t) for t in _name_tokens(name_core(form)))
+
+
+def _plain(form: str) -> int:
+    """The core's other words, honorifics and particles aside ("dear sister")."""
+    words = name_core(form).split()
+    skip = HONORIFICS | NON_NAME_TOKENS
+    return sum(norm(w) not in skip for w in words) - _proper(form)
 
 
 def _possessive(word: str) -> bool:
@@ -770,20 +781,18 @@ def _fold_group(members: list[dict], is_title: Callable[[str], bool]) -> dict:
     def rank(key: str):
         # Not a title, then most proper-name words (a name always beats a
         # descriptor: "Isolde Sarrow" over "my dear sister"), then fewest
-        # lowercase words, then most significant tokens, then most often used
+        # other words, then most significant tokens, then most often used
         # as the name. A one-token name keeps its honorific ("Count Vasska"
         # over "Vasska"); a full name drops it ("Nora Vance" over "Miss Nora
         # Vance").
         form = surface(key)
-        sig = len(significant(name_core(form)))
+        sig = len(significant(name_core(form)) or significant(key))
         n_tok = len(tokens(key))
         title = len(surfaces) > 1 and is_title(form)
         return (
             not title,
             _proper(form),
-            -sum(
-                not w[:1].isupper() or _possessive(w) for w in name_core(form).split()
-            ),
+            -_plain(form),
             sig,
             primary_counts.get(key, 0),
             n_tok if sig == 1 else -n_tok,
