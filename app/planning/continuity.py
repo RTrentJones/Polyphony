@@ -151,29 +151,36 @@ def chunk_scenes(
     ]
 
 
-_ORDINALS = "eleventh twelfth thirteenth fourteenth fifteenth sixteenth seventeenth \
-eighteenth nineteenth twentieth twenty-first".split()
-# "17—" (a year the text elides), "1797", "the eighteenth century".
+_YEAR = (
+    r"(?<![\d£$€])(1\d|20)\d\d(?![\d,])"
+    r"(?!\s+(?:men|people|guests|pounds|dollars|miles|feet|souls|troops)\b)"
+)
+_MONTH = r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?"
+# A year only where it dates something: the elided "17—", a month's
+# ("Dec. 11th, 1797"), "in the year 1797", "A.D. 1797", a dateline line
+# ("Paris, 1889."). "born in 1987" or "1500 men" are not counted.
 _ERA = re.compile(
-    r"(?<![\w—–-])(1[6-9])(?:[—–]|-{1,2})(?![\w—–-])|(?<![\w.,])(1\d|20)\d\d(?!\w)"
-    rf"|\b({'|'.join(_ORDINALS)})[ -]century\b",
-    re.I,
+    r"(?<![\w—–-])(1[6-9])(?:[—–]|-{1,2})(?![\w—–-])"
+    rf"|{_MONTH}(?:\s+\d{{1,2}}(?:st|nd|rd|th)?)?,?\s+{_YEAR}"
+    rf"|(?i:in the year(?: of our lord)?|a\.\s?d\.)\s+{_YEAR}"
+    rf"|^[A-Z][\w .'-]*,\s+{_YEAR}\.?$",
+    re.M,
 )
 
 
 def era_findings(scenes: list[ProseScene]) -> list[Finding]:
-    """Deterministic era ledger over the WHOLE prose (W15-7): when at least 3
+    """Deterministic era ledger over the WHOLE prose (W15-7): when at least 5
     dates name a century and 75%+ agree, each date in another century is a
-    timeline finding. A chunk sees only its predecessor's tail, so a date a
+    minor timeline finding. A chunk sees only its predecessor's tail, so a date a
     century off on page one was never compared with the rest."""
     hits = [
-        (s, m, m[1] or m[2] or str(_ORDINALS.index(m[3].lower()) + 10))
+        (s, m, next(g for g in m.groups() if g))
         for s in scenes
         for m in _ERA.finditer(s.text)
     ]
     votes = Counter(era for *_, era in hits)
     era, n = votes.most_common(1)[0] if votes else ("", 0)
-    if n < 3 or n * 4 < len(hits) * 3:
+    if len(hits) < 5 or n * 4 < len(hits) * 3:
         return []
     out: list[Finding] = []
     for s, m, other in hits:
@@ -183,7 +190,7 @@ def era_findings(scenes: list[ProseScene]) -> list[Finding]:
             out.append(
                 {
                     "type": "timeline",
-                    "severity": "major",
+                    "severity": "minor",
                     "detail": f'"{m[0]}" is dated in the {other}00s; {n} of the '
                     f"text's {len(hits)} dates are in the {era}00s.",
                     "quote": " ".join(words[bool(a) : len(words) - (b < len(s.text))]),

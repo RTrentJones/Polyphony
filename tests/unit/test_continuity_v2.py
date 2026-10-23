@@ -345,6 +345,7 @@ _LETTERS = "\n\n".join(
         ("Arkosk", "28th March"),
         ("At sea", "July 7th"),
         ("Aboard", "August 5th"),
+        ("Arkosk", "August 19th"),
     ]
 )
 
@@ -365,8 +366,10 @@ def test_the_era_ledger_flags_a_date_a_century_off():
     "text",
     [
         _LETTERS,  # one era throughout
-        "In 1799 she left; by 1801 she was back.",  # too few dates to vote
-        "Built in 1500, rebuilt 1801, sold 1802, burned 1650.",  # no clear majority
+        " ".join(f"March {d}, 2023." for d in range(1, 6)) + " Born in 1987.",
+        _LETTERS + "\n\nIn May 1500 men marched; in March 2000 guests came.",
+        _LETTERS.replace("17—", "1889") + " Built in the sixteenth century.",
+        "Paris, 1889.\n\nMay 1790. June 1890.",  # too few dates to vote
     ],
 )
 def test_the_era_ledger_is_silent_without_a_clear_majority(text):
