@@ -560,11 +560,7 @@ async def step_attribution(ctx: StepContext) -> dict:
         )
         char_ids[char] = created["id"]
 
-    # W15-4: every probe is one situation, so its topic draws lines to the
-    # centroids on that topic; rank by similarity less each centroid's own
-    # baseline over the other characters' train lines (topic control).
-    base = attribution.baselines(ref_vecs)
-    results, raw, probes = [], [], []
+    results, generated, probes = [], [], []
     empty = 0
     for char, draw in ((c, d) for c in gold for d in range(ATTRIBUTION_DRAWS)):
         # W9-2 (a): one symmetric situation for every character (SPEC-67).
@@ -579,9 +575,15 @@ async def step_attribution(ctx: StepContext) -> dict:
             empty += 1
             continue
         vec = await embed.embed_one(attribution.mask(line, forms))
-        results.append(attribution.attribute(char, vec, ref_vecs, base))
-        raw.append(attribution.attribute(char, vec, ref_vecs))
+        results.append(attribution.attribute(char, vec, ref_vecs))
+        generated.append((char, vec))
         probes.append(probe)
+    # W15-4: every probe is one situation, so its topic draws lines to the
+    # centroids on that topic. Reported beside the raw score (which stays the
+    # headline, SPEC-90 review N2): each line ranked by similarity less each
+    # centroid's mean similarity to the lines generated for the OTHER characters.
+    base = attribution.baselines(ref_vecs, generated)
+    normed = [attribution.attribute(c, v, ref_vecs, base) for c, v in generated]
     per = {  # W8-2: reported per character, with its Wilson interval
         c: {"correct": k, "k": n, "accuracy": round(k / n, 4) if n else None}
         | {"wilson95": wilson(k, n)}
@@ -608,13 +610,15 @@ async def step_attribution(ctx: StepContext) -> dict:
         "w9_9_p0": not any((r["wilson95"] or (0, 0))[0] > 0.33 for r in per.values()),
         "status": "reported",
         "reference": "train",
-        # W15-4: the score is the topic-normalised accuracy; raw beside it.
-        "normalisation": "sim - mean sim of the other characters' train lines",
-        "baseline": {c: round(b, 4) for c, b in base.items()},
-        "raw": attribution.accuracy(raw),
+        # W15-4: topic-normalised accuracy, reported beside the raw score.
+        "normalised": attribution.accuracy(normed)
+        | {
+            "method": "sim - mean sim to the other characters' generated lines",
+            "baseline": {c: round(b, 4) for c, b in base.items()},
+        },
         "detail": [
-            {**r.as_dict(), "raw_predicted": w.predicted, "probe": p}
-            for r, w, p in zip(results, raw, probes)
+            {**r.as_dict(), "normalised_predicted": n.predicted, "probe": p}
+            for r, n, p in zip(results, normed, probes)
         ],
     }
 

@@ -17,18 +17,21 @@ from dataclasses import dataclass
 from evals.harness.vecmath import centroid, cosine
 
 
-def baselines(reference_vecs: dict[str, list[list[float]]]) -> dict[str, float]:
-    """W15-4 topic control: b_c, the mean similarity of every OTHER
-    character's reference lines to c's centroid — how near c's centroid sits
-    to lines that are not c's. A centroid on a topic the probes share draws
-    every line up; one on a topic of its own (The Creature's cottagers) draws
-    none, so ranking by sim - b_c lets a voice win off its topic."""
+def baselines(
+    reference_vecs: dict[str, list[list[float]]],
+    generated: list[tuple[str, list[float]]],
+) -> dict[str, float]:
+    """W15-4 topic control: b_c, the mean similarity of c's (train) centroid
+    to the lines generated for every OTHER character (leave-one-character-out).
+    The probes share one situation, so a centroid on its topic draws every
+    line up and one on a topic of its own (The Creature's cottagers) draws
+    none; ranking by sim - b_c lets a voice win off its topic."""
     out = {}
     for name, vecs in reference_vecs.items():
         if not vecs:
             continue
         c = centroid(vecs)
-        others = [v for o, vs in reference_vecs.items() if o != name for v in vs]
+        others = [v for who, v in generated if who != name]
         out[name] = sum(cosine(v, c) for v in others) / len(others) if others else 0.0
     return out
 

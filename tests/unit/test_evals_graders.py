@@ -283,13 +283,15 @@ class TestAttribution:
         assert mean == pytest.approx((0.0029 + 0.118) / 2, abs=1e-4)
 
     def test_topic_baseline_lets_an_off_topic_voice_win_its_own_line(self):
-        # (F) W15-4: A and B share the probe's topic (dim 4), C does not; C's
-        # own on-topic line ranks C last raw, first less each baseline.
+        # (F) W15-4: A and B share the probe's topic (dim 4), C does not. Each
+        # baseline is the centroid's mean similarity to the OTHER characters'
+        # generated lines; C's own line ranks C last raw, first less baselines.
         refs = {"A": [[1, 0, 0, 1]], "B": [[0, 1, 0, 1]], "C": [[0, 0, 1, 0]]}
-        base = attribution.baselines(refs)
-        assert base == pytest.approx({"A": 0.25, "B": 0.25, "C": 0.0})
-        assert attribution.attribute("C", [0, 0, 1, 2], refs).ranking[-1][0] == "C"
-        assert attribution.attribute("C", [0, 0, 1, 2], refs, base).correct
+        gen = [("A", [1, 0, 0, 2]), ("B", [0, 1, 0, 2]), ("C", [0, 0, 1, 2])]
+        base = attribution.baselines(refs, gen)
+        assert base == pytest.approx({"A": 0.6325, "B": 0.6325, "C": 0.0}, abs=1e-4)
+        assert attribution.attribute("C", gen[2][1], refs).ranking[-1][0] == "C"
+        assert all(attribution.attribute(c, v, refs, base).correct for c, v in gen)
 
 
 class TestRetrieval:
