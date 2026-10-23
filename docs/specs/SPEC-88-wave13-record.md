@@ -78,6 +78,11 @@ tokens-per-day stop (13 prompts left); Nemotron 51 requests, 29 replies cached (
 left unrated after 3 (`panel-c4e91c81004ae9a06d1c`, `panel-a2bb6330b737efba623f`: a nested `{"errors": {"count": …}}`, the shape
 the prompt does not ask for), then OpenRouter's 50/day · rate-state 12395515272: 219 checked, 0 removed · `unrated` 65 · f ≈
 22/51 ≈ 0.43, Nemotron 92 prompts left: ⌈92 × 1.86 / 50⌉ = 4 days (about 10-26), inside 11-10.
+39876568769 · `sha=P⁗` · prior 39698076332 · green, a clean stop: Groq 13 replies, its last prompts (Groq complete, 162/162);
+Nemotron 51 requests, 25 replies cached (both prompts unrated on day 2 among them), 5 prompts left unrated after 3 (three
+16k-character answers cut off at 4,096 tokens, one `{}`, one nested `{"errors": {…}}`), then OpenRouter's 50/day · rate-state
+12471989243: 257 checked, 0 removed · `unrated` 49 · f ≈ 26/51 ≈ 0.51, Nemotron 67 prompts left: ⌈67 × 2.02 / 50⌉ = 3 days
+(about 10-26), inside 11-10.
  run id · `sha=19838a1` (P + the recorded `panel.py` lines) · `prior_run` · rate-state check (invalid
 entries removed, by key, or none) · `unrated` after the dispatch.
 
