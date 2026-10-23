@@ -17,13 +17,35 @@ from dataclasses import dataclass
 from evals.harness.vecmath import centroid, cosine
 
 
+def baselines(
+    reference_vecs: dict[str, list[list[float]]],
+    generated: list[tuple[str, list[float]]],
+) -> dict[str, float]:
+    """W15-4 topic control: b_c, the mean similarity of c's (train) centroid
+    to the lines generated for every OTHER character (leave-one-character-out).
+    The probes share one situation, so a centroid on its topic draws every
+    line up and one on a topic of its own (The Creature's cottagers) draws
+    none; ranking by sim - b_c lets a voice win off its topic."""
+    out = {}
+    for name, vecs in reference_vecs.items():
+        if not vecs:
+            continue
+        c = centroid(vecs)
+        others = [v for who, v in generated if who != name]
+        out[name] = sum(cosine(v, c) for v in others) / len(others) if others else 0.0
+    return out
+
+
 def rank_character(
-    generated_vec: list[float], reference_vecs: dict[str, list[list[float]]]
+    generated_vec: list[float],
+    reference_vecs: dict[str, list[list[float]]],
+    baseline: dict[str, float] | None = None,
 ) -> list[tuple[str, float]]:
     """Characters ranked by similarity of `generated_vec` to their reference
-    centroid, most similar first."""
+    centroid (less each one's `baseline`, when given), most similar first."""
+    base = baseline or {}
     scored = [
-        (name, cosine(generated_vec, centroid(vecs)))
+        (name, cosine(generated_vec, centroid(vecs)) - base.get(name, 0.0))
         for name, vecs in reference_vecs.items()
         if vecs
     ]
@@ -58,8 +80,9 @@ def attribute(
     intended: str,
     generated_vec: list[float],
     reference_vecs: dict[str, list[list[float]]],
+    baseline: dict[str, float] | None = None,
 ) -> AttributionResult:
-    ranking = rank_character(generated_vec, reference_vecs)
+    ranking = rank_character(generated_vec, reference_vecs, baseline)
     predicted = ranking[0][0] if ranking else ""
     scores = dict(ranking)
     margin = (ranking[0][1] - scores.get(intended, 0.0)) if ranking else 0.0

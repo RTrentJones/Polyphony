@@ -21,7 +21,7 @@ renamed excerpts of a few chapters are committed, never whole novels.
 | `extraction`  | finds the right cast          | upload → extract → **F1** vs gold cast, plus principal bible depth and mention order | yes (extract) |
 | `ingestion`   | upload yields usable voice     | upload → per-character indexed-chunk count → **fraction grounded** | yes (extract) |
 | `retrieval`   | voices separate in embedding space | held-out line → nearest across pooled voices → **precision@k / MRR** | no (embedder) |
-| `attribution` | generated line sounds like the character | test-dialogue → embed → nearest train-line centroid (`reference: "train"`, SPEC-74) → **top-1 accuracy** vs chance | yes (generate) |
+| `attribution` | generated line sounds like the character | test-dialogue → embed → nearest train-line centroid (`reference: "train"`, SPEC-74) → **top-1 accuracy** vs chance; `normalised` beside it ranks by similarity less each centroid's mean similarity to the other characters' generated lines (topic control, W15-4) | yes (generate) |
 | `outline`     | recovers the story's shape    | generate outline (premise confirmed with the author's edit) → **R1 × mean(R6, R3)** + unknown-name rates | yes |
 | `continuity`  | catches contradictions        | inject known errors → **detection recall**, precision, quote-verbatim + false-positive rate | yes |
 | `prose`       | end-to-end scene quality      | the product path: outline → promote → planned scenes → deterministic cast/seam checks + **R1 × mean(R2..R5)** per scene | yes |
@@ -51,7 +51,11 @@ voice-bearing excerpt. Corpora without `characters` keep the placeholder cast.
   (SPEC-34). Each scene gets deterministic checks first (cast recall caps R1; a beat-seam or
   scene-seam 6-gram overlap caps R4; invented names; the R1 rule is harness v3's, below), then R1–R5 from the judge for the first
   five scenes. R2 sees each speaker's gold lines and the scene's
-  spoken lines with tags and names removed. Each inner beat's description and prose come from
+  spoken lines with tags and names removed: since SPEC-90 (W15-3) only the lines the product's
+  speech rule credits to a cast member with voice samples (kept per scene as `spoken_lines`), and
+  R2 is `None` (not applicable, no judge call) under two such speakers. A split quote by one
+  speaker is one line; the step reports `r2_applicable` (judged scenes with an R2 score) and
+  `r2_lines` (lines graded). Each inner beat's description and prose come from
   `GET /api/v1/scenes/{id}` (`beats`): the harness reads the app through its API only.
 - **continuity** on `cel` injects its five planted contradictions into the excerpt (a synopsis is
   not prose).
@@ -62,6 +66,14 @@ voice-bearing excerpt. Corpora without `characters` keep the placeholder cast.
   `voice_dialogue` (samples cross-checked against `gold_lines` / `other_lines`), `beats_stage`,
   `outline_no_repr` and `style_first`, plus the wave-2 checks of harness v3 (below). Standalone:
   `python -m evals.graders.prompt_contract <answered-dir> --book cel`.
+
+A judge answer that says the input was absent ("no dialogue was provided") is asked once more;
+if it says so again the rubric is `None` with `judge_claimed_empty: true`, never 0 (W15-2).
+Outline R3 gets its own body: the chapter summaries as THE PLAN, the scenes as THE TEXT TO CHECK.
+
+**Comparability (SPEC-90 D6).** R2 and the outline score changed meaning with SPEC-90 PR A:
+every row of `evals/history.csv` (W4b2–W11b) was graded by the old harness, whose R2 graded every
+quoted line and scored a scene without dialogue 0.
 
 The rubric texts and score arithmetic are in `graders/rubrics.py`, the n-gram seam check in
 `graders/seams.py`. A deterministic failure caps its rubric at 0 whatever the judge says.
@@ -202,6 +214,18 @@ demand (before/after a change) or by pushing `evals/.run-eval`; there is no
 schedule, because each run spends the shared Gemini free-tier quota. It needs
 `GEMINI_API_KEY` and `TRACER_INGEST_TOKEN` as repo Actions secrets. Results:
 <https://tracer.rtrentjones.dev/projects/polyphony>.
+
+**Claude runs and the monthly budget (SPEC-90 D1).** `claude=yes` writes with
+Claude (paid). Evals get their own monthly budget (`claude_monthly_usd`, else
+the `EVAL_CLAUDE_MONTHLY_USD` repo variable, else $40). Each run boots an empty
+database, so before boot the job sums this UTC month's spend from every run
+attempt's `eval-report-<run>[-<attempt>]` artifact (`evals/spend.py`: per
+attempt, the max `usage.month_cost_usd` over its boot-mode book reports; an
+attempt killed before any usage counts at the ceiling it saved in
+`eval-ceiling.json`; a missing or expired artifact counts 0) and sets the app's
+`MONTHLY_COST_CEILING_USD` to what is left, or to `claude_usd_cap` when that is
+tighter. Under $3 left (one book) it refuses to run. Claude runs share one
+concurrency group and are never cancelled in progress, so two never overlap.
 
 **The ingest token.** `TRACER_INGEST_TOKEN` must hold the same value as the
 wrapper repo's `TF_VAR_TRACER_INGEST_TOKEN` (the bearer Tracer checks):
