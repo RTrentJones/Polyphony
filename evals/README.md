@@ -182,11 +182,14 @@ the dashboard. Each run carries:
 - one case per scored step (`category` `gated` or `reported`), with the step's
   numeric fields as case `metrics` and headline `<step>.<metric>` run metrics
   (e.g. `extraction.f1`, `retrieval.mrr`, `outline.cast_fidelity`) that Tracer
-  charts per run;
-- `labels` for the effective judge (and whether it self-graded), the harness
-  sha, the declared run, and any skipped or errored steps — so a missing step
-  reads as "didn't run", not "fine". Tracer reads these: a run with a skipped or
-  errored step is shown as *incomplete* and never counts as a regression, and a
+  charts per run. A repeated step (`--repeat N`) publishes only its averaged
+  score and spread, since its other fields are the last draw's;
+- `labels` for the effective judge (whether it self-graded, and whether it was
+  unavailable or gave out partway), the harness sha, the declared run, and any
+  skipped, unscored (ran but no score, e.g. a judge outage) or errored steps, so
+  a missing step reads as "didn't run", not "fine". Tracer reads these: a run with
+  a skipped, unscored or errored step is shown as *incomplete* and never counts
+  as a regression, and a
   judge change against the previous run marks it *not comparable*;
 - `labels.cadence = on-demand`, so a quiet week between dispatches doesn't read
   as stale on the dashboard; and `labels.experiment` when `EVAL_EXPERIMENT` is set;

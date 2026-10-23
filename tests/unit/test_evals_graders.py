@@ -859,3 +859,50 @@ class TestTracerIngestOutcome:
         assert "skipped (TRACER_INGEST_TOKEN unset)" in out
         assert "::warning title=Tracer ingest::" in out
         assert "NOT ingested" in summary
+
+
+class TestTracerExportCompleteness:
+    def test_unscored_step_marks_the_run_incomplete(self):
+        # A judge outage leaves score=None with no error/skip key; it must not
+        # vanish and leave a run that reads complete and all-green.
+        from evals.harness import report
+
+        run = {
+            "book": "dracula",
+            "judge": {"provider": "groq", "partial": True},
+            "steps": {
+                "retrieval": {"score": 0.8, "precision_at_k": 0.8},
+                "outline": {"score": None, "n_nodes": 12},
+            },
+        }
+        out = report.tracer_export(run, model="m")
+        assert [c["name"] for c in out["cases"]] == ["eval:retrieval"]
+        assert out["labels"]["skipped"] == "outline"
+        assert out["labels"]["unscored"] == "outline"
+        assert out["labels"]["judge_partial"] == "True"
+        assert "judge_unavailable" not in out["labels"]
+
+    def test_repeated_step_publishes_only_its_averaged_score(self):
+        # _aggregate averages `score` only; f1 here is the last draw's and must
+        # not be charted as the repeated experiment's.
+        from evals.harness import report
+
+        run = {
+            "book": "dracula",
+            "steps": {
+                "extraction": {"score": 0.6, "score_std": 0.4, "repeats": 2, "f1": 1.0},
+                "retrieval": {"score": 0.8, "mrr": 0.9},
+            },
+        }
+        out = report.tracer_export(run, model="m")
+        by = {c["name"]: c for c in out["cases"]}
+        assert by["eval:extraction"]["metrics"] == {
+            "score": 0.6,
+            "score_std": 0.4,
+            "repeats": 2,
+        }
+        assert "extraction.f1" not in out["metrics"]
+        assert out["metrics"]["extraction.score"] == 0.6
+        assert (
+            out["metrics"]["retrieval.mrr"] == 0.9
+        )  # single-draw steps keep every metric

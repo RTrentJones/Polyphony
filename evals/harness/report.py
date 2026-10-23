@@ -199,10 +199,12 @@ def tracer_export(
     """Shape an eval run as Tracer's EvalRunInput (POST /api/ingest).
 
     One eval_run + one case per scored step. `model` is the model UNDER TEST
-    (what we're trending), not the judge. Skipped/errored steps are dropped so a
-    partial run (e.g. keyless, retrieval-only) still ingests cleanly, but they
-    are named in `labels.skipped` / `labels.errored` so an absent step reads as
-    "didn't run", not "fine".
+    (what we're trending), not the judge. Skipped, errored and unscored steps
+    are dropped so a partial run (e.g. keyless, retrieval-only) still ingests
+    cleanly, but they are named in `labels.skipped` (unscored ones also in
+    `labels.unscored`) / `labels.errored`, with the judge's unavailable/partial
+    flags, so an absent step reads as "didn't run", not "fine". A repeated step
+    publishes only its averaged score and spread.
 
     The book is the Tracer `suite`, so training (dracula), held-out
     (frankenstein) and the fidelity gate (cel) trend as separate series. Each
@@ -213,7 +215,7 @@ def tracer_export(
     """
     cases, gated = [], []
     run_metrics: dict[str, float] = {}
-    skipped, errored = [], []
+    skipped, errored, unscored = [], [], []
     for name, res in run["steps"].items():
         if res.get("skipped"):
             skipped.append(name)
@@ -222,6 +224,10 @@ def tracer_export(
             errored.append(name)
             continue
         if res.get("score") is None:
+            # Ran but produced no score: the judge gave out, or generation failed
+            # without raising. Listed with the skipped steps so Tracer marks the run
+            # incomplete instead of reading it as a complete, all-green run.
+            unscored.append(name)
             continue
         score = round(min(1.0, max(0.0, float(res.get("score", 0.0)))), 4)
         out = _case_output(name, res)
@@ -231,6 +237,15 @@ def tracer_export(
         if res.get("score_std") is not None:
             out = f"score={score} ±{res['score_std']} (n={res.get('repeats')})  {out}"
         metrics = _numeric_fields(res)
+        if (res.get("repeats") or 1) > 1:
+            # _aggregate averages only `score`; every other field is the last draw's.
+            # Publish just the averaged score and its spread so a trend never charts
+            # one arbitrary draw as if it were the repeated experiment.
+            metrics = {
+                k: v
+                for k, v in metrics.items()
+                if k in ("score", "score_std", "repeats")
+            }
         for k in _TRACER_RUN_METRICS.get(name, ("score",)):
             if k in metrics:
                 run_metrics[f"{name}.{k}"] = metrics[k]
@@ -259,8 +274,11 @@ def tracer_export(
             "harness_sha": run.get("harness_sha"),
             "declared_run": run.get("run"),
             "repeat": run.get("repeat"),
-            "skipped": ",".join(skipped) or None,
+            "skipped": ",".join(skipped + unscored) or None,
+            "unscored": ",".join(unscored) or None,
             "errored": ",".join(errored) or None,
+            "judge_unavailable": judge.get("unavailable"),
+            "judge_partial": judge.get("partial"),
             # Dispatched on demand, not on a schedule: Tracer must not read a
             # quiet week as "stale".
             "cadence": "on-demand",
