@@ -136,17 +136,25 @@ def test_month_spend_counts_each_runs_max_report_and_missing_usage_as_zero(
     tmp_path, capsys, monkeypatch
 ):
     # (F) W15-0: a run's book reports each hold the run DB's cumulative spend,
-    # so the run counts its max (not the sum); a report without usage counts 0.
+    # so the run counts its max (not the sum); a report without usage counts 0,
+    # an external-mode report never counts, and a run killed before any usage
+    # (only its eval-ceiling.json) counts at its ceiling.
     from evals import spend
 
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
-    for run, costs in {"1": [0.8, 2.1, 2.6], "2": [None]}.items():
-        for k, c in enumerate(costs):
-            body = {"usage": {"month_cost_usd": c}} if c is not None else {}
-            (tmp_path / run).mkdir(exist_ok=True)
-            (tmp_path / run / f"eval-report-{k}.json").write_text(json.dumps(body))
-    assert spend.month_spent(tmp_path) == {"1": 2.6, "2": 0.0}
+    usage = {"usage": {"month_cost_usd": 9.0}}
+    runs = {
+        "1/a1": [{"usage": {"month_cost_usd": c}} for c in (0.8, 2.1, 2.6)],
+        "2/a1": [{}, usage | {"mode": "external"}],
+        "2/a2": [{"ceiling": 4.0}],
+    }
+    for run, bodies in runs.items():
+        (tmp_path / run).mkdir(parents=True)
+        for k, body in enumerate(bodies):
+            name = "eval-ceiling.json" if "ceiling" in body else f"eval-report-{k}.json"
+            (tmp_path / run / name).write_text(json.dumps(body))
+    assert spend.month_spent(tmp_path) == {"1/a1": 2.6, "2/a1": 0.0, "2/a2": 4.0}
     assert spend.main([str(tmp_path), "--budget", "40", "--cap", "5"]) == 0
-    assert capsys.readouterr().out.strip() == "5.00"  # min(37.40 left, cap)
-    assert spend.main([str(tmp_path), "--budget", "2.8"]) == 1  # $0.20 left
+    assert capsys.readouterr().out.strip() == "5.00"  # min(33.40 left, cap)
+    assert spend.main([str(tmp_path), "--budget", "9.5"]) == 1  # $2.90 < one book
     assert "::error::" in capsys.readouterr().out

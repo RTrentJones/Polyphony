@@ -216,11 +216,14 @@ schedule, because each run spends the shared Gemini free-tier quota. It needs
 **Claude runs and the monthly budget (SPEC-90 D1).** `claude=yes` writes with
 Claude (paid). Evals get their own monthly budget (`claude_monthly_usd`, else
 the `EVAL_CLAUDE_MONTHLY_USD` repo variable, else $40). Each run boots an empty
-database, so before boot the job sums this UTC month's earlier runs' spend from
-their `eval-report-<run>` artifacts (`evals/spend.py`: per run, the max
-`usage.month_cost_usd` over its book reports; a missing or expired artifact
-counts 0) and sets the app's `MONTHLY_COST_CEILING_USD` to what is left, or to
-`claude_usd_cap` when that is tighter. Under $0.25 left, it refuses to run.
+database, so before boot the job sums this UTC month's spend from every run
+attempt's `eval-report-<run>[-<attempt>]` artifact (`evals/spend.py`: per
+attempt, the max `usage.month_cost_usd` over its boot-mode book reports; an
+attempt killed before any usage counts at the ceiling it saved in
+`eval-ceiling.json`; a missing or expired artifact counts 0) and sets the app's
+`MONTHLY_COST_CEILING_USD` to what is left, or to `claude_usd_cap` when that is
+tighter. Under $3 left (one book) it refuses to run. Claude runs share one
+concurrency group and are never cancelled in progress, so two never overlap.
 
 **The ingest token.** `TRACER_INGEST_TOKEN` must hold the same value as the
 wrapper repo's `TF_VAR_TRACER_INGEST_TOKEN` (the bearer Tracer checks):

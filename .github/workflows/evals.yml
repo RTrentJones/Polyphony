@@ -66,9 +66,12 @@ on:
     paths:
       - evals/.run-eval
 
+# Claude runs (paid) share one group and are never cancelled: a paid run is
+# never stopped mid-book, and two never overlap (each reads the month's spend
+# before it starts). Other runs keep one per ref, the newest winning.
 concurrency:
-  group: evals-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.event.inputs.claude == 'yes' && 'evals-claude' || format('evals-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event.inputs.claude != 'yes' }}
 
 jobs:
   eval:
@@ -165,15 +168,15 @@ jobs:
             echo "::error::claude_usd_cap must be blank or a positive number of dollars (got '$CAP')."
             exit 1
           fi
-          # This month's earlier runs (any outcome: a failed or cancelled run spent too). A run
-          # whose report artifact is missing or expired is skipped.
+          # This month's runs (any outcome: a failed or cancelled run spent too), every attempt's
+          # artifact, this run's earlier attempts included (this attempt has uploaded nothing yet).
+          # A run whose report artifacts are missing or expired counts 0.
           RUNS="$RUNNER_TEMP/eval-spend"
           mkdir -p "$RUNS"
           gh api --paginate -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/evals.yml/runs" \
             -f created=">=$(date -u +%Y-%m-01)" -f per_page=100 --jq '.workflow_runs[].id' |
             while read -r id; do
-              [ "$id" = "$GITHUB_RUN_ID" ] && continue
-              gh run download "$id" -R "$GITHUB_REPOSITORY" -n "eval-report-$id" -D "$RUNS/$id" \
+              gh run download "$id" -R "$GITHUB_REPOSITORY" -p "eval-report-$id*" -D "$RUNS/$id" \
                 >/dev/null 2>&1 || echo "run $id: no eval-report artifact, counted as 0"
             done
           if ! CEILING="$(python3 -m evals.spend "$RUNS" --budget "$BUDGET" ${CAP:+--cap "$CAP"})"; then
@@ -181,6 +184,8 @@ jobs:
             exit 1
           fi
           echo "this run's ceiling: \$$CEILING" | tee -a "$GITHUB_STEP_SUMMARY"
+          # Uploaded with the reports: a run killed before any report counts at its ceiling.
+          printf '{"ceiling": %s}\n' "$CEILING" > eval-ceiling.json
           {
             echo "ANTHROPIC_API_KEY=$KEY"
             # The eval writes as users it registers under @polyphony.eval (evals/harness/client.py)
@@ -240,9 +245,12 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: eval-report-${{ github.run_id }}
+          # One artifact per attempt (a re-run boots its own database and spends again).
+          name: ${{ github.run_attempt == '1' && format('eval-report-{0}', github.run_id) || format('eval-report-{0}-{1}', github.run_id, github.run_attempt) }}
+          retention-days: 90
           path: |
             eval-report-*.json
+            eval-ceiling.json
             gl-export-*.json
             app.log
           if-no-files-found: warn

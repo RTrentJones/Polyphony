@@ -138,6 +138,12 @@ def _aggregate(passes: list[dict]) -> dict:
     return out
 
 
+def _is_local(url: str) -> bool:
+    from urllib.parse import urlparse
+
+    return urlparse(url).hostname in ("localhost", "127.0.0.1")
+
+
 async def run(
     book: str, step_names: list[str], out: str, repeat: int = 1, name: str | None = None
 ) -> dict:
@@ -160,6 +166,8 @@ async def run(
         "book": book,
         "app_sha": app_sha,
         "harness_sha": _git_sha(),
+        # W15-0 (N1): an external app's spend is not this run's to count.
+        "mode": "boot" if _is_local(cfg.base_url) else "external",
         # Label of the model under test — what Tracer trends. The app's own
         # LLM_MODEL if set, else the active provider's registry default.
         "model": os.getenv("EVAL_MODEL_LABEL")
