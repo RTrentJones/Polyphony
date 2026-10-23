@@ -75,3 +75,20 @@ Spend **$5.66** (deployment-wide). Two more PR A fixes from it:
   the judges that graded.
 W15-1 is regraded under PR A by re-running it at PR A's merge with `app/` unchanged (a judge regrade of a stored
 artifact is not possible: the report does not keep the scene text before PR A).
+
+## PR B review (coordinator's decisions, 2026-10-23)
+- **B1.** Rule 3 links two candidates on a shared alias with at least one proper word and two proper-or-particle words, so
+  "Van Helsing" and "Mr. de Winter" link and "the stranger" / "the young Englishman" do not (the reviewer's significant-word
+  rule would have fused Harker and Holmwood).
+- **B2.** An open-quote run is embedded narration only after a heading or chapter start, a letter or document header, or a
+  paragraph ending in ":" or a dash; otherwise it stays speech carried to its setup speaker. A narrated span with an inner
+  ‘…’ quote of 3+ words stays speech. Dracula's manner-sweep pin moves 145 → 111 speech paragraphs (its letters).
+- **B3.** The era ledger counts a year only in a date context, skips counts and currency, drops ordinal centuries, needs
+  ≥5 dates at ≥75%, and reports `minor`. It cannot fire in the eval's 12,000-character continuity window (two dates); it
+  is unmeasured by the eval (D11).
+- **N1/N2/N5** fixed (elided and caseless names count as names; "The Doctor" keeps its article; only a paragraph-initial
+  unclosed quote is open). **Known limits:** "bell hooks" loses to a capitalised descriptor; a being named "It" is dropped
+  as a pronoun; a bracketed nickname is stripped.
+- **Wave 16:** Rowan's 60 chunks (the narrator role takes other narrators' first-person paragraphs) and an embedded
+  narrator's tale credited to nobody (D12).
+- **D9 amendment.** Product cap for PR B raised 160 → 200 (it measures +189); tests +171 for PR B.
