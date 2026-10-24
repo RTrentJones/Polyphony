@@ -17,3 +17,14 @@
 - **D16-2** W16-1 is measured on the prose step only (about $1.50 a draw): two draws after; before is known (`r2_applicable` 0.0).
 - **D16-3** Deferred: a continuity window large enough to hold an era flip.
 - **D16-4** Budgets: about 120 test lines, about 120 product lines; spend under the $17.14 left this month (plan ≈ $8).
+- **D16-5** W16-1 (the user, 2026-10-24: "Judge assigns speakers"): the product's prose path records no speaker per line
+  (`write_beat_prose` writes every voice in one call; `SceneBeat.dialogue` is never written), so before R2 the eval's judge
+  (same chain, `Judge.ask_json`) names the speaker of each quoted line the tags left uncredited: one cast name or "other"
+  (unanswered or unknown = "other", excluded). Tags stay the first pass; each scene records `r2_source` (tags | judge |
+  mixed). Rejected: unfreezing `prose.py` to emit attributed dialogue; crediting single-voice beats from the grounding cast;
+  deferring W16-1.
+
+## Results
+- **W16-3 re-draw** (run 40074031809, frankenstein, polar-ship probe): passes 0.533 / 0.633 / 0.433, mean 0.533 ± 0.082
+  (chance 0.333). No regression: the post-PR-B 0.40 / 0.27 were low draws within that spread. Last pass per character: Rowan
+  9/10, Emeric 4/10, the Creature 0/10 (normalised 0.567: 6 / 7 / 4). Frankenstein now opts into a topic-neutral probe set.

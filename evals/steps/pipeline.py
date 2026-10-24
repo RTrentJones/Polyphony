@@ -209,6 +209,23 @@ async def _judge(ctx, rubric: str, content: str) -> tuple[float | None, str]:
     return j.score, j.explanation
 
 
+async def _judge_speakers(ctx, text: str, cast: list[str], lines: list[str]) -> list:
+    """W16-1 (D16-5): the judge names each line's speaker, a `cast` name or
+    "other"; an unanswered line or an unknown name is "other" (None)."""
+    from evals.harness.judge import JudgeUnavailable
+
+    if not lines:
+        return []
+    ask = f'SCENE:\n{text}\n\nCAST: {", ".join(cast)}\n\nName the speaker of each '
+    ask += 'line: one CAST name, or "other". JSON {"speakers": [...]}, in order:\n'
+    try:
+        got = (await ctx.judge.ask_json(ask + "\n".join(lines))).get("speakers")
+    except JudgeUnavailable:
+        got = None
+    got = got if isinstance(got, list) else []
+    return [g if g in cast else None for g in (got + [None] * len(lines))[: len(lines)]]
+
+
 # W15-2: a judge answer that says the input was absent when it was given.
 _CLAIMS_EMPTY = re.compile(
     r"\bno (artifact|dialogue|text|outline|prose|lines?)( text)? "
@@ -313,11 +330,12 @@ def mask_names(line: str, names: list[str]) -> str:
     return line
 
 
-def cast_spoken_lines(text: str, cast: list[str], forms: dict) -> list[dict]:
+def cast_spoken_lines(text: str, cast: list[str], forms: dict, every=False) -> list:
     """[{speaker, line}] for each quoted span the product's own speech rule
     (SPEC-17: `attribute_speech` + `speaker_matches`) credits to one of the
     scene's `cast`, in order (W15-3). A pronoun tag, an invented speaker and an
-    untagged line credit no one, so they are not R2's to grade."""
+    untagged line credit no one, so they are not R2's to grade; with `every`
+    they are kept, speaker None, for the judge to credit (W16-1)."""
     from app.parsing.character_extractor import attribute_speech, speaker_matches
 
     members = [{"name": n, "aliases": forms.get(n, [n])[1:]} for n in cast]
@@ -338,7 +356,7 @@ def cast_spoken_lines(text: str, cast: list[str], forms: dict) -> list[dict]:
             )
             if who and who == last:
                 out[-1]["line"] += " " + span["text"]
-            elif who:
+            elif who or (every and span["text"]):
                 out.append({"speaker": who, "line": span["text"]})
             last = who
     return out
@@ -1294,10 +1312,20 @@ async def step_prose(ctx: StepContext) -> dict:
             "borrowed_phrase": plot.borrowed_phrase(
                 sc["content"], checks["cast"], owned
             ),
-            "spoken_lines": cast_spoken_lines(
-                sc["content"], sc.get("characters") or [], forms
-            ),
         }
+        names = sc.get("characters") or []
+        spoken = cast_spoken_lines(sc["content"], names, forms, every=True)
+        loose = [r for r in spoken if not r["speaker"] and i < _JUDGED_SCENES]
+        said = await _judge_speakers(
+            ctx, sc["content"], names, [r["line"] for r in loose]
+        )
+        for r, who in zip(loose, said):
+            r["speaker"] = who
+        row["spoken_lines"] = [r for r in spoken if r["speaker"]]
+        by_judge = sum(bool(r["speaker"]) for r in loose)
+        row["r2_source"] = ["tags", "mixed", "judge"][
+            (by_judge > 0) + (by_judge == len(row["spoken_lines"]) > 0)
+        ]
         if i < _JUDGED_SCENES:
             prior = " ".join(prev_text.split()[-_PRIOR_WORDS:]) or "(the scene opens)"
             base = (

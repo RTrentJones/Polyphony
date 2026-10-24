@@ -204,14 +204,21 @@ class Judge:
         return False
 
     async def score(self, rubric: str, content: str) -> Judgment:
+        prompt = f"RUBRIC:\n{rubric}\n\nRESPONSE TO SCORE:\n{content}\n\nJSON:"
+        return await self._chained(self._score_once, prompt)
+
+    async def ask_json(self, prompt: str) -> dict:
+        """A plain JSON answer through the same chain, {} when unparseable (W16-1)."""
+        return await self._chained(self._json_once, prompt)
+
+    async def _chained(self, once, prompt: str):
         from openai import APIStatusError, NotFoundError
 
         from app.llm.errors import QuotaExhaustedError
 
-        prompt = f"RUBRIC:\n{rubric}\n\nRESPONSE TO SCORE:\n{content}\n\nJSON:"
         while True:
             try:
-                judgment = await self._score_once(prompt)
+                judgment = await once(prompt)
                 if self.provider_id not in self.graded_by:
                     self.graded_by.append(self.provider_id)
                 self.graded_is_self = self.graded_is_self or self.is_self
@@ -232,11 +239,29 @@ class Judge:
                         f"no judge in the chain is available: {e}"
                     ) from e
 
+    async def _json_once(self, prompt: str) -> dict:
+        t = (await self._generate(prompt, "Reply ONLY with JSON.")).text or ""
+        try:
+            obj = json.loads(t[t.find("{") : t.rfind("}") + 1])
+        except json.JSONDecodeError:
+            return {}
+        return obj if isinstance(obj, dict) else {}
+
     async def _score_once(self, prompt: str) -> Judgment:
+        result = await self._generate(prompt, _SYSTEM)
+        score, explanation = _parse(result.text)
+        return Judgment(
+            score=score,
+            explanation=explanation,
+            judge_provider=self.provider_id,
+            judge_model=result.model,
+        )
+
+    async def _generate(self, prompt: str, system: str):
         client = self._ensure()
         result = await client.generate(
             [
-                {"role": "system", "content": _SYSTEM},
+                {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,
@@ -252,10 +277,4 @@ class Judge:
             response_format={"type": "json_object"},
         )
         self.cost_usd += getattr(result, "cost_usd", None) or 0.0
-        score, explanation = _parse(result.text)
-        return Judgment(
-            score=score,
-            explanation=explanation,
-            judge_provider=self.provider_id,
-            judge_model=result.model,
-        )
+        return result
