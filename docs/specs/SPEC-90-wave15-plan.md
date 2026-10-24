@@ -100,7 +100,9 @@ artifact is not possible: the report does not keep the scene text before PR A).
   (the ledger's `DailyRequestLimitError`, or a 429 naming a per-day limit) now fails over to the next judge, as a 404/413
   does; a per-minute 429 keeps its retries. With claude=yes the chain is `groq,openrouter,anthropic`: Claude judges last,
   with its fast model `claude-sonnet-5-5`, and is labelled self-grading (`self`/`mixed`) when Claude is also under test.
-  The judge's spend (`judge_cost_usd`, summed over its graded calls) is in each report, and `evals/spend.py` adds it,
-  summed over the attempt's books, to the $40 eval budget (D1).
-- **D9 third amendment (D14).** The Claude-judge fallback adds 27 net test lines; the wave measures **+350** and the user
+  The judge's spend (`judge_cost_usd`, summed over its graded calls) is reported; it already counts toward the $40 eval
+  budget (D1), because the harness shares the run's `DATABASE_URL` and records each call in `api_usage`, which
+  `deployment_cost_30d_usd` sums (Codex P2 on PR #58: adding it again in `evals/spend.py` double-counted).
+- **D9 third amendment (D14).** The Claude-judge fallback adds 27 net test lines (25 once the double count came out); the
+  wave measures **+348** and the user
   raised the backstop to **350** on 2026-10-24 ("Raise to 350").

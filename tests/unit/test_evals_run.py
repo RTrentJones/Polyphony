@@ -138,8 +138,7 @@ def test_month_spend_counts_each_runs_max_report_and_missing_usage_as_zero(
     # (F) W15-0: a run's book reports each hold the run DB's cumulative spend,
     # so the run counts its max (not the sum); a report without usage counts 0,
     # an external-mode report never counts, and a run killed before any usage
-    # (only its eval-ceiling.json) counts at its ceiling. D14: each book's
-    # judge_cost_usd (paid in the harness) adds on top, summed.
+    # (only its eval-ceiling.json) counts at its ceiling.
     from evals import spend
 
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
@@ -147,10 +146,9 @@ def test_month_spend_counts_each_runs_max_report_and_missing_usage_as_zero(
     runs = {  # month_cost_usd is one book's user (run 40030061261: 2.52 of 5.66)
         "1/a1": [
             {"usage": {"deployment_cost_30d_usd": c, "month_cost_usd": 0.6}}
-            | {"judge_cost_usd": j}
-            for c, j in ((0.8, 0.25), (2.1, 0.25), (2.6, 0))
+            for c in (0.8, 2.1, 2.6)
         ],
-        "2/a1": [{}, usage | {"mode": "external", "judge_cost_usd": 3.0}],
+        "2/a1": [{}, usage | {"mode": "external"}],
         "2/a2": [{"ceiling": 4.0}],  # killed before any report
         "3/a1": [{"usage": {"deployment_cost_30d_usd": 1.0}}, {"ceiling": 4.0}],
     }
@@ -160,15 +158,15 @@ def test_month_spend_counts_each_runs_max_report_and_missing_usage_as_zero(
             name = "eval-ceiling.json" if "ceiling" in body else f"eval-report-{k}.json"
             (tmp_path / run / name).write_text(json.dumps(body))
     # 3/a1 finished one book, then was killed mid-book: at least its ceiling.
-    want = {"1/a1": 3.1, "2/a1": 0.0, "2/a2": 4.0, "3/a1": 4.0}
-    assert spend.month_spent(tmp_path) == pytest.approx(want)
+    want = {"1/a1": 2.6, "2/a1": 0.0, "2/a2": 4.0, "3/a1": 4.0}
+    assert spend.month_spent(tmp_path) == want
     (tmp_path / "3/a1/eval-done.json").write_text("{}")  # it ran to the end
     assert spend.month_spent(tmp_path)["3/a1"] == 1.0
     (tmp_path / "3/a1/eval-report-9.json").write_text('{"usage": {"error": "x"}}')
     assert spend.month_spent(tmp_path)["3/a1"] == 4.0  # its last read failed
     (tmp_path / "3/a1/eval-report-9.json").unlink()
     assert spend.main([str(tmp_path), "--budget", "40", "--cap", "5"]) == 0
-    assert capsys.readouterr().out.strip() == "5.00"  # min(31.90 left, cap)
+    assert capsys.readouterr().out.strip() == "5.00"  # min(32.40 left, cap)
     assert spend.main([str(tmp_path), "--budget", "40", "--cap", "0.001"]) == 1
-    assert spend.main([str(tmp_path), "--budget", "10.5"]) == 1  # $2.40 < one book
+    assert spend.main([str(tmp_path), "--budget", "10.5"]) == 1  # $2.90 < one book
     assert "::error::" in capsys.readouterr().out
