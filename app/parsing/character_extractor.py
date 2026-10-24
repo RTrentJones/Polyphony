@@ -453,6 +453,7 @@ def narrations_of(paragraphs: list[str]) -> list[str]:
 
 # W16: a vocative ("My dear Vandel,"); "said:" ends a setup line; a teller.
 _HEAD_LINE = re.compile(r"(?:\S+\s+){0,2}\S*[^\s.!?\"]")  # "Letter 2", "Chapter V"
+_INITIALS, _INITIAL = re.compile(r"(?:[A-Z]\.\s?)+"), re.compile(r"\b[A-Z]")
 _SIGNATURE = re.compile(r"(?:[A-Z]\.\s?)+|(?:[A-Z]\.\s?)?[A-Z][a-z]+(?: [A-Z][a-z]+)?")
 _VOCATIVE = re.compile(
     rf"(?:^|[,;] )(?:[Mm]y )?(?:[Dd]ear(?:est)? )?(?P<who>{_PROPER})(?=\s*[,!?])"
@@ -852,13 +853,24 @@ class CharacterExtractor:
         for i in range(len(paras) - 1, -1, -1):
             p, ini = paras[i], re.findall("[A-Z]", paras[i])
             if _SIGNATURE.fullmatch(p) and _HEAD_LINE.fullmatch(after or "end"):
-                by = [
-                    c["name"] for c in cast if ini == re.findall(r"\b[A-Z]", c["name"])
-                ]
-                sig[i] = (
-                    owner_of(p) or owner_of(p.split()[-1]) or by[0] * (len(by) == 1)
-                )
+                by = [c["name"] for c in cast if ini == _INITIAL.findall(c["name"])]
+                if not _INITIALS.fullmatch(p):  # initials only for "R.M."
+                    by = [owner_of(p) or owner_of(p.split()[-1])]
+                if len(by) == 1 and by[0]:
+                    sig[i] = by[0]
             after = p or after
+
+        def lead_in(part) -> int:  # a signature names what follows "It ran:"
+            ends = [
+                n + 1 for n, (_, p) in enumerate(part) if p.endswith((":", "--", "—"))
+            ]
+            return max(
+                [k for k in ends if any(j in sig for j, _ in part[k:])], default=0
+            )
+
+        parts = [
+            q for part in parts for q in (part[: lead_in(part)], part[lead_in(part) :])
+        ]
         for part in parts:
             own = self_named_narrators("\n\n".join(p for _, p in part))
             at = [i for i, _ in part]

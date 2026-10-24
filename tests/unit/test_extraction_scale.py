@@ -1097,22 +1097,36 @@ class TestNarratorVoice:
         ]
         assert got == [2, 0, 0, 0]
 
-    @pytest.mark.parametrize("sign, creature", [("R.M.", 1), ("", 2)])
-    def test_a_signed_letter_is_its_signers(self, sign, creature):
+    @pytest.mark.parametrize(
+        "sign, other, creature",
+        [
+            ("R.M.", "Fenwick", 1),
+            ("", "Fenwick", 2),
+            ("The End", "Fenwick", 2),  # no signer: no crash, no change
+            ("Finis", "Fenwick", 2),  # a word is not an initial
+            ("R.M.", "Rhea Moss", 2),  # initials two members share
+        ],
+    )
+    def test_a_signed_letter_is_its_signers(self, sign, other, creature):
         """W16: a signature before a heading names the letter's "I"."""
         from app.parsing.character_extractor import CharacterExtractor
 
         text = f"Letter 1\n\nI write from the ice.\n\n{sign}\n\nChapter 2\n\nI walked."
-        cast = [{"name": n, "aliases": []} for n in ("Rowan Merrow", "The Creature")]
+        names = ("Rowan Merrow", "The Creature", other)
+        cast = [{"name": n, "aliases": []} for n in names]
+        x = CharacterExtractor()
         got = [
-            len(
-                CharacterExtractor().extract_narration(
-                    text, c["name"], cast=cast, is_narrator=True
-                )
-            )
-            for c in cast
+            len(x.extract_narration(text, n, cast=cast, is_narrator=k < 2))
+            for k, n in enumerate(names)
         ]
-        assert got == [2, creature]
+        assert got == [2, creature, 0]
+        # A letter quoted at a chapter's end is its signer's from its lead-in on.
+        text = "Chapter 1\n\nI rode home.\n\nIt ran:\n\nI am well.\n\nRowan Merrow\n\nChapter 2"
+        got = [
+            len(x.extract_narration(text, n, cast=cast, is_narrator=k == 1))
+            for k, n in enumerate(names)
+        ]
+        assert got == [1, 1, 0]
 
     def test_pdf_heading_block_names_the_narrator(self):
         # A PDF keeps a heading block's line breaks ("CHAPTER VIII" over the
