@@ -1354,6 +1354,16 @@ def test_a_tale_that_quotes_someone_is_still_speech_there():
     assert [is_speech(s) for s in spans] == [False, True]
 
 
+@pytest.mark.parametrize(
+    "setup, who",
+    [("She leaned in and said:", None), ("The creature said:", "The creature")],
+)
+def test_a_said_colon_opens_its_speakers_speech_not_a_tale(setup, who):
+    """W16-5: a speech verb's colon is the setup speaker talking on."""
+    spans = [p[0] for p in attribute_speech(f'{setup}\n\n"I went.\n\n"I came."')[1:]]
+    assert [(s.get("narrated"), s["speaker"]) for s in spans] == [(None, who)] * 2
+
+
 def test_an_embedded_narrative_still_marks_later_plot():
     """Codex P2: its paragraphs index as movement, so they must place events."""
     tale = [

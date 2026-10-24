@@ -1049,6 +1049,35 @@ class TestNarratorVoice:
         assert cx.extract_narration(text, "Rowan Merrow", cast=self.SN_CAST) == []
         assert len(cx.extract_narration(text, "Hollis Crane", cast=self.SN_CAST)) == 1
 
+    def test_a_frame_narrator_keeps_only_their_own_chapters(self):
+        """W16-2: each chapter's "I" is the one member others address; a tale
+        is its named teller's; the narrator role takes neither."""
+        from app.parsing.character_extractor import CharacterExtractor
+
+        text = (
+            "Letter 1\n\nI write to you from the ice, my sister.\n\n"
+            '"You may easily perceive, Captain Merrow, that I suffer," said the'
+            " stranger.\n\nChapter 5\n\nI beheld the creature open its eye.\n\n"
+            '"My dear Vandel," cried he, "how ill you are!"\n\nChapter 13\n\n'
+            'The creature began his tale:\n\n"I hid in the hovel.\n\n"I wept."'
+        )
+        names = ["Rowan Merrow", "Emeric Vandel", "The Creature", "Hollis Crane"]
+        cast = [{"name": n, "aliases": []} for n in names]
+        got = {
+            n: [
+                c["text"][:10]
+                for c in CharacterExtractor().extract_narration(
+                    text, n, cast=cast, is_narrator=n != "Emeric Vandel"
+                )
+            ]
+            for n in names[:3]
+        }
+        assert got == {
+            "Rowan Merrow": ["I write to"],
+            "Emeric Vandel": ["I beheld t"],
+            "The Creature": ['"I hid in ', '"I wept."'],
+        }
+
     def test_pdf_heading_block_names_the_narrator(self):
         # A PDF keeps a heading block's line breaks ("CHAPTER VIII" over the
         # journal heading, in one paragraph): each line is read as a heading.

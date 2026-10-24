@@ -441,6 +441,19 @@ def narrations_of(paragraphs: list[str]) -> list[str]:
     ]
 
 
+# W16: a name spoken to someone (`"My dear Vandel," cried he`); a setup line
+# ending "said:" opens its speaker's speech, not a tale; a line naming a tale's
+# teller ("the stranger began his tale:").
+_VOCATIVE = re.compile(
+    rf"(?:^|[,;] )(?:[Mm]y )?(?:[Dd]ear(?:est)? )?(?P<who>{_PROPER})(?=\s*[,!?])"
+)
+_SAID_COLON = re.compile(r"\b(?:said|asked|began|replied|continued|answered|cried):$")
+_TELLER = re.compile(
+    rf"{_WHO}\s+(?:then\s+|thus\s+)?(?:began|commenced|told|related|resumed)\s+"
+    r"(?:his|her|its|their)\s+(?:tale|story|narrative|narration|history|account)\b"
+)
+
+
 def attribute_speech(text: str) -> list[list[dict]]:
     """Per paragraph (``text.split("\\n\\n")`` indices), each quoted span and the
     speaker it is credited to: ``{"text", "speaker"}``. ``speaker`` is the tag's
@@ -466,10 +479,15 @@ def attribute_speech(text: str) -> list[list[dict]]:
     carry: Optional[str] = None  # speaker of the last paragraph's open quote
     run: list[dict] = []  # the uncredited open quote's spans, one per paragraph
     prev = ""  # the last non-blank paragraph
+    intro: list[Optional[str]] = [None]  # the teller the run's setup line names
 
     def close_run() -> None:
+        tale = " ".join(_SINGLE_QUOTED.sub(" ", s["text"]) for s in run)
+        named = [m.group(1) for rx in _SELF_NAMING for m in rx.finditer(tale)]
         for s in run:
             s["narrated"] = True
+            if named or intro[0]:
+                s["teller"] = named[0] if named else intro[0]
         run.clear()
 
     for raw in source_paragraphs(text):
@@ -484,7 +502,10 @@ def attribute_speech(text: str) -> list[list[dict]]:
             result.append([])
             continue
         continued = False
+        said = _SAID_COLON.search(prev) and _tag(prev, 0, len(prev), _BEFORE, re.search)
         if spans[0]["speaker"] is None and para[0] in "\"'":
+            if said and not carry:  # `the creature said:` opens its speech
+                carry = _canon_speaker(said[2])
             if carry:
                 spans[0]["speaker"] = carry
                 continued = True
@@ -505,8 +526,13 @@ def attribute_speech(text: str) -> list[list[dict]]:
         opens = para[0] == '"' and spans[0]["speaker"] is None
         if not (run and opens):
             close_run()
-        introduced = any(_heading(prev)) or prev.endswith((":", "--", "—"))
+        introduced = any(_heading(prev)) or (
+            prev.endswith((":", "--", "—")) and not _SAID_COLON.search(prev)
+        )
         if opens and (run or (introduced and spans[0]["closed"] is False)):
+            if not run:
+                m = _TELLER.search(prev)
+                intro[0] = m and _canon_speaker(m.group("who"))
             run.append(out[0])
             if spans[0]["closed"] or len(spans) > 1:
                 close_run()
@@ -786,22 +812,43 @@ class CharacterExtractor:
                 if _FIRST_PERSON.search(_narration_only(para)):
                     chunks += index(i, para, "narration")
 
-        # No headings: the narrator may name themselves once ("my name is X",
-        # "I, X,"). When every self-naming in the narration resolves to ONE
-        # cast member, that member is the lone first-person narrator — a
-        # frame narrative with two self-named narrators is ambiguous and left
-        # to the headings / the narrator role.
-        self_named = None
-        if not sections:
-            owners = {owner_of(n) for n in self_named_narrators(text)}
-            if len(owners) == 1:
-                self_named = owners.pop()
-
-        if not sections and (is_narrator or self_named == character_name):
-            for i, para in enumerate(source_paragraphs(text)):
-                para = para.strip()
-                if para and _FIRST_PERSON.search(_narration_only(para)):
-                    chunks += index(i, para, "narration")
+        # An embedded tale is its teller's when the text names them (W16-2).
+        attributed = attribute_speech(text)
+        for i, para in enumerate(source_paragraphs(text)):
+            if character_name in {owner_of(s.get("teller", "")) for s in attributed[i]}:
+                chunks += index(i, para.strip(), "narration")
+        if sections:
+            return chunks
+        # No headings: a chapter's "I" is the one cast member it self-names
+        # ("my name is X", "I, X,"), else the one member others address there
+        # who never speaks by name in it ("My dear Vandel," cried he). A chapter
+        # with no "I" goes to the narrator role or the text's one self-named
+        # member; nobody's role takes another narrator's chapter or a tale.
+        parts: list[list[tuple[int, str]]] = [[]]
+        for i, para in enumerate(p.strip() for p in source_paragraphs(text)):
+            if _heading(para)[1]:
+                parts.append([])
+            elif para and not any(s.get("narrated") for s in attributed[i]):
+                parts[-1].append((i, para))
+        whole = {owner_of(n) for n in self_named_narrators(text)}
+        for part in parts:
+            own = self_named_narrators("\n\n".join(p for _, p in part))
+            named = {owner_of(n) for n in own} - {None}
+            talk = [s for i, _ in part for s in attributed[i] if s["speaker"]]
+            talk = [s for s in talk if s["speaker"] not in ("i", "we")]
+            heard = {
+                owner_of(m["who"]) or owner_of(m["who"].split()[-1])
+                for s in talk
+                for m in _VOCATIVE.finditer(" ".join(s["text"].split()))
+            } - {None}
+            if not named and not heard & {owner_of(s["speaker"]) for s in talk}:
+                named = heard if len(heard) == 1 else named
+            if named == {character_name} or (
+                not named and (is_narrator or whole == {character_name})
+            ):
+                for i, para in part:
+                    if _FIRST_PERSON.search(_narration_only(para)):
+                        chunks += index(i, para, "narration")
         return chunks
 
     def extract_dialogue_only(
