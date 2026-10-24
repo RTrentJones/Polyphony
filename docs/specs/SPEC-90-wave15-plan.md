@@ -92,3 +92,6 @@ artifact is not possible: the report does not keep the scene text before PR A).
 - **Wave 16:** Rowan's 60 chunks (the narrator role takes other narrators' first-person paragraphs) and an embedded
   narrator's tale credited to nobody (D12).
 - **D9 amendment.** Product cap for PR B raised 160 → 200 (it measures +189); tests +171 for PR B.
+- **D9 second amendment (Codex on PR B).** Two regressions Codex found are fixed with a row each: an embedded narrative
+  now sets later-plot boundaries (`narrations_of`), and "May 1, 1797," counts as a date. Tests measure **+323** net for the
+  wave; the user raised the backstop to **330** on 2026-10-24 ("Raise to 330"). Product **+202** added (cap 200 → 202).
