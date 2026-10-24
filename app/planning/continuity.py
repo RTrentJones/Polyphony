@@ -48,6 +48,7 @@ from app.core.prompt_markers import OUTLINE_SOURCE_WARNING
 from app.exports.builder import scene_text
 from app.llm.client import get_llm_client
 from app.llm.json_utils import JSON_OBJECT, extract_json_array, extract_json_object
+from app.parsing.character_extractor import attribute_speech, normalize_quotes
 from app.versioning.trash import live as _live  # the one soft-delete filter
 
 logger = setup_logging("planning.continuity")
@@ -153,7 +154,7 @@ def chunk_scenes(
 
 _YEAR = (
     r"(?<![\d£$€])(1\d|20)\d\d(?!\d|,\d)"
-    r"(?!\s+(?:men|people|guests|pounds|dollars|miles|feet|souls|troops)\b)"
+    r"(?!\s+(?:men|people|guests|pounds|dollars|miles|feet|souls|troops|soldiers|more)\b)"
 )
 _MONTH = r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?"
 # A year only where it dates something: the elided "17—", a month's
@@ -168,6 +169,21 @@ _ERA = re.compile(
 )
 
 
+_DATELINE = re.compile(r"[\"\u201c]?[A-Z][\w .'-]*,(?:\s+\d{1,2}(?:st|nd|rd|th)?)?$")
+
+
+def _spoken(text: str, at: int, year: str) -> bool:
+    """A year in a quote credited to a speaker ("in the year 1492 Columbus
+    sailed") is no date of the text's; an opening dateline is (W16-5)."""
+    head = text[text.rfind("\n\n", 0, at) + 1 : at].strip()
+    if _DATELINE.match(head) or len(re.findall('["\u201c\u201d]', head)) % 2 == 0:
+        return False
+    spans = attribute_speech(text)[text.count("\n\n", 0, at)]
+    return any(
+        s["speaker"] and not s.get("narrated") and year in s["text"] for s in spans
+    )
+
+
 def era_findings(scenes: list[ProseScene]) -> list[Finding]:
     """Deterministic era ledger over the WHOLE prose (W15-7): when at least 5
     dates name a century and 75%+ agree, each date in another century is a
@@ -177,6 +193,7 @@ def era_findings(scenes: list[ProseScene]) -> list[Finding]:
         (s, m, next(g for g in m.groups() if g))
         for s in scenes
         for m in _ERA.finditer(s.text)
+        if not _spoken(s.text, m.start(), normalize_quotes(m[0]))
     ]
     votes = Counter(era for *_, era in hits)
     era, n = votes.most_common(1)[0] if votes else ("", 0)

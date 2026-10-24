@@ -1049,6 +1049,85 @@ class TestNarratorVoice:
         assert cx.extract_narration(text, "Rowan Merrow", cast=self.SN_CAST) == []
         assert len(cx.extract_narration(text, "Hollis Crane", cast=self.SN_CAST)) == 1
 
+    def test_a_frame_narrator_keeps_only_their_own_chapters(self):
+        """W16-2: each chapter's "I" is the one member others address; a tale
+        is its named teller's; the narrator role takes neither."""
+        from app.parsing.character_extractor import CharacterExtractor
+
+        text = (
+            "Letter 1\n\nI write to you from the ice, my sister.\n\n"
+            '"You may easily perceive, Captain Merrow, that I suffer," said the'
+            ' stranger.\n\n"You are kind," I answered.\n\nChapter 5\n\nI beheld the'
+            ' creature open its eye.\n\n"My dear Vandel," cried he, "how ill you'
+            ' are!"\n\n"You have guessed right; I am tired."\n\nChapter 13\n\n'
+            'The creature began his tale:\n\n"I hid in the hovel.\n\n"I wept."'
+        )
+        names = ["Rowan Merrow", "Emeric Vandel", "The Creature", "Hollis Crane"]
+        cast = [{"name": n, "aliases": []} for n in names]
+        got = {
+            n: [
+                c["text"][:10]
+                for c in CharacterExtractor().extract_narration(
+                    text, n, cast=cast, is_narrator=n != "Emeric Vandel"
+                )
+            ]
+            for n in names[:3]
+        }
+        assert got == {
+            "Rowan Merrow": ["I write to", '"You are k'],
+            "Emeric Vandel": ["I beheld t"],
+            "The Creature": ['"I hid in ', '"I wept."'],
+        }
+
+    @pytest.mark.parametrize("bystander", ["Beatrice, you will stay?", "Frith, go."])
+    def test_an_addressee_the_narrator_does_not_answer_is_no_narrator(self, bystander):
+        """W16 B1: an addressed bystander leaves the chapter to the narrator role."""
+        from app.parsing.character_extractor import CharacterExtractor
+
+        text = f'Chapter 1\n\nI came down late.\n\n"{bystander}" said Maxim.\n\nI left.'
+        names = ["Mrs. de Winter", "Maxim", "Beatrice", "Frith"]
+        cast = [{"name": n, "aliases": []} for n in names]
+        got = [
+            len(
+                CharacterExtractor().extract_narration(
+                    text, n, cast=cast, is_narrator=k == 0
+                )
+            )
+            for k, n in enumerate(names)
+        ]
+        assert got == [2, 0, 0, 0]
+
+    @pytest.mark.parametrize(
+        "sign, other, creature",
+        [
+            ("R.M.", "Fenwick", 1),
+            ("", "Fenwick", 2),
+            ("The End", "Fenwick", 2),  # no signer: no crash, no change
+            ("Finis", "Fenwick", 2),  # a word is not an initial
+            ("R.M.", "Rhea Moss", 2),  # initials two members share
+        ],
+    )
+    def test_a_signed_letter_is_its_signers(self, sign, other, creature):
+        """W16: a signature before a heading names the letter's "I"."""
+        from app.parsing.character_extractor import CharacterExtractor
+
+        text = f"Letter 1\n\nI write from the ice.\n\n{sign}\n\nChapter 2\n\nI walked."
+        names = ("Rowan Merrow", "The Creature", other)
+        cast = [{"name": n, "aliases": []} for n in names]
+        x = CharacterExtractor()
+        got = [
+            len(x.extract_narration(text, n, cast=cast, is_narrator=k < 2))
+            for k, n in enumerate(names)
+        ]
+        assert got == [2, creature, 0]
+        # A letter quoted at a chapter's end is its signer's from its lead-in on.
+        text = "Chapter 1\n\nI rode home.\n\nIt ran:\n\nI am well.\n\nRowan Merrow\n\nChapter 2"
+        got = [
+            len(x.extract_narration(text, n, cast=cast, is_narrator=k == 1))
+            for k, n in enumerate(names)
+        ]
+        assert got == [1, 1, 0]
+
     def test_pdf_heading_block_names_the_narrator(self):
         # A PDF keeps a heading block's line breaks ("CHAPTER VIII" over the
         # journal heading, in one paragraph): each line is read as a heading.
@@ -1179,6 +1258,21 @@ class TestCanonicalNames:
             (2, [_cand("The Doctor"), _cand("d'Artagnan", ["the Gascon"])]),
         )
         assert set(merged) == {"Abraham Van Helsing", "The Doctor", "d'Artagnan"}
+
+    def test_a_particle_surname_does_not_fuse_two_owners(self):
+        """W16-5: the alias's proper word must be in one name and the other's
+        too (or the other is a descriptor); Mr. de Winter still links."""
+        rows = (
+            (0, [_cand("Fernand Mondego", ["M. de Morcerf"])]),
+            (1, [_cand("Albert de Morcerf", ["M. de Morcerf"])]),
+            (2, [_cand("Rebecca", ["Mrs. de Winter"])]),
+            (3, [_cand("the narrator", ["Mrs. de Winter"])]),
+            (4, [_cand("Maxim de Winter", ["Mr. de Winter"])]),
+            (5, [_cand("my husband", ["Mr. de Winter"])]),
+        )
+        answers = [(w, ce._normalize_window({"characters": c})) for w, c in rows]
+        aliases = [g["aliases"] for g in ce.merge_characters(answers)]
+        assert len(aliases) == 5 and ["Mr. de Winter", "my husband"] in aliases
 
     def test_reduce_cannot_hand_one_candidate_another_ones_name(self):
         batch = [
