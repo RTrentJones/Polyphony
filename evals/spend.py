@@ -10,7 +10,10 @@ for the ceiling:
 An attempt's spend is the MAX of `usage.deployment_cost_30d_usd` over its
 boot-mode book reports: each holds the database's cumulative spend, so summing
 them double-counts. (`month_cost_usd` is the report's user only, and every book
-registers its own user; the app's ceiling is deployment-wide, like this.) An attempt that recorded no cost but left its
+registers its own user; the app's ceiling is deployment-wide, like this.) Each
+report's `judge_cost_usd` (a Claude judge, paid in the harness process, which
+the app database never sees) is added on top, summed: each book's is its own
+(SPEC-90 D14). An attempt that recorded no cost but left its
 `eval-ceiling.json` (killed mid-book) counts at that ceiling; otherwise 0.
 Prints the ceiling; refuses when under MIN_LEFT_USD (one book) is left.
 """
@@ -33,10 +36,12 @@ def run_spend(
     reports (a report without `mode` counts). An attempt with a `ceiling` counts
     at least that unless it is `done` and every book reported a numeric total
     (a failed usage read leaves its book's spend unknown)."""
-    costs, unknown = [], False
+    costs, unknown, judge = [], False, 0.0
     for r in reports:
         if not isinstance(r, dict) or r.get("mode", "boot") != "boot":
             continue
+        j = r.get("judge_cost_usd")
+        judge += float(j) if isinstance(j, (int, float)) else 0.0
         usage = r.get("usage")
         cost = usage.get("deployment_cost_30d_usd") if isinstance(usage, dict) else None
         if isinstance(cost, (int, float)):
@@ -45,7 +50,7 @@ def run_spend(
             unknown = True
     settled = done and not unknown
     floor = 0.0 if settled or ceiling is None else float(ceiling)
-    return max([floor, *costs])
+    return max([floor, *costs]) + judge
 
 
 def _json(path: Path):

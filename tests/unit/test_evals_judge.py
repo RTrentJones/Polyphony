@@ -83,20 +83,25 @@ def test_chain_with_unknown_member_raises(monkeypatch):
         Judge(_cfg(monkeypatch, "groq,nonsense"))
 
 
-@pytest.mark.parametrize("status", [404, 413])
+@pytest.mark.parametrize("status", [404, 413, "daily"])
 async def test_a_retired_judge_model_falls_through_the_chain(monkeypatch, status):
     """A 404 (model retired), or a 413 (one request over the vendor's whole
     per-minute limit: run 40030061261's cel outline on Groq), is not transient: the judge grades with the next
     chain provider instead of failing the step (the weekly run's outline step
-    died on a retired Groq model)."""
+    died on a retired Groq model). D14: so is a spent DAILY cap (run
+    40042289933), through every free judge to a self-graded, priced Claude."""
     import types
 
     import httpx
     from openai import APIStatusError, NotFoundError
 
+    from app.llm.errors import QuotaExhaustedError
+
     monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
     monkeypatch.setenv("OPENROUTER_API_KEY", "or_test")
-    j = Judge(_cfg(monkeypatch, "groq,openrouter"))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk_test")
+    monkeypatch.setenv("ANTHROPIC_USERS", "@polyphony.eval")
+    j = Judge(_cfg(monkeypatch, "groq,openrouter,anthropic"))
     assert j.provider_id == "groq"
     used = []
 
@@ -105,7 +110,16 @@ async def test_a_retired_judge_model_falls_through_the_chain(monkeypatch, status
             self.pid = pid
 
         async def generate(self, *a, **kw):
-            used.append(self.pid)
+            used.append((self.pid, kw["model"]))
+            if status == "daily" and self.pid != "anthropic":
+                raise QuotaExhaustedError(
+                    "Error code: 429 - Rate limit reached on "
+                    + (
+                        "tokens per day (TPD)"
+                        if self.pid == "groq"
+                        else "free-models-per-day"
+                    )
+                )
             if self.pid == "groq":
                 err = NotFoundError if status == 404 else APIStatusError
                 raise err(
@@ -116,14 +130,25 @@ async def test_a_retired_judge_model_falls_through_the_chain(monkeypatch, status
                     body=None,
                 )
             return types.SimpleNamespace(
-                text='{"score": 0.8, "explanation": "ok"}', model="m"
+                text='{"score": 0.8, "explanation": "ok"}', model="m", cost_usd=0.02
             )
 
     monkeypatch.setattr(j, "_ensure", lambda: Fake(j.provider_id))
+    await j.score("rubric", "content")
     judgment = await j.score("rubric", "content")
-    assert used == ["groq", "openrouter"]
-    assert judgment.score == 0.8 and judgment.judge_provider == "openrouter"
-    assert j.graded_by == ["openrouter"] and not j.exhausted
+    want = "anthropic" if status == "daily" else "openrouter"
+    tried = [p for p, _ in used]
+    assert tried == [
+        "groq",
+        "openrouter",
+        *(["anthropic"] if status == "daily" else []),
+    ] + [want]
+    assert judgment.score == 0.8 and judgment.judge_provider == want
+    assert j.graded_by == [want] and not j.exhausted
+    assert j.cost_usd == pytest.approx(0.04)  # summed: the report's judge_cost_usd
+    assert j.graded_is_self is (status == "daily")  # Claude judging Claude
+    if status == "daily":
+        assert used[-1] == ("anthropic", "claude-sonnet-5-5")
 
 
 async def test_an_exhausted_chain_is_judge_unavailable_and_steps_keep_metrics(

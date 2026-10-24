@@ -10,6 +10,8 @@ call goes through the same pacing/retry/breaker as production.
 from __future__ import annotations
 
 import json
+import os
+import re
 from dataclasses import dataclass
 
 from evals.harness.config import EvalConfig
@@ -19,6 +21,23 @@ _SYSTEM = (
     "rubric on a scale from 0.0 (fails the rubric entirely) to 1.0 (fully meets "
     'it). Reply ONLY with JSON: {"score": <float 0..1>, "explanation": <one sentence>}.'
 )
+
+
+def _daily_quota(e: Exception) -> bool:
+    """A QuotaExhaustedError for a spent DAILY cap: the ledger's own, or a 429
+    naming a per-day limit (Groq "tokens per day", OpenRouter "free-models-per-
+    day"). It won't return this run; a per-minute one keeps its retries."""
+    from app.llm.errors import DailyRequestLimitError
+
+    pattern = r"(tokens|requests|models)[ -]per[ -]day"
+    return isinstance(e, DailyRequestLimitError) or bool(re.search(pattern, str(e)))
+
+
+def _fast_if_claude(provider_id: str) -> str | None:
+    """Claude judges with its fast model (Sonnet), never the Opus default."""
+    from app.llm.providers import PROVIDERS
+
+    return PROVIDERS["anthropic"].fast_model if provider_id == "anthropic" else None
 
 
 class JudgeUnavailable(RuntimeError):
@@ -43,8 +62,6 @@ def _clamp01(x) -> float:
 
 def _parse(text: str) -> tuple[float, str]:
     """Extract {score, explanation} from a judge reply; tolerant of fences/prose."""
-    import re
-
     t = (text or "").strip().replace("```json", "").replace("```", "")
     start, end = t.find("{"), t.rfind("}")
     if start != -1 and end > start:
@@ -72,6 +89,7 @@ class Judge:
         self.graded_by: list[str] = []
         self.graded_is_self = False
         self.exhausted = False
+        self.cost_usd = 0.0  # summed over graded calls: the report's judge_cost_usd
         # A judge at its own URL (EVAL_JUDGE_BASE_URL: a separate relay queue
         # answered by a separate agent) bypasses the provider registry.
         self.endpoint = cfg.judge_base_url
@@ -91,7 +109,7 @@ class Judge:
             self._cfg.judge_model
             if (self.provider_id == primary and not self.fell_back)
             else None
-        )
+        ) or _fast_if_claude(self.provider_id)
 
     def _resolve(self) -> tuple[str, bool]:
         """Pick the judge provider fail-soft. EVAL_JUDGE_PROVIDER may be a
@@ -132,7 +150,9 @@ class Judge:
         """True when the EFFECTIVE judge is the model under test's provider."""
         if self.endpoint:
             return self._cfg.judge_is_self
-        return self.provider_id == self._cfg.app_provider
+        # ANTHROPIC_USERS routes the eval's generation to Claude (claude=yes).
+        claude_gen = self.provider_id == "anthropic" and os.getenv("ANTHROPIC_USERS")
+        return self.provider_id == self._cfg.app_provider or bool(claude_gen)
 
     def _endpoint_provider(self):
         """An OpenAI-compatible provider row for EVAL_JUDGE_BASE_URL. A relay
@@ -178,12 +198,15 @@ class Judge:
         for name in chain[chain.index(self.provider_id) + 1 :]:
             if provider_api_key(PROVIDERS[name]):
                 print(f"eval judge: {self.provider_id!r} failed — using {name!r}")
-                self.provider_id, self._client, self.model_override = name, None, None
+                self.provider_id, self._client = name, None
+                self.model_override = _fast_if_claude(name)
                 return True
         return False
 
     async def score(self, rubric: str, content: str) -> Judgment:
         from openai import APIStatusError, NotFoundError
+
+        from app.llm.errors import QuotaExhaustedError
 
         prompt = f"RUBRIC:\n{rubric}\n\nRESPONSE TO SCORE:\n{content}\n\nJSON:"
         while True:
@@ -193,13 +216,15 @@ class Judge:
                     self.graded_by.append(self.provider_id)
                 self.graded_is_self = self.graded_is_self or self.is_self
                 return judgment
-            except (NotFoundError, APIStatusError) as e:
+            except (NotFoundError, APIStatusError, QuotaExhaustedError) as e:
                 # A vendor retired the judge model (a 404), or this one request
                 # is larger than its whole per-minute limit (a 413: Groq's free
                 # tier refuses a long outline). Neither is transient: grade
                 # with the next provider in the chain instead of failing the
-                # whole step it belongs to.
-                if not isinstance(e, NotFoundError) and e.status_code != 413:
+                # whole step it belongs to. So is a spent daily cap (D14).
+                if isinstance(e, QuotaExhaustedError) and not _daily_quota(e):
+                    raise
+                if isinstance(e, APIStatusError) and e.status_code not in (404, 413):
                     raise
                 if not self._next_in_chain():
                     self.exhausted = True
@@ -226,6 +251,7 @@ class Judge:
             # OpenAI-compat endpoints support json_object.
             response_format={"type": "json_object"},
         )
+        self.cost_usd += getattr(result, "cost_usd", None) or 0.0
         score, explanation = _parse(result.text)
         return Judgment(
             score=score,

@@ -119,8 +119,10 @@ jobs:
       # Judge on a DIFFERENT free vendor than the model under test: removes
       # self-preference bias and takes judge calls off the shared Gemini daily
       # budget. Fail-soft — until GROQ_API_KEY is set the judge falls back to
-      # the app provider and the report labels the run self-graded.
-      EVAL_JUDGE_PROVIDER: ${{ vars.EVAL_JUDGE_PROVIDER || 'groq,openrouter' }}
+      # the app provider and the report labels the run self-graded. With claude=yes
+      # (its key exported) Claude Sonnet is the last resort once the free judges'
+      # daily caps are spent (SPEC-90 D14): self-graded, labelled, its cost counted.
+      EVAL_JUDGE_PROVIDER: ${{ github.event.inputs.claude == 'yes' && format('{0},anthropic', vars.EVAL_JUDGE_PROVIDER || 'groq,openrouter') || vars.EVAL_JUDGE_PROVIDER || 'groq,openrouter' }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
