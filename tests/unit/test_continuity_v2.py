@@ -374,6 +374,9 @@ def test_the_era_ledger_flags_a_date_a_century_off():
         _LETTERS + "\n\nIn May 1500 men marched; in March 2000 guests came.",
         _LETTERS.replace("17—", "1889") + " Built in the sixteenth century.",
         "Paris, 1889.\n\nMay 1790. June 1890.",  # too few dates to vote
+        _LETTERS + '\n\n"In the year 1492 Columbus sailed," he said.',  # W16-5
+        _LETTERS + "\n\nIn May 1500 soldiers marched.",
+        _LETTERS + "\n\nIn June 1600 more came.",
     ],
 )
 def test_the_era_ledger_is_silent_without_a_clear_majority(text):

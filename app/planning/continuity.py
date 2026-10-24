@@ -153,7 +153,7 @@ def chunk_scenes(
 
 _YEAR = (
     r"(?<![\d£$€])(1\d|20)\d\d(?!\d|,\d)"
-    r"(?!\s+(?:men|people|guests|pounds|dollars|miles|feet|souls|troops)\b)"
+    r"(?!\s+(?:men|people|guests|pounds|dollars|miles|feet|souls|troops|soldiers|more)\b)"
 )
 _MONTH = r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?"
 # A year only where it dates something: the elided "17—", a month's
@@ -168,6 +168,13 @@ _ERA = re.compile(
 )
 
 
+def _quoted(text: str, at: int) -> bool:
+    """Inside double-quoted dialogue in its paragraph: a year someone speaks of
+    ("in the year 1492 Columbus sailed") is not the text's date (W16-5)."""
+    para = text[text.rfind("\n\n", 0, at) + 1 : at]
+    return len(re.findall('["\u201c\u201d]', para)) % 2 == 1
+
+
 def era_findings(scenes: list[ProseScene]) -> list[Finding]:
     """Deterministic era ledger over the WHOLE prose (W15-7): when at least 5
     dates name a century and 75%+ agree, each date in another century is a
@@ -177,6 +184,7 @@ def era_findings(scenes: list[ProseScene]) -> list[Finding]:
         (s, m, next(g for g in m.groups() if g))
         for s in scenes
         for m in _ERA.finditer(s.text)
+        if not _quoted(s.text, m.start())
     ]
     votes = Counter(era for *_, era in hits)
     era, n = votes.most_common(1)[0] if votes else ("", 0)
