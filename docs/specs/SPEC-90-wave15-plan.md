@@ -102,3 +102,5 @@ artifact is not possible: the report does not keep the scene text before PR A).
   with its fast model `claude-sonnet-5-5`, and is labelled self-grading (`self`/`mixed`) when Claude is also under test.
   The judge's spend (`judge_cost_usd`, summed over its graded calls) is in each report, and `evals/spend.py` adds it,
   summed over the attempt's books, to the $40 eval budget (D1).
+- **D9 third amendment (D14).** The Claude-judge fallback adds 27 net test lines; the wave measures **+350** and the user
+  raised the backstop to **350** on 2026-10-24 ("Raise to 350").
