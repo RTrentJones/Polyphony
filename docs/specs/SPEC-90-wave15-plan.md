@@ -106,3 +106,35 @@ artifact is not possible: the report does not keep the scene text before PR A).
 - **D9 third amendment (D14).** The Claude-judge fallback adds 27 net test lines (25 once the double count came out); the
   wave measures **+348** and the user
   raised the backstop to **350** on 2026-10-24 ("Raise to 350").
+
+## Wave close (2026-10-24)
+**Shipped:** PR A (#56, `2de0544`), PR B (#57, `55954de`, prod verified at `/__version`), PR C (#58, `ececd15`).
+**D15 (coordinator, 2026-10-24).** With Groq's and OpenRouter's free daily caps spent, the regrade (run 40064294715) was judged
+mostly by Claude Sonnet and is labelled self-graded and mixed; judge-scored steps are not comparable across these draws. PR B
+changed extraction, ingestion and continuity, which need no judge, so W15-8 compares those (and attribution, also judge-free)
+on two post draws restricted to those steps (runs 40067726528, 40067751561, `ececd15`).
+
+| metric (mean of draws) | before: 39920544701, 40030061261, 40042289933, 40064294715 | after: 40067726528, 40067751561 |
+|---|---|---|
+| frankenstein extraction F1 (recall) | 0.48 (0.57–0.86) | **0.69** (1.0, 1.0) |
+| frankenstein ingestion grounded | 0.48 | **0.66** |
+| dracula extraction F1 (recall) | 0.49 (0.86) | **0.62** (1.0, 1.0) |
+| dracula ingestion grounded | 0.65 | 0.68 |
+| frankenstein attribution | 0.57 | 0.33 |
+| dracula attribution | 0.58 | 0.53 |
+
+- **Attribution's fall is not PR B's**: the eval seeds voice samples as dialogue chunks and `character_samples` reaches none of
+  the code PR B changed; the centroids are identical (The Creature's baseline 0.3734 vs 0.3739). The whole Frankenstein drop is
+  Rowan vs Emeric (51/60 → 20/40), whose centroids sit 0.005 apart; sampling at temperature 0.9 is the likely source. Re-drawn
+  in wave 16 before anything acts on it.
+- **Dracula continuity fpr 1.0** in one draw is the LLM checker on the control, not the era ledger (0 dated matches in the
+  window): the standing 0.5 is a renaming leftover ("--D." signs the Count's note), the extra 0.5 a one-off.
+- **R2 applied to no scene** in the regrade (`r2_applicable` 0.0): Claude tags most lines with pronouns, which the product's
+  speech rule credits to no one, so the voice rubric measured nothing.
+- **Spend:** $22.86 of the $40 eval month (39920544701 $2.58, W15-1 $5.66, 40042289933 $3.73, regrade $6.07, post draws $2.93).
+- **Counts:** product +202 added (cap 202), tests +348 net (backstop 350).
+
+**Wave 16 candidates:** R2 lines credited from the generator's own speaker per dialogue beat; Rowan's 60 chunks (the narrator
+role takes other narrators' first-person paragraphs) and an embedded narrator's tale credited to no one; the "said:" colon
+trigger; era notes on dates inside dialogue; particle-surname owners fused; the Dracula corpus's "--D." signature; attribution
+re-draws and a topic-neutral probe; a continuity window that can hold an era flip.
