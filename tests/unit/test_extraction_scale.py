@@ -1120,6 +1120,17 @@ class TestNarratorVoice:
             for k, n in enumerate(names)
         ]
         assert got == [2, creature, 0]
+        # Consecutive letters by two writers: each signs only their own (Codex P2).
+        text = (
+            "Letter 1\n\nI sailed north.\n\nRowan Merrow\n\n"
+            "Letter 2\n\nI stayed home.\n\nEmeric Vandel"
+        )
+        two = [{"name": n, "aliases": []} for n in ("Rowan Merrow", "Emeric Vandel")]
+        got = [
+            [c["text"] for c in x.extract_narration(text, w["name"], cast=two)]
+            for w in two
+        ]
+        assert got == [["I sailed north."], ["I stayed home."]]
         # A letter quoted at a chapter's end is its signer's from its lead-in on.
         text = "Chapter 1\n\nI rode home.\n\nIt ran:\n\nI am well.\n\nRowan Merrow\n\nChapter 2"
         got = [

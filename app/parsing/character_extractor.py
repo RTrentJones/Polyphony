@@ -860,6 +860,17 @@ class CharacterExtractor:
                     sig[i] = by[0]
             after = p or after
 
+        # A signature ends its letter: "Letter 2" after it starts another part,
+        # so a part holds one signer at most (Codex P2).
+        letters: list[list[tuple[int, str]]] = []
+        for part in parts:
+            letters.append([])
+            for i, p in part:
+                letters[-1].append((i, p))
+                if i in sig:
+                    letters.append([])
+        parts = letters
+
         def lead_in(part) -> int:  # a signature names what follows "It ran:"
             ends = [
                 n + 1 for n, (_, p) in enumerate(part) if p.endswith((":", "--", "—"))
