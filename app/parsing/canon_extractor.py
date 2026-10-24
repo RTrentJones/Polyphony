@@ -616,9 +616,7 @@ def merge_characters(window_answers: list[tuple[int, dict]], text: str = "") -> 
                 particled[norm(a)] = {norm(t) for t in _name_tokens(name_core(a))}
 
     def shares(key: str, x: int, y: int) -> bool:
-        """A particle alias ("M. de Morcerf") links two candidates only when its
-        proper word is in one's name and the other's too or a descriptor:
-        Fernand Mondego and Albert de Morcerf stay two (W16-5)."""
+        """W16-5: "M. de Morcerf" links names holding Morcerf, or a descriptor."""
         words, names = particled.get(key), (cands[x]["name"], cands[y]["name"])
         has = [words is None or words <= set(norm(n).split()) for n in names]
         loose = [name_core(n) != strip_notes(n) or not _proper(n) for n in names]
