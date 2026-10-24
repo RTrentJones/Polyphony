@@ -599,6 +599,19 @@ class TestHistory:
         (path := tmp_path / "h.csv").write_text("\n".join(rows) + "\n")
         assert report.history(path).splitlines()[-1] == "Fires on: untouched_share (7)"
 
+    def test_a_neutral_probe_row_stays_out_of_the_pool(self, tmp_path):
+        from evals.harness import report  # (F) W16-3 N6
+
+        rows = [
+            "run,pair,redo_ra,untouched_share,rewording_note,r2_mean,r2_min,attribution"
+        ]
+        rows += [
+            "W7,7,0.9,,no,0.95,0.9,Rowan 2/3",
+            "N,8,0.9,,no,0.95,0.9,neutral: Rowan 1/3",
+        ]
+        (path := tmp_path / "h.csv").write_text("\n".join(rows) + "\n")
+        assert "Rowan 2/3 " in report.history(path)
+
 
 def _vec(text):  # a fake embedder: the same text, the same vector
     return [float(len(text)), 1.0]

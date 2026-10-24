@@ -556,22 +556,34 @@ def test_r2_lines_are_the_ones_credited_to_the_scene_cast():
 
 
 class _SpeakerJudge(_RubricJudge):
+    def __init__(self, *speakers):
+        super().__init__()
+        self.speakers = list(speakers)
+
     async def ask_json(self, prompt):
-        return {"speakers": ["Milo Voss", "Zara Okafor", "other", "Edric"]}
+        return {"speakers": self.speakers}
 
 
 async def test_the_judge_credits_the_lines_tags_leave_uncredited(tmp_path):
-    """(F) W16-1 (D16-5): pronoun-tagged lines take the judge's speakers, so R2
-    applies; an "other" (or unknown) speaker's line is excluded."""
-    client, said = _ProductClient(), '"Is it?" he asked.\n\n"No," she said.'
+    """(F) W16-1 (D16-5): pronoun-tagged lines take the judge's speakers (an
+    alias resolves; one speaker's run in a paragraph is one line), so R2
+    applies; an "other" or unknown speaker's line is excluded. B1: a reply of
+    the wrong length credits nothing."""
+    client, said = _ProductClient(), '"Is it?" he asked. "Truly?"\n\n"No," she said.'
     get = client.get_scene
     lines = f'{said}\n\n"Ice," a clerk said.\n\n"Go," he said.'
     client.get_scene = lambda sid: _with(get(sid), content=lines)
-    out = await pipeline.step_prose(_cel_ctx(tmp_path, client, _SpeakerJudge()))
+    who = ["Milo Voss", "Milo", "ms. okafor", "other", "Edric"]
+    out = await pipeline.step_prose(_cel_ctx(tmp_path, client, _SpeakerJudge(*who)))
     s = out["scenes"][0]
-    assert [r["speaker"] for r in s["spoken_lines"]] == ["Milo Voss", "Zara Okafor"]
+    assert s["spoken_lines"] == [
+        {"speaker": "Milo Voss", "line": "Is it? Truly?"},
+        {"speaker": "Zara Okafor", "line": "No,"},
+    ]
     assert s["r2_source"] == "judge" and s["rubrics"]["R2"]["score"] == 0.8
     assert (out["r2_applicable"], out["r2_lines"]) == (1.0, 4)
+    out = await pipeline.step_prose(_cel_ctx(tmp_path, client, _SpeakerJudge(*who[1:])))
+    assert (out["r2_applicable"], out["r2_lines"]) == (0.0, 0)
 
 
 async def _with(scene, **kw):
