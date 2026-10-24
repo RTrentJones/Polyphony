@@ -48,6 +48,7 @@ from app.core.prompt_markers import OUTLINE_SOURCE_WARNING
 from app.exports.builder import scene_text
 from app.llm.client import get_llm_client
 from app.llm.json_utils import JSON_OBJECT, extract_json_array, extract_json_object
+from app.parsing.character_extractor import attribute_speech, normalize_quotes
 from app.versioning.trash import live as _live  # the one soft-delete filter
 
 logger = setup_logging("planning.continuity")
@@ -168,11 +169,19 @@ _ERA = re.compile(
 )
 
 
-def _quoted(text: str, at: int) -> bool:
-    """Inside double-quoted dialogue in its paragraph: a year someone speaks of
-    ("in the year 1492 Columbus sailed") is not the text's date (W16-5)."""
-    para = text[text.rfind("\n\n", 0, at) + 1 : at]
-    return len(re.findall('["\u201c\u201d]', para)) % 2 == 1
+_DATELINE = re.compile(r"[\"\u201c]?[A-Z][\w .'-]*,(?:\s+\d{1,2}(?:st|nd|rd|th)?)?$")
+
+
+def _spoken(text: str, at: int, year: str) -> bool:
+    """A year in a quote credited to a speaker ("in the year 1492 Columbus
+    sailed") is no date of the text's; an opening dateline is (W16-5)."""
+    head = text[text.rfind("\n\n", 0, at) + 1 : at].strip()
+    if _DATELINE.match(head) or len(re.findall('["\u201c\u201d]', head)) % 2 == 0:
+        return False
+    spans = attribute_speech(text)[text.count("\n\n", 0, at)]
+    return any(
+        s["speaker"] and not s.get("narrated") and year in s["text"] for s in spans
+    )
 
 
 def era_findings(scenes: list[ProseScene]) -> list[Finding]:
@@ -184,7 +193,7 @@ def era_findings(scenes: list[ProseScene]) -> list[Finding]:
         (s, m, next(g for g in m.groups() if g))
         for s in scenes
         for m in _ERA.finditer(s.text)
-        if not _quoted(s.text, m.start())
+        if not _spoken(s.text, m.start(), normalize_quotes(m[0]))
     ]
     votes = Counter(era for *_, era in hits)
     era, n = votes.most_common(1)[0] if votes else ("", 0)
