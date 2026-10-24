@@ -1354,14 +1354,20 @@ def test_a_tale_that_quotes_someone_is_still_speech_there():
     assert [is_speech(s) for s in spans] == [False, True]
 
 
-@pytest.mark.parametrize(
-    "setup, who",
-    [("She leaned in and said:", None), ("The creature said:", "The creature")],
-)
-def test_a_said_colon_opens_its_speakers_speech_not_a_tale(setup, who):
-    """W16-5: a speech verb's colon is the setup speaker talking on."""
-    spans = [p[0] for p in attribute_speech(f'{setup}\n\n"I went.\n\n"I came."')[1:]]
-    assert [(s.get("narrated"), s["speaker"]) for s in spans] == [(None, who)] * 2
+def test_a_said_colon_is_its_speakers_line_or_told_tale():
+    """W16-5: one paragraph after "X said:" is X's line; more is X's told tale;
+    no tag (or "his pipe and") credits no one and stays speech."""
+    said = "The creature said:\n\n"
+    one = attribute_speech(said + '"I went home."')[1][0]
+    two = [p[0] for p in attribute_speech(said + '"I went.\n\n"I came."')[1:]]
+    bare = attribute_speech('She leaned in and said:\n\n"I went.\n\n"I came."')
+    pipe = attribute_speech('The sailor filled his pipe and said:\n\n"I went."')
+    assert one["speaker"] == "The creature" and not one.get("narrated")
+    assert [(s["narrated"], s["teller"]) for s in two] == [(True, "The creature")] * 2
+    assert [(p[0].get("narrated"), p[0]["speaker"]) for p in bare[1:]] == [
+        (None, None)
+    ] * 2
+    assert pipe[1][0]["speaker"] is None
 
 
 def test_an_embedded_narrative_still_marks_later_plot():

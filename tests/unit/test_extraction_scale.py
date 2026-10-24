@@ -1057,8 +1057,9 @@ class TestNarratorVoice:
         text = (
             "Letter 1\n\nI write to you from the ice, my sister.\n\n"
             '"You may easily perceive, Captain Merrow, that I suffer," said the'
-            " stranger.\n\nChapter 5\n\nI beheld the creature open its eye.\n\n"
-            '"My dear Vandel," cried he, "how ill you are!"\n\nChapter 13\n\n'
+            ' stranger.\n\n"You are kind," I answered.\n\nChapter 5\n\nI beheld the'
+            ' creature open its eye.\n\n"My dear Vandel," cried he, "how ill you'
+            ' are!"\n\n"You have guessed right; I am tired."\n\nChapter 13\n\n'
             'The creature began his tale:\n\n"I hid in the hovel.\n\n"I wept."'
         )
         names = ["Rowan Merrow", "Emeric Vandel", "The Creature", "Hollis Crane"]
@@ -1073,10 +1074,28 @@ class TestNarratorVoice:
             for n in names[:3]
         }
         assert got == {
-            "Rowan Merrow": ["I write to"],
+            "Rowan Merrow": ["I write to", '"You are k'],
             "Emeric Vandel": ["I beheld t"],
             "The Creature": ['"I hid in ', '"I wept."'],
         }
+
+    @pytest.mark.parametrize("bystander", ["Beatrice, you will stay?", "Frith, go."])
+    def test_an_addressee_the_narrator_does_not_answer_is_no_narrator(self, bystander):
+        """W16 B1: an addressed bystander leaves the chapter to the narrator role."""
+        from app.parsing.character_extractor import CharacterExtractor
+
+        text = f'Chapter 1\n\nI came down late.\n\n"{bystander}" said Maxim.\n\nI left.'
+        names = ["Mrs. de Winter", "Maxim", "Beatrice", "Frith"]
+        cast = [{"name": n, "aliases": []} for n in names]
+        got = [
+            len(
+                CharacterExtractor().extract_narration(
+                    text, n, cast=cast, is_narrator=k == 0
+                )
+            )
+            for k, n in enumerate(names)
+        ]
+        assert got == [2, 0, 0, 0]
 
     def test_pdf_heading_block_names_the_narrator(self):
         # A PDF keeps a heading block's line breaks ("CHAPTER VIII" over the

@@ -291,6 +291,16 @@ def is_speech(span: dict) -> bool:
     return bool(span["speaker"]) or len(span["text"].split()) >= SPEECH_MIN_WORDS
 
 
+def _answers(spans: list[dict]) -> bool:
+    """The narrator talking: quotes credited to "I", or untagged first-person."""
+    return bool(spans) and all(
+        s["speaker"] in ("i", "we")
+        or not s["speaker"]
+        and _FIRST_PERSON.search(s["text"])
+        for s in spans
+    )
+
+
 def _canon_speaker(who: str) -> Optional[str]:
     """A tag's subject as a speaker key: leading openers dropped ("Then Zara" →
     "Zara"); a pronoun lowercased (it never names a cast member); a bare
@@ -441,9 +451,7 @@ def narrations_of(paragraphs: list[str]) -> list[str]:
     ]
 
 
-# W16: a name spoken to someone (`"My dear Vandel," cried he`); a setup line
-# ending "said:" opens its speaker's speech, not a tale; a line naming a tale's
-# teller ("the stranger began his tale:").
+# W16: a vocative ("My dear Vandel,"); "said:" ends a setup line; a teller.
 _VOCATIVE = re.compile(
     rf"(?:^|[,;] )(?:[Mm]y )?(?:[Dd]ear(?:est)? )?(?P<who>{_PROPER})(?=\s*[,!?])"
 )
@@ -479,12 +487,17 @@ def attribute_speech(text: str) -> list[list[dict]]:
     carry: Optional[str] = None  # speaker of the last paragraph's open quote
     run: list[dict] = []  # the uncredited open quote's spans, one per paragraph
     prev = ""  # the last non-blank paragraph
-    intro: list[Optional[str]] = [None]  # the teller the run's setup line names
+    intro: list = [None, None]  # the run's teller as its setup line names them
 
     def close_run() -> None:
         tale = " ".join(_SINGLE_QUOTED.sub(" ", s["text"]) for s in run)
         named = [m.group(1) for rx in _SELF_NAMING for m in rx.finditer(tale)]
+        # One paragraph after "X said:" is X's speech, unless it quotes someone.
+        solo = intro[1] and len(run) == 1 and not is_speech({**run[0], "narrated": 1})
         for s in run:
+            if solo:
+                s["speaker"] = intro[1]
+                continue
             s["narrated"] = True
             if named or intro[0]:
                 s["teller"] = named[0] if named else intro[0]
@@ -502,10 +515,7 @@ def attribute_speech(text: str) -> list[list[dict]]:
             result.append([])
             continue
         continued = False
-        said = _SAID_COLON.search(prev) and _tag(prev, 0, len(prev), _BEFORE, re.search)
         if spans[0]["speaker"] is None and para[0] in "\"'":
-            if said and not carry:  # `the creature said:` opens its speech
-                carry = _canon_speaker(said[2])
             if carry:
                 spans[0]["speaker"] = carry
                 continued = True
@@ -526,13 +536,17 @@ def attribute_speech(text: str) -> list[list[dict]]:
         opens = para[0] == '"' and spans[0]["speaker"] is None
         if not (run and opens):
             close_run()
+        said = _SAID_COLON.search(prev) and _tag(prev, 0, len(prev), _BEFORE, re.search)
+        said = said and _canon_speaker(said[2])
+        if said and said.split()[-1] in ("and", "or", "but", "then", "to", "of"):
+            said = None  # "filled his pipe and said:" names no speaker
         introduced = any(_heading(prev)) or (
-            prev.endswith((":", "--", "—")) and not _SAID_COLON.search(prev)
+            prev.endswith((":", "--", "—")) and (said or not _SAID_COLON.search(prev))
         )
-        if opens and (run or (introduced and spans[0]["closed"] is False)):
+        if opens and (run or (introduced and (not spans[0]["closed"] or said))):
             if not run:
                 m = _TELLER.search(prev)
-                intro[0] = m and _canon_speaker(m.group("who"))
+                intro[:] = [said or (m and _canon_speaker(m.group("who"))), said]
             run.append(out[0])
             if spans[0]["closed"] or len(spans) > 1:
                 close_run()
@@ -820,10 +834,10 @@ class CharacterExtractor:
         if sections:
             return chunks
         # No headings: a chapter's "I" is the one cast member it self-names
-        # ("my name is X", "I, X,"), else the one member others address there
-        # who never speaks by name in it ("My dear Vandel," cried he). A chapter
-        # with no "I" goes to the narrator role or the text's one self-named
-        # member; nobody's role takes another narrator's chapter or a tale.
+        # ("my name is X"), else the one member addressed next to the narrator's
+        # answer who never speaks by name there ("My dear Vandel," cried he; "You
+        # have guessed right; I …"). A chapter with no "I" goes to the narrator
+        # role or the one self-named member; never another's chapter or a tale.
         parts: list[list[tuple[int, str]]] = [[]]
         for i, para in enumerate(p.strip() for p in source_paragraphs(text)):
             if _heading(para)[1]:
@@ -834,14 +848,21 @@ class CharacterExtractor:
         for part in parts:
             own = self_named_narrators("\n\n".join(p for _, p in part))
             named = {owner_of(n) for n in own} - {None}
-            talk = [s for i, _ in part for s in attributed[i] if s["speaker"]]
-            talk = [s for s in talk if s["speaker"] not in ("i", "we")]
+            at = [i for i, _ in part]
+            answered = {
+                i
+                for k, i in enumerate(at)
+                if any(_answers(attributed[j]) for j in at[max(0, k - 1) : k + 2])
+            }
+            talk = [(i, s) for i in at for s in attributed[i] if s["speaker"]]
+            talk = [(i, s) for i, s in talk if s["speaker"] not in ("i", "we")]
             heard = {
                 owner_of(m["who"]) or owner_of(m["who"].split()[-1])
-                for s in talk
+                for i, s in talk
+                if i in answered
                 for m in _VOCATIVE.finditer(" ".join(s["text"].split()))
             } - {None}
-            if not named and not heard & {owner_of(s["speaker"]) for s in talk}:
+            if not named and not heard & {owner_of(s["speaker"]) for _, s in talk}:
                 named = heard if len(heard) == 1 else named
             if named == {character_name} or (
                 not named and (is_narrator or whole == {character_name})
