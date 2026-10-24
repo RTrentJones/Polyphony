@@ -1097,6 +1097,23 @@ class TestNarratorVoice:
         ]
         assert got == [2, 0, 0, 0]
 
+    @pytest.mark.parametrize("sign, creature", [("R.M.", 1), ("", 2)])
+    def test_a_signed_letter_is_its_signers(self, sign, creature):
+        """W16: a signature before a heading names the letter's "I"."""
+        from app.parsing.character_extractor import CharacterExtractor
+
+        text = f"Letter 1\n\nI write from the ice.\n\n{sign}\n\nChapter 2\n\nI walked."
+        cast = [{"name": n, "aliases": []} for n in ("Rowan Merrow", "The Creature")]
+        got = [
+            len(
+                CharacterExtractor().extract_narration(
+                    text, c["name"], cast=cast, is_narrator=True
+                )
+            )
+            for c in cast
+        ]
+        assert got == [2, creature]
+
     def test_pdf_heading_block_names_the_narrator(self):
         # A PDF keeps a heading block's line breaks ("CHAPTER VIII" over the
         # journal heading, in one paragraph): each line is read as a heading.

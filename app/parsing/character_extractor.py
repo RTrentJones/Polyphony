@@ -452,6 +452,8 @@ def narrations_of(paragraphs: list[str]) -> list[str]:
 
 
 # W16: a vocative ("My dear Vandel,"); "said:" ends a setup line; a teller.
+_HEAD_LINE = re.compile(r"(?:\S+\s+){0,2}\S*[^\s.!?\"]")  # "Letter 2", "Chapter V"
+_SIGNATURE = re.compile(r"(?:[A-Z]\.\s?)+|(?:[A-Z]\.\s?)?[A-Z][a-z]+(?: [A-Z][a-z]+)?")
 _VOCATIVE = re.compile(
     rf"(?:^|[,;] )(?:[Mm]y )?(?:[Dd]ear(?:est)? )?(?P<who>{_PROPER})(?=\s*[,!?])"
 )
@@ -845,10 +847,23 @@ class CharacterExtractor:
             elif para and not any(s.get("narrated") for s in attributed[i]):
                 parts[-1].append((i, para))
         whole = {owner_of(n) for n in self_named_narrators(text)}
+        # A letter's signature line before a heading ("R. Merrow", "R.M.").
+        sig, after, paras = {}, "", [p.strip() for p in source_paragraphs(text)]
+        for i in range(len(paras) - 1, -1, -1):
+            p, ini = paras[i], re.findall("[A-Z]", paras[i])
+            if _SIGNATURE.fullmatch(p) and _HEAD_LINE.fullmatch(after or "end"):
+                by = [
+                    c["name"] for c in cast if ini == re.findall(r"\b[A-Z]", c["name"])
+                ]
+                sig[i] = (
+                    owner_of(p) or owner_of(p.split()[-1]) or by[0] * (len(by) == 1)
+                )
+            after = p or after
         for part in parts:
             own = self_named_narrators("\n\n".join(p for _, p in part))
-            named = {owner_of(n) for n in own} - {None}
             at = [i for i, _ in part]
+            named = {owner_of(n) for n in own} - {None}
+            named = named or {sig[i] for i in at if sig.get(i)}
             answered = {
                 i
                 for k, i in enumerate(at)

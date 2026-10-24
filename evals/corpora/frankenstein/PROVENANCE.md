@@ -49,6 +49,12 @@ cap balances the pool — an imbalanced pool biases retrieval toward the majorit
 voice and understates separability. Balanced, the three voices separate at
 precision@3 ≈ 0.85 (well above the 0.33 three-class chance baseline).
 
+## A renaming leftover (wave 16)
+Letter 3 was signed "R.W." (Robert Walton's initials), which the rename map does
+not touch. It is hand-edited to "R.M." (Rowan Merrow) so every letter's signature
+names the renamed writer, as the other two ("R. Merrow", "Rowan Merrow") do. The
+same kind of leftover as Dracula's "--D." (SPEC-91).
+
 ## Legal summary
 The underlying work is US public domain; the Project Gutenberg wrapper is stripped
 (or a CC0 Standard Ebooks source is used); only a renamed derivative of a few
