@@ -571,9 +571,15 @@ async def step_attribution(ctx: StepContext) -> dict:
 
     results, generated, probes = [], [], []
     empty = 0
+    # W16-3: a corpus may opt into `voice_situations`, everyday prompts neutral
+    # to every voice, cycled across the draws; else W9-2 (a)'s one situation.
+    neutral = ctx.ground_truth.get("voice_situations") or []
     for char, draw in ((c, d) for c in gold for d in range(ATTRIBUTION_DRAWS)):
-        # W9-2 (a): one symmetric situation for every character (SPEC-67).
-        probe = ctx.ground_truth["voice_situation"]
+        probe = (
+            neutral[draw % len(neutral)]
+            if neutral
+            else ctx.ground_truth["voice_situation"]
+        )
 
         async def gen(_char=char, _probe=probe):
             r = await ctx.client.test_dialogue(char_ids[_char], _probe)
@@ -619,6 +625,7 @@ async def step_attribution(ctx: StepContext) -> dict:
         "w9_9_p0": not any((r["wilson95"] or (0, 0))[0] > 0.33 for r in per.values()),
         "status": "reported",
         "reference": "train",
+        "probe_set": "neutral" if neutral else "situation",
         # W15-4: topic-normalised accuracy, reported beside the raw score.
         "normalised": attribution.accuracy(normed)
         | {

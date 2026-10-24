@@ -130,7 +130,9 @@ so an archive from before the F8 fixture edit still grades.
   misses. Every character gets the corpus' one symmetric `voice_situation`, k = 10 draws each,
   and every cast name form is masked to `⟨NAME⟩` in the generated and gold lines before
   embedding; per character a Wilson interval, and `w9_9_p0` when no lower bound beats 0.33
-  (SPEC-67). Reported, never gated; the step reports each row's probe.
+  (SPEC-67). Reported, never gated; the step reports each row's probe. A corpus that sets
+  `voice_situations` (frankenstein) instead cycles those everyday, topic-neutral prompts across
+  the draws, the same set for every character (W16-3); `probe_set` says which was used.
 - `outline`: `outline_names_synopsis_secondaries` ("k/2", from the outline text and any
   `secondary_names`) and `outline_secondaries_named`. `extraction` also reports
   `canonical_names_ok` ("k/n" over the principals with a title alias, such as Edric's "Chief

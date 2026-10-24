@@ -72,6 +72,13 @@
     "The Creature": "The ship is locked in the polar ice, and someone asks why you came so far north. Say a few sentences to them."
   },
   "voice_situation": "The ship is locked in the polar ice, and someone asks why you came so far north. Say a few sentences to them.",
+  "voice_situations": [
+    "Someone asks how you slept last night. Say a few sentences to them.",
+    "You are asked to describe the room you are in. Say a few sentences.",
+    "Someone asks what you had for your last meal. Say a few sentences to them.",
+    "Someone asks what the weather is like today. Say a few sentences to them.",
+    "Someone asks how you usually spend a quiet morning. Say a few sentences to them."
+  ],
   "canonical_beats": [
     {
       "title": "Emeric animates the creature and flees it in horror",

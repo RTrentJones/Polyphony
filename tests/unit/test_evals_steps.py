@@ -195,6 +195,30 @@ async def test_attribution_creates_book_scoped_characters(tmp_path, monkeypatch)
     }
 
 
+async def test_attribution_cycles_a_corpus_neutral_probe_set(tmp_path, monkeypatch):
+    """(F) W16-3: an opted-in corpus cycles its everyday prompts across the
+    draws, the same set for every character; frankenstein opts in."""
+
+    async def fake_many(texts):
+        return [[1.0, 0.0] for _ in texts]
+
+    async def fake_one(text):
+        return [1.0, 0.0]
+
+    monkeypatch.setattr(embed, "embed_many", fake_many)
+    monkeypatch.setattr(embed, "embed_one", fake_one)
+    neutral = pipeline.load_corpus("frankenstein")[1]["voice_situations"]
+    assert len(neutral) >= 3
+    gt = {"synopsis": "s", "voice_situation": "polar", "voice_situations": neutral}
+    gt["gold_lines"] = {w: {"train": ["a"], "test": ["b"]} for w in ("A", "B")}
+    client = _FakeClient({})
+    out = await pipeline.step_attribution(_ctx(tmp_path, client, gt))
+    draws = [neutral[d % len(neutral)] for d in range(pipeline.ATTRIBUTION_DRAWS)]
+    assert client.prompts == draws * 2 and out["probe_set"] == "neutral"
+    assert [r["probe"] for r in out["detail"]] == draws * 2
+    assert "normalised" in out and "polar" not in client.prompts
+
+
 async def test_client_refuses_a_character_without_a_book():
     c = PolyphonyClient("http://localhost:8000")
     c._http.post = AsyncMock()
