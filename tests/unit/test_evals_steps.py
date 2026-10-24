@@ -153,6 +153,12 @@ def test_a_renamed_corpus_leaks_no_original_and_renames_one_to_one(book):
             assert not set(rep.split()) & originals, rep
 
 
+def test_dracula_card_is_signed_with_the_renamed_initial():
+    """(F) W16-4: the Count (Vasska) signs his card "--V.", not "--D."."""
+    text = pipeline.load_excerpts("dracula")
+    assert "wait for me.--V.”" in text and "--D." not in text
+
+
 async def test_attribution_creates_book_scoped_characters(tmp_path, monkeypatch):
     seen = []
 
