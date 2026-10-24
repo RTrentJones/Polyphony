@@ -62,3 +62,9 @@
 - **Amendment, 2026-10-21, failure handling only** (Codex P2 on PR #52): a preference must be the integer 1 or 2 and an error count a
   non-negative integer; anything else is re-asked and, failing that, left unrated. P⁗ = `5dd2d7a`. All 128 cached replies are in
   range (92 preferences, 36 error counts) and read identically.
+- **Amendment, 2026-10-24, failure-driven, not outcome-driven** (run 40043768197: seven Nemotron prompts, three of them on two
+  runs, cut off at 4,096 tokens with no verdict): the OpenRouter member sends `max_tokens=16384` on every call (the free model's
+  completion limit is 65,536); `max_tokens` is not in the cache key, and the 280 cached replies finished under 4,096 and read
+  identically (280/280). P⁵ = `f57f026`. **Recorded before any P⁵ data:** if a prompt still fails 3 tries on two P⁵ runs, a
+  preference prompt scores that member ½ on the pair (the existing inconsistent-member rule) and an error-count prompt uses
+  the other member's count alone, flagged and counted; that fallback needs its own amendment and principal sign-off first.

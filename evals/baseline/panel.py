@@ -57,7 +57,7 @@ async def rate(member: str, bundles: list[dict], cache: Cache) -> dict:
     """{(a, b): winner id | "tie"} and {item: errors}; a quota stop ends it cleanly."""
     provider, model = member.split(":", 1)
     llm, out = LLMClient(PROVIDERS[provider]), {"prefer": {}, "errors": {}}
-    kw = JSON | {"max_tokens": {"openrouter": 4096}.get(provider, 640)}
+    kw = JSON | {"max_tokens": {"openrouter": 16384}.get(provider, 640)}
 
     async def ask(canon: str, what: str, *texts: str) -> int | None:
         fenced = [f"<passage_{k}>\n{t}\n</passage_{k}>" for k, t in enumerate(texts, 1)]

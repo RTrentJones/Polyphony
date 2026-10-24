@@ -95,3 +95,14 @@ artifact is not possible: the report does not keep the scene text before PR A).
 - **D9 second amendment (Codex on PR B).** Two regressions Codex found are fixed with a row each: an embedded narrative
   now sets later-plot boundaries (`narrations_of`), and "May 1, 1797," counts as a date. Tests measure **+323** net for the
   wave; the user raised the backstop to **330** on 2026-10-24 ("Raise to 330"). Product **+202** added (cap 200 → 202).
+- **D14 Judge fallback.** Per the user (2026-10-24): "Use anthropic for judge after others are consumed." Run
+  40042289933 died when Groq's free daily token cap hit (a `QuotaExhaustedError`, 429 tokens per day). A spent daily cap
+  (the ledger's `DailyRequestLimitError`, or a 429 naming a per-day limit) now fails over to the next judge, as a 404/413
+  does; a per-minute 429 keeps its retries. With claude=yes the chain is `groq,openrouter,anthropic`: Claude judges last,
+  with its fast model `claude-sonnet-5-5`, and is labelled self-grading (`self`/`mixed`) when Claude is also under test.
+  The judge's spend (`judge_cost_usd`, summed over its graded calls) is reported; it already counts toward the $40 eval
+  budget (D1), because the harness shares the run's `DATABASE_URL` and records each call in `api_usage`, which
+  `deployment_cost_30d_usd` sums (Codex P2 on PR #58: adding it again in `evals/spend.py` double-counted).
+- **D9 third amendment (D14).** The Claude-judge fallback adds 27 net test lines (25 once the double count came out); the
+  wave measures **+348** and the user
+  raised the backstop to **350** on 2026-10-24 ("Raise to 350").

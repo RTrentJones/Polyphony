@@ -249,6 +249,9 @@ async def run(
             result["steps"]["prompt_contract"] = contract
         _record_judge_failover(result, ctx.judge)
     finally:
+        # The judge runs here, not in the app: its paid calls never reach the
+        # app database, so evals/spend.py adds this to the attempt (D14).
+        result["judge_cost_usd"] = round(getattr(ctx.judge, "cost_usd", 0.0), 6)
         if ctx.client:
             result["relogin"] = ctx.client.relogins
             try:

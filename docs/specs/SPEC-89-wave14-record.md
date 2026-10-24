@@ -19,6 +19,9 @@
   checks out P⁗. With P′–P⁗, tests measure **+392** against the +370 backstop (product +120, at its cap). The user raised the
   backstop on 2026-10-21 ("Raise it"), for the five `evals/` fixes: the 3.11 line, the memo, Nemotron's cap and last object,
   the bounded re-ask and the range check; no behaviour-guarding test was cut.
+- **P⁵** = `f57f026` = P⁗ + Nemotron's `max_tokens` 4096 → 16384 (SPEC-84's 2026-10-24 amendment; the principal's ruling on
+  three prompts cut off on two runs). Checked offline on rate-state 12541928872: 280/280 cached replies read identically. The
+  gate's frozen sha moves to P⁵; P..P⁵ still measures 33 lines and the parked diff 43.
 - **Deferred to wave 15:** W14-9 (estimate gate; PM-signed, no author hits it), W14-12 (N1/N2 rows), the client's two rules for the
   book's model (N2/N4), `_reason`'s split on `" - "` (N1), `run.py`'s label for external apps (N2), W14-14 outline-JSON
   diagnosis, the panel-memo (F) row.
