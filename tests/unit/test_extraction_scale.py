@@ -1114,3 +1114,83 @@ async def test_extraction_requests_json_object(monkeypatch):
         "p", fast=True, max_tokens=8, user_id=None, purpose="extraction_map", stats={}
     )
     assert sent == [JSON_OBJECT] == [{"type": "json_object"}]
+
+
+class TestCanonicalNames:
+    """W15-5: the four rows the first Claude eval committed on frankenstein. A
+    proper name as written beats a descriptor or a note, and a shared
+    descriptor alias ("the stranger") links no one."""
+
+    def _merged(self, *windows) -> dict:
+        answers = [(w, ce._normalize_window({"characters": c})) for w, c in windows]
+        return {g["name"]: g for g in ce.merge_characters(answers)}
+
+    def test_a_note_in_parentheses_never_outranks_the_name(self):
+        merged = self._merged(
+            (
+                0,
+                [
+                    _cand(
+                        "Rowan Merrow",
+                        ["R. Merrow", "Captain Merrow", "Robert (not used)"],
+                    )
+                ],
+            )
+        )
+        assert set(merged) == {"Rowan Merrow"}
+        assert "Robert" in merged["Rowan Merrow"]["aliases"]
+
+    def test_a_proper_name_beats_a_possessive_descriptor(self):
+        merged = self._merged(
+            (0, [_cand("my dear sister", ["Isolde Sarrow", "Mrs. Sarrow"])])
+        )
+        assert set(merged) == {"Isolde Sarrow"}
+
+    def test_an_unnamed_being_keeps_its_capitalised_label_and_no_pronoun(self):
+        merged = self._merged(
+            (
+                0,
+                [
+                    _cand(
+                        "the being of gigantic stature",
+                        ["The Creature", "I", "the wretch"],
+                    )
+                ],
+            ),
+            (1, [_cand("The creature (unnamed)")]),
+        )
+        assert set(merged) == {"The Creature"}
+        assert set(merged["The Creature"]["aliases"]) == {
+            "the being of gigantic stature",
+            "the wretch",
+        }
+
+    def test_a_shared_descriptor_alias_does_not_fuse_two_people(self):
+        merged = self._merged(
+            (0, [_cand("Emeric Vandel", ["the stranger", "Vandel"])]),
+            (1, [_cand("Soraya", ["The Arabian", "the stranger"])]),
+        )
+        assert set(merged) == {"Emeric Vandel", "Soraya"}
+
+    def test_a_shared_name_with_a_particle_still_links(self):
+        merged = self._merged(
+            (0, [_cand("Abraham Van Helsing", ["Van Helsing"])]),
+            (1, [_cand("The Professor", ["Van Helsing"])]),
+            (2, [_cand("The Doctor"), _cand("d'Artagnan", ["the Gascon"])]),
+        )
+        assert set(merged) == {"Abraham Van Helsing", "The Doctor", "d'Artagnan"}
+
+    def test_reduce_cannot_hand_one_candidate_another_ones_name(self):
+        batch = [
+            {"name": "Emeric Vandel", "aliases": ["Vandel"], "role_hints": []},
+            {"name": "Soraya", "aliases": ["The Arabian"], "role_hints": []},
+        ]
+        raw = {
+            "characters": [
+                {"name": "Emeric Vandel", "aliases": ["Soraya", "he", "Emeric"]}
+            ]
+        }
+        assert ce._attach(batch, raw)["Emeric Vandel"]["aliases"] == [
+            "Vandel",
+            "Emeric",
+        ]

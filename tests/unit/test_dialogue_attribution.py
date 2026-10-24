@@ -23,6 +23,7 @@ from app.core.prompt_markers import CHARACTERS_SECTION, STORY_POSITION
 from app.parsing.character_extractor import (
     CharacterExtractor,
     attribute_speech,
+    is_speech,
     source_paragraphs,
     speaker_matches,
 )
@@ -1311,3 +1312,65 @@ async def test_p19_released_by_another_scene_fails_samples_not_plot(monkeypatch)
     counts = dict(classified=0, later_plot_slots=0)
     why = pc.check_samples_not_plot(prompt, gold, {"corner office": 1}, counts)[0]
     assert why == ["Milo Voss: paragraph 19: narrates corner office (ch 1)"]
+
+
+# W15-6: a Victorian embedded narrative — each paragraph opens a quote and only
+# the last closes it — is the narrator's story, not one uncredited speech.
+NESTED = """Chapter 13
+
+“I now hasten to the more moving part of my story.
+
+“It was on one of these days that I observed the countenance of Fenwick was
+melancholy beyond expression; Alina asked a question.
+
+“Fenwick seemed ravished with delight when he saw her.”"""
+
+
+def test_an_embedded_narrative_is_narration_and_indexes_its_cast():
+    attributed = attribute_speech(NESTED)
+    assert all(s.get("narrated") for spans in attributed[1:] for s in spans)
+    assert speech_paragraphs(NESTED) == frozenset()
+    ex = CharacterExtractor()
+    assert len(ex.extract_character_content(NESTED, "Fenwick")) == 2
+    assert len(ex.extract_character_content(NESTED, "Alina")) == 1
+    # A narrator's "I" is outside quotes: the narrator role does not take it.
+    assert ex.extract_narration(NESTED, "Rowan Merrow", is_narrator=True) == []
+
+
+def test_an_unintroduced_multi_paragraph_quote_stays_speech():
+    """Only a quote run after a heading, a header or a ":"/"—" line is a tale."""
+    text = (
+        'Zara leaned toward the fire.\n\n"I have a long story.\n\n'
+        '"Maria walked out of the hotel in Paris.\n\n"That is all."'
+    )
+    assert not any(s.get("narrated") for p in attribute_speech(text) for s in p)
+    assert CharacterExtractor().extract_character_content(text, "Maria") == []
+
+
+def test_a_tale_that_quotes_someone_is_still_speech_there():
+    text = "He began:--\n\n\u201cI went.\n\n\u201c\u2018Stay with me now,\u2019 she said.\u201d"
+    spans = [p[0] for p in attribute_speech(text)[1:]]
+    assert [s["narrated"] for s in spans] == [True, True]
+    assert [is_speech(s) for s in spans] == [False, True]
+
+
+def test_an_embedded_narrative_still_marks_later_plot():
+    """Codex P2: its paragraphs index as movement, so they must place events."""
+    tale = [
+        "Chapter 13",
+        "\u201cI hid in the hovel beside the cottage all winter.",
+        "\u201cThen a veiled lady rode up on horseback, and Fenwick kissed her hand"
+        " and wept with joy at the cottage door.\u201d",
+    ]
+    plan = [
+        (1, {"title": "Winter", "summary": "The creature hides near the cottage."}),
+        (
+            2,
+            {
+                "title": "Arrival",
+                "summary": "A veiled lady on horseback; Fenwick"
+                " kissed her hand and wept with joy",
+            },
+        ),
+    ]
+    assert later_plot_from(tale, 1, plan) == 2

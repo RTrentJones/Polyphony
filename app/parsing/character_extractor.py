@@ -71,7 +71,8 @@ _SINGLE_QUOTED = re.compile(r"(?<!\w)'(?=\S).*?(?<=\S)'(?!\w)", re.DOTALL)
 def _narration_only(paragraph: str) -> str:
     """The paragraph minus quoted speech — a narrator's "I" is outside quotes.
     Both dialogue styles are stripped: double and single quotation marks."""
-    text = re.sub(r'"[^"]*"', " ", normalize_quotes(paragraph))
+    # A paragraph that opens a quote it never closes is a continued quote.
+    text = re.sub(r'^"[^"]*$|"[^"]*"', " ", normalize_quotes(paragraph))
     return _SINGLE_QUOTED.sub(" ", text)
 
 
@@ -281,7 +282,12 @@ SPEECH_MIN_WORDS = 3
 
 def is_speech(span: dict) -> bool:
     """A quoted span that counts as someone speaking (SPEC-17): credited, or
-    uncredited of SPEECH_MIN_WORDS+ words (a vocative or a scare-quote is not)."""
+    uncredited of SPEECH_MIN_WORDS+ words (a vocative or a scare-quote is not).
+    An embedded narrative (`attribute_speech`) is narration, not speech, unless
+    it quotes someone ('…' of SPEECH_MIN_WORDS+ words)."""
+    if span.get("narrated"):
+        inner = _SINGLE_QUOTED.findall(span["text"])
+        return any(len(q.split()) >= SPEECH_MIN_WORDS for q in inner)
     return bool(span["speaker"]) or len(span["text"].split()) >= SPEECH_MIN_WORDS
 
 
@@ -425,6 +431,16 @@ def narration_of(paragraph: str) -> str:
     return _attribute_paragraph(normalize_quotes(paragraph.strip()))[1]
 
 
+def narrations_of(paragraphs: list[str]) -> list[str]:
+    """Each paragraph's narration (`narration_of`), an embedded narrative's
+    text included: it narrates events, it is not speech (W15-6)."""
+    attributed = attribute_speech("\n\n".join(paragraphs))
+    return [
+        " ".join([narration_of(p), *(s["text"] for s in spans if s.get("narrated"))])
+        for p, spans in zip(paragraphs, attributed)
+    ]
+
+
 def attribute_speech(text: str) -> list[list[dict]]:
     """Per paragraph (``text.split("\\n\\n")`` indices), each quoted span and the
     speaker it is credited to: ``{"text", "speaker"}``. ``speaker`` is the tag's
@@ -439,11 +455,23 @@ def attribute_speech(text: str) -> list[list[dict]]:
     the paragraph's one named speaker; an untagged paragraph of pure speech
     inherits a speaker only when it continues an open quote, or when the
     exchange so far strictly alternates between two named speakers. Nothing
-    else crosses a blank line or another quotation.
+    else crosses a blank line or another quotation. An uncredited quote kept
+    open across paragraphs (each opens a quote, only the last closes it) that
+    follows a heading, a letter or document header, or a line ending in ":",
+    "--" or "—" is an embedded narrative, not speech: its spans are marked
+    ``narrated`` (W15-6). Anywhere else it stays speech.
     """
     result: list[list[dict]] = []
     exchange: list[str] = []  # speakers of the current back-and-forth
     carry: Optional[str] = None  # speaker of the last paragraph's open quote
+    run: list[dict] = []  # the uncredited open quote's spans, one per paragraph
+    prev = ""  # the last non-blank paragraph
+
+    def close_run() -> None:
+        for s in run:
+            s["narrated"] = True
+        run.clear()
+
     for raw in source_paragraphs(text):
         para = normalize_quotes(raw.strip())
         if not para:
@@ -451,7 +479,8 @@ def attribute_speech(text: str) -> list[list[dict]]:
             continue
         spans, narration = _attribute_paragraph(para)
         if not spans:
-            exchange, carry = [], None
+            close_run()
+            exchange, carry, prev = [], None, para
             result.append([])
             continue
         continued = False
@@ -472,7 +501,18 @@ def attribute_speech(text: str) -> list[list[dict]]:
         else:
             exchange = []  # unknown, mixed or pronoun-only: not a named exchange
         carry = None if spans[-1]["closed"] else spans[-1]["speaker"]
-        result.append([{"text": s["text"], "speaker": s["speaker"]} for s in spans])
+        out = [{"text": s["text"], "speaker": s["speaker"]} for s in spans]
+        opens = para[0] == '"' and spans[0]["speaker"] is None
+        if not (run and opens):
+            close_run()
+        introduced = any(_heading(prev)) or prev.endswith((":", "--", "—"))
+        if opens and (run or (introduced and spans[0]["closed"] is False)):
+            run.append(out[0])
+            if spans[0]["closed"] or len(spans) > 1:
+                close_run()
+        result.append(out)
+        prev = para
+    close_run()
     return result
 
 

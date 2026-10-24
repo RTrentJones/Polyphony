@@ -62,8 +62,12 @@ from app.parsing.character_extractor import normalize_quotes, tag_spans
 from app.parsing.names import (
     HONORIFICS,
     NON_NAME_TOKENS,
+    PARTICLES,
+    PRONOUNS,
+    name_core,
     norm,
     significant,
+    strip_notes,
     tokens,
 )
 
@@ -279,20 +283,25 @@ def verbatim_evidence(quotes: list[str], window: str) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+def _names_someone(name: str) -> bool:
+    """A bare "Count" or "Dr." names no one, and neither does a pronoun."""
+    return bool(significant(name)) and norm(name) not in PRONOUNS
+
+
 def _clean_aliases(name: str, aliases) -> list[str]:
-    """Distinct aliases that name somebody (a bare "Count" or "Dr." names no one)."""
+    """Distinct aliases that name somebody, without parenthetical notes."""
     out: list[str] = []
     seen = {norm(name)}
     for a in aliases if isinstance(aliases, (list, tuple)) else []:
-        a = " ".join(_s(a).split())
-        if a and significant(a) and norm(a) not in seen:
+        a = strip_notes(_s(a))
+        if a and _names_someone(a) and norm(a) not in seen:
             seen.add(norm(a))
             out.append(a[:255])
     return out
 
 
 def _normalize_character(c: dict) -> dict:
-    name = " ".join(_s(c.get("name")).split())[:255]
+    name = strip_notes(_s(c.get("name")))[:255]
     return {
         "name": name,
         "role": _role(c.get("role")),
@@ -345,8 +354,8 @@ def _normalize_window(raw: dict) -> dict:
     for c in raw.get("characters") or []:
         if not isinstance(c, dict):
             continue
-        name = " ".join(_s(c.get("name")).split())[:255]
-        if not name or not significant(name):
+        name = strip_notes(_s(c.get("name")))[:255]
+        if not name or not _names_someone(name):
             continue
         chars.append(
             {
@@ -376,9 +385,9 @@ def _normalize_window(raw: dict) -> dict:
         "comps": _s(signals.get("comps")),
         "narration": _s(signals.get("narration")),
         "narrators": [
-            " ".join(_s(n).split())
+            strip_notes(_s(n))
             for n in (narrators if isinstance(narrators, list) else [])
-            if _s(n) and significant(_s(n))
+            if _names_someone(strip_notes(_s(n)))
         ],
     }
     return {
@@ -402,8 +411,12 @@ This is part {label} of {total} of the source.
 List who and what appears in THIS part of the source. Do NOT invent — only what
 this part's text supports.
 - characters: every named person (or named being) who acts, speaks, narrates or
-  is discussed. "aliases" are the other names and titles this text uses for the
-  SAME person (e.g. a married name, "Mrs. X", a nickname). "evidence" is up to
+  is discussed. "name" is their proper name exactly as this text writes it,
+  never a description or a note in parentheses; a being the text never names
+  goes under the label the text uses for it most (do not invent a name).
+  "aliases" are the other names and titles this text uses for the SAME person
+  (e.g. a married name, "Mrs. X", a nickname), as written: no pronouns, no
+  notes. "evidence" is up to
   {_MAX_MAP_EVIDENCE} short quotes from this part (one sentence each) showing who
   they are, what they want, and how they talk or act.
 - canon_entries: named places, organisations, factions, objects and ideas.
@@ -552,7 +565,8 @@ def merge_characters(window_answers: list[tuple[int, dict]], text: str = "") -> 
     1. the same name (normalised: case, punctuation, whitespace);
     2. a candidate whose name is another candidate's alias — unless two
        incompatible people claim that alias ("Harker" for Jonathan and Mina);
-    3. a shared alias, when it is multi-token or its owners are compatible;
+    3. a shared alias, when it is a proper name of two or more significant
+       words or its owners are compatible ("the stranger" links no one);
     4. names differing only by honorifics, when at least two significant
        tokens remain ("Miss Nora Vance" ~ "Nora Vance");
     5. a group whose every name is contained in a fuller name of exactly ONE
@@ -588,18 +602,21 @@ def merge_characters(window_answers: list[tuple[int, dict]], text: str = "") -> 
 
     alias_owners: dict[str, set[str]] = defaultdict(set)
     alias_cands: dict[str, list[int]] = defaultdict(list)
+    alias_named: dict[str, bool] = defaultdict(bool)
     for i, c in enumerate(cands):
         for a in c["aliases"]:
             alias_owners[norm(a)].add(c["name"])
             alias_cands[norm(a)].append(i)
+            # Two name words, a particle counting ("Van Helsing", "Mr. de
+            # Winter"); "the young Englishman" is one.
+            particles = sum(norm(w) in PARTICLES for w in name_core(a).split())
+            alias_named[norm(a)] |= _proper(a) >= 1 and _proper(a) + particles >= 2
     for key, owners in alias_owners.items():
         owners_ok = _all_compatible(owners)
         if key in by_primary and owners_ok:  # rule 2
             for i in alias_cands[key]:
                 uf.union(by_primary[key][0], i)
-        if len(alias_cands[key]) > 1 and (  # rule 3
-            len(significant(key)) >= 2 or owners_ok
-        ):
+        if len(alias_cands[key]) > 1 and (alias_named[key] or owners_ok):  # rule 3
             first = alias_cands[key][0]
             for i in alias_cands[key][1:]:
                 uf.union(first, i)
@@ -666,20 +683,40 @@ def merge_characters(window_answers: list[tuple[int, dict]], text: str = "") -> 
 
 def _name_tokens(form: str) -> list[str]:
     """The capitalised, significant surface tokens of a name form ("Mr. Voss"
-    -> ["Voss"]; "Milo Voss" -> ["Milo", "Voss"])."""
+    -> ["Voss"]; "Milo Voss" -> ["Milo", "Voss"]). An elision prefix is not
+    the case test ("d'Artagnan", "al-Rashid"), and a caseless script is."""
     out = []
     for raw in form.split():
         tok = raw.strip(".,;:!?\"'()[]")
         key = norm(tok)
+        head = re.sub(r"^(?:[dl]['’]|al-)", "", tok, flags=re.I)[:1]
         if (
             len(tok) >= 2
-            and tok[0].isupper()
+            and (head.isupper() or head.isalpha() and not head.islower())
             and key
             and key not in HONORIFICS
             and key not in NON_NAME_TOKENS
         ):
             out.append(tok)
     return out
+
+
+def _proper(form: str) -> int:
+    """How many proper-name words a form holds once notes and a leading
+    determiner or possessive are gone: 0 for a descriptor ("my dear sister",
+    "Fenwick's father")."""
+    return sum(not _possessive(t) for t in _name_tokens(name_core(form)))
+
+
+def _plain(form: str) -> int:
+    """The core's other words, honorifics and particles aside ("dear sister")."""
+    words = name_core(form).split()
+    skip = HONORIFICS | NON_NAME_TOKENS
+    return sum(norm(w) not in skip for w in words) - _proper(form)
+
+
+def _possessive(word: str) -> bool:
+    return word.endswith(("'s", "’s"))
 
 
 def _count_group_mentions(groups: list[dict], text: str) -> None:
@@ -736,24 +773,35 @@ def _fold_group(members: list[dict], is_title: Callable[[str], bool]) -> dict:
         for a in m["aliases"]:
             surfaces[norm(a)][a] += 1
 
+    def surface(key: str) -> str:
+        # The most capitalised spelling, then the most used ("The Creature"
+        # over a primary "The creature").
+        return max(surfaces[key], key=lambda s: (_proper(s), surfaces[key][s]))
+
     def rank(key: str):
-        # Not a title, then most significant tokens, then most often used as
-        # the name. A one-token name keeps its honorific ("Count Vasska" over
-        # "Vasska"); a full name drops it ("Nora Vance" over "Miss Nora Vance").
-        sig = len(significant(key))
+        # Not a title, then most proper-name words (a name always beats a
+        # descriptor: "Isolde Sarrow" over "my dear sister"), then fewest
+        # other words, then most significant tokens, then most often used
+        # as the name. A one-token name keeps its honorific ("Count Vasska"
+        # over "Vasska"); a full name drops it ("Nora Vance" over "Miss Nora
+        # Vance").
+        form = surface(key)
+        sig = len(significant(name_core(form)) or significant(key))
         n_tok = len(tokens(key))
-        title = len(surfaces) > 1 and is_title(surfaces[key].most_common(1)[0][0])
+        title = len(surfaces) > 1 and is_title(form)
         return (
             not title,
+            _proper(form),
+            -_plain(form),
             sig,
             primary_counts.get(key, 0),
             n_tok if sig == 1 else -n_tok,
         )
 
     best_key = max(sorted(surfaces), key=rank)
-    name = surfaces[best_key].most_common(1)[0][0]
+    name = surface(best_key)
     aliases = [
-        surfaces[k].most_common(1)[0][0]
+        surface(k)
         for k in sorted(surfaces, key=lambda k: (-sum(surfaces[k].values()), k))
         if k != best_key
     ]
@@ -967,13 +1015,16 @@ def _attach(batch: list[dict], raw: dict) -> dict[str, dict]:
         for c in (raw.get("characters") if isinstance(raw, dict) else None) or []
         if isinstance(c, dict) and _s(c.get("name"))
     ]
+    forms = {norm(f) for g in batch for f in (g["name"], *g["aliases"])}
     for g in batch:
         keys = {norm(g["name"]), *(norm(a) for a in g["aliases"])}
         hit = next((e for e in entries if norm(e["name"]) in keys), None)
         if hit is None:
             continue
         entry = {**hit, "name": g["name"]}
-        entry["aliases"] = _clean_aliases(g["name"], [*g["aliases"], *hit["aliases"]])
+        # A reduce alias that is another candidate's name is not theirs.
+        extra = [a for a in hit["aliases"] if norm(a) not in forms - keys]
+        entry["aliases"] = _clean_aliases(g["name"], [*g["aliases"], *extra])
         if not entry["role"] and g["role_hints"]:
             entry["role"] = g["role_hints"][0]
         out[g["name"]] = entry

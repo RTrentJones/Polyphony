@@ -32,10 +32,11 @@ def test_the_sweep_releases_p2_in_w10s_later_scenes_only():
 def test_the_dracula_mode_lists_every_releasable_speech_beat(capsys):
     """(F) G-D's superset (G-D itself failed, SPEC-77): one row per speech-beat
     line the product indexes as movement; under `is_speech` dracula has none
-    (R-GD-1 closed)."""
+    (R-GD-1 closed). 34 paragraphs of quoted letters after their headers are
+    embedded narrative, not speech (W15-6)."""
     ms.main(["--book", "dracula"])
     out = capsys.readouterr().out.splitlines()
-    assert out == ["dracula: 145 speech paragraphs; 0 speech-beat lines"]
+    assert out == ["dracula: 111 speech paragraphs; 0 speech-beat lines"]
 
 
 def test_a_missing_archive_raises():

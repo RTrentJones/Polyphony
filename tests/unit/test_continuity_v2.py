@@ -336,3 +336,54 @@ async def test_the_outline_check_reads_the_live_sources_oldest_first(
     )
     await async_session.commit()
     assert await cont.source_texts(async_session, test_book.id) == ["first", "later"]
+
+
+_LETTERS = "\n\n".join(
+    f"{place}, {day}, 17—.\n\nI write to you, my sister."
+    for place, day in [
+        ("St. Novaskol", "Dec. 11th"),
+        ("Arkosk", "28th March"),
+        ("At sea", "July 7th"),
+        ("Aboard", "August 5th"),
+        ("Arkosk", "August 19th"),
+    ]
+)
+
+
+def test_the_era_ledger_flags_a_date_a_century_off():
+    """(F) W15-7: a date in the first chunk is checked against every other
+    date in the prose, deterministically, with a verbatim quote."""
+    flipped = _LETTERS.replace("Dec. 11th, 17—", "Dec. 11th, 18—")
+    (finding,) = cont.era_findings([_scene(1, flipped)])
+    assert finding["type"] == "timeline" and finding["scene_id"] == "s1"
+    assert "Dec. 11th, 18—" in finding["quote"] and finding["quote"] in " ".join(
+        flipped.split()
+    )
+    assert "1700s" in finding["detail"]
+    dated = " ".join(
+        f"On May {d}, {y}, I wrote home." for d, y in enumerate([1797] * 4 + [1897], 1)
+    )
+    assert len(cont.era_findings([_scene(1, dated)])) == 1  # "1797," still counts
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        _LETTERS,  # one era throughout
+        " ".join(f"March {d}, 2023." for d in range(1, 6)) + " Born in 1987.",
+        _LETTERS + "\n\nIn May 1500 men marched; in March 2000 guests came.",
+        _LETTERS.replace("17—", "1889") + " Built in the sixteenth century.",
+        "Paris, 1889.\n\nMay 1790. June 1890.",  # too few dates to vote
+    ],
+)
+def test_the_era_ledger_is_silent_without_a_clear_majority(text):
+    assert cont.era_findings([_scene(1, text)]) == []
+
+
+async def test_era_findings_reach_the_report_and_the_model(monkeypatch):
+    fake = FakeLLM(['{"findings": []}'])
+    monkeypatch.setattr(cont, "get_llm_client", lambda: fake)
+    flipped = _LETTERS.replace("Arkosk, 28th March, 17—", "Arkosk, 28th March, 18—")
+    result = await cont.run_continuity_check([_scene(1, flipped)], "<canon>f</canon>")
+    assert [f["type"] for f in result.findings] == ["timeline"]
+    assert "<earlier_findings>" in fake.prompts[0]
