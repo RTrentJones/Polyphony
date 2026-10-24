@@ -28,3 +28,9 @@
 - **W16-3 re-draw** (run 40074031809, frankenstein, polar-ship probe): passes 0.533 / 0.633 / 0.433, mean 0.533 ± 0.082
   (chance 0.333). No regression: the post-PR-B 0.40 / 0.27 were low draws within that spread. Last pass per character: Rowan
   9/10, Emeric 4/10, the Creature 0/10 (normalised 0.567: 6 / 7 / 4). Frankenstein now opts into a topic-neutral probe set.
+- **D16-4 amendment.** PR B's three review rounds (an addressed bystander taking a chapter; "said:" tales as dialogue; the
+  letter-signature rule's crash, initial-only and quoted-letter cases) bring `app/` to +147 and the wave's tests to +194
+  (PR A 78, PR B 116); the user accepted the overrun on 2026-10-24 ("Accept the overrun").
+- **First R2 draw** (run 40081633631, prose only, `4763272`): Frankenstein R2 applies in 3 of 4 scenes (25 lines) and
+  scores **0.31**: the first real voice measurement, and a low one. Dracula: 0 applicable scenes (no scene had two cast
+  speakers with voice samples). The judge chain fell through to Claude (labelled). Spend $3.25 (month: $26.08 of $40).
