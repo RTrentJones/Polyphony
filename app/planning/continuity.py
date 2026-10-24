@@ -152,7 +152,7 @@ def chunk_scenes(
 
 
 _YEAR = (
-    r"(?<![\d£$€])(1\d|20)\d\d(?![\d,])"
+    r"(?<![\d£$€])(1\d|20)\d\d(?!\d|,\d)"
     r"(?!\s+(?:men|people|guests|pounds|dollars|miles|feet|souls|troops)\b)"
 )
 _MONTH = r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?"

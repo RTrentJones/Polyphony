@@ -360,6 +360,10 @@ def test_the_era_ledger_flags_a_date_a_century_off():
         flipped.split()
     )
     assert "1700s" in finding["detail"]
+    dated = " ".join(
+        f"On May {d}, {y}, I wrote home." for d, y in enumerate([1797] * 4 + [1897], 1)
+    )
+    assert len(cont.era_findings([_scene(1, dated)])) == 1  # "1797," still counts
 
 
 @pytest.mark.parametrize(
