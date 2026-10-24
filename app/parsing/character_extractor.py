@@ -431,6 +431,16 @@ def narration_of(paragraph: str) -> str:
     return _attribute_paragraph(normalize_quotes(paragraph.strip()))[1]
 
 
+def narrations_of(paragraphs: list[str]) -> list[str]:
+    """Each paragraph's narration (`narration_of`), an embedded narrative's
+    text included: it narrates events, it is not speech (W15-6)."""
+    attributed = attribute_speech("\n\n".join(paragraphs))
+    return [
+        " ".join([narration_of(p), *(s["text"] for s in spans if s.get("narrated"))])
+        for p, spans in zip(paragraphs, attributed)
+    ]
+
+
 def attribute_speech(text: str) -> list[list[dict]]:
     """Per paragraph (``text.split("\\n\\n")`` indices), each quoted span and the
     speaker it is credited to: ``{"text", "speaker"}``. ``speaker`` is the tag's

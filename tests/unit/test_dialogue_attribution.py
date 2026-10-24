@@ -1352,3 +1352,25 @@ def test_a_tale_that_quotes_someone_is_still_speech_there():
     spans = [p[0] for p in attribute_speech(text)[1:]]
     assert [s["narrated"] for s in spans] == [True, True]
     assert [is_speech(s) for s in spans] == [False, True]
+
+
+def test_an_embedded_narrative_still_marks_later_plot():
+    """Codex P2: its paragraphs index as movement, so they must place events."""
+    tale = [
+        "Chapter 13",
+        "\u201cI hid in the hovel beside the cottage all winter.",
+        "\u201cThen a veiled lady rode up on horseback, and Fenwick kissed her hand"
+        " and wept with joy at the cottage door.\u201d",
+    ]
+    plan = [
+        (1, {"title": "Winter", "summary": "The creature hides near the cottage."}),
+        (
+            2,
+            {
+                "title": "Arrival",
+                "summary": "A veiled lady on horseback; Fenwick"
+                " kissed her hand and wept with joy",
+            },
+        ),
+    ]
+    assert later_plot_from(tale, 1, plan) == 2

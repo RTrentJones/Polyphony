@@ -332,13 +332,13 @@ def later_plot_from(
     words with, at RESTATES_MIN or more; within TIE_WORDS of its best line, the
     earliest chapter takes it, so a paragraph's chapter does not depend on the
     scope (monotone)."""
-    from app.parsing.character_extractor import narration_of
+    from app.parsing.character_extractor import narrations_of
     from app.planning.fidelity import FUNCTION_WORDS
     from app.planning.planned_beat import beat_scene_description
 
     lines = [(n, _words(beat_scene_description(b), FUNCTION_WORDS)) for n, b in plan]
-    for i, paragraph in enumerate(paragraphs):
-        words = _words(narration_of(paragraph))
+    for i, narration in enumerate(narrations_of(paragraphs)):
+        words = _words(narration)
         scores = [(len(words & w), n) for n, w in lines]
         best = max((s for s, _ in scores), default=0)
         floor = max(RESTATES_MIN, best - TIE_WORDS)
