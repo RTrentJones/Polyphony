@@ -135,7 +135,10 @@ async def index_characters_voice(
         )
         # The whole cast (not just the targets) disambiguates a narrator heading
         # like "Dr. Ward's Diary" when two Wards exist.
-        cast = [{"name": c.name, "aliases": c.aliases or []} for c in book_cast]
+        cast = [
+            {"name": c.name, "aliases": c.aliases or [], "role": c.role or ""}
+            for c in book_cast
+        ]
         targets = [
             (c.id, c.name, c.aliases or [], "narrator" in (c.role or "").lower())
             for c in book_cast

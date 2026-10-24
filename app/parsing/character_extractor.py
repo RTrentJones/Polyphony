@@ -848,6 +848,8 @@ class CharacterExtractor:
             elif para and not any(s.get("narrated") for s in attributed[i]):
                 parts[-1].append((i, para))
         whole = {owner_of(n) for n in self_named_narrators(text)}
+        # Two narrator-role members: an unidentified "I" is no one's (W16).
+        lone = sum("narrator" in (c.get("role") or "").lower() for c in cast) < 2
         # A letter's signature line before a heading ("R. Merrow", "R.M.").
         sig, after, paras = {}, "", [p.strip() for p in source_paragraphs(text)]
         for i in range(len(paras) - 1, -1, -1):
@@ -903,7 +905,7 @@ class CharacterExtractor:
             if not named and not heard & {owner_of(s["speaker"]) for _, s in talk}:
                 named = heard if len(heard) == 1 else named
             if named == {character_name} or (
-                not named and (is_narrator or whole == {character_name})
+                not named and (is_narrator and lone or whole == {character_name})
             ):
                 for i, para in part:
                     if _FIRST_PERSON.search(_narration_only(para)):

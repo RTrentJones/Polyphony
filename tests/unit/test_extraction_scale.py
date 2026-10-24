@@ -1139,6 +1139,20 @@ class TestNarratorVoice:
         ]
         assert got == [1, 1, 0]
 
+    @pytest.mark.parametrize("roles, got", [(2, [0, 0]), (1, [1, 0])])
+    def test_two_narrators_leave_an_unidentified_i_to_no_one(self, roles, got):
+        """W16: with two narrator-role members, an unsigned letter is no one's."""
+        from app.parsing.character_extractor import CharacterExtractor
+
+        names = ("Rowan Merrow", "The Creature")
+        cast = [{"name": n, "aliases": [], "role": "narrator"} for n in names]
+        cast[1]["role"] = "narrator" if roles == 2 else "protagonist"
+        x, text = CharacterExtractor(), "Letter 4\n\nI sailed north."
+        assert [
+            len(x.extract_narration(text, c["name"], cast=cast, is_narrator=k < roles))
+            for k, c in enumerate(cast)
+        ] == got
+
     def test_pdf_heading_block_names_the_narrator(self):
         # A PDF keeps a heading block's line breaks ("CHAPTER VIII" over the
         # journal heading, in one paragraph): each line is read as a heading.
