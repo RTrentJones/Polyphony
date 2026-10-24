@@ -365,8 +365,9 @@ def test_the_era_ledger_flags_a_date_a_century_off():
     )
     assert len(cont.era_findings([_scene(1, dated)])) == 1  # "1797," still counts
     # W16-5: a dateline opening a paragraph counts even inside a quote.
-    read = _LETTERS + '\n\n"Whitby, 24 July 1897," she read aloud.'
-    assert len(cont.era_findings([_scene(1, read)])) == 1
+    for line in ('"Whitby, 24 July 1897,"', '"24 July 1897.\nI arrived safely,"'):
+        read = _LETTERS + f"\n\n{line} she read aloud."
+        assert len(cont.era_findings([_scene(1, read)])) == 1  # with or without place
 
 
 @pytest.mark.parametrize(

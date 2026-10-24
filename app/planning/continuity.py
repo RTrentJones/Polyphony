@@ -169,7 +169,10 @@ _ERA = re.compile(
 )
 
 
-_DATELINE = re.compile(r"[\"\u201c]?[A-Z][\w .'-]*,(?:\s+\d{1,2}(?:st|nd|rd|th)?)?$")
+_DATELINE = re.compile(
+    r"[\"\u201c]?(?:[A-Z][\w .'-]*,(?:\s+\d{1,2}(?:st|nd|rd|th)?)?"
+    r"|\d{1,2}(?:st|nd|rd|th)?)$"
+)
 
 
 def _spoken(text: str, at: int, year: str) -> bool:
