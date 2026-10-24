@@ -1209,6 +1209,21 @@ class TestCanonicalNames:
         )
         assert set(merged) == {"Abraham Van Helsing", "The Doctor", "d'Artagnan"}
 
+    def test_a_particle_surname_does_not_fuse_two_owners(self):
+        """W16-5: the alias's proper word must be in one name and the other's
+        too (or the other is a descriptor); Mr. de Winter still links."""
+        rows = (
+            (0, [_cand("Fernand Mondego", ["M. de Morcerf"])]),
+            (1, [_cand("Albert de Morcerf", ["M. de Morcerf"])]),
+            (2, [_cand("Rebecca", ["Mrs. de Winter"])]),
+            (3, [_cand("the narrator", ["Mrs. de Winter"])]),
+            (4, [_cand("Maxim de Winter", ["Mr. de Winter"])]),
+            (5, [_cand("my husband", ["Mr. de Winter"])]),
+        )
+        answers = [(w, ce._normalize_window({"characters": c})) for w, c in rows]
+        aliases = [g["aliases"] for g in ce.merge_characters(answers)]
+        assert len(aliases) == 5 and ["Mr. de Winter", "my husband"] in aliases
+
     def test_reduce_cannot_hand_one_candidate_another_ones_name(self):
         batch = [
             {"name": "Emeric Vandel", "aliases": ["Vandel"], "role_hints": []},

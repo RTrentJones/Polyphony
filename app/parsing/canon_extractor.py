@@ -603,6 +603,7 @@ def merge_characters(window_answers: list[tuple[int, dict]], text: str = "") -> 
     alias_owners: dict[str, set[str]] = defaultdict(set)
     alias_cands: dict[str, list[int]] = defaultdict(list)
     alias_named: dict[str, bool] = defaultdict(bool)
+    particled: dict[str, set] = {}  # a particle alias's proper words
     for i, c in enumerate(cands):
         for a in c["aliases"]:
             alias_owners[norm(a)].add(c["name"])
@@ -611,15 +612,29 @@ def merge_characters(window_answers: list[tuple[int, dict]], text: str = "") -> 
             # Winter"); "the young Englishman" is one.
             particles = sum(norm(w) in PARTICLES for w in name_core(a).split())
             alias_named[norm(a)] |= _proper(a) >= 1 and _proper(a) + particles >= 2
+            if particles:
+                particled[norm(a)] = {norm(t) for t in _name_tokens(name_core(a))}
+
+    def shares(key: str, x: int, y: int) -> bool:
+        """A particle alias ("M. de Morcerf") links two candidates only when its
+        proper word is in one's name and the other's too or a descriptor:
+        Fernand Mondego and Albert de Morcerf stay two (W16-5)."""
+        words, names = particled.get(key), (cands[x]["name"], cands[y]["name"])
+        has = [words is None or words <= set(norm(n).split()) for n in names]
+        loose = [name_core(n) != strip_notes(n) or not _proper(n) for n in names]
+        return any(has) and all(h or d for h, d in zip(has, loose))
+
     for key, owners in alias_owners.items():
         owners_ok = _all_compatible(owners)
         if key in by_primary and owners_ok:  # rule 2
             for i in alias_cands[key]:
                 uf.union(by_primary[key][0], i)
         if len(alias_cands[key]) > 1 and (alias_named[key] or owners_ok):  # rule 3
-            first = alias_cands[key][0]
-            for i in alias_cands[key][1:]:
-                uf.union(first, i)
+            idx = alias_cands[key]
+            for k, x in enumerate(idx):
+                for y in idx[k + 1 :]:
+                    if owners_ok or shares(key, x, y):
+                        uf.union(x, y)
 
     # Rule 4: same significant tokens (>= 2), honorifics aside.
     by_sig: dict[frozenset, list[int]] = defaultdict(list)
