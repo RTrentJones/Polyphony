@@ -364,6 +364,10 @@ def test_the_era_ledger_flags_a_date_a_century_off():
         f"On May {d}, {y}, I wrote home." for d, y in enumerate([1797] * 4 + [1897], 1)
     )
     assert len(cont.era_findings([_scene(1, dated)])) == 1  # "1797," still counts
+    # W16-5: a dateline opening a paragraph counts even inside a quote.
+    for line in ('"Whitby, 24 July 1897,"', '"24 July 1897.\nI arrived safely,"'):
+        read = _LETTERS + f"\n\n{line} she read aloud."
+        assert len(cont.era_findings([_scene(1, read)])) == 1  # with or without place
 
 
 @pytest.mark.parametrize(
@@ -374,6 +378,9 @@ def test_the_era_ledger_flags_a_date_a_century_off():
         _LETTERS + "\n\nIn May 1500 men marched; in March 2000 guests came.",
         _LETTERS.replace("17—", "1889") + " Built in the sixteenth century.",
         "Paris, 1889.\n\nMay 1790. June 1890.",  # too few dates to vote
+        _LETTERS + '\n\n"In the year 1492 Columbus sailed," he said.',  # W16-5
+        _LETTERS + "\n\nIn May 1500 soldiers marched.",
+        _LETTERS + "\n\nIn June 1600 more came.",
     ],
 )
 def test_the_era_ledger_is_silent_without_a_clear_majority(text):
