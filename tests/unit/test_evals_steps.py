@@ -153,6 +153,12 @@ def test_a_renamed_corpus_leaks_no_original_and_renames_one_to_one(book):
             assert not set(rep.split()) & originals, rep
 
 
+def test_dracula_card_is_signed_with_the_renamed_initial():
+    """(F) W16-4: the Count (Vasska) signs his card "--V.", not "--D."."""
+    text = pipeline.load_excerpts("dracula")
+    assert "wait for me.--V.”" in text and "--D." not in text
+
+
 async def test_attribution_creates_book_scoped_characters(tmp_path, monkeypatch):
     seen = []
 
@@ -193,6 +199,30 @@ async def test_attribution_creates_book_scoped_characters(tmp_path, monkeypatch)
             "wilson95": (0.0, 0.28),
         },
     }
+
+
+async def test_attribution_cycles_a_corpus_neutral_probe_set(tmp_path, monkeypatch):
+    """(F) W16-3: an opted-in corpus cycles its everyday prompts across the
+    draws, the same set for every character; frankenstein opts in."""
+
+    async def fake_many(texts):
+        return [[1.0, 0.0] for _ in texts]
+
+    async def fake_one(text):
+        return [1.0, 0.0]
+
+    monkeypatch.setattr(embed, "embed_many", fake_many)
+    monkeypatch.setattr(embed, "embed_one", fake_one)
+    neutral = pipeline.load_corpus("frankenstein")[1]["voice_situations"]
+    assert len(neutral) >= 3
+    gt = {"synopsis": "s", "voice_situation": "polar", "voice_situations": neutral}
+    gt["gold_lines"] = {w: {"train": ["a"], "test": ["b"]} for w in ("A", "B")}
+    client = _FakeClient({})
+    out = await pipeline.step_attribution(_ctx(tmp_path, client, gt))
+    draws = [neutral[d % len(neutral)] for d in range(pipeline.ATTRIBUTION_DRAWS)]
+    assert client.prompts == draws * 2 and out["probe_set"] == "neutral"
+    assert [r["probe"] for r in out["detail"]] == draws * 2
+    assert "normalised" in out and "polar" not in client.prompts
 
 
 async def test_client_refuses_a_character_without_a_book():
@@ -523,6 +553,41 @@ def test_r2_lines_are_the_ones_credited_to_the_scene_cast():
     assert pipeline.mask_names(got[0]["line"], ["Milo Voss", "Milo"]) == (
         "Read it, [name],"
     )
+
+
+class _SpeakerJudge(_RubricJudge):
+    def __init__(self, *speakers):
+        super().__init__()
+        self.speakers = list(speakers)
+
+    async def ask_json(self, prompt):
+        return {"speakers": self.speakers}
+
+
+async def test_the_judge_credits_the_lines_tags_leave_uncredited(tmp_path):
+    """(F) W16-1 (D16-5): pronoun-tagged lines take the judge's speakers (an
+    alias resolves; one speaker's run in a paragraph is one line), so R2
+    applies; an "other" or unknown speaker's line is excluded. B1: a reply of
+    the wrong length credits nothing."""
+    client, said = _ProductClient(), '"Is it?" he asked. "Truly?"\n\n"No," she said.'
+    get = client.get_scene
+    lines = f'{said}\n\n"Ice," a clerk said.\n\n"Go," he said.'
+    client.get_scene = lambda sid: _with(get(sid), content=lines)
+    who = ["Milo Voss", "Milo", "ms. okafor", "other", "Edric"]
+    out = await pipeline.step_prose(_cel_ctx(tmp_path, client, _SpeakerJudge(*who)))
+    s = out["scenes"][0]
+    assert s["spoken_lines"] == [
+        {"speaker": "Milo Voss", "line": "Is it? Truly?"},
+        {"speaker": "Zara Okafor", "line": "No,"},
+    ]
+    assert s["r2_source"] == "judge" and s["rubrics"]["R2"]["score"] == 0.8
+    assert (out["r2_applicable"], out["r2_lines"]) == (1.0, 4)
+    out = await pipeline.step_prose(_cel_ctx(tmp_path, client, _SpeakerJudge(*who[1:])))
+    assert (out["r2_applicable"], out["r2_lines"]) == (0.0, 0)
+
+
+async def _with(scene, **kw):
+    return {**(await scene), **kw}
 
 
 async def test_prose_writes_the_planned_scenes_of_chapter_1(tmp_path):

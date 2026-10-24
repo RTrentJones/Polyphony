@@ -209,6 +209,36 @@ async def _judge(ctx, rubric: str, content: str) -> tuple[float | None, str]:
     return j.score, j.explanation
 
 
+async def _judge_speakers(ctx, text: str, forms: dict, lines: list[str]) -> list:
+    """W16-1 (D16-5): the judge names each numbered line's speaker, resolved
+    to one cast member of `forms` ({name: forms}) or "other" (None). A reply
+    of the wrong length leaves every line unjudged (a merged or split line
+    would shift each later speaker)."""
+    from app.parsing.names import match
+    from evals.harness.judge import JudgeUnavailable
+
+    if not lines:
+        return []
+    ask = f'SCENE:\n{text}\n\nCAST: {", ".join(forms)}\n\nName the speaker of each '
+    ask += "numbered line by context only (speech tags, turn order, who is addressed),"
+    ask += ' never by voice: one CAST name, or "other" if unclear. JSON {"speakers": '
+    ask += f"[...]}} with exactly {len(lines)} entries, in order:\n"
+    try:
+        got = (
+            await ctx.judge.ask_json(
+                ask + "\n".join(f"{n + 1}. {ln}" for n, ln in enumerate(lines))
+            )
+        ).get("speakers")
+    except JudgeUnavailable:
+        got = None
+    if not isinstance(got, list) or len(got) != len(lines):
+        return [None] * len(lines)
+    who = [
+        [n for n, fs in forms.items() if any(match(str(g), f) for f in fs)] for g in got
+    ]
+    return [w[0] if len(w) == 1 else None for w in who]
+
+
 # W15-2: a judge answer that says the input was absent when it was given.
 _CLAIMS_EMPTY = re.compile(
     r"\bno (artifact|dialogue|text|outline|prose|lines?)( text)? "
@@ -313,11 +343,12 @@ def mask_names(line: str, names: list[str]) -> str:
     return line
 
 
-def cast_spoken_lines(text: str, cast: list[str], forms: dict) -> list[dict]:
+def cast_spoken_lines(text: str, cast: list[str], forms: dict, every=False) -> list:
     """[{speaker, line}] for each quoted span the product's own speech rule
     (SPEC-17: `attribute_speech` + `speaker_matches`) credits to one of the
     scene's `cast`, in order (W15-3). A pronoun tag, an invented speaker and an
-    untagged line credit no one, so they are not R2's to grade."""
+    untagged line credit no one, so they are not R2's to grade; with `every`
+    they are kept, speaker None, for the judge to credit (W16-1)."""
     from app.parsing.character_extractor import attribute_speech, speaker_matches
 
     members = [{"name": n, "aliases": forms.get(n, [n])[1:]} for n in cast]
@@ -338,8 +369,9 @@ def cast_spoken_lines(text: str, cast: list[str], forms: dict) -> list[dict]:
             )
             if who and who == last:
                 out[-1]["line"] += " " + span["text"]
-            elif who:
-                out.append({"speaker": who, "line": span["text"]})
+            elif who or (every and span["text"]):
+                row = {"speaker": who, "line": span["text"]}
+                out.append(row | {"para": id(para)} if every else row)
             last = who
     return out
 
@@ -571,9 +603,15 @@ async def step_attribution(ctx: StepContext) -> dict:
 
     results, generated, probes = [], [], []
     empty = 0
+    # W16-3: a corpus may opt into `voice_situations`, everyday prompts neutral
+    # to every voice, cycled across the draws; else W9-2 (a)'s one situation.
+    neutral = ctx.ground_truth.get("voice_situations") or []
     for char, draw in ((c, d) for c in gold for d in range(ATTRIBUTION_DRAWS)):
-        # W9-2 (a): one symmetric situation for every character (SPEC-67).
-        probe = ctx.ground_truth["voice_situation"]
+        probe = (
+            neutral[draw % len(neutral)]
+            if neutral
+            else ctx.ground_truth["voice_situation"]
+        )
 
         async def gen(_char=char, _probe=probe):
             r = await ctx.client.test_dialogue(char_ids[_char], _probe)
@@ -619,6 +657,7 @@ async def step_attribution(ctx: StepContext) -> dict:
         "w9_9_p0": not any((r["wilson95"] or (0, 0))[0] > 0.33 for r in per.values()),
         "status": "reported",
         "reference": "train",
+        "probe_set": "neutral" if neutral else "situation",
         # W15-4: topic-normalised accuracy, reported beside the raw score.
         "normalised": attribution.accuracy(normed)
         | {
@@ -1287,10 +1326,32 @@ async def step_prose(ctx: StepContext) -> dict:
             "borrowed_phrase": plot.borrowed_phrase(
                 sc["content"], checks["cast"], owned
             ),
-            "spoken_lines": cast_spoken_lines(
-                sc["content"], sc.get("characters") or [], forms
-            ),
         }
+        names = sc.get("characters") or []
+        spoken = cast_spoken_lines(sc["content"], names, forms, every=True)
+        loose = [r for r in spoken if not r["speaker"] and i < _JUDGED_SCENES]
+        cast_forms = {n: forms.get(n, [n]) for n in names}
+        said = await _judge_speakers(
+            ctx, sc["content"], cast_forms, [r["line"] for r in loose]
+        )
+        for r, who in zip(loose, said):
+            r["speaker"], r["judged"] = who, True
+        # N5: one speaker's consecutive lines in a paragraph are one line, as
+        # the tags' are, so r2_lines compares across r2_source.
+        row["spoken_lines"], prev = [], {}
+        for r in spoken:
+            if r["speaker"] and (prev.get("speaker"), prev.get("para")) == (
+                r["speaker"],
+                r["para"],
+            ):
+                row["spoken_lines"][-1]["line"] += " " + r["line"]
+            elif r["speaker"]:
+                row["spoken_lines"].append({k: r[k] for k in ("speaker", "line")})
+            prev = r
+        src = {"judged" in r for r in spoken if r["speaker"]}
+        row["r2_source"] = (
+            "mixed" if len(src) == 2 else "judge" if True in src else "tags"
+        )
         if i < _JUDGED_SCENES:
             prior = " ".join(prev_text.split()[-_PRIOR_WORDS:]) or "(the scene opens)"
             base = (

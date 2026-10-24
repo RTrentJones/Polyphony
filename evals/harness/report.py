@@ -158,8 +158,10 @@ def history(path: Path) -> str:
         pair.setdefault("R2 mean", []).append(float(r["r2_mean"]) < 0.90)
         ras = [float(r[c]) for c in cols if c.startswith("tighten_ra_") and r[c]]
         pair.setdefault("tighten RA", []).append(bool(ras) and mean(ras) < 0.85)
-        for who, k, n in re.findall(r"(\w+) (\d+)/(\d+)", r["attribution"] or ""):
-            if i >= pool:
+        cell = r["attribution"] or ""
+        for who, k, n in re.findall(r"(\w+) (\d+)/(\d+)", cell):
+            # W16-3: a "neutral:" row (another probe set) is not this pool's.
+            if i >= pool and not cell.startswith("neutral:"):
                 tally = pooled.setdefault(who, [0, 0])
                 tally[0], tally[1] = tally[0] + int(k), tally[1] + int(n)
     fired = [
