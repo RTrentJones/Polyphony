@@ -170,3 +170,59 @@ def test_month_spend_counts_each_runs_max_report_and_missing_usage_as_zero(
     assert spend.main([str(tmp_path), "--budget", "40", "--cap", "0.001"]) == 1
     assert spend.main([str(tmp_path), "--budget", "10.5"]) == 1  # $2.90 < one book
     assert "::error::" in capsys.readouterr().out
+
+
+# --- SPEC-94 S2a: the run's unscored tally --------------------------------------
+
+
+def test_unscored_tallies_sum_over_repeats_and_steps():
+    from evals.run import _aggregate, run_unscored
+
+    t = {"rubrics": 1, "unparseable": 1, "claimed_empty": 0, "unavailable": 0}
+    p1 = {
+        "prose": {"score": 0.5, "unscored": t | {"items": 1}, "book": {"unscored": t}},
+        "outline": {"score": None, "unscored": t | {"items": 1}},
+    }
+    p2 = {
+        "prose": {"score": 0.7, "unscored": t | {"items": 1}, "book": {"unscored": t}},
+        "outline": {"score": 0.4, "unscored": dict.fromkeys(t, 0) | {"items": 0}},
+    }
+    steps = _aggregate([p1, p2])
+    assert steps["prose"]["score"] == 0.6
+    assert steps["prose"]["unscored"]["unparseable"] == 2
+    assert steps["prose"]["book"]["unscored"]["unparseable"] == 2
+    # The outline's one scored pass is kept, but its tally covers both passes.
+    assert steps["outline"]["score"] == 0.4
+    assert steps["outline"]["unscored"]["items"] == 1
+    assert run_unscored(steps) == {
+        "rubrics": 5,
+        "unparseable": 5,
+        "claimed_empty": 0,
+        "unavailable": 0,
+        "items": 3,
+    }
+    assert run_unscored({"x": {"score": 1}})["rubrics"] == 0
+
+
+def test_the_unscored_tally_is_reported_beside_the_aggregates():
+    from evals.harness import report
+
+    run = {
+        "book": "cel",
+        "app_sha": "s",
+        "judge": {"provider": "groq", "self": False},
+        "steps": {"outline": {"score": 0.5}},
+        "unscored": {
+            "rubrics": 2,
+            "unparseable": 2,
+            "claimed_empty": 0,
+            "unavailable": 0,
+            "items": 1,
+        },
+    }
+    card = report.scorecard(run)
+    assert "unscored: 2 judged rubric(s) not scored (unparseable=2" in card
+    out = report.tracer_export(run, model="m")
+    assert out["metrics"]["unscored.rubrics"] == 2
+    assert out["metrics"]["unscored.items"] == 1
+    assert out["labels"]["unscored_rubrics"] == "2"

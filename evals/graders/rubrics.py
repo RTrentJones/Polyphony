@@ -181,24 +181,53 @@ def _mean(values: list[float | None]) -> float | None:
     return statistics.mean(vals) if vals else None
 
 
-def scene_score(scores: dict[str, float | None]) -> float | None:
-    """R1 x mean(R2..R5); None when R1 or every other rubric is unscored."""
+# SPEC-94 S2a — None in a composite. A rubric's None is one of two things:
+# "not applicable" (R2 with under two voiced cast speakers, RN without
+# narration), which a composite has always left out of its mean; or "the judge
+# did not score it" (an unparseable reply, a repeated "nothing was provided",
+# the judge chain unavailable). The second makes the whole composite None — the
+# item is counted unscored, never a mean over the rubrics that happened to
+# parse, which would silently shift its score (R2 runs far below R3-R5).
+# `unscored` names the rubric ids of that second kind (pipeline._unscored_ids).
+
+
+def _any_unscored(rids, unscored) -> bool:
+    return any(r in unscored for r in rids)
+
+
+def scene_score(
+    scores: dict[str, float | None], unscored: frozenset | set = frozenset()
+) -> float | None:
+    """R1 x mean(R2..R5); None when R1 or every other rubric is unscored, or
+    when any of R1..R5 is in `unscored` (the judge did not score it)."""
+    if _any_unscored(SCENE_RUBRICS, unscored):
+        return None
     r1, rest = scores.get("R1"), _mean([scores.get(r) for r in SCENE_RUBRICS[1:]])
     if r1 is None or rest is None:
         return None
     return round(r1 * rest, 4)
 
 
-def outline_score(scores: dict[str, float | None]) -> float | None:
-    """R1 x mean(R6, R3); None when R1 or both others are unscored."""
+def outline_score(
+    scores: dict[str, float | None], unscored: frozenset | set = frozenset()
+) -> float | None:
+    """R1 x mean(R6, R3); None when R1 or both others are unscored, or when
+    any of them is in `unscored`."""
+    if _any_unscored(OUTLINE_RUBRICS, unscored):
+        return None
     r1, rest = scores.get("R1"), _mean([scores.get("R6"), scores.get("R3")])
     if r1 is None or rest is None:
         return None
     return round(r1 * rest, 4)
 
 
-def revise_score(scores: dict[str, float | None]) -> float | None:
-    """mean(RA, R5); None when neither is scored."""
+def revise_score(
+    scores: dict[str, float | None], unscored: frozenset | set = frozenset()
+) -> float | None:
+    """mean(RA, R5); None when neither is scored, or when either is in
+    `unscored`."""
+    if _any_unscored(REVISE_RUBRICS, unscored):
+        return None
     return _round(_mean([scores.get(r) for r in REVISE_RUBRICS]))
 
 

@@ -1439,6 +1439,13 @@ async def test_prose_reports_rn_and_rc_as_a_book_block(tmp_path):
         "rc_trimmed": False,
         "narrator_samples": 3,
         "narrator_sampled": "corpus",  # Milo has no voice_sources chapters
+        "unscored": {
+            "rubrics": 0,
+            "unparseable": 0,
+            "claimed_empty": 0,
+            "unavailable": 0,
+            "items": 0,
+        },
     }
     assert "RN" not in out["rubric_means"] and "RN" not in out["judge_explanation"]
     # D18-4: the prose score is the same whatever RN and RC say.
@@ -1484,6 +1491,105 @@ def test_repeats_average_the_book_block():
     ]
     got = _aggregate(passes)["prose"]
     assert got["score"] == 0.7 and got["book"] == {"rn_mean": 0.5, "rc": 0.2}
+
+
+# --- SPEC-94 S2a: an unparseable judge reply is unscored, never 0.0 ------------
+
+
+class _UnparseableJudge(_RubricJudge):
+    """The real Judge's parse over a reply with no score for the rubrics in
+    `garbled` (on the `nth` call of each, 1-based; 0 = every call)."""
+
+    def __init__(self, garbled, nth=0):
+        super().__init__()
+        self.garbled, self.nth, self.calls = set(garbled), nth, {}
+
+    async def score(self, rubric, content):
+        from evals.harness.judge import _parse
+
+        got = await super().score(rubric, content)
+        rid = self.seen[-1][0]
+        self.calls[rid] = self.calls.get(rid, 0) + 1
+        if rid in self.garbled and self.nth in (0, self.calls[rid]):
+            score, why = _parse("I would rate this fairly well overall.")
+            return SimpleNamespace(score=score, explanation=why)
+        return got
+
+
+async def test_an_unparseable_rubric_is_none_and_flagged_not_zero():
+    ctx = SimpleNamespace(judge=_UnparseableJudge({"R3"}))
+    judged = await pipeline._judge_rubrics(ctx, {"R1": "b", "R3": "b"})
+    assert judged["R3"]["score"] is None  # old: 0.0
+    assert judged["R3"]["judge_unparseable"] is True
+    assert judged["R3"]["explanation"] == "unparseable judge reply"
+    assert judged["R1"]["score"] == 1.0 and "judge_unparseable" not in judged["R1"]
+    # A deterministic cap still wins: the failure is measured, not judged.
+    capped = await pipeline._judge_rubrics(ctx, {"R3": "b"}, {"R3": "seam"})
+    assert capped["R3"]["score"] == 0.0
+
+
+def test_a_composite_with_an_unscored_component_is_none_not_lower():
+    base = {"R1": 1.0, "R2": 0.2, "R3": 0.9, "R4": 0.9, "R5": 0.9}
+    full = rubrics.scene_score(base)
+    # Not applicable: left out of the mean, as before.
+    assert rubrics.scene_score(base | {"R2": None}) == 0.9
+    # The judge did not score it: the scene is unscored, not a partial mean.
+    assert rubrics.scene_score(base | {"R2": None}, {"R2"}) is None
+    assert rubrics.scene_score(base | {"R4": None}, {"R4"}) is None
+    assert full == pytest.approx(0.725)
+    assert rubrics.outline_score({"R1": 1, "R6": 0.5, "R3": None}, {"R3"}) is None
+    assert rubrics.revise_score({"RA": 0.8, "R5": None}, {"R5"}) is None
+    assert rubrics.revise_score({"RA": 0.8, "R5": None}) == 0.8
+
+
+async def test_prose_leaves_a_scene_with_an_unparseable_rubric_unscored(tmp_path):
+    clean = await pipeline.step_prose(_cel_ctx(tmp_path, _ProductClient()))
+    # R3 garbled on its first call only: scene 1's R3.
+    judge = _UnparseableJudge({"R3"}, nth=1)
+    out = await pipeline.step_prose(_cel_ctx(tmp_path, _ProductClient(), judge))
+    s1, s2 = out["scenes"]
+    assert s1["rubrics"]["R3"]["score"] is None and s1["score"] is None
+    assert s2["score"] == clean["scenes"][1]["score"]
+    # The step's mean is over the scored scene only (old: scene 1 with R3 = 0).
+    assert out["score"] == s2["score"]
+    assert out["unscored"] == {
+        "rubrics": 1,
+        "unparseable": 1,
+        "claimed_empty": 0,
+        "unavailable": 0,
+        "items": 1,
+    }
+    # R3's mean is over the scenes that scored it.
+    assert out["rubric_means"]["R3"] == s2["rubrics"]["R3"]["score"]
+
+
+async def test_prose_book_block_counts_an_unparseable_rc(tmp_path):
+    judge = _UnparseableJudge({"RC"})
+    out = await pipeline.step_prose(_cel_ctx(tmp_path, _ProductClient(), judge))
+    assert out["book"]["rc"] is None  # old: 0.0
+    assert out["book"]["unscored"]["unparseable"] == 1
+    assert out["unscored"]["rubrics"] == 0  # RC is not a scene rubric
+
+
+async def test_outline_with_an_unparseable_rubric_is_unscored(tmp_path):
+    judge = _UnparseableJudge({"R6"})
+    out = await pipeline.step_outline(_cel_ctx(tmp_path, _ProductClient(), judge))
+    assert out["rubrics"]["R6"]["score"] is None
+    assert out["score"] is None  # old: R1 x mean(0.0, R3)
+    assert out["unscored"]["unparseable"] == 1 and out["unscored"]["items"] == 1
+    assert out["judge"] == pytest.approx((1.0 + 0.6) / 2)  # the judged view
+
+
+async def test_revise_counts_unparseable_revisions_unscored(tmp_path):
+    client = _ReviseClient()
+    ctx = _cel_ctx(tmp_path, client, _UnparseableJudge({"RA"}, nth=1))
+    await ctx.client.create_book("x", "s")
+    out = await pipeline.step_revise(ctx)
+    tighten, *rest = out["revisions"]
+    assert tighten["rubrics"]["RA"]["score"] is None and tighten["score"] is None
+    assert out["score"] == pytest.approx(sum(r["score"] for r in rest) / len(rest))
+    assert out["unscored"]["unparseable"] == 1 and out["unscored"]["items"] == 1
+    assert out["tighten_ras"] == [None]
 
 
 # --- SPEC-94 S2b/S2c through the continuity step ------------------------------

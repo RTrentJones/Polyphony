@@ -35,6 +35,7 @@ from evals.graders import (
     rubrics,
 )
 from evals.harness import embed
+from evals.harness.judge import is_unparseable
 from evals.harness.vecmath import cosine
 from evals.measure.wilson import wilson
 from evals.steps.base import StepContext, step
@@ -274,6 +275,8 @@ async def _judge_rubrics(
         out[rid] = {"score": score, "explanation": why}
         if _claims_empty(score, why):
             out[rid].update(score=None, judge_claimed_empty=True)
+        elif score is None and is_unparseable(why):  # SPEC-94 S2a: never 0.0
+            out[rid]["judge_unparseable"] = True
         if rid in caps:
             out[rid].update(score=0.0, capped=caps[rid])
     return out
@@ -281,6 +284,40 @@ async def _judge_rubrics(
 
 def _scores(judged: dict[str, dict]) -> dict[str, float | None]:
     return {rid: j.get("score") for rid, j in judged.items()}
+
+
+def _unscored_ids(judged: dict[str, dict]) -> set[str]:
+    """Rubrics the judge did not score (None and not "not applicable"): an
+    unparseable reply, a repeated claim of no input, or no judge at all. Any
+    of them makes a composite None (rubrics.scene_score, SPEC-94 S2a)."""
+    return {
+        rid
+        for rid, j in judged.items()
+        if j.get("score") is None and not j.get("not_applicable")
+    }
+
+
+def unscored_tally(judgments, items: int = 0) -> dict[str, int]:
+    """SPEC-94 S2a: the run's `unscored` tally beside its aggregates.
+
+    `judgments` are rubric records ({score, explanation, ...}); `items` is
+    how many scored items (scenes, revisions, the outline) came out None
+    because of them. `rubrics` counts every judged-but-unscored rubric, split
+    by why: `unparseable`, `claimed_empty`, `unavailable` (the chain gave out).
+    Not-applicable rubrics are not counted: nothing was asked."""
+    out = {"rubrics": 0, "unparseable": 0, "claimed_empty": 0, "unavailable": 0}
+    for j in judgments:
+        if j.get("score") is not None or j.get("not_applicable"):
+            continue
+        out["rubrics"] += 1
+        if j.get("judge_claimed_empty"):
+            out["claimed_empty"] += 1
+        elif j.get("judge_unparseable") or is_unparseable(j.get("explanation")):
+            out["unparseable"] += 1
+        elif str(j.get("explanation") or "").startswith("judge unavailable"):
+            out["unavailable"] += 1
+    out["items"] = items
+    return out
 
 
 async def _canon_block(ctx: StepContext, book_id: str) -> str:
@@ -898,7 +935,9 @@ async def step_outline(ctx: StepContext) -> dict:
     judged = await _judge_rubrics(ctx, contents, caps)
     result["rubrics"] = judged
     result["deterministic_failures"] = caps
-    score = rubrics.outline_score(_scores(judged))
+    unscored = _unscored_ids(judged)
+    score = rubrics.outline_score(_scores(judged), unscored)
+    result["unscored"] = unscored_tally(judged.values(), items=int(bool(unscored)))
     judged_vals = [j["score"] for j in judged.values() if j["score"] is not None]
     # `judge` keeps its old meaning (the judge's view, before the R1 product).
     result["judge"] = (
@@ -1577,7 +1616,7 @@ async def step_prose(ctx: StepContext) -> dict:
                 },
             )
             row["rubrics"] = judged
-            row["score"] = rubrics.scene_score(_scores(judged))
+            row["score"] = rubrics.scene_score(_scores(judged), _unscored_ids(judged))
         detail.append(row)
         prev_text = sc["content"]
 
@@ -1610,6 +1649,12 @@ async def step_prose(ctx: StepContext) -> dict:
         for r in detail
         if r.get("rubrics") and r["rubrics"]["RN"]["score"] is not None
     ]
+    scene_judgments = [
+        j
+        for r in detail
+        for rid, j in (r.get("rubrics") or {}).items()
+        if rid in rubrics.SCENE_RUBRICS
+    ]
     book_block = {
         "rn_mean": round(sum(rns) / len(rns), 4) if rns else None,
         "rc": rc["score"],
@@ -1618,11 +1663,26 @@ async def step_prose(ctx: StepContext) -> dict:
         "rc_trimmed": rc_trimmed,
         "narrator_samples": len(samples),
         "narrator_sampled": sampled,
+        # SPEC-94 S2a: RN (per scene) and RC the judge did not score.
+        "unscored": unscored_tally(
+            [rc] + [r["rubrics"]["RN"] for r in detail if r.get("rubrics")]
+        ),
     }
     return {
         **result,
         "score": round(sum(scored) / len(scored), 4) if scored else None,
         "rubric_means": means,
+        # SPEC-94 S2a: scene rubrics the judge did not score, and the scenes
+        # left unscored by them (out of `score`'s mean, never scored lower).
+        "unscored": unscored_tally(
+            scene_judgments,
+            items=sum(
+                1
+                for r in detail
+                if r.get("rubrics")
+                and _unscored_ids(r["rubrics"]) & set(rubrics.SCENE_RUBRICS)
+            ),
+        ),
         # Review N3: how much R2 rests on (W15-3 makes it not applicable).
         "r2_applicable": (
             round(sum(r2 is not None for r2 in r2s) / len(r2s), 4) if r2s else None
@@ -1863,7 +1923,7 @@ async def step_revise(ctx: StepContext) -> dict:
             ctx, {rid: content for rid in rubrics.REVISE_RUBRICS}, caps
         )
         row["rubrics"] = judged
-        row["score"] = rubrics.revise_score(_scores(judged))
+        row["score"] = rubrics.revise_score(_scores(judged), _unscored_ids(judged))
         return row, prop
 
     async def discarded(req: dict, draft: str) -> dict:
@@ -1928,6 +1988,14 @@ async def step_revise(ctx: StepContext) -> dict:
             for rid in rubrics.REVISE_RUBRICS
         },
         "revisions": rows,
+        # SPEC-94 S2a: RA/R5 the judge did not score, and the revisions they
+        # left unscored (out of `score`'s mean).
+        "unscored": unscored_tally(
+            [j for r in rows for j in (r.get("rubrics") or {}).values()],
+            items=sum(
+                1 for r in rows if r.get("rubrics") and _unscored_ids(r["rubrics"])
+            ),
+        ),
         # D2: the tightens requested and their RAs, which the act rule reads
         # (history `tighten_ra_1..3`).
         "tighten_n": len(tightens),
@@ -1970,6 +2038,7 @@ async def step_ensemble(ctx: StepContext) -> dict:
         "and do their voices read as distinct? Characters: " + ", ".join(cast)
     )
     out: dict = {"characters": cast}
+    asked: list[dict] = []
     for mode in ("prose", "ensemble"):
         scene = await ctx.client.generate_scene(chapter["id"], {**base, "mode": mode})
         if mode == "ensemble" and scene.get("mode_used") != "ensemble":
@@ -1979,6 +2048,7 @@ async def step_ensemble(ctx: StepContext) -> dict:
             }
         prose = scene.get("content") or ""
         judge, why = await _judge(ctx, rubric, prose or "(empty)")
+        asked.append({"score": judge, "explanation": why})
         out[mode] = {
             "action_coverage": action_coverage(prose, cast),
             "judge": judge,
@@ -1999,6 +2069,7 @@ async def step_ensemble(ctx: StepContext) -> dict:
         if judged
         else None
     )
+    out["unscored"] = unscored_tally(asked, items=int(not judged))  # SPEC-94 S2a
     return out
 
 

@@ -282,6 +282,29 @@ self-graded run is always labelled, never silent. Judge calls are temperature 0.
 Note: switching judge families shifts absolute scores; compare trends within one
 judge (the report's `judge.provider` records which one graded each run).
 
+**Unscored, never zero (SPEC-94 S2a).** A judge reply with no readable score
+(no JSON, or JSON without a numeric `score`) is `score: None` with the reason
+"unparseable judge reply" and `judge_unparseable: true` — not 0.0. The rule for
+a composite (scene `R1 × mean(R2..R5)`, outline `R1 × mean(R6, R3)`, revision
+`mean(RA, R5)`): a component that is *not applicable* (R2 with under two voiced
+speakers) is left out as before, but a component the judge *did not score*
+(unparseable, a repeated "nothing was provided", the judge chain unavailable)
+makes the whole item `None`. The item is left out of the step's mean and
+counted, never scored on whichever rubrics happened to parse. Each judged step
+reports an `unscored` tally (`rubrics`, split into `unparseable` /
+`claimed_empty` / `unavailable`, and `items` left unscored; the prose `book`
+block has its own for RN/RC), summed over repeats; the run's total is the
+report's top-level `unscored`, printed under the scorecard header and sent to
+Tracer as `labels.unscored_rubrics` and the `unscored.rubrics` / `unscored.items`
+run metrics.
+
+**Pre-S2 reports (D19-2).** Before S2 an unparseable reply scored 0.0 with the
+same reason, so an old report is recomputable rather than re-run:
+`python -m evals.harness.rescore eval-report.json [out.json]` sets those zeros
+to `None` and recomputes the item scores, step means, rubric means and tallies
+under the rule above (a `--repeat` step keeps only its last pass's details, so
+its aggregated score is left as recorded and marked `rescore`).
+
 **A judge at its own endpoint.** `EVAL_JUDGE_BASE_URL` sends the judge to any
 OpenAI-compatible URL, bypassing the provider chain: `EVAL_JUDGE_LABEL` names it in
 the report (default `relay-judge`), `EVAL_JUDGE_MODEL` sets the model string, and

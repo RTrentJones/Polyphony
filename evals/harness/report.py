@@ -26,6 +26,21 @@ ACT_RULE = (
 POOL_FROM = "W7"  # W8-2 (c): attribution is pooled over W7, W7r and later runs
 
 
+def _unscored_line(run: dict) -> list[str]:
+    """SPEC-94 S2a: the run's unscored tally, beside its aggregates (none
+    when the judge scored every rubric it was asked)."""
+    t = run.get("unscored") or {}
+    if not t.get("rubrics"):
+        return []
+    return [
+        f"unscored: {t['rubrics']} judged rubric(s) not scored "
+        f"(unparseable={t.get('unparseable', 0)} "
+        f"claimed_empty={t.get('claimed_empty', 0)} "
+        f"unavailable={t.get('unavailable', 0)}); {t.get('items', 0)} item(s) "
+        "left out of the means"
+    ]
+
+
 def scorecard(run: dict) -> str:
     lines = [
         f"Polyphony evals — book={run['book']} sha={run.get('app_sha','?')[:12]}",
@@ -52,6 +67,7 @@ def scorecard(run: dict) -> str:
             else ""
         ),
         f"run={run.get('run') or 'undeclared'}  relogin={run.get('relogin', 0)}",
+        *_unscored_line(run),
         "-" * 64,
     ]
     for name, res in run["steps"].items():
@@ -273,6 +289,10 @@ def tracer_export(
         )
         if res.get("status") != "reported":  # SPEC-60: trended, never gated
             gated.append(cases[-1])
+    for k in ("rubrics", "items"):  # SPEC-94 S2a: trended beside the scores
+        v = (run.get("unscored") or {}).get(k)
+        if isinstance(v, int) and not isinstance(v, bool):
+            run_metrics[f"unscored.{k}"] = v
     n = len(gated)
     n_pass = sum(1 for c in gated if c["passed"])
     judge = run.get("judge") or {}
@@ -288,6 +308,8 @@ def tracer_export(
             "skipped": ",".join(skipped + unscored) or None,
             "unscored": ",".join(unscored) or None,
             "errored": ",".join(errored) or None,
+            # SPEC-94 S2a: judged rubrics the judge did not score this run.
+            "unscored_rubrics": (run.get("unscored") or {}).get("rubrics"),
             "judge_unavailable": judge.get("unavailable"),
             "judge_partial": judge.get("partial"),
             # Dispatched on demand, not on a schedule: Tracer must not read a
