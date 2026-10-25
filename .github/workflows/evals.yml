@@ -46,7 +46,8 @@ on:
         description: >-
           the frozen HOLDOUT run (SPEC-94 S5): once per release, on that release's tag. Grades
           holdout-a holdout-b (or the one named in `book`) with evals.run --holdout; any other
-          book is refused. With 'no', a holdout book is refused.
+          book is refused, and so is a dispatch from anything but a tag (the release's
+          frozen code). With 'no', a holdout book is refused.
         type: choice
         options: ['no', 'yes']
         default: 'no'
@@ -212,6 +213,7 @@ jobs:
           STEPS: ${{ github.event.inputs.steps || 'all' }}
           BOOK_INPUT: ${{ github.event.inputs.book }}
           HOLDOUT: ${{ github.event.inputs.holdout || 'no' }}
+          REPEAT_INPUT: ${{ github.event.inputs.repeat }}
         run: |
           # Book selection: dispatch input wins; else on a push read the book
           # names from the sentinel file (so a single push can grade just one
@@ -219,8 +221,14 @@ jobs:
           BOOKS="$BOOK_INPUT"
           HOLDOUT_FLAG=""
           if [ "$HOLDOUT" = "yes" ]; then
-            # The frozen holdout (SPEC-94 S5): exactly holdout-a / holdout-b. The
-            # book input's development default means "both holdout books".
+            # The frozen holdout (SPEC-94 S5) runs only on a release's frozen
+            # code: dispatched from a tag, never from a branch (D19-4).
+            if [ "${GITHUB_REF_TYPE:-}" != "tag" ]; then
+              echo "::error title=Holdout run::holdout=yes runs only from a tag (dispatched from ${GITHUB_REF_TYPE:-an unknown ref type} ${GITHUB_REF_NAME:-})"
+              exit 1
+            fi
+            # Exactly holdout-a / holdout-b. The book input's development
+            # default means "both holdout books".
             if [ -z "$BOOKS" ] || [ "$BOOKS" = "dracula frankenstein cel" ]; then
               BOOKS="holdout-a holdout-b"
             fi
@@ -244,7 +252,7 @@ jobs:
           fi
           # Repeat count: dispatch input wins; else a "repeat: N" line in the
           # sentinel (mean±std noise band; N× the LLM cost — budget for it).
-          REPEAT="${{ github.event.inputs.repeat }}"
+          REPEAT="$REPEAT_INPUT"
           if [ -z "$REPEAT" ]; then
             REPEAT="$(grep -oiE 'repeat: *[0-9]+' evals/.run-eval | grep -oE '[0-9]+' || true)"
           fi

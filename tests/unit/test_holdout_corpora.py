@@ -101,7 +101,14 @@ def test_no_default_or_workflow_selects_a_holdout_corpus():
         assert splits.split(default) == "development", module
 
 
-def _evals_step(tmp_path, book: str, holdout: str, sentinel: str = "") -> tuple:
+def _evals_step(
+    tmp_path,
+    book: str,
+    holdout: str,
+    sentinel: str = "",
+    ref_type: str = "tag",
+    repeat: str = "",
+) -> tuple:
     """Run evals.yml's book-selection step with `python` stubbed to echo, so
     the shell logic is tested as written. Returns (exit code, evals.run calls)."""
     import subprocess
@@ -114,7 +121,11 @@ def _evals_step(tmp_path, book: str, holdout: str, sentinel: str = "") -> tuple:
         for s in wf["jobs"]["eval"]["steps"]
         if s.get("name", "").startswith("Run evals")
     )
-    script = re.sub(r"\$\{\{[^}]*\}\}", "", step["run"])  # no other inputs
+    # Review S4: every dispatch input reaches the shell through `env`, never
+    # interpolated into the script.
+    assert "${{" not in step["run"]
+    assert step["env"]["REPEAT_INPUT"] == "${{ github.event.inputs.repeat }}"
+    script = step["run"]
     (tmp_path / "evals").mkdir(exist_ok=True)
     (tmp_path / "evals" / ".run-eval").write_text(sentinel)
     env = {
@@ -123,6 +134,9 @@ def _evals_step(tmp_path, book: str, holdout: str, sentinel: str = "") -> tuple:
         "HOLDOUT": holdout,
         "STEPS": "all",
         "BASE_LABEL": "ci",
+        "GITHUB_REF_TYPE": ref_type,
+        "GITHUB_REF_NAME": "v1" if ref_type == "tag" else "main",
+        "REPEAT_INPUT": repeat,
     }
     stub = 'python() { [ "$2" = evals.run ] && echo "RUN $*"; return 0; }\n'
     out = subprocess.run(
@@ -181,6 +195,25 @@ def test_the_evals_workflow_refuses_a_mixed_or_unflagged_holdout_run(
 ):
     code, runs, out = _evals_step(tmp_path, book, holdout)
     assert code == 1 and not runs and "::error title=Holdout run::" in out
+
+
+@pytest.mark.parametrize("ref_type", ["branch", ""])
+def test_the_evals_workflow_runs_the_holdout_only_from_a_tag(tmp_path, ref_type):
+    """Review S4: holdout=yes from a branch (or an unknown ref) is refused —
+    the holdout runs on a release's frozen code (D19-4)."""
+    code, runs, out = _evals_step(tmp_path, "holdout-a", "yes", ref_type=ref_type)
+    assert code == 1 and not runs
+    assert "::error title=Holdout run::holdout=yes runs only from a tag" in out
+    # A development run does not care which ref it was dispatched from.
+    code, runs, _ = _evals_step(tmp_path, "cel", "no", ref_type=ref_type)
+    assert code == 0 and len(runs) == 1
+
+
+def test_the_repeat_input_reaches_the_runner_through_env(tmp_path):
+    code, runs, _ = _evals_step(tmp_path, "cel", "no", repeat="3")
+    assert code == 0 and "--repeat 3" in runs[0]
+    code, runs, _ = _evals_step(tmp_path, "cel", "no", sentinel="repeat: 2")
+    assert "--repeat 2" in runs[0]
 
 
 # --- the renaming --------------------------------------------------------------
