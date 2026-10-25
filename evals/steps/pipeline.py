@@ -1142,8 +1142,15 @@ def _beats_text(scene: dict) -> str:
     return f"1. {scene.get('description') or '(no beats recorded)'}"
 
 
+def _r2_gold(gt: dict) -> dict:
+    """R2's voice samples: gold_lines plus speech_lines, a speaker's own quoted
+    speech that only R2 reads, so retrieval and attribution keep their cast
+    (W17-3)."""
+    return (gt.get("speech_lines") or {}) | (gt.get("gold_lines") or {})
+
+
 def _voice_block(gt: dict, cast: list[str]) -> str:
-    gold = gt.get("gold_lines") or {}
+    gold = _r2_gold(gt)
     parts = []
     for name in cast:
         lines = [*(gold.get(name) or {}).get("train", [])]
@@ -1302,7 +1309,7 @@ async def step_prose(ctx: StepContext) -> dict:
     planned = chapter.get("planned_beats") or []
     alias_forms = [f for fs in forms.values() for f in fs]
     owned = gt.get("owned_phrases") or {}
-    gold = gt.get("gold_lines") or {}
+    gold = _r2_gold(gt)
     detail, prev_text, r2_lines = [], "", 0
     for i, sc in enumerate(scenes):
         checks = _grade_scene_checks(sc, prev_text, forms)

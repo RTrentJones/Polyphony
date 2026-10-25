@@ -1285,3 +1285,16 @@ def test_the_withheld_export_is_built_from_the_grounding_body():
         {"beat": "Beat one.", "owner": "Zara Okafor"}
         | {"lines": [{"text": "p2", "rule": "restates"}], "withheld_more": 3}
     ]
+
+
+def test_dracula_vasska_speech_lines_feed_r2_only():
+    # (F) W17-3: the Count's own words, verbatim, read only by R2's samples.
+    d = pipeline.CORPORA / "dracula"
+    gt = json.loads((d / "ground_truth.json").read_text(encoding="utf-8"))
+    text = re.sub(r"\s+", " ", (d / "excerpts.txt").read_text(encoding="utf-8"))
+    v = gt["speech_lines"]["Count Vasska"]
+    lines = v["train"] + v["test"]
+    assert len(lines) >= 6 and all(ln in text for ln in lines)
+    assert "Count Vasska" not in gt["gold_lines"]
+    block = pipeline._voice_block(gt, ["Aldous Kerr", "Count Vasska"])
+    assert "Count Vasska:" in block and "Aldous Kerr:" in block

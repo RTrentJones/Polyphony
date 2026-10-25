@@ -40,3 +40,18 @@ The underlying work is US public domain; the Project Gutenberg wrapper is stripp
 chapters is committed — never the raw source, never the whole novel. A renamed
 derivative of a public-domain work is itself unrestricted. Only this
 public-domain-derived text is ever sent to an LLM during evals.
+
+## Count Vasska's speech lines (W17-3)
+`ground_truth.json` → `speech_lines` holds eleven of the Count's own quoted
+speeches from chapter II of `excerpts.txt`, verbatim (the quoted span only, no
+narration), in text order, split 8 train / 3 test as `build_gt` splits: the
+paragraphs opening "I am Vasska; and I bid you welcome", "Nay, sir, you are my
+guest", "You will need, after your journey", "I pray you, be seated", "But you
+must be tired", "I thank you, my friend", "Not so," (its long second span),
+"You may go anywhere you wish", "We are in Vardarania", "Because your peasant",
+and "Take care," (its "And this is the wretched thing" span). Left out: short
+greetings, speeches broken mid-sentence by narration, one that names Aldous
+Kerr, and one with an unrenamed "Transylvanian". Only the R2 judge reads
+`speech_lines` (as voice samples); retrieval, attribution and the ensemble step
+read `gold_lines`, so their character sets are unchanged. `build_gt` does not
+write this key: re-add it if `ground_truth.json` is regenerated.
