@@ -289,6 +289,19 @@ the report (default `relay-judge`), `EVAL_JUDGE_MODEL` sets the model string, an
 records the `endpoint`, and `self` is false unless that URL equals
 `EVAL_APP_LLM_BASE_URL`. The scorecard prints `@ <endpoint>`.
 
+**Validating RN and RC (W19 S7, `evals/validation/`).** 36 blinded items: six intact
+development-corpus chapters (`chapters.json`: scenes, plan, where each damage goes) and
+their damaged variants (narrator drift, a duplicated event, broken transitions, the
+planned change removed), with damage both where RC reads it and inside its trimmed
+middles. `python -m evals.validation.build --estimate` prints the items and the judge
+calls/cost (72 calls, about $0.61 if every call went to the paid judge, $0 on the free
+ones). Run it by name, never in `all`: dispatch evals.yml with
+`steps=rnrc_validation` and `book=frankenstein dracula wuthering` (each book's report
+judges its own chapters, on the run's judge chain and spend ceiling); then
+`python -m evals.validation.analyze <downloaded artifact dir>` prints, per damage and
+location, how often the damaged chapter scores below the intact one. `export` writes
+a `chapter` sample for S4's human calibration page.
+
 ## Relay runs: an agent plays the model
 
 `evals/relay_llm.py` is an OpenAI-compatible endpoint answered by whoever watches a
