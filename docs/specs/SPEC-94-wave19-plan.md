@@ -51,6 +51,16 @@ validity claims stated at their true strength, a human calibration of the judges
   judge/mixed) the "true speaker" is itself a reading, so tag-sourced scenes come first and are reported separately. The key
   carries arm labels only with `with_arms: yes`, which waits until S1 is published.
 
+- **D19-8 S2 rules as built.** A scene, outline or revision is `None` (left out of the step mean, counted in `unscored.items`)
+  when any rubric the judge did not score is None: unparseable, a repeated "nothing was provided", or the chain unavailable. A
+  rubric that does not apply (R2 with fewer than two voiced speakers, RN without narration) is still left out of the mean, as
+  before. It is never averaged over whichever rubrics parsed, since R2 runs far below R3–R5; claimed-empty scenes therefore
+  move from a partial mean to None. A JSON reply without a numeric score is unparseable too, which old records cannot show, so
+  `rescore` covers only the "unparseable judge reply" reason. Continuity matches a finding by its quote overlapping the
+  injection's changed words (a quote under 8 characters must cover them), or by its detail naming them when they occur once in
+  the text; recall may read lower than in earlier draws for that reason, and the change is the point. Injections outside the
+  graded window are reported, not skipped silently (wuthering's `name-misspell` had been).
+
 ## Sequence
 1. 10-26 00:07Z — W12-9 day 6 (S1). 05:00Z — W17 draw 2; then the wave-18 product PR.
 2. In parallel now, on branches: S2 (code + tests), S3 (docs), S5 (corpus build), S4's export (items + key, no LLM where
