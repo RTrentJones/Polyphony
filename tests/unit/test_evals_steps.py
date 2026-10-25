@@ -1642,20 +1642,44 @@ async def test_continuity_step_reports_false_positives_per_1000_control_words(
     assert out["control_flagged_share"] == 1.0
 
 
-@pytest.mark.parametrize("book", ["cel", "dracula", "frankenstein", "wuthering"])
-def test_every_corpus_injection_has_a_span_on_its_changed_words(book):
+def _development_corpora() -> list[str]:
+    """Every corpus with a spec.json, less any marked "split": "holdout"
+    (SPEC-94 D19-4: its excerpts are not opened, so not even by a test)."""
+    out = []
+    for spec in sorted(pipeline.CORPORA.glob("*/spec.json")):
+        if json.loads(spec.read_text(encoding="utf-8")).get("split") != "holdout":
+            out.append(spec.parent.name)
+    return out
+
+
+def test_the_development_corpora_are_the_four_known_books():
+    assert {"cel", "dracula", "frankenstein", "wuthering"} <= set(
+        _development_corpora()
+    )
+
+
+@pytest.mark.parametrize("book", _development_corpora())
+def test_every_continuity_injection_applies_inside_the_graded_window(book):
+    # SPEC-94 S2: wuthering's name-misspell anchor lay past the window and was
+    # silently skipped, so its recall was over one injection, not two.
     from evals.graders import continuity
 
+    spec = json.loads((pipeline.CORPORA / book / "spec.json").read_text("utf-8"))
     text, gt = pipeline.load_corpus(book)
-    if gt.get("continuity_source") == "excerpts":
-        text = pipeline.load_excerpts(book)
-    window = text[: pipeline._CONTINUITY_WINDOW]
-    injected, expected = continuity.apply_injections(
-        window, gt["continuity_injections"]
+    planned = spec.get("continuity_injections") or gt.get("continuity_injections")
+    if not planned:
+        pytest.skip(f"{book} plants no continuity injections")
+    if spec.get("continuity_injections"):  # the ground truth is built from it
+        assert gt["continuity_injections"] == spec["continuity_injections"]
+    source = (
+        pipeline.load_excerpts(book)
+        if gt.get("continuity_source") == "excerpts"
+        else text
     )
-    # (Wuthering's name-misspell anchor lies past the window, so it is not
-    # applied: a gap that predates S2 and is not its to fix.)
-    assert expected
+    window = source[: pipeline._CONTINUITY_WINDOW]
+    injected, expected = continuity.apply_injections(window, planned)
+    assert continuity.unapplied(planned, expected, source) == []
+    assert [e["id"] for e in expected] == [i["id"] for i in planned]
     for e in expected:
         a, b = e["span"]
         assert injected[a:b] == e["injected"] and e["injected"].strip(), e["id"]
@@ -1664,3 +1688,45 @@ def test_every_corpus_injection_has_a_span_on_its_changed_words(book):
         # A finding quoting exactly the changed words catches it.
         hit = {"detail": "x", "quote": e["injected"]}
         assert continuity._finding_matches(e, hit, injected), e["id"]
+        # A respelled name contradicts something: the original spelling
+        # still stands in the window (cel's dead-speaks is not a respelling).
+        if e["expect_type"] == "character" and e["id"] != "dead-speaks":
+            a, b = continuity._changed(e["replace"], e["original"])
+            assert e["original"][a:b] in injected, e["id"]
+
+
+def test_unapplied_injections_are_named_with_why():
+    from evals.graders import continuity
+
+    source = "Aldous Kerr met Bell. " + "x " * 50 + "Late anchor here."
+    window = source[:30]
+    planned = [
+        {"id": "ok", "locate": "Aldous Kerr", "replace": "Aldous Karr"},
+        {"id": "late", "locate": "Late anchor", "replace": "Lute anchor"},
+        {"id": "gone", "locate": "Nowhere", "replace": "Somewhere"},
+    ]
+    _, expected = continuity.apply_injections(window, planned)
+    assert continuity.unapplied(planned, expected, source) == [
+        {"id": "late", "reason": "anchor outside the graded window"},
+        {"id": "gone", "reason": "anchor not found"},
+    ]
+
+
+async def test_continuity_step_reports_unapplied_injections(tmp_path):
+    ctx = _cel_ctx(tmp_path, _continuity_client([], []))
+    gt = dict(ctx.ground_truth)
+    gt["continuity_injections"] = gt["continuity_injections"] + [
+        {"id": "phantom", "locate": "no such words anywhere", "replace": "x"}
+    ]
+    ctx.ground_truth = gt
+    out = await pipeline.step_continuity(ctx)
+    assert out["n_injections_planned"] == 6 and out["n_injected"] == 5
+    assert out["n_injections_unapplied"] == 1
+    assert out["unapplied_injections"] == [
+        {"id": "phantom", "reason": "anchor not found"}
+    ]
+    assert out["recall_denominator"].startswith("applied")
+    # Nothing applied measures nothing: recall None, not 0.
+    gt["continuity_injections"] = gt["continuity_injections"][-1:]
+    out = await pipeline.step_continuity(ctx)
+    assert out["n_injected"] == 0 and out["score"] is None

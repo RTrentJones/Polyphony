@@ -4,7 +4,10 @@ We take clean renamed text and inject KNOWN contradictions (a respelled name, a
 date flipped out of sequence, …). The continuity checker runs over the injected
 text; because we authored the errors we know exactly what should be flagged.
 
-- detection recall = injected contradictions that produced a matching finding
+- detection recall = APPLIED injected contradictions that produced a matching
+  finding (`n_injected` is the applied count; a planned injection whose anchor
+  is outside the graded window or missing is listed in the step's
+  `unapplied_injections`, never silently dropped)
   (SPEC-94 S2c: a finding matches only when its quote overlaps the injected
   span, or — quoting nothing — its detail names the replacement)
 - false positives (SPEC-94 S2b), from the CLEAN control texts (should be ~0):
@@ -87,6 +90,28 @@ def apply_injections(clean_text: str, injections: list[dict]) -> tuple[str, list
     return text, expected
 
 
+def unapplied(
+    injections: list[dict], expected: list[dict], source: str | None = None
+) -> list[dict]:
+    """The planned injections apply_injections did NOT apply, each with why:
+    its anchor lies in `source` but past the graded window, or is not found
+    at all (SPEC-94 S2: never skipped silently). Recall is over the applied
+    ones only, so a missing one must be visible beside it."""
+    done = {e["id"] for e in expected}
+    return [
+        {
+            "id": inj["id"],
+            "reason": (
+                "anchor outside the graded window"
+                if source is not None and inj["locate"] in source
+                else "anchor not found"
+            ),
+        }
+        for inj in injections
+        if inj["id"] not in done
+    ]
+
+
 def _quote(finding: dict) -> str:
     return str(finding.get("quote") or "").strip().strip(_QUOTES).strip()
 
@@ -146,7 +171,7 @@ def _finding_matches(expected: dict, finding: dict, text: str) -> bool:
 
 @dataclass
 class ContinuityScore:
-    detection_recall: float
+    detection_recall: float | None  # over APPLIED injections; None with none
     control_fp_per_1k_words: float | None
     control_flagged_share: float | None
     detected: list[str]
@@ -158,7 +183,11 @@ class ContinuityScore:
 
     def as_dict(self) -> dict:
         return {
-            "detection_recall": round(self.detection_recall, 4),
+            "detection_recall": (
+                None
+                if self.detection_recall is None
+                else round(self.detection_recall, 4)
+            ),
             "control_fp_per_1k_words": self.control_fp_per_1k_words,
             "control_flagged_share": self.control_flagged_share,
             "detected": self.detected,
@@ -194,7 +223,8 @@ def grade_continuity(
     words = sum(len(text.split()) for text, _ in controls)
     n_fp = sum(len(found) for _, found in controls)
     return ContinuityScore(
-        detection_recall=len(detected) / n if n else 0.0,
+        # No applied injection measures nothing: None, not a recall of 0.
+        detection_recall=len(detected) / n if n else None,
         control_fp_per_1k_words=round(1000 * n_fp / words, 4) if words else None,
         control_flagged_share=(
             round(sum(bool(found) for _, found in controls) / len(controls), 4)

@@ -100,6 +100,10 @@ def scorecard(run: dict) -> str:
                 f"recall={res['detection_recall']} "
                 f"fp/1k_control_words={res.get('control_fp_per_1k_words')} "
                 f"control_flagged={res.get('control_flagged_share')}"
+            ) + (
+                f" ⚠ unapplied={[u['id'] for u in res['unapplied_injections']]}"
+                if res.get("unapplied_injections")
+                else ""
             )
         elif name == "outline":
             extra = (

@@ -1022,9 +1022,16 @@ async def step_continuity(ctx: StepContext) -> dict:
         for f in injected
         if any(continuity._finding_matches(e, f, injected_text) for e in expected)
     )
+    # SPEC-94 S2: a planned injection that did not apply (its anchor past the
+    # window, or gone) is reported, and recall is explicitly over the applied.
+    skipped = continuity.unapplied(gt["continuity_injections"], expected, source)
     return {
         **score.as_dict(),
         "score": score.detection_recall,
+        "n_injections_planned": len(gt["continuity_injections"]),
+        "n_injections_unapplied": len(skipped),
+        "unapplied_injections": skipped,
+        "recall_denominator": "applied injections (n_injected)",
         "source": gt.get("continuity_source") or "corpus",
         "n_findings": len(injected),
         "precision": round(on_target / len(injected), 4) if injected else None,
