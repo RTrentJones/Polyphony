@@ -46,7 +46,7 @@
 - **Attribution (W16-3):** 0.533 ± 0.082 over three passes at main; no regression.
 - **Reviews:** PR A one blocking (positional speaker pairing); PR B five blocking over three rounds, plus two Codex P2s
   (numbered letters sharing one section; a date-only dateline dropped), all fixed with rows.
-- **Spend:** $28.76 of the $40 eval month. **Counts:** app +165 added, tests +219 (the user accepted the overrun).
+- **Spend:** $28.76 of the $40 eval month. **Counts:** app +167 added, tests +219 (the user accepted the overrun).
 
 **Wave 17 candidates:** voice distinctness (R2 0.21–0.31) is the first product finding the harness can now measure; Dracula
 scenes need two voiced speakers for R2 to apply; the W12-9 rating (5 unrated) scores in about a day.
