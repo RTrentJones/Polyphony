@@ -272,7 +272,7 @@ async def test_scene_setup_builds_plot_and_later_plot(
     import json
     from pathlib import Path
 
-    from app.orchestration.prose import narration_excerpts, scene_setup
+    from app.orchestration.prose import narration_excerpts, scene_setup, untold_lines
     from app.planning.planned_beat import beat_scene_description
     from tests.unit.factories import add_planned_chapter, add_scene, add_scene_beats
 
@@ -303,11 +303,18 @@ async def test_scene_setup_builds_plot_and_later_plot(
     assert "practiced warmth\n" in setup.secondary_block
     (fen,) = _secondaries(cel, ["Old Fen"], load_excerpts("cel"), {"s1": 9})
     assert fen.samples == []
-    # W18-5 (B1, narrowed): cel's paragraphs 3 and 9 each restate a plan line
-    # of chapter 1 (and later ones), so a chapter-1 scene shows neither.
+    # W18-5: this book has no cast rows, so names count toward `restates`
+    # and cel's paragraphs 3 and 9 each restate a chapter-1 plan line.
     assert setup.narration == ()
     paragraphs = [
         " ".join(p.split()) for p in ce.source_paragraphs(load_excerpts("cel"))
     ]
-    planless = narration_excerpts([("s", load_excerpts("cel"))], {"s": 14}, ["Brief"])
+    source = [("s", load_excerpts("cel"))]
+    planless = narration_excerpts(source, {"s": 14}, ["Brief"])
     assert planless == (paragraphs[3], paragraphs[9])
+    # (R) with the cast's names out, only 9 still tells a chapter-1 event
+    # (the Bell account); 3 (the room) is kept.
+    names = [n for c in cel.characters for n in (c.name, *c.aliases)]
+    untold = untold_lines("Brief", setup.plan, setup.position)
+    kept = narration_excerpts(source, {"s": 14}, untold, names=names)
+    assert kept == (paragraphs[3],)

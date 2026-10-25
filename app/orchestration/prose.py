@@ -165,6 +165,7 @@ async def scene_setup(
         untold_lines(brief, plan, position),
         position=position,
         own=pov_narration(sources, pov, canon),
+        names=[n for c in canon.characters for n in (c.name, *(c.aliases or []))],
     )
     return SceneSetup(
         canon, cast, scope, pov, block, plan, earlier, summary, position, narration
@@ -184,6 +185,19 @@ def untold_lines(brief: str, plan: list, position: Optional[StoryPosition]) -> l
     ]
 
 
+def _without_names(names):
+    """Text minus the capitalised words of the cast's names and aliases (and
+    their possessives), so `restates` weighs the event, not who is in it: a
+    paragraph and a plan line naming the same three people share their names'
+    content words without telling the same event (W18 review)."""
+    words = {w for n in names for w in re.findall(r"[A-Z][\w'’-]*", n or "")}
+    if not words:
+        return lambda text: text
+    alternation = "|".join(map(re.escape, sorted(words, key=len, reverse=True)))
+    rx = re.compile(rf"(?<!\w)(?:{alternation})(?:['’]s)?(?!\w)")
+    return lambda text: rx.sub(" ", text)
+
+
 # A paragraph opening with a dateline is a diary's or a letter's header, not
 # the narrator's prose ("_5 May._--", "R. M. Renwick, ætat 59.--").
 _DATELINE = re.compile(r"^[\s_*]*[^\n]{0,80}?\._?\s*(?:--|—)")
@@ -196,6 +210,7 @@ def narration_excerpts(
     *,
     position: Optional[StoryPosition] = None,
     own: Optional[dict] = None,
+    names=(),
 ) -> tuple[str, ...]:
     """Up to NARRATION_EXCERPTS whole paragraphs of the book's own narration,
     for a book with no sample prose (SPEC-93 W18-5): paragraphs with no quoted
@@ -203,7 +218,7 @@ def narration_excerpts(
     opening dateline, of 2+ sentences and NARRATION_EXCERPT_WORDS words,
     narrating no `plot` line's event (`restates`, SPEC-36: scene_setup passes
     the brief and the plan lines of the scene's own and later chapters, the
-    events not yet told). In scope: before the source's
+    events not yet told), with the cast's `names` taken out of both. In scope: before the source's
     later plot (`later_from`, SPEC-40); a source with no cut but a known
     `position` gives only its share up to the scene's chapter (the first
     chapter/of of its paragraphs). `own` ({source id: paragraph indexes}) is
@@ -221,7 +236,8 @@ def narration_excerpts(
     )
 
     low, high = NARRATION_EXCERPT_WORDS
-    plot = [line for line in plot if line]
+    unnamed = _without_names(names)
+    plot = [unnamed(line) for line in plot if line]
     eligible, theirs = [], []
     for sid, text in sources:
         paragraphs = source_paragraphs(text)
@@ -238,7 +254,7 @@ def narration_excerpts(
                 and len(_sentences(paragraph)) >= 2
                 and not quoted  # it quotes someone: not the narrator's alone
                 and not _DATELINE.match(paragraph)
-                and not any(restates(paragraph, line) for line in plot)
+                and not any(restates(unnamed(paragraph), line) for line in plot)
             ):
                 eligible.append(paragraph)
                 if i in (own or {}).get(sid, ()):
