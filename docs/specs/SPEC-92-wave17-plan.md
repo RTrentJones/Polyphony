@@ -32,3 +32,17 @@ empty-input detector wants a verb). Dracula's R2 never applies: Count Vasska, in
 - Known gap: the ensemble agent's `<voice>` block still prints own narration as quoted speech, with no label or contrast
   (it does not opt in to the split); fixable in `context.py` without touching the frozen `ensemble.py` — wave 18.
 - **D17-4 amendment.** Product +95 added against ≈60; the user accepted the overrun on 2026-10-25 ("Accept").
+
+## Standing decision (the user, 2026-10-25)
+"I'm not worried about [the per-wave] budget, just monthly total." From wave 17 on, product and test line counts are
+reported, not gated or put to the user; the only spend limit is the monthly eval total ($40, D1).
+
+## W17-4 draw 1 (run 40161986625, `86123fd`, judged Groq then Claude — labelled mixed/self)
+| book | R2 | applicable | lines | scenes |
+|---|---|---|---|---|
+| frankenstein | **0.42** | 3/4 | 18 | n/a, 0.40, 0.45, 0.40 |
+| dracula | **0.24** | 4/4 (first time: Vasska's speech lines) | 20 | 0.0, 0.0, 0.40, 0.55 |
+Against wave 16 (Frankenstein 0.31 Claude-judged; 0.21 Groq, ≈0.42 without its "No dialogue provided" 0.0), Frankenstein has
+not clearly moved: the judge still reads the lines as "terse, plain, unlike the long ornate samples". One Dracula 0.0 is
+another empty claim ("No dialogue was presented"), so the detector also takes presented/included/shown. Spend: $4.61
+(month $33.37 of $40). Draw 2 runs on Groq alone once its daily tokens recover.

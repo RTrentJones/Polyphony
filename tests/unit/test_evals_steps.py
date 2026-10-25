@@ -758,6 +758,8 @@ _NO_VOICE = "No dialogue provided to evaluate voice distinctness"
         # W17-2: the verb is optional.
         ("No dialogue provided", _NO_VOICE, None),
         (_NO_VOICE, "No dialogue provided", None),
+        # Run 40161986625: "presented" (Dracula scene 2 scored 0.0).
+        ("No dialogue was presented to evaluate voice distinctness", _NO_VOICE, None),
         # Not a claim of absent input: scored as answered, never re-asked.
         ("There is no outline deviation; every beat given is realised", "", 0.0),
         ("Text provided: no dialogue errors, beats given in order", "", 0.0),
