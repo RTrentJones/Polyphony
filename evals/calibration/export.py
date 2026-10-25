@@ -77,6 +77,7 @@ def r2_candidates(reports: Path, gt_at=None) -> list[dict]:
 
     One scene's lines graded by several reports (a cached prose re-graded) are
     one candidate carrying every grading's score."""
+    from evals.harness.rescore import null_unparseable
     from evals.steps.pipeline import _forms, _r2_gold, mask_names
 
     gt_at = gt_at or ground_truth
@@ -91,8 +92,11 @@ def r2_candidates(reports: Path, gt_at=None) -> list[dict]:
         gold, forms = _r2_gold(gt), _forms(gt)
         alias_forms = [f for fs in forms.values() for f in fs]
         for row in prose["scenes"]:
-            r2 = (row.get("rubrics") or {}).get("R2") or {}
-            if r2.get("score") is None:  # not judged, or not applicable
+            r2 = dict((row.get("rubrics") or {}).get("R2") or {})
+            # Review B3: a pre-S2 report carries an unparseable R2 as 0.0;
+            # it is None (SPEC-94 D19-2), never a judge score of 0.
+            null_unparseable(r2)
+            if r2.get("score") is None:  # not judged, unparseable, not applicable
                 continue
             voiced = [
                 r for r in row.get("spoken_lines") or [] if gold.get(r["speaker"])
@@ -318,6 +322,8 @@ TOP = {"schema", "n", "counts", "answer_format", "panel_prompt", "items"}
 SHOWN = {
     "r2": {"id", "kind", "book", "question", "candidates", "samples", "lines"},
     "pair": {"id", "kind", "book", "question", "context", "text_a", "text_b"},
+    # W19 S7 (evals/validation/export.py): one chapter as the RC judge saw it.
+    "chapter": {"id", "kind", "book", "question", "plan", "text"},
 }
 
 

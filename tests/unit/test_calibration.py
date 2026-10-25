@@ -115,6 +115,19 @@ def _export(tmp_path, seed=7, n_r2=4, n_pairs=4, with_keys=False):
 # --- blinding -------------------------------------------------------------------
 
 
+def test_a_pre_s2_unparseable_r2_zero_is_not_a_candidate(tmp_path):
+    """Review B3: before S2 an unparseable R2 reply scored 0.0 with the
+    reason "unparseable judge reply"; it is no judge score to calibrate."""
+    root = tmp_path / "reports"
+    bad = _scene("u", [("Ann Lee", "x"), ("Bo Ray", "y")], score=0.0)
+    bad["rubrics"]["R2"]["explanation"] = "unparseable judge reply"
+    real_zero = _scene("z", [("Ann Lee", "p"), ("Bo Ray", "q")], score=0.0)
+    _report(root, "201", "fake", [bad, real_zero])
+    got = ex.r2_candidates(root, gt_at=gt_at)
+    assert [c["scene_id"] for c in got] == ["z"]
+    assert got[0]["judge_r2"] == [0.0]
+
+
 @pytest.mark.parametrize("with_keys", [False, True])
 def test_items_never_carry_a_label_a_verdict_or_a_source_id(tmp_path, with_keys):
     items, key = _export(tmp_path, with_keys=with_keys)

@@ -357,3 +357,15 @@ def test_export_is_a_blind_calibration_chapter_sample(built):
         assert it["plan"] + it["text"] == rc  # what the RC judge saw
     leaky = {**items, "items": [{**items["items"][0], "variant": "x"}]}
     assert export.leaks(leaky, key)
+
+
+def test_chapter_items_pass_the_calibration_pages_leak_check(built):
+    """S4's page whitelist (evals.calibration.export.leaks) accepts S7's
+    chapter kind with exactly its shown fields, and still refuses an extra."""
+    from evals.calibration import export as calibration
+
+    items, key = export.export(seed=7, n=8)
+    assert calibration.SHOWN["chapter"] == export.SHOWN
+    assert calibration.leaks(items, key) == []
+    leaky = {**items, "items": [{**items["items"][0], "damage": "x"}]}
+    assert calibration.leaks(leaky, key)
