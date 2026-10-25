@@ -1172,7 +1172,6 @@ _NARRATOR_MIN_WORDS = 40
 # refused a ~9k-token request with a 413): ~3000 words of chapter.
 _RC_CHAPTER_WORDS = 3000
 _TRIM = "[…]"
-_QUOTE_MARK = re.compile(r'["“”]')
 
 
 def _paragraphs(text: str) -> list[str]:
@@ -1249,12 +1248,12 @@ def scene_narration(text: str) -> str:
     """The scene's narration, the same kind of text as the samples: only its
     paragraphs that are at least half narration, each with its quoted speech
     and the speech-tag clauses beside it removed (the extractor's
-    `_tagless_narration`, by `tag_spans`)."""
+    `_tagless_narration`, by `tag_spans`, for double and single quotes alike)."""
     from app.parsing.character_extractor import _tagless_narration
 
     out = []
     for p in _paragraphs(text):
-        n = _tagless_narration(p) if _QUOTE_MARK.search(p) else p
+        n = _tagless_narration(p)
         if n and len(n.split()) >= 0.5 * len(p.split()):
             out.append(n)
     return "\n\n".join(out)

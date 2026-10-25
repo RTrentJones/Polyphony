@@ -1365,6 +1365,17 @@ def test_scene_narration_removes_the_dialogue_and_its_tags():
     )  # B2: no tag fragment, and a mostly-dialogue paragraph is left out
 
 
+def test_scene_narration_removes_single_quoted_dialogue_too():
+    assert pipeline.scene_narration("'You must go now,' Milo said.") == ""
+    got = pipeline.scene_narration(
+        "The boys' coats hung by the fire. It wasn't late, and the hall was dark."
+        " \u2018Go,\u2019 she said."
+    )
+    assert got == (
+        "The boys' coats hung by the fire. It wasn't late, and the hall was dark."
+    )  # Codex P2: single quotes are speech; apostrophes stay narration
+
+
 def test_rc_trims_each_scene_middle_when_the_chapter_is_long():
     long = [" ".join(f"s{n}w{i}" for i in range(2000)) for n in range(2)]
     text, trimmed = pipeline.rc_content({"title": "T", "summary": "S"}, long, 1000)
