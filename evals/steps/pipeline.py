@@ -243,7 +243,7 @@ async def _judge_speakers(ctx, text: str, forms: dict, lines: list[str]) -> list
 # W17-2: the verb is optional ("No dialogue provided").
 _CLAIMS_EMPTY = re.compile(
     r"\bno (artifact|dialogue|text|outline|prose|lines?)( text)?"
-    r"( (was|were|is|has been))? (provided|given|supplied)\b",
+    r"( (was|were|is|has been))? (provided|given|supplied|presented|included|shown)\b",
     re.I,
 )
 
