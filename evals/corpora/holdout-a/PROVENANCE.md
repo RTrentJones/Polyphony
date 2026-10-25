@@ -50,7 +50,17 @@ Count → Count Morandi, the asylum fugitive → Ellen Pryor, the uncle → Lion
 two houses → Thornholm and Greymere, …). Real places, people and nations (London's
 streets, Italy, Henry the Eighth, Napoleon) keep their names. Two cast first names
 (Lionel, Matthew) never occur in these sections; the gold cast uses them and the grader
-matches on the surname. Renaming reduces name-cued recall; it does not defeat
+matches on the surname.
+
+**The title phrase.** Like the other holdout's gem name, the novel's identifying phrase
+is renamed: the fugitive's white dress is **blue** wherever it describes her ("the woman
+in blue", "dressed from head to foot in blue garments", "bonnet, shawl, and gown all of
+blue", "In blue, policeman"), eight places in all, through `phrase_aliases` in
+`aliases.json` (applied by `rename.py` like a name, across line breaks). Other uses of
+"white" (mice, hands, teeth, a path) are untouched. Blue was chosen because no other
+garment in these sections is blue (grey and lavender gowns are). The `dress-flip`
+continuity injection now turns her first "in blue" to "in black", against "all of
+blue" a few paragraphs on. Renaming reduces name-cued recall; it does not defeat
 memorization of a famous novel (SPEC-94 S3), which is why this corpus measures the
 *gap* between development and holdout books of the same kind, not memorization.
 

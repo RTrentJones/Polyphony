@@ -187,8 +187,10 @@ def test_the_evals_workflow_refuses_a_mixed_or_unflagged_holdout_run(
 
 
 def _boundary(word: str) -> str:
-    # '_' is a word character to `\b`, so an italicised `_Name_` hides from it.
-    return rf"(?<![^\W_]){re.escape(word)}(?![^\W_])"
+    # '_' is a word character to `\b`, so an italicised `_Name_` hides from it;
+    # a phrase may wrap across a line ('woman in\nwhite').
+    words = r"\s+".join(re.escape(w) for w in word.split(" "))
+    return rf"(?<![^\W_]){words}(?![^\W_])"
 
 
 RENAMED = ["dracula", "frankenstein", "wuthering", *HOLDOUT]
@@ -197,6 +199,7 @@ RENAMED = ["dracula", "frankenstein", "wuthering", *HOLDOUT]
 def _originals(book: str) -> list[str]:
     spec = _json(book, "aliases.json")
     maps = [spec["aliases"], *spec.get("section_aliases", {}).values()]
+    maps.append(spec.get("phrase_aliases", {}))  # an identifying phrase, too
     return sorted({k for m in maps for k in m})
 
 
@@ -233,6 +236,14 @@ def test_a_renamed_corpus_leaks_no_original_name(book):
     """(F) SPEC-94: all five renamed corpora, development and holdout."""
     for where, text in _corpus_texts(book).items():
         assert not _leaks(_originals(book), text), where
+
+
+def test_holdout_a_renames_its_title_phrase():
+    """The novel's identifying phrase is renamed like a name, wherever it wraps."""
+    assert "woman in white" in _originals("holdout-a")
+    text = _read("holdout-a", "excerpts.txt")
+    assert not re.search(r"(?i)woman\s+in\s+white|in\s+white,\s+policeman", text)
+    assert len(re.findall(r"(?i)woman\s+in\s+blue", text)) == 6
 
 
 def test_the_synthetic_corpus_carries_no_renamed_original():

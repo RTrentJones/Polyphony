@@ -61,17 +61,31 @@ def apply_aliases(text: str, aliases: dict[str, str]) -> str:
     a non-letter, so an italicised '_Jonathan_' converts too (a plain regex
     `\b` does not, since '_' is a word character: Wuthering's '_Earnshaw_').
     Plurals and adjectival forms ('Lintons', 'Transylvanian') are separate
-    words and need their own keys.
+    words and need their own keys. A multi-word key matches across a line break
+    too ('woman in\nwhite'); when the rename has as many words, each keeps its
+    own case and the source's spacing, so the line wrap is unchanged.
     """
     for src in sorted(aliases, key=len, reverse=True):
         rep = aliases[src]
+        words = r"\s+".join(re.escape(w) for w in src.split(" "))
         text = re.sub(
-            rf"(?<![^\W_]){re.escape(src)}(?![^\W_])",
-            lambda m: _match_case(m.group(0), rep),
+            rf"(?<![^\W_]){words}(?![^\W_])",
+            lambda m, rep=rep: _rename_match(m.group(0), rep),
             text,
             flags=re.IGNORECASE,
         )
     return text
+
+
+def _rename_match(found: str, rep: str) -> str:
+    """`rep` for one match: word by word (case and spacing kept) when the word
+    counts agree, else the whole rename cased like the match."""
+    parts = re.split(r"(\s+)", found)
+    new = rep.split(" ")
+    if len(new) != len(parts[::2]):
+        return _match_case(found, rep)
+    parts[::2] = [_match_case(o, w) for o, w in zip(parts[::2], new)]
+    return "".join(parts)
 
 
 def extract_sections(body: str, sections: list[str], aliases: dict, per: dict) -> str:
@@ -146,15 +160,18 @@ def main() -> None:
     body = strip_gutenberg(raw)
     # A section may give a name another meaning (Wuthering's two Catherines).
     per = spec.get("section_aliases", {})
+    # An identifying phrase that is not a name (a novel's title phrase) is
+    # renamed like one, from its own map so the name map stays one-to-one.
+    aliases = spec["aliases"] | spec.get("phrase_aliases", {})
     if "spans" in spec:  # explicit spans (the holdout corpora)
-        renamed = extract_spans(body, spec["spans"], spec["aliases"], per)
+        renamed = extract_spans(body, spec["spans"], aliases, per)
     else:
-        renamed = extract_sections(body, spec["sections"], spec["aliases"], per)
+        renamed = extract_sections(body, spec["sections"], aliases, per)
 
     # Sanity: no original name should survive the rename (case-insensitive).
     leaks = [
         src
-        for src in spec["aliases"] | {k: 0 for v in per.values() for k in v}
+        for src in aliases | {k: 0 for v in per.values() for k in v}
         if re.search(
             rf"(?<![^\W_]){re.escape(src)}(?![^\W_])", renamed, flags=re.IGNORECASE
         )

@@ -1,5 +1,5 @@
 {
-  "_comment": "Rename map for the HOLDOUT corpus (SPEC-94 S5; see PROVENANCE.md): original public-domain names -> invented replacements, longest-first so multi-word names replace before their parts. Real-world places, people and nations (London streets, Italy, Henry the Eighth) keep their names; the novel's people, houses and home counties do not. `spans` cuts five single-narrator sections out of the source (Collins restarts chapter numbering per narrator and heads some sections with bare numerals), each under its own excerpt heading; `sections` lists those headings.",
+  "_comment": "Rename map for the HOLDOUT corpus (SPEC-94 S5; see PROVENANCE.md): original public-domain names -> invented replacements, longest-first so multi-word names replace before their parts. Real-world places, people and nations (London streets, Italy, Henry the Eighth) keep their names; the novel's people, houses and home counties do not. `spans` cuts five single-narrator sections out of the source (Collins restarts chapter numbering per narrator and heads some sections with bare numerals), each under its own excerpt heading; `sections` lists those headings. `phrase_aliases` renames the novel's identifying title phrase the same way: the fugitive's white dress becomes blue wherever it describes her (other uses of 'white' are untouched).",
   "sections": [
     "CHAPTER I",
     "CHAPTER II",
@@ -77,5 +77,11 @@
     "Cumberland": "Fellshire",
     "Hampshire": "Southmarch",
     "Carlisle": "Kelbrook"
+  },
+  "phrase_aliases": {
+    "woman in white": "woman in blue",
+    "head to foot in white": "head to foot in blue",
+    "all of white": "all of blue",
+    "In white, policeman": "In blue, policeman"
   }
 }
