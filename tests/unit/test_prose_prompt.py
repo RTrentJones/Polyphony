@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from app.core.llm_text import as_quoted_block
-from app.core.prompt_markers import VOICE_SAMPLES_LABEL
+from app.core.prompt_markers import VOICE_CONTRAST_NOTE, VOICE_SAMPLES_LABEL
 from app.orchestration import prose as prose_module
 from app.orchestration.pov import NAMING_RULE, Pov, pov_instruction
 from app.orchestration.revise import build_revise_prompt
@@ -24,6 +24,7 @@ from app.orchestration.prose import (
     PREV_TAIL_WORDS,
     SceneSetup,
     _canon_hash,
+    narration_excerpts,
     prose_tail,
     scene_chapter,
     scene_name_warnings,
@@ -249,6 +250,55 @@ class TestBeatPrompt:
         )
         assert "style guide, above" not in prompt
 
+    async def test_house_style_governs_the_narration_not_the_speakers(self, fake):
+        """(F) W18-1: R2's "terse, plain, unlike the long ornate samples"."""
+        await _write(_BEATS[0])
+        assert "PUNCTUATES" in GENERIC_CRAFT_GUIDANCE
+        assert "not how a character speaks" in GENERIC_CRAFT_GUIDANCE
+        assert "speaker whose samples run long keeps long lines" in fake.prompts[0]
+
+    async def test_each_beat_speaker_is_tied_to_their_own_block(self, fake):
+        """(F) W18-1: both speakers named, with their block and the contrast
+        line, ahead of the style section; (R) a name with no block is not."""
+        cast = (
+            "<character>\n### Victor\nVoice samples\n</character>\n\n"
+            "<character>\n### Elizabeth\n</character>\n\n"
+            f"{VOICE_CONTRAST_NOTE}\n<contrast>\n- Victor: …\n</contrast>"
+        )
+        beat = {"description": "They talk.", "characters": ["Victor", "Elizabeth"]}
+        kw = dict(pov=Pov("first person"), story_position=None, secondary_block="")
+        await write_beat_prose(beat, _REQUEST, cast, "", speakers=None, **kw)
+        await write_beat_prose(beat, _REQUEST, cast, "", speakers=["Walton"], **kw)
+        voices, unnamed = fake.prompts
+        rule = voices.split("VOICES — ")[1].split("\n\n")[0]
+        assert "THEIR OWN <character> block and the <contrast> line" in rule
+        assert "Victor's lines follow Victor's block; Elizabeth's lines" in rule
+        assert "not a shared narrative register" in rule
+        assert "long and periodic" in rule
+        assert voices.index("VOICES — ") < voices.index(GENERIC_CRAFT_GUIDANCE)
+        assert "VOICES — " not in unnamed  # Walton has no block here
+        await _write(_BEATS[0])  # the stub cast "cast" shows no block
+        assert "VOICES — " not in fake.prompts[-1]
+
+    async def test_book_narration_is_the_style_reference_without_sample(self, fake):
+        """(F) W18-5: no sample prose → the book's own narration, fenced and
+        labelled, ahead of the tone; (R) sample prose keeps today's section."""
+        excerpts = ("I arrived here yesterday. All is well.", "The ice closed in.")
+        await _write(_BEATS[0], narration=excerpts)
+        tone = types.SimpleNamespace(tone="grave")
+        await _write(_BEATS[0], narration=excerpts, style=tone)
+        sample = types.SimpleNamespace(tone="grave", sample_prose="She ran.")
+        await _write(_BEATS[0], narration=excerpts, style=sample)
+        bare, toned, sampled = fake.prompts
+        block = as_quoted_block("\n\n".join(excerpts), "book_narration")
+        assert f"write new prose in this voice:\n{block}\n\nWrite approx" in bare
+        assert "STYLE — the book's own narration" in bare
+        assert "person and tense" in bare and "Never copy their words" in bare
+        assert GENERIC_CRAFT_GUIDANCE not in bare
+        assert f"{block}\nFollow the tone in the canon's style guide" in toned
+        assert "<book_narration>" not in sampled
+        assert "the author's sample prose (the canon's style guide" in sampled
+
     async def test_no_plan_given_none_rendered(self, fake):
         assert await _write(_BEATS[0]) == "Prose."
         assert "<beats>" not in fake.prompts[0]
@@ -293,6 +343,33 @@ def test_scene_name_warnings_on_the_archived_scenes():
     assert scene_name_warnings(text, canon, also, "") == []
     brief = {"scene_description": "Milo nods to Imre Kasza."}
     assert scene_name_warnings(text, canon, brief, "") == []  # (R) the author's
+
+
+def test_narration_excerpts_are_whole_unquoted_paragraphs_in_scope():
+    """(F) W18-5: quoted, short, long, later-plot and brief-restating paragraphs
+    are skipped; the rest are picked evenly, whole, in upload order."""
+    sentence = "The wind rose over the dark lake that night. "
+    para = [(f"Para {i}. " + sentence * 6).strip() for i in range(8)]  # 51 words
+    text = "\n\n".join(
+        [
+            para[0],
+            '"Come," said he. ' + sentence * 6,  # quotes someone
+            "Too short. Yes.",
+            sentence * 30,  # 270 words: skipped, never cut
+            para[1],
+            para[2],
+            ledger := "Para x. The ledger burned in the archive grate. "
+            + (sentence * 5).strip(),
+            para[3],
+            para[4],
+        ]
+    )
+    picks = narration_excerpts([("s", text), ("t", para[5])], {}, "")
+    assert picks == (para[0], ledger, para[5])  # 7 eligible: 0, 3, 6
+    assert narration_excerpts([("s", text)], {"s": 5}, "") == (para[0], para[1])
+    brief = "The ledger burned slowly in the archive grate."
+    assert narration_excerpts([("s", text)], {}, brief) == (para[0], para[2], para[4])
+    assert narration_excerpts([], {}, "") == ()
 
 
 # --- scene_chapter (SPEC-30) ----------------------------------------------------
