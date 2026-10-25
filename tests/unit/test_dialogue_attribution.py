@@ -531,14 +531,59 @@ class TestCharacterContext:
         import app.characters.context as ctx
 
         store = TypedStore(
-            [_s("n1", "I wrote by the lamp until Bistritz.", "action", "narration_4")]
+            [
+                _s(
+                    "n1", "I wrote by the lamp until Bistritz.", "action", "narration_4"
+                ),
+                _s("d1", "Welcome to my house, sir.", "dialogue", "dialogue_5"),
+            ]
         )
         monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
         out = await ctx.build_character_context(
             _char("Jonathan Harker"), "Jonathan Harker", "the castle", scope=_scope()
         )
-        voice, move = _blocks(out)
-        assert "Bistritz" in voice and "Bistritz" not in move
+        # W17-1: speech keeps the voice label; narration gets its own, after it.
+        speech, narration = out.split(ctx.VOICE_SAMPLES_LABEL)[1].split(
+            ctx.NARRATION_LABEL
+        )
+        assert "Welcome" in speech and "Bistritz" not in speech
+        assert "- I wrote by the lamp until Bistritz." in narration
+        assert narration.startswith(ctx.NARRATION_WITH_SPEECH)
+        assert ctx.voice_clause(out) == "matching their voice samples"
+
+    async def test_cast_contrast_line_only_for_two_sampled_speakers(self, monkeypatch):
+        rowan = [
+            "I beheld the wretch whom I had created, and thou shalt hear it.",
+            "Whilst I slept, the moon shone; 'tis a memory that hath no end.",
+        ]
+        emeric = ["Run, man! Now!", "Where is he? Go now!"]
+        cast = [_char("Rowan"), _char("Emeric")]
+        rows = [_s(f"r{i}", t, "action", f"narration_{i}") for i, t in enumerate(rowan)]
+        rows += [_s(f"e{i}", t, "dialogue") for i, t in enumerate(emeric)]
+        for r in rows:
+            r["owner"] = str(cast[r["id"][0] == "e"].id)
+        store, everyone = TypedStore(rows), TypedStore.retrieve_similar
+
+        async def owned(self, *, character_id, **kw):
+            hits = await everyone(self, character_id=character_id, **kw)
+            return [h for h in hits if h["owner"] == character_id]
+
+        monkeypatch.setattr(TypedStore, "retrieve_similar", owned)
+        monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
+        out = await ctx.build_cast_context(cast, "the lab", scope=_scope(*cast))
+        lines = out.split(ctx.VOICE_CONTRAST_NOTE)[1].split("\n")
+        assert lines[2].startswith("- Rowan: about 15 words a sentence (others 5); ")
+        assert "0.0 exclamations/questions a sentence (others 1.0)" in lines[2]
+        assert "archaic forms 11.5 per 100 words (others 0.0)" in lines[2]
+        assert lines[3].startswith("- Emeric: about 5 words a sentence (others 15)")
+        assert ctx.NARRATION_LABEL + ctx.NARRATION_ONLY in out  # no speech shown
+        # Titles, a.m./p.m. and ellipses end no sentence; "shall" is not archaic.
+        darcy = "Mr. Darcy and Dr. Lee went to St. Paul's at 3 p.m. today."
+        assert ctx.voice_stats([darcy]) == (12, 0, 0)
+        assert ctx.voice_stats(["Well... I suppose\u2026 we shall."])[:2] == (5, 0)
+        alone = await ctx.build_cast_context(cast[:1], "x", scope=_scope(*cast))
+        assert ctx.VOICE_CONTRAST_NOTE not in alone
+        assert ctx.voice_contrast({"Rowan": rowan, "Emeric": emeric[:1]}) == []
 
     async def test_cast_context_passes_the_scope(self, monkeypatch):
         import app.characters.context as ctx

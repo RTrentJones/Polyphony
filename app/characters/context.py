@@ -25,6 +25,10 @@ from app.core.orm_models import Character
 from app.core.prompt_markers import (
     MOVEMENT_LABEL,
     NAME_HEADING,
+    NARRATION_LABEL,
+    NARRATION_ONLY,
+    NARRATION_WITH_SPEECH,
+    VOICE_CONTRAST_NOTE,
     VOICE_SAMPLES_LABEL,
     WITHHELD_MORE,
 )
@@ -181,6 +185,7 @@ async def build_character_context(
     chunk_types: Optional[Iterable[str]] = None,
     grounding: Optional[list] = None,
     bible: bool = False,
+    voiced: Optional[list] = None,
 ) -> str:
     """One character's context block: their name, then their own words
     ("Voice samples") and how they move ("How they move"), retrieved separately
@@ -197,12 +202,13 @@ async def build_character_context(
     generation (R5.3); a character with none gets a reason entry instead.
     `scope.cast` is the scene's cast: a narration sample that centres another
     of them rather than this character is left out (SPEC-30). `chunk_types`,
-    when given, limits both blocks to those types.
+    when given, limits both blocks to those types. `voiced` (an out-sink) gets
+    the speech and narration samples shown.
     """
     if character is None:
         return render_character(name, [], [])
     bio = _bible_lines(character) if bible else []
-    words, movement = [], []
+    words, movement, narration = [], [], []
     if max_samples > 0:
         words, movement = await character_samples(
             character,
@@ -212,17 +218,24 @@ async def build_character_context(
             threshold=settings.RAG_SCORE_THRESHOLD,
             chunk_types=chunk_types,
             withheld=grounding,
+            own=narration,
         )
         if grounding is not None:
-            grounding.extend(grounding_entries(character, [*words, *movement]))
-    return render_character(name, words, movement, bio)
+            shown = [*words, *narration, *movement]
+            grounding.extend(grounding_entries(character, shown))
+        if voiced is not None:
+            voiced.extend([*words, *narration])
+    return render_character(name, words, movement, bio, narration)
 
 
-def render_character(name: str, words: list, movement: list, bio=()) -> str:
+def render_character(
+    name: str, words: list, movement: list, bio=(), narration=()
+) -> str:
     """The one character-block renderer (SPEC-17): `### name`, the `bio` lines,
-    their own words under VOICE_SAMPLES_LABEL, how they move under
-    MOVEMENT_LABEL. Beat prose, revise, the ensemble agent and the voice probe
-    all print a character through it."""
+    their own words under VOICE_SAMPLES_LABEL, their own narration under
+    NARRATION_LABEL (W17-1), how they move under MOVEMENT_LABEL. Beat prose,
+    revise, the ensemble agent and the voice probe all print a character
+    through it."""
     lines = [f"{NAME_HEADING}{name}", *bio]
     if words:
         lines.append(VOICE_SAMPLES_LABEL)
@@ -230,6 +243,10 @@ def render_character(name: str, words: list, movement: list, bio=()) -> str:
         # They used to be cut to 200 chars, which severed most of them
         # mid-sentence and taught the model half a cadence.
         lines.extend(f'- "{clean_for_llm(s["text"])}"' for s in words)
+    if narration:
+        tail = NARRATION_WITH_SPEECH if words else NARRATION_ONLY
+        lines.append(NARRATION_LABEL + tail)
+        lines.extend(f"- {clean_for_llm(s['text'])}" for s in narration)
     if movement:
         lines.append(MOVEMENT_LABEL)
         lines.extend(f"- {clean_for_llm(s['text'])}" for s in movement)
@@ -238,7 +255,7 @@ def render_character(name: str, words: list, movement: list, bio=()) -> str:
 
 def voice_clause(cast_context: str) -> str:
     """The cast header's voice clause: samples only when a block shows some."""
-    shown = VOICE_SAMPLES_LABEL in cast_context  # SPEC-70
+    shown = VOICE_SAMPLES_LABEL in cast_context or NARRATION_LABEL in cast_context
     return "matching their voice samples" if shown else "as the canon describes it"
 
 
@@ -512,6 +529,7 @@ async def character_samples(
     threshold: float,
     chunk_types: Optional[Iterable[str]] = None,
     withheld: Optional[list] = None,
+    own: Optional[list] = None,
 ) -> tuple[list[dict], list[dict]]:
     """(their own words, how they move) for one character, retrieved separately:
     up to `k` words and min(k, 3) movement samples. The one voice retrieval
@@ -528,7 +546,8 @@ async def character_samples(
     (`scope.later_from`). `threshold` is
     the store's score floor (`score_threshold`), which every caller passes.
     `withheld` (an out-sink) gets a grounding entry per movement row withheld,
-    at most WITHHELD_CAP of them.
+    at most WITHHELD_CAP of them. `own` (an out-sink), when given, takes the
+    own-narration fallback instead of the words (W17-1).
     """
     k_voice, k_move = k, min(_MOVEMENT_SAMPLES, k)
     allowed = set(chunk_types) if chunk_types else None
@@ -584,8 +603,11 @@ async def character_samples(
             )
             if s.get("id") not in typed
         ]
-    own = [s for s in body if _own_narration(s) and not scripted(s)]
-    words += own[: max(0, k_voice - len(words))]
+    (words if own is None else own).extend(
+        [s for s in body if _own_narration(s) and not scripted(s)][
+            : max(0, k_voice - len(words))
+        ]
+    )
     if withheld is not None:
         ranked = sorted(
             withheld_rows.items(), key=lambda r: -(r[1][0].get("score") or 0)
@@ -600,7 +622,7 @@ async def character_samples(
         withheld.extend(entries)
     body = [s for s in body if not _own_narration(s)][:k_move]
     if withheld is not None and (
-        hit_v and len(words) < k_voice or hit_m and len(body) < k_move
+        hit_v and len(words) + len(own or ()) < k_voice or hit_m and len(body) < k_move
     ):
         withheld.append(unsampled_entry(character, RETRIEVAL_EXHAUSTED_REASON))
     return words, body
@@ -642,6 +664,41 @@ async def _retrieve(
     return samples
 
 
+_ARCHAIC = frozenset("thee thou thy thine hath doth 'tis ere".split())
+
+
+def voice_stats(texts: list[str]) -> tuple[float, float, float]:
+    """(words a sentence, exclamations/questions a sentence, archaic forms per
+    100 words) of one character's samples: deterministic, no LLM (W17-1)."""
+    text = " ".join(texts).replace("\u2019", "'")
+    text = re.sub(r"\b(Mrs?|Ms|Dr|St|Mt|Jr|Sr|Capt|Col|Rev|Prof)\.", r"\1", text)
+    text = re.sub(r"\b([ap])\.m\.", r"\1m", text)
+    text = re.sub(r"\.{2,}|\u2026", " ", text)
+    ends = re.findall(r"[.!?]+", text)
+    words = re.findall(r"[A-Za-z']+", text)
+    n = max(1, sum(1 for c in re.split(r"[.!?]+", text) if c.strip()))
+    old = sum(w.lower() in _ARCHAIC or w.lower().strip("'") in _ARCHAIC for w in words)
+    loud = sum(1 for e in ends if set(e) & {"!", "?"})
+    return len(words) / n, loud / n, 100 * old / max(1, len(words))
+
+
+def voice_contrast(samples: dict[str, list[str]]) -> list[str]:
+    """One line per character with 2+ samples, against the others' mean; none
+    unless two such characters share the beat (W17-1)."""
+    stats = {n: voice_stats(t) for n, t in samples.items() if len(t) >= 2}
+    lines = []
+    for name, (wl, ex, ar) in stats.items() if len(stats) > 1 else ():
+        o = [v for n, v in stats.items() if n != name]
+        ow, oe, oa = (sum(v[i] for v in o) / len(o) for i in range(3))
+        wl, ow = (max(5, 5 * round(x / 5)) for x in (wl, ow))  # coarse bands
+        lines.append(
+            f"- {name}: about {wl} words a sentence (others {ow}); "
+            f"{ex:.1f} exclamations/questions a sentence (others {oe:.1f}); "
+            f"archaic forms {ar:.1f} per 100 words (others {oa:.1f})"
+        )
+    return lines
+
+
 async def build_cast_context(
     characters: list[Character],
     beat_description: str,
@@ -660,7 +717,7 @@ async def build_cast_context(
     `<owned>` block: "{name}: '{phrase}'" for each book cast member who is not
     in the beat and owns a phrase (SPEC-42).
     """
-    blocks = []
+    blocks, voiced = [], {}
     for character in characters:
         block = await build_character_context(
             character,
@@ -669,8 +726,12 @@ async def build_cast_context(
             scope=scope,
             grounding=grounding,
             bible=bible,
+            voiced=(shown := []),
         )
         blocks.append(as_quoted_block(block, "character"))
+        voiced[character.name] = [s.get("text") or "" for s in shown]
+    contrast = as_quoted_block("\n".join(voice_contrast(voiced)), "contrast")
+    blocks.append(contrast and f"{VOICE_CONTRAST_NOTE}\n{contrast}")
     beat = {c.name for c in characters}
     owned = [
         clean_for_llm(f"{m.name}: " + ", ".join(f"'{p}'" for p in phrases))

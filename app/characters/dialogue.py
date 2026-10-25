@@ -37,9 +37,12 @@ async def generate_dialogue(
     name = character.name
     # Score >= 0: a voice probe's own best lines score low against it (SPEC-55).
     words, movement = await character_samples(
-        character, prompt, 3, scope=scope, threshold=0
+        character, prompt, 3, scope=scope, threshold=0, own=(own := [])
     )
-    block = as_quoted_block(render_character(name, words, movement), "character")
+    block = as_quoted_block(
+        render_character(name, words, movement, (), own), "character"
+    )
+    words += own  # similarity and grounding read every sample shown
     note = clean_for_llm(context)
     scene = f"Scene context: {note}\n" if note else ""
     body = f"""{STORY_MATERIAL_NOTICE}
