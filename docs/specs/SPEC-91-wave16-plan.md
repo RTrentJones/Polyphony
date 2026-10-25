@@ -34,3 +34,19 @@
 - **First R2 draw** (run 40081633631, prose only, `4763272`): Frankenstein R2 applies in 3 of 4 scenes (25 lines) and
   scores **0.31**: the first real voice measurement, and a low one. Dracula: 0 applicable scenes (no scene had two cast
   speakers with voice samples). The judge chain fell through to Claude (labelled). Spend $3.25 (month: $26.08 of $40).
+
+## Wave close (2026-10-25)
+**Shipped:** PR A (#60, `4763272`), PR B (#61, `6e14ad3`, prod verified at `/__version`).
+- **R2 measures something now.** Draw 1 (run 40081633631, judged mostly by Claude, labelled): Frankenstein R2 **0.31**, 3 of 4
+  scenes, 25 lines. Draw 2 (run 40145602923, Groq only): Frankenstein R2 **0.21**, 2 of 4 scenes, 15 lines. Both say the
+  characters' voices are not distinct; prose otherwise scores 0.90–0.99. Dracula: no scene had two cast speakers with voice
+  samples in either draw (R2 n/a).
+- **Narrator grounding (offline, Frankenstein):** Rowan 59 → 22 (his signed letters), Emeric 0 → 16, The Creature 57 → 2;
+  Dracula unchanged. With two or more narrator-role characters, an unidentified section is credited to no one.
+- **Attribution (W16-3):** 0.533 ± 0.082 over three passes at main; no regression.
+- **Reviews:** PR A one blocking (positional speaker pairing); PR B five blocking over three rounds, plus two Codex P2s
+  (numbered letters sharing one section; a date-only dateline dropped), all fixed with rows.
+- **Spend:** $28.76 of the $40 eval month. **Counts:** app +165 added, tests +219 (the user accepted the overrun).
+
+**Wave 17 candidates:** voice distinctness (R2 0.21–0.31) is the first product finding the harness can now measure; Dracula
+scenes need two voiced speakers for R2 to apply; the W12-9 rating (5 unrated) scores in about a day.

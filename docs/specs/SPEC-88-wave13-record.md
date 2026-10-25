@@ -89,6 +89,10 @@ about 30 replies cached, 7 prompts left unrated after 3, all 16k-character reaso
 principal; `panel-ba5e1538299e93415c89`, `panel-3127fb157de5b406aef3`, `panel-cc97d25b80c727066774`, `panel-601863f116ba3708685a`),
 then OpenRouter's 50/day · rate-state 12541928872: 280 checked, 0 removed · `unrated` 35 · the principal's ruling: P⁵ (SPEC-84,
 2026-10-24); about 48 Nemotron prompts left at ~1.3 requests each: 2 days (about 10-26). Next resumes check out P⁵ (`f57f026`).
+40145592398 · `sha=P⁵` (`f57f026`) · prior 40043768197 · green, a clean stop: Nemotron 55 requests, the day-4 cut-off prompts
+answered within 16384 tokens except `panel-cc97d25b80c727066774` (3 replies of `{}`: its first P⁵ failure; SPEC-84's fallback needs a
+second), then OpenRouter's 50/day · rate-state: 319 checked, 0 removed, 319/319 read identically at P⁵ · `unrated` 5 · 1 day left
+(about 10-26).
  run id · `sha=19838a1` (P + the recorded `panel.py` lines) · `prior_run` · rate-state check (invalid
 entries removed, by key, or none) · `unrated` after the dispatch.
 
