@@ -1668,6 +1668,14 @@ async def step_prose(ctx: StepContext) -> dict:
         "rc_explanation": rc["explanation"]
         + (' [chapter trimmed for length: "[…]" marks each cut]' if rc_trimmed else ""),
         "rc_trimmed": rc_trimmed,
+        # SPEC-94 S8: the evidence under rn_mean — scenes whose narration made
+        # RN applicable, and those of them the judge gave a number.
+        "rn_eligible": sum(
+            1
+            for r in detail
+            if r.get("rubrics") and not r["rubrics"]["RN"].get("not_applicable")
+        ),
+        "rn_scored": len(rns),
         "narrator_samples": len(samples),
         "narrator_sampled": sampled,
         # SPEC-94 S2a: RN (per scene) and RC the judge did not score.

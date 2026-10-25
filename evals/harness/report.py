@@ -121,9 +121,20 @@ def scorecard(run: dict) -> str:
             )
             if res.get("book"):  # W18-6/7, beside the score (D18-4)
                 b = res["book"]
-                extra += f" book: RN={b.get('rn_mean')} RC={b.get('rc')}" + (
-                    " (chapter trimmed)" if b.get("rc_trimmed") else ""
-                )
+                extra += f" book: RN={b.get('rn_mean')}"
+                if "rn_scored" in b:  # SPEC-94 S8: the evidence under each mean
+                    extra += (
+                        f" (scored {b['rn_scored']}/{b.get('rn_eligible')} eligible)"
+                    )
+                extra += f" RC={b.get('rc')}"
+                if "rc_scored" in b:  # aggregated over repeats
+                    n = res.get("repeats") or "?"
+                    extra += (
+                        f" (scored {b['rc_scored']}/{n},"
+                        f" trimmed {int(b.get('rc_trimmed') or 0)}/{n})"
+                    )
+                elif b.get("rc_trimmed"):
+                    extra += " (chapter trimmed)"
         elif name == "revise":
             extra = (
                 f"tighten_n={res.get('tighten_n')} ras={res.get('tighten_ras')} "
@@ -360,21 +371,43 @@ _TRACER_RUN_METRICS: dict[str, tuple[str, ...]] = {
         "control_flagged_share",
     ),
     "outline": ("score", "cast_fidelity", "unknown_rate"),
-    "prose": ("score", "words", "rn_mean", "rc"),
+    "prose": (
+        "score",
+        "words",
+        "rn_mean",
+        "rc",
+        "rn_eligible",
+        "rn_scored",
+        "rc_scored",
+        "rc_trimmed",
+    ),
 }
 # W18-6/7 (D18-4): the prose step's `book` block, its own metrics (averaged
 # over repeats by evals.run._aggregate), never part of its score.
-_BOOK_METRICS = ("rn_mean", "rc")
+# SPEC-94 S8: with the evidence under them — RN-eligible and RN-scored scenes,
+# and over repeats the repetitions with a numeric RC and the trimmed ones
+# (`rc_trimmed` is a flag in one run, exported 0/1, and a count over repeats).
+_BOOK_METRICS = (
+    "rn_mean",
+    "rc",
+    "rn_eligible",
+    "rn_scored",
+    "rc_scored",
+    "rc_trimmed",
+)
 
 
 def book_metrics(res: dict) -> dict[str, float]:
     """The numeric `book` fields of a step result ({} without one)."""
     b = res.get("book") or {}
-    return {
-        k: round(float(b[k]), 6)
-        for k in _BOOK_METRICS
-        if isinstance(b.get(k), (int, float)) and not isinstance(b.get(k), bool)
-    }
+    out = {}
+    for k in _BOOK_METRICS:
+        v = b.get(k)
+        if k == "rc_trimmed" and isinstance(v, bool):
+            v = int(v)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            out[k] = round(float(v), 6) if isinstance(v, float) else v
+    return out
 
 
 def _numeric_fields(res: dict) -> dict[str, float]:

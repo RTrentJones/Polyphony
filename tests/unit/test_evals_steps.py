@@ -1437,6 +1437,10 @@ async def test_prose_reports_rn_and_rc_as_a_book_block(tmp_path):
         "rc": 0.2,
         "rc_explanation": "RC ok",
         "rc_trimmed": False,
+        # SPEC-94 S8: scene 1 has narration (RN applicable, scored); scene 2
+        # is all dialogue (not applicable).
+        "rn_eligible": 1,
+        "rn_scored": 1,
         "narrator_samples": 3,
         "narrator_sampled": "corpus",  # Milo has no voice_sources chapters
         "unscored": {
@@ -1476,7 +1480,11 @@ def test_the_book_block_is_exported_as_its_own_metrics():
     gl = report.greenlight_export(run)
     assert [c["name"] for c in gl["checks"]] == ["eval:prose"]
     assert gl["checks"][0]["eval"]["score"] == 0.7
-    assert gl["metrics"] == {"prose.rn_mean": 0.55, "prose.rc": 0.4}
+    assert gl["metrics"] == {
+        "prose.rn_mean": 0.55,
+        "prose.rc": 0.4,
+        "prose.rc_trimmed": 1,  # SPEC-94 S8: the one run's flag, as 0/1
+    }
     assert "RN=0.55 RC=0.4 (chapter trimmed)" in report.scorecard(run)
     del run["steps"]["prose"]["book"]
     assert "metrics" not in report.greenlight_export(run)
@@ -1490,7 +1498,87 @@ def test_repeats_average_the_book_block():
         {"prose": {"score": 0.8, "book": {"rn_mean": 0.6, "rc": None}}},
     ]
     got = _aggregate(passes)["prose"]
-    assert got["score"] == 0.7 and got["book"] == {"rn_mean": 0.5, "rc": 0.2}
+    assert got["score"] == 0.7 and got["book"] == {
+        "rn_mean": 0.5,
+        "rc": 0.2,
+        "rc_scored": 1,  # SPEC-94 S8: one of the two repetitions scored RC
+        "rc_trimmed": 0,
+    }
+
+
+# --- SPEC-94 S8: the evidence under the book block's means -------------------
+
+
+async def test_the_book_block_counts_rn_eligible_and_scored_scenes(tmp_path):
+    # Scene 1's RN comes back unparseable: eligible, but not scored.
+    judge = _UnparseableJudge({"RN"})
+    out = await pipeline.step_prose(_cel_ctx(tmp_path, _ProductClient(), judge))
+    b = out["book"]
+    assert (b["rn_eligible"], b["rn_scored"], b["rn_mean"]) == (1, 0, None)
+    assert b["rc_trimmed"] is False
+
+
+def test_repeats_report_the_book_blocks_evidence():
+    from evals.harness import report
+    from evals.run import _aggregate
+
+    def book(rn, rc, trimmed, eligible, scored):
+        return {
+            "rn_mean": rn,
+            "rc": rc,
+            "rc_trimmed": trimmed,
+            "rn_eligible": eligible,
+            "rn_scored": scored,
+        }
+
+    passes = [
+        {"prose": {"score": 0.6, "book": book(0.4, 0.2, True, 3, 3)}},
+        {"prose": {"score": 0.8, "book": book(0.6, None, False, 3, 2)}},
+        {"prose": {"score": 0.7, "book": book(None, 0.4, True, 2, 0)}},
+    ]
+    got = _aggregate(passes)["prose"]
+    b = got["book"]
+    assert (b["rn_mean"], b["rc"]) == (0.5, 0.3)
+    assert (b["rc_scored"], b["rc_trimmed"]) == (2, 2)
+    assert (b["rn_eligible"], b["rn_scored"]) == (8, 5)
+    run = {
+        "app_sha": "s",
+        "book": "cel",
+        "judge": {"provider": "p", "self": False},
+        "steps": {"prose": got},
+    }
+    card = report.scorecard(run)
+    assert "RN=0.5 (scored 5/8 eligible) RC=0.3 (scored 2/3, trimmed 2/3)" in card
+    out = report.tracer_export(run, model="m")
+    (case,) = out["cases"]
+    for k, v in {
+        "rn_eligible": 8,
+        "rn_scored": 5,
+        "rc_scored": 2,
+        "rc_trimmed": 2,
+    }.items():
+        assert case["metrics"][k] == v and out["metrics"][f"prose.{k}"] == v
+
+
+def test_one_runs_book_evidence_is_on_the_scorecard_and_in_tracer():
+    from evals.harness import report
+
+    b = {"rn_mean": 0.55, "rc": 0.4, "rc_trimmed": False}
+    b |= {"rn_eligible": 3, "rn_scored": 2}
+    run = {
+        "app_sha": "s",
+        "book": "cel",
+        "judge": {"provider": "p", "self": False},
+        "steps": {"prose": {"score": 0.7, "book": b}},
+    }
+    assert "RN=0.55 (scored 2/3 eligible) RC=0.4" in report.scorecard(run)
+    assert "trimmed" not in report.scorecard(run)
+    m = report.tracer_export(run, model="m")["metrics"]
+    assert (m["prose.rn_eligible"], m["prose.rn_scored"], m["prose.rc_trimmed"]) == (
+        3,
+        2,
+        0,
+    )
 
 
 # --- SPEC-94 S2a: an unparseable judge reply is unscored, never 0.0 ------------

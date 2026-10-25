@@ -140,6 +140,16 @@ def _aggregate(passes: list[dict]) -> dict:
             for k in ("rn_mean", "rc"):
                 got = [b[k] for b in books if isinstance(b.get(k), (int, float))]
                 merged["book"][k] = round(statistics.mean(got), 4) if got else None
+            # SPEC-94 S8: the evidence under those means, over the same passes.
+            merged["book"]["rc_scored"] = sum(
+                isinstance(b.get("rc"), (int, float)) and not isinstance(b["rc"], bool)
+                for b in books
+            )
+            merged["book"]["rc_trimmed"] = sum(bool(b.get("rc_trimmed")) for b in books)
+            for k in ("rn_eligible", "rn_scored"):
+                got = [b[k] for b in books if isinstance(b.get(k), int)]
+                if got:
+                    merged["book"][k] = sum(got)
         out[name] = merged
     for name in names:  # SPEC-94 S2a: the unscored tally covers every pass
         tallies = [
