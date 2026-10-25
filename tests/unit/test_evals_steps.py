@@ -747,6 +747,7 @@ async def test_outline_confirms_the_authors_premise_and_caps_r1(tmp_path):
 
 
 _EMPTY = "No artifact was provided to score."
+_NO_VOICE = "No dialogue provided to evaluate voice distinctness"
 
 
 @pytest.mark.parametrize(
@@ -754,6 +755,9 @@ _EMPTY = "No artifact was provided to score."
     [
         (_EMPTY, "No text was given.", None),
         (_EMPTY, "ok", 0.7),
+        # W17-2: the verb is optional.
+        ("No dialogue provided", _NO_VOICE, None),
+        (_NO_VOICE, "No dialogue provided", None),
         # Not a claim of absent input: scored as answered, never re-asked.
         ("There is no outline deviation; every beat given is realised", "", 0.0),
         ("Text provided: no dialogue errors, beats given in order", "", 0.0),
@@ -1281,3 +1285,16 @@ def test_the_withheld_export_is_built_from_the_grounding_body():
         {"beat": "Beat one.", "owner": "Zara Okafor"}
         | {"lines": [{"text": "p2", "rule": "restates"}], "withheld_more": 3}
     ]
+
+
+def test_dracula_vasska_speech_lines_feed_r2_only():
+    # (F) W17-3: the Count's own words, verbatim, read only by R2's samples.
+    d = pipeline.CORPORA / "dracula"
+    gt = json.loads((d / "ground_truth.json").read_text(encoding="utf-8"))
+    text = re.sub(r"\s+", " ", (d / "excerpts.txt").read_text(encoding="utf-8"))
+    v = gt["speech_lines"]["Count Vasska"]
+    lines = v["train"] + v["test"]
+    assert len(lines) >= 6 and all(ln in text for ln in lines)
+    assert "Count Vasska" not in gt["gold_lines"]
+    block = pipeline._voice_block(gt, ["Aldous Kerr", "Count Vasska"])
+    assert "Count Vasska:" in block and "Aldous Kerr:" in block

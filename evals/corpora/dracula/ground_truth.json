@@ -81,6 +81,25 @@
       ]
     }
   },
+  "speech_lines": {
+    "Count Vasska": {
+      "train": [
+        "I am Vasska; and I bid you welcome, Mr. Kerr, to my house. Come in; the night air is chill, and you must need to eat and rest.",
+        "Nay, sir, you are my guest. It is late, and my people are not available. Let me see to your comfort myself.",
+        "You will need, after your journey, to refresh yourself by making your toilet. I trust you will find all you wish. When you are ready, come into the other room, where you will find your supper prepared.",
+        "I pray you, be seated and sup how you please. You will, I trust, excuse me that I do not join you; but I have dined already, and I do not sup.",
+        "But you must be tired. Your bedroom is all ready, and to-morrow you shall sleep as late as you will. I have to be away till the afternoon; so sleep well and dream well!",
+        "I thank you, my friend, for your all too-flattering estimate, but yet I fear that I am but a little way on the road I would travel. True, I know the grammar and the words, but yet I know not how to speak them.",
+        "Well, I know that, did I move and speak in your London, none there are who would not know me for a stranger. That is not enough for me. Here I am noble; I am _boyar_; the common people know me, and I am master. But a stranger in a strange land, he is no one; men know him not--and to know not is to care not for. I am content if I am like the rest, so that no man stops if he see me, or pause in his speaking if he hear my words, ‘Ha, ha! a stranger!’ I have been so long master that I would be master still--or at least that none other should be master of me. You come to me not alone as agent of my friend Peter Falk, of Elmsworth, to tell me all about my new estate in London. You shall, I trust, rest here with me awhile, so that by our talking I may learn the English intonation; and I would that you tell me when I make error, even of the smallest, in my speaking. I am sorry that I had to be away so long to-day; but you will, I know, forgive one who has so many important affairs in hand.",
+        "You may go anywhere you wish in the castle, except where the doors are locked, where of course you will not wish to go. There is reason that all things are as they are, and did you see with my eyes and know with my knowledge, you would perhaps better understand."
+      ],
+      "test": [
+        "We are in Vardarania; and Vardarania is not England. Our ways are not your ways, and there shall be to you many strange things. Nay, from what you have told me of your experiences already, you know something of what strange things there may be.",
+        "Because your peasant is at heart a coward and a fool! Those flames only appear on one night; and on that night no man of this land will, if he can help it, stir without his doors. And, dear sir, even if he did he would not know what to do. Why, even the peasant that you tell me of who marked the place of the flame would not know where to look in daylight even for his own work. Even you would not, I dare be sworn, be able to find these places again?",
+        "And this is the wretched thing that has done the mischief. It is a foul bauble of man’s vanity. Away with it!"
+      ]
+    }
+  },
   "voice_probe": {
     "Aldous Kerr": "A storm has kept everyone indoors, and a frightened friend asks what you saw last night. Say a few sentences to them.",
     "Nora Vance": "A storm has kept everyone indoors, and a frightened friend asks what you saw last night. Say a few sentences to them.",
