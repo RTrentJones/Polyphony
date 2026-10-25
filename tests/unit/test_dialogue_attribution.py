@@ -548,6 +548,7 @@ class TestCharacterContext:
         )
         assert "Welcome" in speech and "Bistritz" not in speech
         assert "- I wrote by the lamp until Bistritz." in narration
+        assert narration.startswith(ctx.NARRATION_WITH_SPEECH)
         assert ctx.voice_clause(out) == "matching their voice samples"
 
     async def test_cast_contrast_line_only_for_two_sampled_speakers(self, monkeypatch):
@@ -571,10 +572,15 @@ class TestCharacterContext:
         monkeypatch.setattr(ctx, "get_chunk_store", lambda: store)
         out = await ctx.build_cast_context(cast, "the lab", scope=_scope(*cast))
         lines = out.split(ctx.VOICE_CONTRAST_NOTE)[1].split("\n")
-        assert lines[2].startswith("- Rowan: 13 words a sentence (others 2); ")
-        assert "0.00 exclamations/questions a sentence (others 1.00)" in lines[2]
-        assert "archaic forms 15.4 per 100 words (others 0.0)" in lines[2]
-        assert lines[3].startswith("- Emeric: 2 words a sentence (others 13); ")
+        assert lines[2].startswith("- Rowan: about 15 words a sentence (others 5); ")
+        assert "0.0 exclamations/questions a sentence (others 1.0)" in lines[2]
+        assert "archaic forms 11.5 per 100 words (others 0.0)" in lines[2]
+        assert lines[3].startswith("- Emeric: about 5 words a sentence (others 15)")
+        assert ctx.NARRATION_LABEL + ctx.NARRATION_ONLY in out  # no speech shown
+        # Titles, a.m./p.m. and ellipses end no sentence; "shall" is not archaic.
+        darcy = "Mr. Darcy and Dr. Lee went to St. Paul's at 3 p.m. today."
+        assert ctx.voice_stats([darcy]) == (12, 0, 0)
+        assert ctx.voice_stats(["Well... I suppose\u2026 we shall."])[:2] == (5, 0)
         alone = await ctx.build_cast_context(cast[:1], "x", scope=_scope(*cast))
         assert ctx.VOICE_CONTRAST_NOTE not in alone
         assert ctx.voice_contrast({"Rowan": rowan, "Emeric": emeric[:1]}) == []

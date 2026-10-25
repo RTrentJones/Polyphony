@@ -26,6 +26,8 @@ from app.core.prompt_markers import (
     MOVEMENT_LABEL,
     NAME_HEADING,
     NARRATION_LABEL,
+    NARRATION_ONLY,
+    NARRATION_WITH_SPEECH,
     VOICE_CONTRAST_NOTE,
     VOICE_SAMPLES_LABEL,
     WITHHELD_MORE,
@@ -242,7 +244,8 @@ def render_character(
         # mid-sentence and taught the model half a cadence.
         lines.extend(f'- "{clean_for_llm(s["text"])}"' for s in words)
     if narration:
-        lines.append(NARRATION_LABEL)
+        tail = NARRATION_WITH_SPEECH if words else NARRATION_ONLY
+        lines.append(NARRATION_LABEL + tail)
         lines.extend(f"- {clean_for_llm(s['text'])}" for s in narration)
     if movement:
         lines.append(MOVEMENT_LABEL)
@@ -661,13 +664,16 @@ async def _retrieve(
     return samples
 
 
-_ARCHAIC = frozenset("thee thou thy thine hath doth 'tis shall whilst ere".split())
+_ARCHAIC = frozenset("thee thou thy thine hath doth 'tis ere".split())
 
 
 def voice_stats(texts: list[str]) -> tuple[float, float, float]:
     """(words a sentence, exclamations/questions a sentence, archaic forms per
     100 words) of one character's samples: deterministic, no LLM (W17-1)."""
     text = " ".join(texts).replace("\u2019", "'")
+    text = re.sub(r"\b(Mrs?|Ms|Dr|St|Mt|Jr|Sr|Capt|Col|Rev|Prof)\.", r"\1", text)
+    text = re.sub(r"\b([ap])\.m\.", r"\1m", text)
+    text = re.sub(r"\.{2,}|\u2026", " ", text)
     ends = re.findall(r"[.!?]+", text)
     words = re.findall(r"[A-Za-z']+", text)
     n = max(1, sum(1 for c in re.split(r"[.!?]+", text) if c.strip()))
@@ -684,9 +690,10 @@ def voice_contrast(samples: dict[str, list[str]]) -> list[str]:
     for name, (wl, ex, ar) in stats.items() if len(stats) > 1 else ():
         o = [v for n, v in stats.items() if n != name]
         ow, oe, oa = (sum(v[i] for v in o) / len(o) for i in range(3))
+        wl, ow = (max(5, 5 * round(x / 5)) for x in (wl, ow))  # coarse bands
         lines.append(
-            f"- {name}: {wl:.0f} words a sentence (others {ow:.0f}); "
-            f"{ex:.2f} exclamations/questions a sentence (others {oe:.2f}); "
+            f"- {name}: about {wl} words a sentence (others {ow}); "
+            f"{ex:.1f} exclamations/questions a sentence (others {oe:.1f}); "
             f"archaic forms {ar:.1f} per 100 words (others {oa:.1f})"
         )
     return lines
