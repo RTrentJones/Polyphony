@@ -43,6 +43,14 @@ validity claims stated at their true strength, a human calibration of the judges
 - **D19-6 Limits.** The monthly eval total ($40) is the only budget. S5's holdout run and any S4 item generation that needs LLM
   calls run in November unless October's remainder covers them.
 
+- **D19-7 S4 as built** (`evals/calibration/`, `calibration.yml`). The inputs live only in Actions artifacts: R2's in
+  `eval-report-*` (90 days), the pairs in W12-9's `baseline-bundle-*`/`baseline-ratings` (30 days, so the export must be
+  dispatched before ≈11-18, after S1's last rating). R2's judge returns a score, not per-line attributions, so human-vs-judge
+  R2 is compared by R2's own bands (the human's per-scene accuracy mapped to 1.0/0.7/0.4/0.0 against the judge's score), and
+  per-line judge accuracy is an optional November item. Where a scene's speakers came from a context judge (`r2_source`
+  judge/mixed) the "true speaker" is itself a reading, so tag-sourced scenes come first and are reported separately. The key
+  carries arm labels only with `with_arms: yes`, which waits until S1 is published.
+
 ## Sequence
 1. 10-26 00:07Z — W12-9 day 6 (S1). 05:00Z — W17 draw 2; then the wave-18 product PR.
 2. In parallel now, on branches: S2 (code + tests), S3 (docs), S5 (corpus build), S4's export (items + key, no LLM where
