@@ -9,10 +9,44 @@ A finished novel is a labelled dataset: it gives the true cast, each character's
 real dialogue (gold voice), the plot's shape, and a fixed timeline. Feeding a
 model the *original* text would test its memory of a famous book, not the
 pipeline — so every character and place is **renamed** (Mina Harker → Nora Vance,
-Van Helsing → Verhoeven, …). The prose stays; the ground truth holds; memorization
-is defeated. See `corpora/<book>/PROVENANCE.md` — all sources are US public domain
+Van Helsing → Verhoeven, …). The prose stays and the ground truth holds. See
+`corpora/<book>/PROVENANCE.md` — all sources are US public domain
 (Standard Ebooks CC0 / Project Gutenberg with the PG wrapper stripped). Only
 renamed excerpts of a few chapters are committed, never whole novels.
+
+**What renaming does not do.** Renaming removes the name cue, so it reduces
+name-cued recall; it does **not** defeat memorization of a famous novel. The
+prose itself (Walton's letters, a diary kept in a Carpathian castle, two
+houses on the moor) is in every large model's training data and is
+recognisable without a single name. Scores on these books measure the pipeline
+*plus* whatever the model remembers.
+
+**Opaque eval titles (wave 19).** Until wave 19 the eval books were titled
+`eval-<corpus>` (`eval-prose-dracula`), and the canon block every planning prompt
+carries opens with that title (`Title: …`), so the model was told which novel it
+was reading. Every eval book, source title and upload filename is now
+`pipeline.eval_title(<corpus>, <step>)` = `eval-<step>-<tag>`, where the tag is the
+first eight hex digits of the corpus id's SHA-256 (`dracula` → `a0126546`): stable
+and distinct per corpus, so a book can still be found by computing its title, but
+with no lexical content. `tests/unit/test_eval_titles.py` checks that no corpus id
+or original title reaches the canon block. **Comparability:** this removes a cue,
+so development scores before and after it are not like for like (the same kind of
+break as SPEC-90 D6): compare a post-change run with post-change runs, and label
+the first one.
+
+**Development and holdout corpora (SPEC-94).** `frankenstein`, `dracula`,
+`wuthering` and `cel` are **development corpora**: the prompts, the harness and
+the product rules have been tuned against them across eighteen waves, so a gain
+on them is partly fit to them, and their numbers (including every row of
+`history.csv`) are development numbers. `holdout-a` and `holdout-b` are the
+**frozen holdout** (two multi-narrator Victorian novels never used before wave 19,
+under opaque directory names so no title reaches the model): built once, frozen at
+tag `holdout-v1`, and run **once per release on that release's frozen code**.
+Each corpus' `spec.json` declares its `split`; the corpus readers refuse a
+holdout corpus unless the run asks for it (`--holdout`, below), and no default
+book list names one. Nobody opens the holdout excerpts after the build's
+mechanical checks, and a holdout result is never "fixed for": that would make it
+a development corpus, and the next holdout would need new books.
 
 ## The steps
 
@@ -372,14 +406,36 @@ python -m evals.tools.rename   --book dracula --source /path/to/source.txt   # r
 python -m evals.tools.build_gt --book dracula                                 # ground_truth.json
 ```
 
+A corpus whose edition repeats or bare-numbers its headings (the holdout's
+narratives each restart at chapter I) lists `spans` in `aliases.json` instead:
+each is cut from a unique `start` literal to the next `end` literal and headed with
+its own `CHAPTER N`, so `build_gt` finds every narrator's chapter by name.
+
+## The holdout run
+
+```bash
+python -m evals.run --book holdout-a --steps all --holdout --out eval-report-holdout-a.json
+python -m evals.run --book holdout-b --steps all --holdout --out eval-report-holdout-b.json
+```
+
+Once per release, on that release's tag, after development has stopped. Without
+`--holdout` (which sets `EVAL_HOLDOUT=<book>` for the run) the runner and every
+corpus reader stop with the reason; `--holdout` on a development book is refused
+too. `evals.yml` never selects a holdout book by default; dispatch it with `holdout=yes` (the `book` input's default then means both holdout books, and any other book is refused).
+
 ## Corpora
 
-- **`dracula`** — the training corpus (epistolary; three diary/letter narrators).
-- **`frankenstein`** — the **held-out validation** corpus (Walton's letters,
-  Victor's creation chapter, the creature's quoted tale). A prompt/architecture
-  change counts only if it improves **both**: a gain on Dracula alone is likely
-  overfitting to one book's ground truth. CI grades both; Tracer keys each book
-  as its own suite (`suite=dracula` / `frankenstein`), so they trend apart.
+Development corpora (tuned on; see "What renaming does not do" above):
+
+- **`dracula`** — the original training corpus (epistolary; three diary/letter narrators).
+- **`frankenstein`** — added as a second corpus (Walton's letters,
+  Victor's creation chapter, the creature's quoted tale) so a change had to
+  improve **both** books, not Dracula alone. It was called "held-out" then, but it
+  has been graded and tuned against in every wave since, so it is a development
+  corpus too. CI grades both; Tracer keys each book as its own suite
+  (`suite=dracula` / `frankenstein`), so they trend apart.
+- **`wuthering`** — the nonlinear manuscript (a dated frame narrator and a second
+  narrator telling two timelines; SPEC-84).
 - **`cel`** — the synthetic fidelity corpus (the outline gate, and the harness v2
   book). `load_corpus` uploads the 17k-char `synopsis.txt` + the excerpt.
   `excerpts.txt` is ~4.7k chars of synthetic prose with tagged and inverted lines,
@@ -387,6 +443,13 @@ python -m evals.tools.build_gt --book dracula                                 # 
   speaker-labelled `gold_lines` (≥ 6 per principal, train/test), `other_lines`,
   `premise_edit` and five continuity injections planted in the excerpt;
   `style.json` is the style guide. Provenance in `corpora/cel/PROVENANCE.md`.
+
+Holdout corpora (frozen at `holdout-v1`; `split: "holdout"`):
+
+- **`holdout-a`** and **`holdout-b`** — two renamed multi-narrator Victorian
+  novels (Project Gutenberg #583 and #155), five and six single-narrator sections.
+  Source, chapters and narrators are in each `PROVENANCE.md`; the excerpts are not
+  read outside the release run.
 
 ## Signed placements
 

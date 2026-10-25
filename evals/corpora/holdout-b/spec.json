@@ -1,0 +1,90 @@
+{
+  "_comment": "Data-only book spec consumed by evals/tools/build_gt.py. HOLDOUT corpus (SPEC-94 S5, D19-3/D19-4): frozen at tag holdout-v1, never read by a development run, run once per release on that release's frozen code. A multi-narrator Victorian novel: six single-narrator sections (the house-steward's two chapters, the pious cousin's, the solicitor's, the cousin-suitor's two). Names renamed (see PROVENANCE.md).",
+  "split": "holdout",
+  "author": "Wilkie Collins",
+  "year": 1868,
+  "source": "Project Gutenberg #155 (public domain, US; PG wrapper stripped)",
+  "cast": [
+    "Amos Pennock",
+    "Isabel Castlemere",
+    "Lewis Tremayne",
+    "Cecil Mortlake",
+    "Tabitha Sneyd",
+    "Josiah Hedley",
+    "Honoria Castlemere",
+    "Sergeant Pellow",
+    "Barnaby Grisewood",
+    "Halloran"
+  ],
+  "voice_sources": {
+    "Amos Pennock": {
+      "chapters": [
+        "CHAPTER I",
+        "CHAPTER II"
+      ],
+      "max_lines": 11
+    },
+    "Tabitha Sneyd": {
+      "chapters": [
+        "CHAPTER III"
+      ],
+      "max_lines": 11
+    },
+    "Josiah Hedley": {
+      "chapters": [
+        "CHAPTER IV"
+      ],
+      "max_lines": 11
+    },
+    "Lewis Tremayne": {
+      "chapters": [
+        "CHAPTER V",
+        "CHAPTER VI"
+      ],
+      "max_lines": 11
+    }
+  },
+  "synopsis": "A great yellow diamond, the Larkstone, looted from a Hindu shrine at the storming of Kalinpur by Colonel Stannard, is left by his will to his niece Isabel Castlemere, to be given her on her eighteenth birthday at her widowed mother Lady Honoria Castlemere's country house in Coldmoor. Amos Pennock, the family's elderly house-steward, who consults a well-worn copy of Jonas Harrow in every crisis, tells how her cousin Lewis Tremayne brings the gem down, three Indians watch the house, Isabel wears the stone at her birthday dinner, where the guests include her other cousin, the philanthropist Cecil Mortlake, and it vanishes from her room overnight. The celebrated detective Sergeant Pellow suspects the troubled housemaid Dorcas Coldridge and even Isabel herself, who will no longer speak to Lewis. Later narrators take up the story: Isabel's pious, meddling cousin Miss Tabitha Sneyd records Isabel's brief engagement to Cecil and Lady Castlemere's death; the family solicitor Mr. Hedley explains the will and the diamond's pledge to the moneylender Barnaby Grisewood; and Lewis, back from abroad, finds Dorcas's hidden letter and the paint-stained nightgown that proves he himself took the stone. A re-enactment shows he did it unknowingly, under laudanum the family doctor gave him in secret. The trail leads to a London bank, from which Cecil, ruined by debt, redeems the gem and is found murdered in disguise; the Indians carry the Larkstone back to its shrine, and Lewis and Isabel marry.",
+  "canonical_beats": [
+    {
+      "title": "Isabel wears the Larkstone at her birthday dinner",
+      "kind": "inciting"
+    },
+    {
+      "title": "The diamond vanishes overnight; Sergeant Pellow suspects Dorcas and Isabel",
+      "kind": "rising"
+    },
+    {
+      "title": "Isabel shuns Lewis and becomes engaged to Cecil",
+      "kind": "midpoint"
+    },
+    {
+      "title": "Lewis finds the stained nightgown and learns he took the stone",
+      "kind": "crisis"
+    },
+    {
+      "title": "A re-enactment under laudanum shows Lewis took it unknowingly",
+      "kind": "climax"
+    },
+    {
+      "title": "Cecil is found murdered in disguise; the Larkstone returns to its shrine",
+      "kind": "resolution"
+    }
+  ],
+  "continuity_injections": [
+    {
+      "id": "name-misspell",
+      "locate": "Her name was Augusta Tolley.",
+      "replace": "Her name was Augusta Talley.",
+      "expect_type": "character",
+      "note": "the house-steward's future wife's surname respelled where she is introduced, against every later 'Augusta Tolley'; all inside the graded window"
+    },
+    {
+      "id": "service-years-flip",
+      "locate": "more than fifty years in her",
+      "replace": "more than five years in her",
+      "expect_type": "timeline",
+      "note": "five years' service, against his own account of entering the family's service as a page-boy at fifteen and serving through Lady Castlemere's marriage; inside the graded window"
+    }
+  ]
+}

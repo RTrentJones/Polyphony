@@ -25,7 +25,7 @@ from app.rag.store import get_chunk_store
 from evals.baseline import blind
 from evals.harness.client import EvalClientError
 from evals.steps.base import step
-from evals.steps.pipeline import _book_with_cast, _outline_into
+from evals.steps.pipeline import _book_with_cast, _outline_into, eval_title
 
 LINES = 3  # per present character (N3)
 SLOTS = 6  # per manuscript, the dry run and the real run alike (SPEC-84)
@@ -156,7 +156,7 @@ async def scene_record(slot: str, arm: str, scene_id, job_id=None, removed=None)
 
 async def prepare(ctx) -> dict:
     """SPEC-84's slot rule: slot k = (outline chapter k, its first planned beat)."""
-    book = await _book_with_cast(ctx, f"eval-baseline-{ctx.book}", voice=True)
+    book = await _book_with_cast(ctx, eval_title(ctx.book, "baseline"), voice=True)
     voice = book.get("voice") or {"error": "no voice corpus"}  # B's grounding
     if voice.get("error") or not voice.get("indexed"):  # never memoize it ungrounded
         why = voice.get("error") or "voice indexing incomplete"

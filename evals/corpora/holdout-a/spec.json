@@ -1,0 +1,88 @@
+{
+  "_comment": "Data-only book spec consumed by evals/tools/build_gt.py. HOLDOUT corpus (SPEC-94 S5, D19-3/D19-4): frozen at tag holdout-v1, never read by a development run, run once per release on that release's frozen code. A multi-narrator Victorian novel: five single-narrator sections (the drawing-master's two chapters, the solicitor's, the elder sister's diary, the uncle's narrative). Names renamed (see PROVENANCE.md).",
+  "split": "holdout",
+  "author": "Wilkie Collins",
+  "year": 1859,
+  "source": "Project Gutenberg #583 (public domain, US; PG wrapper stripped)",
+  "cast": [
+    "Edwin Calloway",
+    "Harriet Lisle",
+    "Clara Wendover",
+    "Roderick Ashby",
+    "Count Morandi",
+    "Lionel Wendover",
+    "Matthew Hollins",
+    "Ellen Pryor",
+    "Gaspard"
+  ],
+  "voice_sources": {
+    "Edwin Calloway": {
+      "chapters": [
+        "CHAPTER I",
+        "CHAPTER II"
+      ],
+      "max_lines": 11
+    },
+    "Matthew Hollins": {
+      "chapters": [
+        "CHAPTER III"
+      ],
+      "max_lines": 11
+    },
+    "Harriet Lisle": {
+      "chapters": [
+        "CHAPTER IV"
+      ],
+      "max_lines": 11
+    },
+    "Lionel Wendover": {
+      "chapters": [
+        "CHAPTER V"
+      ],
+      "max_lines": 11
+    }
+  },
+  "synopsis": "Walking back to London after midnight, the young drawing-master Edwin Calloway meets a frightened woman dressed all in blue who has escaped from an asylum. Next day he takes up a post at Thornholm House in Fellshire, teaching the half-sisters Harriet Lisle and Clara Wendover under the roof of Clara's reclusive, hypochondriac uncle Lionel Wendover, and finds that Clara bears an uncanny likeness to the fugitive of the night road, Ellen Pryor. Edwin and Clara fall in love, but she is promised to the baronet Sir Roderick Ashby, and Edwin leaves England. The family solicitor Matthew Hollins cannot protect Clara's fortune in the marriage settlement. At Greymere Park in Southmarch, Harriet's diary records Roderick's debts and temper and the arrival of his friend, the vast, charming and formidable Count Morandi, with his wife, Clara's aunt; Roderick, deep in debt, demands Clara's signature on a deed he refuses to explain, and the Count persuades him to put it off. Ellen Pryor, who knows Roderick's secret, dies in London and is buried under Clara's name, while Clara is shut in the asylum as Ellen. Harriet frees her sister. Edwin, returned, sets out to prove Clara alive: he uncovers the forged parish register that hides Roderick's illegitimacy, Roderick dies in the burning vestry, and Edwin forces Morandi to write a confession before the Count flees and is killed abroad. Edwin and Clara marry, and Clara's identity is restored at Thornholm.",
+  "canonical_beats": [
+    {
+      "title": "Edwin meets a frightened fugitive dressed in blue on the night road",
+      "kind": "inciting"
+    },
+    {
+      "title": "At Thornholm Edwin falls in love with Clara, who is promised to Sir Roderick",
+      "kind": "rising"
+    },
+    {
+      "title": "At Greymere the indebted Roderick demands Clara's signature on a deed he will not explain",
+      "kind": "midpoint"
+    },
+    {
+      "title": "Ellen dies and is buried as Clara, while Clara is shut in the asylum as Ellen",
+      "kind": "crisis"
+    },
+    {
+      "title": "Edwin uncovers the forged register and Roderick dies in the vestry fire",
+      "kind": "climax"
+    },
+    {
+      "title": "Morandi confesses and flees; Clara's identity is restored",
+      "kind": "resolution"
+    }
+  ],
+  "continuity_injections": [
+    {
+      "id": "hour-flip",
+      "locate": "It was then nearly one o’clock.",
+      "replace": "It was then nearly four o’clock.",
+      "expect_type": "timeline",
+      "note": "the meeting moved to four in the morning, against 'nearly midnight' when he set out and 'an hour after midnight' on the same walk; all inside the graded window"
+    },
+    {
+      "id": "dress-flip",
+      "locate": "dressed from head to foot in blue",
+      "replace": "dressed from head to foot in black",
+      "expect_type": "character",
+      "note": "the woman first seen in black, against 'bonnet, shawl, and gown all of blue' a few paragraphs later; both inside the graded window"
+    }
+  ]
+}

@@ -36,3 +36,12 @@ names measure a model's memory of a famous novel, not the pipeline. This file cr
 ## Legal summary
 The underlying work is US public domain; the Project Gutenberg wrapper is stripped; only a renamed
 derivative of seven chapters is committed — never the raw source, never the whole novel.
+
+## Rename leftovers fixed (wave 19, SPEC-94)
+A stricter leak check found italicised and plural originals the whole-word rename had
+missed: the ledge's "_Catherine Earnshaw_ … _Catherine Heathcliff_ … _Catherine
+Linton_" and Pembury's "_Linton_ … _Earnshaw_" in Chapter 3, and "the Lintons" in
+Chapter 9 (`Lintons` is now an `aliases.json` key, → Penhales). The fix re-applies the
+(now italics-aware, section-aware) aliases to `excerpts.txt`; `ground_truth.json` is
+unchanged (no gold or injection line held a leak).
+

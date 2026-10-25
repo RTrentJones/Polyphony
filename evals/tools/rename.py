@@ -3,8 +3,9 @@
 Why renaming: a finished novel is ground truth for the pipeline (known cast,
 real per-character voice, known plot). But feeding a model the *original* text
 tests its memory of the book, not the pipeline. Renaming every character/place
-keeps the (public-domain) prose and the ground truth intact while defeating
-train-set recall — the model must earn extraction/voice/plot from the text.
+keeps the (public-domain) prose and the ground truth intact while removing the
+name cue. It reduces name-cued recall; it does not defeat memorization of a
+famous novel, whose prose is recognisable without the names (SPEC-94 S3).
 
 Legal: source texts are US public domain; we source CC0 editions (Standard
 Ebooks) or strip the Project Gutenberg wrapper (their license: a text with all
@@ -26,7 +27,7 @@ import json
 import re
 from pathlib import Path
 
-from evals.tools.headings import HEADING_LINE
+from evals.tools.headings import HEADING, HEADING_LINE
 
 CORPORA = Path(__file__).resolve().parent.parent / "corpora"
 
@@ -56,17 +57,35 @@ def apply_aliases(text: str, aliases: dict[str, str]) -> str:
     Longest keys first so multi-word names (e.g. 'Van Helsing') are replaced
     before their parts. Word-boundary anchored, case-INSENSITIVE match with
     case-PRESERVING output — so 'JONATHAN' in an all-caps header and 'Jonathan'
-    in prose both convert (to 'ALDOUS' / 'Aldous').
+    in prose both convert (to 'ALDOUS' / 'Aldous'). The boundary treats '_' as
+    a non-letter, so an italicised '_Jonathan_' converts too (a plain regex
+    `\b` does not, since '_' is a word character: Wuthering's '_Earnshaw_').
+    Plurals and adjectival forms ('Lintons', 'Transylvanian') are separate
+    words and need their own keys. A multi-word key matches across a line break
+    too ('woman in\nwhite'); when the rename has as many words, each keeps its
+    own case and the source's spacing, so the line wrap is unchanged.
     """
     for src in sorted(aliases, key=len, reverse=True):
         rep = aliases[src]
+        words = r"\s+".join(re.escape(w) for w in src.split(" "))
         text = re.sub(
-            rf"\b{re.escape(src)}\b",
-            lambda m: _match_case(m.group(0), rep),
+            rf"(?<![^\W_]){words}(?![^\W_])",
+            lambda m, rep=rep: _rename_match(m.group(0), rep),
             text,
             flags=re.IGNORECASE,
         )
     return text
+
+
+def _rename_match(found: str, rep: str) -> str:
+    """`rep` for one match: word by word (case and spacing kept) when the word
+    counts agree, else the whole rename cased like the match."""
+    parts = re.split(r"(\s+)", found)
+    new = rep.split(" ")
+    if len(new) != len(parts[::2]):
+        return _match_case(found, rep)
+    parts[::2] = [_match_case(o, w) for o, w in zip(parts[::2], new)]
+    return "".join(parts)
 
 
 def extract_sections(body: str, sections: list[str], aliases: dict, per: dict) -> str:
@@ -95,6 +114,36 @@ def extract_sections(body: str, sections: list[str], aliases: dict, per: dict) -
     return "\n\n\n".join(out)
 
 
+def extract_spans(body: str, spans: list[dict], aliases: dict, per: dict) -> str:
+    """Slice explicit spans, head each with its own excerpt heading, rename, and
+    concatenate.
+
+    For an edition whose own headings repeat or fall outside the shared grammar
+    (Collins's narratives restart their numbering per narrator, and some are
+    bare numerals): each span is ``{"heading": "CHAPTER III", "start": "<literal,
+    unique in the body>", "end": "<literal>"}``. The excerpt holds ``heading``,
+    then the source from ``start`` (inclusive) to the first ``end`` after it
+    (exclusive), so the source's own heading is not copied. ``heading`` must
+    match the shared grammar (`HEADING`), and every span's heading is distinct,
+    so `build_gt` and the narrator samples find each chapter by name.
+    """
+    out, seen = [], set()
+    for sp in spans:
+        head, start, end = sp["heading"], sp["start"], sp["end"]
+        if not re.fullmatch(HEADING, head) or head in seen:
+            raise SystemExit(f"span heading not a distinct HEADING: {head!r}")
+        seen.add(head)
+        if body.count(start) != 1:
+            raise SystemExit(f"span start not unique in the source: {start[:40]!r}")
+        i = body.index(start)
+        j = body.find(end, i + len(start))
+        if j == -1:
+            raise SystemExit(f"span end not found after its start: {end[:40]!r}")
+        chunk = head + "\n\n" + body[i:j].strip()
+        out.append(apply_aliases(chunk, aliases | per.get(head, {})))
+    return "\n\n\n".join(out)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--book", required=True, help="corpus dir under evals/corpora/")
@@ -111,13 +160,21 @@ def main() -> None:
     body = strip_gutenberg(raw)
     # A section may give a name another meaning (Wuthering's two Catherines).
     per = spec.get("section_aliases", {})
-    renamed = extract_sections(body, spec["sections"], spec["aliases"], per)
+    # An identifying phrase that is not a name (a novel's title phrase) is
+    # renamed like one, from its own map so the name map stays one-to-one.
+    aliases = spec["aliases"] | spec.get("phrase_aliases", {})
+    if "spans" in spec:  # explicit spans (the holdout corpora)
+        renamed = extract_spans(body, spec["spans"], aliases, per)
+    else:
+        renamed = extract_sections(body, spec["sections"], aliases, per)
 
     # Sanity: no original name should survive the rename (case-insensitive).
     leaks = [
         src
-        for src in spec["aliases"] | {k: 0 for v in per.values() for k in v}
-        if re.search(rf"\b{re.escape(src)}\b", renamed, flags=re.IGNORECASE)
+        for src in aliases | {k: 0 for v in per.values() for k in v}
+        if re.search(
+            rf"(?<![^\W_]){re.escape(src)}(?![^\W_])", renamed, flags=re.IGNORECASE
+        )
     ]
     if leaks:
         raise SystemExit(f"rename leak — originals still present: {leaks}")

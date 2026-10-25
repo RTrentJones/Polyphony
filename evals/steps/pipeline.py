@@ -18,6 +18,7 @@ imports it so the registry is populated.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -38,6 +39,7 @@ from evals.harness import embed
 from evals.harness.judge import is_unparseable
 from evals.harness.vecmath import cosine
 from evals.measure.wilson import wilson
+from evals.splits import require as require_split
 from evals.steps.base import StepContext, step
 
 CORPORA = Path(__file__).resolve().parent.parent / "corpora"
@@ -90,7 +92,23 @@ def load_style(book: str) -> dict | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def corpus_tag(book: str) -> str:
+    """An opaque, stable stand-in for a corpus id (SPEC-94): the first eight hex
+    digits of its name's SHA-256. The id names the novel ("dracula"), and an eval
+    book's title is the canon block's first line (`Title: …`), so no title,
+    upload or filename the app can show a model carries the id itself."""
+    return hashlib.sha256(book.encode("utf-8")).hexdigest()[:8]
+
+
+def eval_title(book: str, purpose: str = "") -> str:
+    """The title of an eval book or source: `eval-<purpose>-<corpus_tag>`.
+    The `eval-<purpose>-` prefix still says which step made it, and one corpus
+    always gets the same title, so a book can be found again by computing it."""
+    return "-".join(p for p in ("eval", purpose, corpus_tag(book)) if p)
+
+
 def load_excerpts(book: str) -> str:
+    require_split(book)  # a holdout corpus only when asked for (SPEC-94 S5)
     return (CORPORA / book / "excerpts.txt").read_text(encoding="utf-8")
 
 
@@ -130,9 +148,9 @@ async def _index_voice(ctx: StepContext, book_id: str, names: list[str]) -> dict
     chunks of >= 3 words}} (SPEC-42's diagnostic), and movement: {name: the
     text of every chunk that is not dialogue} (D6 reads it, SPEC-45)."""
     up = await ctx.client.upload_source(
-        f"{ctx.book}-voice.txt",
+        f"{corpus_tag(ctx.book)}-voice.txt",
         load_excerpts(ctx.book).encode("utf-8"),
-        title=f"eval-voice-{ctx.book}",
+        title=eval_title(ctx.book, "voice"),
         book_id=book_id,
     )
     run = await ctx.client.wait_extraction(book_id, up["extraction_run_id"])
@@ -169,6 +187,7 @@ def load_corpus(book: str) -> tuple[str, dict]:
     Uploading the excerpt alone graded extraction against a cast the text
     never names (Edric Thane is not in it), so the score was 0 whatever the
     model did."""
+    require_split(book)  # a holdout corpus only when asked for (SPEC-94 S5)
     d = CORPORA / book
     text = (d / "excerpts.txt").read_text(encoding="utf-8")
     synopsis = d / "synopsis.txt"
@@ -446,7 +465,9 @@ def _unknown_canon(text: str, gt: dict, context: str = "") -> tuple[float, list[
 @step("extraction", needs_api=True)
 async def step_extraction(ctx: StepContext) -> dict:
     up = await ctx.client.upload_source(
-        f"{ctx.book}.txt", ctx.corpus_text.encode("utf-8"), title=f"eval-{ctx.book}"
+        f"{corpus_tag(ctx.book)}.txt",
+        ctx.corpus_text.encode("utf-8"),
+        title=eval_title(ctx.book),
     )
     run = await ctx.client.wait_extraction(up["book_id"], up["extraction_run_id"])
     if run.get("status") != "ready":
@@ -553,7 +574,9 @@ async def step_ingestion(ctx: StepContext) -> dict:
     # The corpus as-is: an upload without a book_id gets its own book, so the
     # extraction step's copy of the same text is no duplicate (SPEC-68).
     up, _run = await ctx.client.extract_and_commit(
-        f"{ctx.book}-ing.txt", ctx.corpus_text.encode("utf-8"), f"eval-ing-{ctx.book}"
+        f"{corpus_tag(ctx.book)}-ing.txt",
+        ctx.corpus_text.encode("utf-8"),
+        eval_title(ctx.book, "ing"),
     )
     chars = await ctx.client.wait_voice_indexed(up["id"])
     if not chars:
@@ -627,7 +650,8 @@ async def step_attribution(ctx: StepContext) -> dict:
     }
 
     book = await ctx.client.create_book(
-        title=f"eval-attr-{ctx.book}", synopsis=ctx.ground_truth.get("synopsis", "")
+        title=eval_title(ctx.book, "attr"),
+        synopsis=ctx.ground_truth.get("synopsis", ""),
     )
     char_ids = {}
     for char, v in gold.items():
@@ -862,7 +886,7 @@ async def step_outline(ctx: StepContext) -> dict:
     from evals.graders.fidelity import grade_fidelity
 
     gt = ctx.ground_truth
-    book = await _book_with_cast(ctx, f"eval-{gt['book']}", genre="")
+    book = await _book_with_cast(ctx, eval_title(ctx.book), genre="")
     # The secondaries an author accepting extraction's defaults has (S6),
     # introduced as "Add to cast" does (W6-5): the synopsis first, then the
     # excerpt (Bell is only in the excerpt), cut to the first appositive.
@@ -994,7 +1018,7 @@ async def step_continuity(ctx: StepContext) -> dict:
 
     async def run_on(prose: str, tag: str) -> list[dict]:
         # The canon an author would have; the excerpt is beat 1 (SPEC-33).
-        book = await _book_with_cast(ctx, f"eval-cont-{tag}")
+        book = await _book_with_cast(ctx, eval_title(ctx.book, f"cont-{tag}"))
         chapter = await ctx.client.create_chapter(
             book["id"], "Chapter", summary=gt["canonical_beats"][0]["title"]
         )
@@ -1464,7 +1488,7 @@ async def step_prose(ctx: StepContext) -> dict:
 
     gt = ctx.ground_truth
     forms = _forms(gt)
-    book = await _book_with_cast(ctx, f"eval-prose-{gt['book']}")
+    book = await _book_with_cast(ctx, eval_title(ctx.book, "prose"))
 
     async def gen():
         # Voice indexing costs an extraction run, so only a real generation
@@ -1843,7 +1867,7 @@ async def _revise_scene(ctx: StepContext) -> tuple[str | None, str]:
     text = (first or {}).get("content") or "\n\n".join(
         load_excerpts(ctx.book).split("\n\n")[:_REVISE_FALLBACK_PARAGRAPHS]
     )
-    book = await _book_with_cast(ctx, f"eval-revise-{gt['book']}")
+    book = await _book_with_cast(ctx, eval_title(ctx.book, "revise"))
     chapter = await ctx.client.create_chapter(
         book["id"], "Revise", summary="revise eval"
     )
@@ -2034,7 +2058,7 @@ async def step_ensemble(ctx: StepContext) -> dict:
 
     gt = ctx.ground_truth
     cast = (list(gt.get("gold_lines") or {}) or list(gt.get("cast", [])))[:2]
-    book = await _book_with_cast(ctx, f"eval-ens-{gt['book']}")
+    book = await _book_with_cast(ctx, eval_title(ctx.book, "ens"))
     cast = [c for c in cast if c in book["character_ids"]] or list(
         book["character_ids"]
     )[:2]
