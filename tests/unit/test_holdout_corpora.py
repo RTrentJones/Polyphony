@@ -105,25 +105,56 @@ def _boundary(word: str) -> str:
     return rf"(?<![^\W_]){re.escape(word)}(?![^\W_])"
 
 
-@pytest.mark.parametrize("book", HOLDOUT)
-def test_a_holdout_corpus_leaks_no_original_name(book):
-    """No original survives: whole names case-insensitively (all-caps and
-    `_italic_` included), and no capitalised variant of a one-word original
-    (a plural, possessive or adjective: 'Lintons', 'Transylvanian')."""
-    aliases = _json(book, "aliases.json")["aliases"]
-    spec = _json(book, "spec.json")
-    gt = _json(book, "ground_truth.json")
-    texts = {
-        "excerpts": _read(book, "excerpts.txt"),
-        "spec": json.dumps({k: v for k, v in spec.items() if k != "source"}),
-        "ground_truth": json.dumps({k: v for k, v in gt.items() if k != "source"}),
-    }
-    for where, text in texts.items():
-        for src in aliases:
-            assert not re.search(_boundary(src), text, re.I), (where, src)
-            if " " not in src:
-                variant = re.search(rf"(?<![A-Za-z]){re.escape(src)}[a-z]", text)
-                assert not variant, (where, src, variant and variant.group(0))
+RENAMED = ["dracula", "frankenstein", "wuthering", *HOLDOUT]
+
+
+def _originals(book: str) -> list[str]:
+    spec = _json(book, "aliases.json")
+    maps = [spec["aliases"], *spec.get("section_aliases", {}).values()]
+    return sorted({k for m in maps for k in m})
+
+
+def _corpus_texts(book: str) -> dict[str, str]:
+    """Everything of a corpus that can reach a model: the excerpt, and
+    spec.json / ground_truth.json (synopsis, cast, beats, lines) less the
+    provenance fields and maintainer comments, which never leave the harness."""
+    credit = {"_comment", "book", "author", "year", "source"}
+    dump = lambda d: json.dumps(  # noqa: E731
+        {k: v for k, v in d.items() if k not in credit}, ensure_ascii=False
+    )
+    texts = {"excerpts": _read(book, "excerpts.txt")}
+    for name in ("spec.json", "ground_truth.json"):
+        if (CORPORA / book / name).exists():
+            texts[name] = dump(_json(book, name))
+    synopsis = CORPORA / book / "synopsis.txt"
+    if synopsis.exists():
+        texts["synopsis.txt"] = synopsis.read_text(encoding="utf-8")
+    return texts
+
+
+def _leaks(originals: list[str], text: str) -> list[str]:
+    """Whole names case-insensitively (all-caps and `_italic_` included), and
+    any capitalised variant of a one-word original (a plural or adjective:
+    'Lintons', 'Transylvanian')."""
+    found = [src for src in originals if re.search(_boundary(src), text, re.I)]
+    for src in (o for o in originals if " " not in o):
+        found += re.findall(rf"(?<![A-Za-z]){re.escape(src)}[a-z]+", text)
+    return found
+
+
+@pytest.mark.parametrize("book", RENAMED)
+def test_a_renamed_corpus_leaks_no_original_name(book):
+    """(F) SPEC-94: all five renamed corpora, development and holdout."""
+    for where, text in _corpus_texts(book).items():
+        assert not _leaks(_originals(book), text), where
+
+
+def test_the_synthetic_corpus_carries_no_renamed_original():
+    """cel has no source to rename; none of the other corpora's originals
+    appears in it either."""
+    originals = sorted({o for b in RENAMED for o in _originals(b)})
+    for where, text in _corpus_texts("cel").items():
+        assert not _leaks(originals, text), where
 
 
 @pytest.mark.parametrize("book", HOLDOUT)

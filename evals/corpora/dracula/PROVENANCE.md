@@ -53,7 +53,18 @@ must be tired", "I thank you, my friend", "Not so," (its long second span),
 "You may go anywhere you wish", "We are in Vardarania", "Because your peasant",
 and "Take care," (its "And this is the wretched thing" span). Left out: short
 greetings, speeches broken mid-sentence by narration, one that names Aldous
-Kerr, and one with an unrenamed "Transylvanian". Only the R2 judge reads
+Kerr, and one that then carried an unrenamed "Transylvanian" (renamed since
+wave 19, below; the set is unchanged). Only the R2 judge reads
 `speech_lines` (as voice samples); retrieval, attribution and the ensemble step
 read `gold_lines`, so their character sets are unchanged. `build_gt` does not
 write this key: re-add it if `ground_truth.json` is regenerated.
+
+## Rename leftovers fixed (wave 19, SPEC-94)
+A stricter leak check (italics, plurals and adjectival forms) found five lines the
+whole-word rename had missed: "Transylvanian" (now an `aliases.json` key, →
+"Vardaranian"), the two letter headings "to Nora Murray" (→ Vance), and the
+italicised journal headings "_Mina Vance's Journal._" and "_Lucy Ellis's Diary._"
+(→ Nora, Cora), which `\b` missed because `_` is a word character. The fix re-applies
+the (now italics-aware) aliases to `excerpts.txt` chapter by chapter;
+`ground_truth.json` is unchanged (no gold, speech or injection line held a leak).
+

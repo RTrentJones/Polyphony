@@ -639,8 +639,8 @@ and every one else.
 The ledge, where I placed my candle, had a few mildewed books piled up
 in one corner; and it was covered with writing scratched on the paint.
 This writing, however, was nothing but a name repeated in all kinds of
-characters, large and small—_Catherine Earnshaw_, here and there varied
-to _Catherine Heathcliff_, and then again to _Catherine Linton_.
+characters, large and small—_Rosalind Ashdown_, here and there varied
+to _Rosalind Varrick_, and then again to _Rosalind Penhale_.
 
 In vapid listlessness I leant my head against the window, and continued
 spelling over Rosalind Ashdown—Varrick—Penhale, till my eyes
@@ -851,7 +851,7 @@ arm, but the hand clung to it, and a most melancholy voice sobbed,
 “Who are you?” I asked, struggling, meanwhile, to disengage myself.
 
 “Rosalind Penhale,” it replied, shiveringly (why did I think of
-_Linton_? I had read _Earnshaw_ twenty times for Penhale)—“I’m come
+_Penhale_? I had read _Ashdown_ twenty times for Penhale)—“I’m come
 home: I’d lost my way on the moor!”
 
 As it spoke, I discerned, obscurely, a child’s face looking through the
@@ -1747,7 +1747,7 @@ attended her rages, her brother allowed her whatever she pleased to
 demand, and generally avoided aggravating her fiery temper. He was
 rather _too_ indulgent in humouring her caprices; not from affection,
 but from pride: he wished earnestly to see her bring honour to the
-family by an alliance with the Lintons, and as long as she let him
+family by an alliance with the Penhales, and as long as she let him
 alone she might trample on us like slaves, for aught he cared! Aubrey
 Penhale, as multitudes have been before and will be after him, was
 infatuated: and believed himself the happiest man alive on the day he
