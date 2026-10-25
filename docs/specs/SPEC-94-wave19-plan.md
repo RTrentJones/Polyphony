@@ -77,6 +77,9 @@ validity claims stated at their true strength, a human calibration of the judges
   originals left in the development corpora (Dracula, Wuthering), fixed in the same change. The holdout's synopsis, beats and
   chapter attributions are checked against the full source before the freeze; `holdout-v1` tags the merge commit that carries
   the corpora and `evals/tools/rename.py`.
+  Titles are `eval-<step>-<8 hex of the corpus id's sha256>`. The first draws after this change carry the experiment label
+  `opaque-titles` so Tracer keeps them apart. holdout-a's identifying phrase (the woman's dress) is renamed like the
+  Moonstone's gem; its colour injection moves with it.
 
 ## Sequence
 1. 10-26 00:07Z — W12-9 day 6 (S1). 05:00Z — W17 draw 2; then the wave-18 product PR.
