@@ -1,0 +1,134 @@
+{
+  "_comment": "W19 S7 (SPEC-94, D19-9): the intact chapters RN and RC are validated on, and where each damage goes. Paragraph indices are into the chapter's paragraphs as pipeline._paragraphs splits its excerpt (pipeline._chapter_body); scene ranges are inclusive; separator paragraphs ('* * *') inside a range are dropped. `change` is the paragraphs where the plan's change happens (cut by planned_change_removed). `rn_scene` is the scene RN reads in every variant: none of its paragraphs is one of the narrator's samples (pipeline.narrator_samples), so RN never scores a sample against itself. Donors are another narrator of the same book (voice_sources), so the cast stays the book's; a `quoted` donor has its frame quotes stripped as narrator_samples does. `dup` copies a paragraph of an earlier scene into a later one: `out` where RC reads it, `in` (trimmed chapters only) inside a trimmed middle. `drift_in` (trimmed chapters only) replaces those paragraphs of the RN scene, all inside its trimmed middle. Plans were written by hand from the text.",
+  "chapters": [
+    {
+      "id": "frankenstein-letter-4",
+      "book": "frankenstein",
+      "heading": "Letter 4",
+      "narrator": "Rowan Merrow",
+      "scenes": [[0, 7], [8, 24], [25, 33], [34, 38]],
+      "plan": {
+        "title": "The stranger on the ice",
+        "summary": "Locked in the ice, Rowan Merrow's ship rescues a half-frozen stranger from a drifting floe and takes him aboard, where he slowly recovers in Rowan's care.",
+        "beats": [
+          "The ship is locked in ice; a giant on a dog-sledge is seen crossing it",
+          "A half-frozen stranger is taken aboard from a drifting floe and slowly recovers",
+          "Rowan's admiration and pity for his guest grow",
+          "The stranger offers to tell Rowan his story"
+        ]
+      },
+      "change": [7, 8, 9, 10],
+      "rn_scene": 1,
+      "donor": {"book": "frankenstein", "heading": "Chapter 13", "narrator": "The Creature", "quoted": true, "start": 1},
+      "dup": {"source": 4, "out": 2}
+    },
+    {
+      "id": "frankenstein-chapter-5",
+      "book": "frankenstein",
+      "heading": "Chapter 5",
+      "narrator": "Emeric Vandel",
+      "scenes": [[0, 3], [4, 9], [10, 17], [18, 27]],
+      "plan": {
+        "title": "The creature wakes",
+        "summary": "Emeric Vandel brings his creature to life, recoils in horror and flees from it; his friend Hollis Crane arrives and nurses him through the long nervous fever that follows.",
+        "beats": [
+          "Emeric animates the creature and flees from it in horror",
+          "A sleepless night and an aimless walk through the town at dawn",
+          "Hollis Crane arrives; Emeric breaks down in hysterical fear",
+          "Months of fever under Hollis's care, and a slow recovery"
+        ]
+      },
+      "change": [0, 1, 2, 3],
+      "rn_scene": 2,
+      "donor": {"book": "frankenstein", "heading": "Letter 2", "narrator": "Rowan Merrow", "start": 4},
+      "dup": {"source": 5, "out": 3}
+    },
+    {
+      "id": "wuthering-chapter-i",
+      "book": "wuthering",
+      "heading": "CHAPTER I",
+      "narrator": "Pembury",
+      "scenes": [[0, 8], [9, 12], [13, 17], [18, 26]],
+      "plan": {
+        "title": "A call at Blackmoss Heights",
+        "summary": "Pembury, the new tenant of Fallowmere Grange, pays a first call on his surly landlord Varrick at Blackmoss Heights, where Varrick's dogs set upon him.",
+        "beats": [
+          "Pembury arrives at the Heights and is grudgingly admitted by Varrick",
+          "The farmhouse and its master described",
+          "Left alone with the dogs, Pembury is attacked",
+          "Varrick grudgingly makes amends, and Pembury resolves to call again"
+        ]
+      },
+      "change": [15, 16, 17],
+      "rn_scene": 1,
+      "donor": {"book": "wuthering", "heading": "CHAPTER XV", "narrator": "Martha Bryce", "start": 2},
+      "dup": {"source": 6, "out": 2}
+    },
+    {
+      "id": "dracula-chapter-ii",
+      "book": "dracula",
+      "heading": "CHAPTER II",
+      "narrator": "Aldous Kerr",
+      "scenes": [[0, 13], [14, 25], [27, 53], [55, 60]],
+      "plan": {
+        "title": "The guest at Castle Vasska",
+        "summary": "Aldous Kerr arrives at Count Vasska's castle as an honoured guest and, after days of courtesy, finds every door locked: the castle is a prison and he is its prisoner.",
+        "beats": [
+          "Aldous reaches the castle at night and the Count welcomes him in",
+          "Supper with the Count; his strange appearance; the wolves howl",
+          "In the library Aldous and the Count discuss England and the Purfleet estate",
+          "The Count casts no reflection; Aldous finds every door locked and knows he is a prisoner"
+        ]
+      },
+      "change": [59, 60],
+      "rn_scene": 2,
+      "donor": {"book": "dracula", "heading": "CHAPTER VIII", "narrator": "Nora Vance", "start": 1},
+      "drift_in": {"paras": [36, 47], "donor_start": 7},
+      "dup": {"source": 2, "out": 3, "in": 2}
+    },
+    {
+      "id": "wuthering-chapter-iii",
+      "book": "wuthering",
+      "heading": "CHAPTER III",
+      "narrator": "Pembury",
+      "scenes": [[0, 16], [18, 37], [38, 56], [57, 65]],
+      "plan": {
+        "title": "The oak closet",
+        "summary": "Lodged in the forbidden oak closet at Blackmoss Heights, Pembury reads a dead girl's diary and dreams that Rosalind's ghost seizes his hand at the window, begging to be let in.",
+        "beats": [
+          "Pembury shuts himself in the oak closet and reads Rosalind's diary",
+          "He dreams of the chapel sermon, then of a ghost-child at the window",
+          "His cry brings Varrick, who sends him out and begs the ghost to come in",
+          "At dawn Pembury sees the household at breakfast and is guided home through the snow"
+        ]
+      },
+      "change": [25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37],
+      "rn_scene": 1,
+      "donor": {"book": "wuthering", "heading": "CHAPTER XV", "narrator": "Martha Bryce", "start": 2},
+      "drift_in": {"paras": [21, 24], "donor_start": 9},
+      "dup": {"source": 3, "out": 2, "in": 3}
+    },
+    {
+      "id": "wuthering-chapter-ix",
+      "book": "wuthering",
+      "heading": "CHAPTER IX",
+      "narrator": "Martha Bryce",
+      "scenes": [[0, 22], [23, 82], [83, 110], [111, 125]],
+      "plan": {
+        "title": "Rosalind's secret",
+        "summary": "Having accepted Aubrey Penhale, Rosalind confesses to Martha that she loves Varrick as her own being; Varrick, who overheard only that marrying him would degrade her, leaves Blackmoss that night.",
+        "beats": [
+          "Brandon, drunk, threatens Martha and drops Wendell over the banisters; Varrick catches him",
+          "Rosalind tells Martha she has accepted Aubrey Penhale",
+          "Varrick overhears and steals away; Rosalind declares her love for him and waits for him through the storm",
+          "Rosalind falls into a fever, recovers, and marries Aubrey"
+        ]
+      },
+      "change": [89, 90, 91],
+      "rn_scene": 3,
+      "donor": {"book": "wuthering", "heading": "CHAPTER II", "narrator": "Pembury", "start": 0},
+      "drift_in": {"paras": [119, 123], "donor_start": 8},
+      "dup": {"source": 0, "out": 1, "in": 2}
+    }
+  ]
+}

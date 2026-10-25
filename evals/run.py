@@ -29,6 +29,7 @@ from evals.harness.judge import Judge
 from evals.preflight import RUNS, preflight
 from evals.baseline import arms  # noqa: F401 — registers `baseline` (W12-5)
 from evals.steps import pipeline  # noqa: F401 — registers the steps
+from evals.validation import step as validation  # noqa: F401 — W19 S7, opt-in
 from evals.steps.base import StepContext, all_steps, get_step
 
 
@@ -413,7 +414,8 @@ def main() -> None:
     splits.require(args.book)  # a holdout book without --holdout stops here
 
     step_names = (
-        [s for s in all_steps() if s != "baseline"]  # its own run (SPEC-84)
+        # baseline is its own run (SPEC-84); rnrc_validation is asked for by name
+        [s for s in all_steps() if s not in ("baseline", validation.STEP)]
         if args.steps == "all"
         else [s.strip() for s in args.steps.split(",")]
     )
