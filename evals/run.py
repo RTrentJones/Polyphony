@@ -134,6 +134,12 @@ def _aggregate(passes: list[dict]) -> dict:
         merged["score_std"] = round(statistics.pstdev(vals), 4)
         merged["score_samples"] = [round(s, 4) for s in vals]
         merged["repeats"] = len(vals)
+        books = [r["book"] for r in scored if isinstance(r.get("book"), dict)]
+        if books:  # W18-6/7: the `book` block's numbers are averaged too
+            merged["book"] = dict(books[-1])
+            for k in ("rn_mean", "rc"):
+                got = [b[k] for b in books if isinstance(b.get(k), (int, float))]
+                merged["book"][k] = round(statistics.mean(got), 4) if got else None
         out[name] = merged
     return out
 
