@@ -1501,8 +1501,8 @@ def test_repeats_average_the_book_block():
     assert got["score"] == 0.7 and got["book"] == {
         "rn_mean": 0.5,
         "rc": 0.2,
-        "rc_scored": 1,  # SPEC-94 S8: one of the two repetitions scored RC
-        "rc_trimmed": 0,
+        "rc_scored_passes": 1,  # SPEC-94 S8: one of the two repetitions scored RC
+        "rc_trimmed_passes": 0,
     }
 
 
@@ -1522,25 +1522,36 @@ def test_repeats_report_the_book_blocks_evidence():
     from evals.harness import report
     from evals.run import _aggregate
 
-    def book(rn, rc, trimmed, eligible, scored):
+    def tally(n):
+        return {"rubrics": n, "unparseable": n, "claimed_empty": 0}
+
+    def book(rn, rc, trimmed, eligible, scored, unscored=0):
         return {
             "rn_mean": rn,
             "rc": rc,
             "rc_trimmed": trimmed,
             "rn_eligible": eligible,
             "rn_scored": scored,
+            "unscored": tally(unscored),
         }
 
     passes = [
         {"prose": {"score": 0.6, "book": book(0.4, 0.2, True, 3, 3)}},
-        {"prose": {"score": 0.8, "book": book(0.6, None, False, 3, 2)}},
-        {"prose": {"score": 0.7, "book": book(None, 0.4, True, 2, 0)}},
+        {"prose": {"score": 0.8, "book": book(0.6, None, False, 3, 2, 2)}},
+        {"prose": {"score": 0.7, "book": book(None, 0.4, True, 2, 0, 2)}},
+        # A pass with no numeric score is not in the means, nor in the counts
+        # or the book block's tally beside them (review S5).
+        {"prose": {"score": None, "book": book(0.9, 0.9, True, 4, 4, 5)}},
     ]
     got = _aggregate(passes)["prose"]
     b = got["book"]
     assert (b["rn_mean"], b["rc"]) == (0.5, 0.3)
-    assert (b["rc_scored"], b["rc_trimmed"]) == (2, 2)
-    assert (b["rn_eligible"], b["rn_scored"]) == (8, 5)
+    # Review S5: the sums have their own names; no single-run key is left
+    # holding one pass's count (or a sum) under the single-run name.
+    assert (b["rc_scored_passes"], b["rc_trimmed_passes"]) == (2, 2)
+    assert (b["rn_eligible_total"], b["rn_scored_total"]) == (8, 5)
+    assert not {"rn_eligible", "rn_scored", "rc_trimmed", "rc_scored"} & set(b)
+    assert b["unscored"] == {"rubrics": 4, "unparseable": 4, "claimed_empty": 0}
     run = {
         "app_sha": "s",
         "book": "cel",
@@ -1548,16 +1559,22 @@ def test_repeats_report_the_book_blocks_evidence():
         "steps": {"prose": got},
     }
     card = report.scorecard(run)
-    assert "RN=0.5 (scored 5/8 eligible) RC=0.3 (scored 2/3, trimmed 2/3)" in card
+    assert (
+        "RN=0.5 (scored 5/8 eligible over 3 passes) RC=0.3 (scored 2/3, trimmed 2/3)"
+        in card
+    )
     out = report.tracer_export(run, model="m")
     (case,) = out["cases"]
     for k, v in {
-        "rn_eligible": 8,
-        "rn_scored": 5,
-        "rc_scored": 2,
-        "rc_trimmed": 2,
+        "rn_eligible_total": 8,
+        "rn_scored_total": 5,
+        "rc_scored_passes": 2,
+        "rc_trimmed_passes": 2,
     }.items():
         assert case["metrics"][k] == v and out["metrics"][f"prose.{k}"] == v
+    # No single-run series receives an N-pass sum.
+    for k in ("rn_eligible", "rn_scored", "rc_trimmed", "rc_scored"):
+        assert f"prose.{k}" not in out["metrics"] and k not in case["metrics"]
 
 
 def test_one_runs_book_evidence_is_on_the_scorecard_and_in_tracer():

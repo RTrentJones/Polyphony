@@ -145,15 +145,28 @@ def _aggregate(passes: list[dict]) -> dict:
                 got = [b[k] for b in books if isinstance(b.get(k), (int, float))]
                 merged["book"][k] = round(statistics.mean(got), 4) if got else None
             # SPEC-94 S8: the evidence under those means, over the same passes.
-            merged["book"]["rc_scored"] = sum(
+            # Summed counts get their own names (review S5): a single run's
+            # `rn_eligible` is one pass's scenes, and a sum over N passes under
+            # the same key would jump the Tracer series by N. The last pass's
+            # single-run fields are dropped, not left to pass for the repeats.
+            agg = merged["book"]
+            for k in ("rn_eligible", "rn_scored", "rc_trimmed"):
+                agg.pop(k, None)
+            agg["rc_scored_passes"] = sum(
                 isinstance(b.get("rc"), (int, float)) and not isinstance(b["rc"], bool)
                 for b in books
             )
-            merged["book"]["rc_trimmed"] = sum(bool(b.get("rc_trimmed")) for b in books)
+            agg["rc_trimmed_passes"] = sum(bool(b.get("rc_trimmed")) for b in books)
             for k in ("rn_eligible", "rn_scored"):
                 got = [b[k] for b in books if isinstance(b.get(k), int)]
                 if got:
-                    merged["book"][k] = sum(got)
+                    agg[f"{k}_total"] = sum(got)
+            # ...and the book block's unscored tally over those same passes.
+            tallies = [
+                b["unscored"] for b in books if isinstance(b.get("unscored"), dict)
+            ]
+            if tallies:
+                agg["unscored"] = _sum_tallies(tallies)
         out[name] = merged
     for name in names:  # SPEC-94 S2a: the unscored tally covers every pass
         tallies = [
@@ -163,14 +176,6 @@ def _aggregate(passes: list[dict]) -> dict:
         ]
         if len(tallies) > 1:
             out[name] = dict(out[name]) | {"unscored": _sum_tallies(tallies)}
-        book_tallies = [
-            p[name]["book"]["unscored"]
-            for p in passes
-            if isinstance(((p.get(name) or {}).get("book") or {}).get("unscored"), dict)
-        ]
-        if len(book_tallies) > 1 and isinstance(out[name].get("book"), dict):
-            book = dict(out[name]["book"]) | {"unscored": _sum_tallies(book_tallies)}
-            out[name] = dict(out[name]) | {"book": book}
     return out
 
 

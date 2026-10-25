@@ -126,12 +126,18 @@ def scorecard(run: dict) -> str:
                     extra += (
                         f" (scored {b['rn_scored']}/{b.get('rn_eligible')} eligible)"
                     )
-                extra += f" RC={b.get('rc')}"
-                if "rc_scored" in b:  # aggregated over repeats
+                elif "rn_scored_total" in b:  # summed over the repeats
                     n = res.get("repeats") or "?"
                     extra += (
-                        f" (scored {b['rc_scored']}/{n},"
-                        f" trimmed {int(b.get('rc_trimmed') or 0)}/{n})"
+                        f" (scored {b['rn_scored_total']}/"
+                        f"{b.get('rn_eligible_total')} eligible over {n} passes)"
+                    )
+                extra += f" RC={b.get('rc')}"
+                if "rc_scored_passes" in b:  # aggregated over repeats
+                    n = res.get("repeats") or "?"
+                    extra += (
+                        f" (scored {b['rc_scored_passes']}/{n},"
+                        f" trimmed {int(b.get('rc_trimmed_passes') or 0)}/{n})"
                     )
                 elif b.get("rc_trimmed"):
                     extra += " (chapter trimmed)"
@@ -378,22 +384,31 @@ _TRACER_RUN_METRICS: dict[str, tuple[str, ...]] = {
         "rc",
         "rn_eligible",
         "rn_scored",
-        "rc_scored",
         "rc_trimmed",
+        "rn_eligible_total",
+        "rn_scored_total",
+        "rc_scored_passes",
+        "rc_trimmed_passes",
     ),
 }
 # W18-6/7 (D18-4): the prose step's `book` block, its own metrics (averaged
 # over repeats by evals.run._aggregate), never part of its score.
-# SPEC-94 S8: with the evidence under them — RN-eligible and RN-scored scenes,
-# and over repeats the repetitions with a numeric RC and the trimmed ones
-# (`rc_trimmed` is a flag in one run, exported 0/1, and a count over repeats).
+# SPEC-94 S8: with the evidence under them. One run: RN-eligible and RN-scored
+# scenes and `rc_trimmed` (a flag, exported 0/1). Over repeats the sums carry
+# their own names (review S5), so a trend never mixes one pass's count with N
+# passes' under one key: `rn_eligible_total`, `rn_scored_total`, and the
+# passes with a numeric RC / a trimmed chapter, `rc_scored_passes` /
+# `rc_trimmed_passes`.
 _BOOK_METRICS = (
     "rn_mean",
     "rc",
     "rn_eligible",
     "rn_scored",
-    "rc_scored",
     "rc_trimmed",
+    "rn_eligible_total",
+    "rn_scored_total",
+    "rc_scored_passes",
+    "rc_trimmed_passes",
 )
 
 
