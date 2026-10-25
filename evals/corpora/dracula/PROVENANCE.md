@@ -30,8 +30,10 @@ Verhoeven, Whitby → Marrow Cove, …). This is for **evaluation integrity only
 feeding a model the *original* text measures how well it recalls a famous novel
 from its training data, not how well Polyphony's pipeline extracts characters,
 grounds voice, and plans plot from the text actually in front of it. Renaming
-defeats that memorization while preserving the (public-domain) prose and the
-ground truth. **It is not an attempt to obscure the source** — this file credits
+removes the name cue while preserving the (public-domain) prose and the ground
+truth; it reduces name-cued recall but does not defeat memorization of a famous
+novel, whose prose a model can recognise without the names (SPEC-94 S3). This
+is a **development corpus**, tuned on across many waves. **It is not an attempt to obscure the source** — this file credits
 it plainly.
 
 ## Legal summary

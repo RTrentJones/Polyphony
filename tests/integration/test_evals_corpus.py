@@ -36,8 +36,8 @@ async def test_corpus_voices_separate(book):
         for ln in v["test"]
     ]
     agg = attribution.accuracy(results)
-    # comfortably above the 1/N chance baseline (0.33 for three voices). Both the
-    # training corpus (dracula) and the held-out corpus (frankenstein) must hold
+    # comfortably above the 1/N chance baseline (0.33 for three voices). Both
+    # development corpora (dracula and frankenstein) must hold
     # separable gold voices or the voice/attribution evals go meaningless.
     assert agg["accuracy"] >= 0.6, f"{book} voices not separable enough: {agg}"
     assert agg["chance"] < agg["accuracy"]

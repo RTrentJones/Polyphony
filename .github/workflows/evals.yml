@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       book:
-        description: corpus(es) to grade, space-separated (dracula = training, frankenstein = held-out, cel = the fidelity gate)
+        description: corpus(es) to grade, space-separated (development corpora; cel = the fidelity gate). Holdout corpora (SPEC-94 S5) are refused without evals.run --holdout
         default: dracula frankenstein cel
       steps:
         description: comma list of steps or 'all'

@@ -23,7 +23,9 @@
   voice lines (train/test), canonical plot beats, continuity-injection specs.
 
 ## Why this book
-Frankenstein is the **held-out validation corpus**. Like Dracula it has multiple
+Frankenstein was added as the **second corpus** (called "held-out validation"
+at the time; graded and tuned on in every wave since, it is now a **development
+corpus**, SPEC-94 S3 — the frozen holdout is `holdout-a` / `holdout-b`). Like Dracula it has multiple
 **disjoint first-person narrators** — Walton (the framing letters), Victor (his
 creation chapter), and the creature (its own recounted tale) — so the
 voice-separability premise holds and the same graders apply. But it is a
@@ -36,8 +38,9 @@ Every character and place is renamed (Victor Frankenstein → Emeric Vandel, Rob
 Walton → Rowan Merrow, Geneva → Verenna, …). This is for **evaluation integrity
 only**: feeding a model the *original* text measures how well it recalls a famous
 novel from training, not how well Polyphony's pipeline extracts characters,
-grounds voice, and plans plot from the text in front of it. Renaming defeats that
-memorization while preserving the (public-domain) prose and the ground truth.
+grounds voice, and plans plot from the text in front of it. Renaming removes the
+name cue while preserving the (public-domain) prose and the ground truth; it
+reduces name-cued recall but does not defeat memorization of a famous novel.
 **It is not an attempt to obscure the source** — this file credits it plainly.
 
 ## A note on the gold-line cap

@@ -57,7 +57,10 @@ secrets land.
 - **A4 ✓** `evals.run --repeat N` — score mean ± std (the noise band); each pass
   re-generates via a salted cache.
 - **A5 ✓** `frankenstein` — the held-out validation corpus (p@3 0.852), graded
-  alongside Dracula in CI; a gain must hold on both.
+  alongside Dracula in CI; a gain must hold on both. *(SPEC-94 S3: tuned on in
+  every wave since, Frankenstein is now a development corpus; the frozen holdout
+  is `holdout-a` / `holdout-b`, run once per release. Renaming reduces name-cued
+  recall but does not defeat memorization.)*
 
 Original notes retained below for reference.
 
