@@ -140,8 +140,58 @@ def _aggregate(passes: list[dict]) -> dict:
             for k in ("rn_mean", "rc"):
                 got = [b[k] for b in books if isinstance(b.get(k), (int, float))]
                 merged["book"][k] = round(statistics.mean(got), 4) if got else None
+            # SPEC-94 S8: the evidence under those means, over the same passes.
+            merged["book"]["rc_scored"] = sum(
+                isinstance(b.get("rc"), (int, float)) and not isinstance(b["rc"], bool)
+                for b in books
+            )
+            merged["book"]["rc_trimmed"] = sum(bool(b.get("rc_trimmed")) for b in books)
+            for k in ("rn_eligible", "rn_scored"):
+                got = [b[k] for b in books if isinstance(b.get(k), int)]
+                if got:
+                    merged["book"][k] = sum(got)
         out[name] = merged
+    for name in names:  # SPEC-94 S2a: the unscored tally covers every pass
+        tallies = [
+            p[name]["unscored"]
+            for p in passes
+            if isinstance((p.get(name) or {}).get("unscored"), dict)
+        ]
+        if len(tallies) > 1:
+            out[name] = dict(out[name]) | {"unscored": _sum_tallies(tallies)}
+        book_tallies = [
+            p[name]["book"]["unscored"]
+            for p in passes
+            if isinstance(((p.get(name) or {}).get("book") or {}).get("unscored"), dict)
+        ]
+        if len(book_tallies) > 1 and isinstance(out[name].get("book"), dict):
+            book = dict(out[name]["book"]) | {"unscored": _sum_tallies(book_tallies)}
+            out[name] = dict(out[name]) | {"book": book}
     return out
+
+
+def _sum_tallies(tallies: list[dict]) -> dict:
+    total: dict = {}
+    for t in tallies:
+        for k, v in t.items():
+            if isinstance(v, int) and not isinstance(v, bool):
+                total[k] = total.get(k, 0) + v
+    return total
+
+
+def run_unscored(steps: dict) -> dict:
+    """SPEC-94 S2a: the run's `unscored` tally, beside its aggregates — every
+    step's (and the prose `book` block's) judged-but-unscored rubrics and the
+    items they left unscored, summed. Zeroes when the judge scored everything."""
+    tallies = []
+    for res in steps.values():
+        if not isinstance(res, dict):
+            continue
+        for t in (res.get("unscored"), (res.get("book") or {}).get("unscored")):
+            if isinstance(t, dict):
+                tallies.append(t)
+    zero = {"rubrics": 0, "unparseable": 0, "claimed_empty": 0, "unavailable": 0}
+    return zero | {"items": 0} | _sum_tallies(tallies)
 
 
 def _is_local(url: str) -> bool:
@@ -239,6 +289,7 @@ async def run(
                         quota_exhausted = True
             passes.append(one)
         result["steps"] = _aggregate(passes)
+        result["unscored"] = run_unscored(result["steps"])
         if cfg.relay_archive and "baseline" not in step_names:  # no contract draw
             # Over the whole run's archive, once (not per pass).
             try:

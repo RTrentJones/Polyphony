@@ -330,3 +330,137 @@ async def test_app_sha_falls_back_to_git_head(monkeypatch):
 
     monkeypatch.setattr(run_mod, "_git_sha", lambda: "f" * 40)
     assert await run_mod._app_sha("http://127.0.0.1:9") == "f" * 40
+
+
+# --- SPEC-94 S2a: an unparseable reply is None, never 0.0 ----------------------
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "I would rate this fairly well overall.",
+        "",
+        '{"explanation": "good"}',  # JSON, but no score
+        '{"score": "high", "explanation": "good"}',
+        '{"score": null}',
+        "[0.7]",
+    ],
+)
+def test_an_unparseable_judge_reply_has_no_score(reply):
+    from evals.harness.judge import UNPARSEABLE, _parse, is_unparseable
+
+    score, why = _parse(reply)
+    assert score is None  # old: 0.0, indistinguishable from a real zero
+    assert why.startswith(UNPARSEABLE) and is_unparseable(why)
+
+
+@pytest.mark.parametrize(
+    "reply, score",
+    [
+        ('{"score": 0.0, "explanation": "fails"}', 0.0),  # a real zero stays 0
+        ('```json\n{"score": 0.7, "explanation": "x"}\n```', 0.7),
+        ('{"score": 1.4}', 1.0),
+        ("score: 0.4 because", 0.4),
+    ],
+)
+def test_a_parseable_reply_keeps_its_score(reply, score):
+    from evals.harness.judge import _parse, is_unparseable
+
+    got, why = _parse(reply)
+    assert got == score and not is_unparseable(why)
+
+
+async def test_judge_score_carries_none_for_an_unparseable_reply(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
+    j = Judge(_cfg(monkeypatch, "groq"))
+
+    async def gen(prompt, system):
+        return SimpleNamespace(text="no idea", model="m")
+
+    monkeypatch.setattr(j, "_generate", gen)
+    judgment = await j.score("rubric", "content")
+    assert judgment.score is None
+    assert judgment.explanation == "unparseable judge reply"
+
+
+# --- SPEC-94 D19-2: pre-S2 records recomputed with those zeros as None --------
+
+
+def _old_scene(r3, why="R3 ok"):
+    rub = {
+        r: {"score": v, "explanation": f"{r} ok"}
+        for r, v in {"R1": 1.0, "R2": 0.8, "R4": 0.9, "R5": 0.7}.items()
+    }
+    rub["R3"] = {"score": r3, "explanation": why}
+    from evals.graders import rubrics
+
+    scores = {k: v["score"] for k, v in rub.items()}
+    return {"rubrics": rub, "score": rubrics.scene_score(scores)}
+
+
+def test_rescore_recomputes_a_pre_s2_report_with_unparseable_as_none():
+    from evals.harness.rescore import rescore_report
+
+    bad = _old_scene(0.0, "unparseable judge reply")
+    good = _old_scene(0.6)
+    capped = _old_scene(0.6)
+    capped["rubrics"]["R4"] = {
+        "score": 0.0,
+        "explanation": "unparseable judge reply",
+        "capped": "seam",
+    }
+    report = {
+        "steps": {
+            "prose": {
+                "score": round((bad["score"] + good["score"]) / 2, 4),
+                "scenes": [bad, good],
+            },
+            "outline": {
+                "structural_ok": True,
+                "score": 0.0,
+                "rubrics": {
+                    "R1": {"score": 1.0, "explanation": "ok"},
+                    "R6": {"score": 0.0, "explanation": "unparseable judge reply"},
+                    "R3": {"score": 0.6, "explanation": "ok"},
+                },
+            },
+            "revise": {
+                "score": 0.5,
+                "repeats": 2,
+                "revisions": [
+                    {
+                        "score": 0.4,
+                        "rubrics": {
+                            "RA": {
+                                "score": 0.0,
+                                "explanation": "unparseable judge reply",
+                            },
+                            "R5": {"score": 0.8, "explanation": "ok"},
+                        },
+                    }
+                ],
+            },
+            "continuity": {"score": 1.0},
+        }
+    }
+    out = rescore_report(report)
+    prose = out["steps"]["prose"]
+    assert prose["scenes"][0]["rubrics"]["R3"]["score"] is None
+    assert prose["scenes"][0]["score"] is None
+    assert prose["score"] == good["score"]
+    assert prose["unscored"]["unparseable"] == 1 and prose["unscored"]["items"] == 1
+    outline = out["steps"]["outline"]
+    assert outline["score"] is None and outline["unscored"]["items"] == 1
+    # A repeated step keeps its aggregate (only the last pass's rows exist).
+    revise = out["steps"]["revise"]
+    assert revise["score"] == 0.5 and revise["rescore"].startswith("repeated")
+    assert revise["revisions"][0]["score"] is None
+    assert out["unscored"]["unparseable"] == 3 and out["unscored"]["items"] == 3
+    # The input is left as it was.
+    assert report["steps"]["prose"]["scenes"][0]["rubrics"]["R3"]["score"] == 0.0
+    # A capped zero is a measured failure, not an unparseable reply.
+    again = rescore_report({"steps": {"prose": {"scenes": [capped]}}})
+    assert again["steps"]["prose"]["scenes"][0]["rubrics"]["R4"]["score"] == 0.0
+    assert again["unscored"]["rubrics"] == 0

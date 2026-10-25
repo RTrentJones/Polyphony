@@ -23,7 +23,7 @@ renamed excerpts of a few chapters are committed, never whole novels.
 | `retrieval`   | voices separate in embedding space | held-out line → nearest across pooled voices → **precision@k / MRR** | no (embedder) |
 | `attribution` | generated line sounds like the character | test-dialogue → embed → nearest train-line centroid (`reference: "train"`, SPEC-74) → **top-1 accuracy** vs chance; `normalised` beside it ranks by similarity less each centroid's mean similarity to the other characters' generated lines (topic control, W15-4) | yes (generate) |
 | `outline`     | recovers the story's shape    | generate outline (premise confirmed with the author's edit) → **R1 × mean(R6, R3)** + unknown-name rates | yes |
-| `continuity`  | catches contradictions        | inject known errors → **detection recall**, precision, quote-verbatim + false-positive rate | yes |
+| `continuity`  | catches contradictions        | inject known errors → **detection recall** (a finding counts only when its quote overlaps the injected span, or, quoting nothing, its detail names the replacement found nowhere else in the text), precision, quote-verbatim + false positives on the clean control: **per 1,000 control words** (`control_fp_per_1k_words`) and the **share of control texts flagged** (`control_flagged_share`) | yes |
 | `prose`       | end-to-end scene quality      | the product path: outline → promote → planned scenes → deterministic cast/seam checks + **R1 × mean(R2..R5)** per scene | yes |
 | `revise`      | AI revision does what was asked, and only that | three revisions of one scene through the revise API → outside-range bytes + new-name checks + **mean(RA, R5)** per revision | yes |
 
@@ -281,6 +281,29 @@ report/Tracer record `judge.fell_back: true` + `judge.self: true` — so a
 self-graded run is always labelled, never silent. Judge calls are temperature 0.
 Note: switching judge families shifts absolute scores; compare trends within one
 judge (the report's `judge.provider` records which one graded each run).
+
+**Unscored, never zero (SPEC-94 S2a).** A judge reply with no readable score
+(no JSON, or JSON without a numeric `score`) is `score: None` with the reason
+"unparseable judge reply" and `judge_unparseable: true` — not 0.0. The rule for
+a composite (scene `R1 × mean(R2..R5)`, outline `R1 × mean(R6, R3)`, revision
+`mean(RA, R5)`): a component that is *not applicable* (R2 with under two voiced
+speakers) is left out as before, but a component the judge *did not score*
+(unparseable, a repeated "nothing was provided", the judge chain unavailable)
+makes the whole item `None`. The item is left out of the step's mean and
+counted, never scored on whichever rubrics happened to parse. Each judged step
+reports an `unscored` tally (`rubrics`, split into `unparseable` /
+`claimed_empty` / `unavailable`, and `items` left unscored; the prose `book`
+block has its own for RN/RC), summed over repeats; the run's total is the
+report's top-level `unscored`, printed under the scorecard header and sent to
+Tracer as `labels.unscored_rubrics` and the `unscored.rubrics` / `unscored.items`
+run metrics.
+
+**Pre-S2 reports (D19-2).** Before S2 an unparseable reply scored 0.0 with the
+same reason, so an old report is recomputable rather than re-run:
+`python -m evals.harness.rescore eval-report.json [out.json]` sets those zeros
+to `None` and recomputes the item scores, step means, rubric means and tallies
+under the rule above (a `--repeat` step keeps only its last pass's details, so
+its aggregated score is left as recorded and marked `rescore`).
 
 **A judge at its own endpoint.** `EVAL_JUDGE_BASE_URL` sends the judge to any
 OpenAI-compatible URL, bypassing the provider chain: `EVAL_JUDGE_LABEL` names it in

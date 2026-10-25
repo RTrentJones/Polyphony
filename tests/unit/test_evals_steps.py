@@ -1437,8 +1437,19 @@ async def test_prose_reports_rn_and_rc_as_a_book_block(tmp_path):
         "rc": 0.2,
         "rc_explanation": "RC ok",
         "rc_trimmed": False,
+        # SPEC-94 S8: scene 1 has narration (RN applicable, scored); scene 2
+        # is all dialogue (not applicable).
+        "rn_eligible": 1,
+        "rn_scored": 1,
         "narrator_samples": 3,
         "narrator_sampled": "corpus",  # Milo has no voice_sources chapters
+        "unscored": {
+            "rubrics": 0,
+            "unparseable": 0,
+            "claimed_empty": 0,
+            "unavailable": 0,
+            "items": 0,
+        },
     }
     assert "RN" not in out["rubric_means"] and "RN" not in out["judge_explanation"]
     # D18-4: the prose score is the same whatever RN and RC say.
@@ -1469,7 +1480,11 @@ def test_the_book_block_is_exported_as_its_own_metrics():
     gl = report.greenlight_export(run)
     assert [c["name"] for c in gl["checks"]] == ["eval:prose"]
     assert gl["checks"][0]["eval"]["score"] == 0.7
-    assert gl["metrics"] == {"prose.rn_mean": 0.55, "prose.rc": 0.4}
+    assert gl["metrics"] == {
+        "prose.rn_mean": 0.55,
+        "prose.rc": 0.4,
+        "prose.rc_trimmed": 1,  # SPEC-94 S8: the one run's flag, as 0/1
+    }
     assert "RN=0.55 RC=0.4 (chapter trimmed)" in report.scorecard(run)
     del run["steps"]["prose"]["book"]
     assert "metrics" not in report.greenlight_export(run)
@@ -1483,4 +1498,323 @@ def test_repeats_average_the_book_block():
         {"prose": {"score": 0.8, "book": {"rn_mean": 0.6, "rc": None}}},
     ]
     got = _aggregate(passes)["prose"]
-    assert got["score"] == 0.7 and got["book"] == {"rn_mean": 0.5, "rc": 0.2}
+    assert got["score"] == 0.7 and got["book"] == {
+        "rn_mean": 0.5,
+        "rc": 0.2,
+        "rc_scored": 1,  # SPEC-94 S8: one of the two repetitions scored RC
+        "rc_trimmed": 0,
+    }
+
+
+# --- SPEC-94 S8: the evidence under the book block's means -------------------
+
+
+async def test_the_book_block_counts_rn_eligible_and_scored_scenes(tmp_path):
+    # Scene 1's RN comes back unparseable: eligible, but not scored.
+    judge = _UnparseableJudge({"RN"})
+    out = await pipeline.step_prose(_cel_ctx(tmp_path, _ProductClient(), judge))
+    b = out["book"]
+    assert (b["rn_eligible"], b["rn_scored"], b["rn_mean"]) == (1, 0, None)
+    assert b["rc_trimmed"] is False
+
+
+def test_repeats_report_the_book_blocks_evidence():
+    from evals.harness import report
+    from evals.run import _aggregate
+
+    def book(rn, rc, trimmed, eligible, scored):
+        return {
+            "rn_mean": rn,
+            "rc": rc,
+            "rc_trimmed": trimmed,
+            "rn_eligible": eligible,
+            "rn_scored": scored,
+        }
+
+    passes = [
+        {"prose": {"score": 0.6, "book": book(0.4, 0.2, True, 3, 3)}},
+        {"prose": {"score": 0.8, "book": book(0.6, None, False, 3, 2)}},
+        {"prose": {"score": 0.7, "book": book(None, 0.4, True, 2, 0)}},
+    ]
+    got = _aggregate(passes)["prose"]
+    b = got["book"]
+    assert (b["rn_mean"], b["rc"]) == (0.5, 0.3)
+    assert (b["rc_scored"], b["rc_trimmed"]) == (2, 2)
+    assert (b["rn_eligible"], b["rn_scored"]) == (8, 5)
+    run = {
+        "app_sha": "s",
+        "book": "cel",
+        "judge": {"provider": "p", "self": False},
+        "steps": {"prose": got},
+    }
+    card = report.scorecard(run)
+    assert "RN=0.5 (scored 5/8 eligible) RC=0.3 (scored 2/3, trimmed 2/3)" in card
+    out = report.tracer_export(run, model="m")
+    (case,) = out["cases"]
+    for k, v in {
+        "rn_eligible": 8,
+        "rn_scored": 5,
+        "rc_scored": 2,
+        "rc_trimmed": 2,
+    }.items():
+        assert case["metrics"][k] == v and out["metrics"][f"prose.{k}"] == v
+
+
+def test_one_runs_book_evidence_is_on_the_scorecard_and_in_tracer():
+    from evals.harness import report
+
+    b = {"rn_mean": 0.55, "rc": 0.4, "rc_trimmed": False}
+    b |= {"rn_eligible": 3, "rn_scored": 2}
+    run = {
+        "app_sha": "s",
+        "book": "cel",
+        "judge": {"provider": "p", "self": False},
+        "steps": {"prose": {"score": 0.7, "book": b}},
+    }
+    assert "RN=0.55 (scored 2/3 eligible) RC=0.4" in report.scorecard(run)
+    assert "trimmed" not in report.scorecard(run)
+    m = report.tracer_export(run, model="m")["metrics"]
+    assert (m["prose.rn_eligible"], m["prose.rn_scored"], m["prose.rc_trimmed"]) == (
+        3,
+        2,
+        0,
+    )
+
+
+# --- SPEC-94 S2a: an unparseable judge reply is unscored, never 0.0 ------------
+
+
+class _UnparseableJudge(_RubricJudge):
+    """The real Judge's parse over a reply with no score for the rubrics in
+    `garbled` (on the `nth` call of each, 1-based; 0 = every call)."""
+
+    def __init__(self, garbled, nth=0):
+        super().__init__()
+        self.garbled, self.nth, self.calls = set(garbled), nth, {}
+
+    async def score(self, rubric, content):
+        from evals.harness.judge import _parse
+
+        got = await super().score(rubric, content)
+        rid = self.seen[-1][0]
+        self.calls[rid] = self.calls.get(rid, 0) + 1
+        if rid in self.garbled and self.nth in (0, self.calls[rid]):
+            score, why = _parse("I would rate this fairly well overall.")
+            return SimpleNamespace(score=score, explanation=why)
+        return got
+
+
+async def test_an_unparseable_rubric_is_none_and_flagged_not_zero():
+    ctx = SimpleNamespace(judge=_UnparseableJudge({"R3"}))
+    judged = await pipeline._judge_rubrics(ctx, {"R1": "b", "R3": "b"})
+    assert judged["R3"]["score"] is None  # old: 0.0
+    assert judged["R3"]["judge_unparseable"] is True
+    assert judged["R3"]["explanation"] == "unparseable judge reply"
+    assert judged["R1"]["score"] == 1.0 and "judge_unparseable" not in judged["R1"]
+    # A deterministic cap still wins: the failure is measured, not judged.
+    capped = await pipeline._judge_rubrics(ctx, {"R3": "b"}, {"R3": "seam"})
+    assert capped["R3"]["score"] == 0.0
+
+
+def test_a_composite_with_an_unscored_component_is_none_not_lower():
+    base = {"R1": 1.0, "R2": 0.2, "R3": 0.9, "R4": 0.9, "R5": 0.9}
+    full = rubrics.scene_score(base)
+    # Not applicable: left out of the mean, as before.
+    assert rubrics.scene_score(base | {"R2": None}) == 0.9
+    # The judge did not score it: the scene is unscored, not a partial mean.
+    assert rubrics.scene_score(base | {"R2": None}, {"R2"}) is None
+    assert rubrics.scene_score(base | {"R4": None}, {"R4"}) is None
+    assert full == pytest.approx(0.725)
+    assert rubrics.outline_score({"R1": 1, "R6": 0.5, "R3": None}, {"R3"}) is None
+    assert rubrics.revise_score({"RA": 0.8, "R5": None}, {"R5"}) is None
+    assert rubrics.revise_score({"RA": 0.8, "R5": None}) == 0.8
+
+
+async def test_prose_leaves_a_scene_with_an_unparseable_rubric_unscored(tmp_path):
+    clean = await pipeline.step_prose(_cel_ctx(tmp_path, _ProductClient()))
+    # R3 garbled on its first call only: scene 1's R3.
+    judge = _UnparseableJudge({"R3"}, nth=1)
+    out = await pipeline.step_prose(_cel_ctx(tmp_path, _ProductClient(), judge))
+    s1, s2 = out["scenes"]
+    assert s1["rubrics"]["R3"]["score"] is None and s1["score"] is None
+    assert s2["score"] == clean["scenes"][1]["score"]
+    # The step's mean is over the scored scene only (old: scene 1 with R3 = 0).
+    assert out["score"] == s2["score"]
+    assert out["unscored"] == {
+        "rubrics": 1,
+        "unparseable": 1,
+        "claimed_empty": 0,
+        "unavailable": 0,
+        "items": 1,
+    }
+    # R3's mean is over the scenes that scored it.
+    assert out["rubric_means"]["R3"] == s2["rubrics"]["R3"]["score"]
+
+
+async def test_prose_book_block_counts_an_unparseable_rc(tmp_path):
+    judge = _UnparseableJudge({"RC"})
+    out = await pipeline.step_prose(_cel_ctx(tmp_path, _ProductClient(), judge))
+    assert out["book"]["rc"] is None  # old: 0.0
+    assert out["book"]["unscored"]["unparseable"] == 1
+    assert out["unscored"]["rubrics"] == 0  # RC is not a scene rubric
+
+
+async def test_outline_with_an_unparseable_rubric_is_unscored(tmp_path):
+    judge = _UnparseableJudge({"R6"})
+    out = await pipeline.step_outline(_cel_ctx(tmp_path, _ProductClient(), judge))
+    assert out["rubrics"]["R6"]["score"] is None
+    assert out["score"] is None  # old: R1 x mean(0.0, R3)
+    assert out["unscored"]["unparseable"] == 1 and out["unscored"]["items"] == 1
+    assert out["judge"] == pytest.approx((1.0 + 0.6) / 2)  # the judged view
+
+
+async def test_revise_counts_unparseable_revisions_unscored(tmp_path):
+    client = _ReviseClient()
+    ctx = _cel_ctx(tmp_path, client, _UnparseableJudge({"RA"}, nth=1))
+    await ctx.client.create_book("x", "s")
+    out = await pipeline.step_revise(ctx)
+    tighten, *rest = out["revisions"]
+    assert tighten["rubrics"]["RA"]["score"] is None and tighten["score"] is None
+    assert out["score"] == pytest.approx(sum(r["score"] for r in rest) / len(rest))
+    assert out["unscored"]["unparseable"] == 1 and out["unscored"]["items"] == 1
+    assert out["tighten_ras"] == [None]
+
+
+# --- SPEC-94 S2b/S2c through the continuity step ------------------------------
+
+
+def _continuity_client(injected_findings, control_findings):
+    class Client(_ProductClient):
+        async def create_book(self, title, synopsis, genre=""):
+            self.ids[title] = {}
+            return {"id": title}
+
+        async def create_chapter(self, book_id, title, summary=""):
+            return {"id": book_id}
+
+        async def create_scene(self, chapter_id, content="", characters=None):
+            pass
+
+        async def run_continuity(self, book_id, chapter_id=None):
+            return injected_findings if "injected" in book_id else control_findings
+
+    return Client()
+
+
+async def test_continuity_step_credits_only_findings_on_the_injected_span(tmp_path):
+    # "Edric Thane" stands all over the cel excerpt; the memo's injected
+    # "Edwin Thane" is the one planted error. A finding quoting another
+    # "Edric Thane" merely mentions a token (old: detected, precision 1.0).
+    elsewhere = [{"detail": "Edwin Thane vs Edric Thane", "quote": "Edric Thane"}]
+    client = _continuity_client(elsewhere, [])
+    out = await pipeline.step_continuity(_cel_ctx(tmp_path, client))
+    assert out["detected"] == [] and out["precision"] == 0.0
+    on_span = [{"detail": "signature", "quote": "Edwin Thane"}]
+    client = _continuity_client(on_span, [])
+    out = await pipeline.step_continuity(_cel_ctx(tmp_path, client))
+    assert out["detected"] == ["broken-alias"] and out["precision"] == 1.0
+
+
+async def test_continuity_step_reports_false_positives_per_1000_control_words(
+    tmp_path,
+):
+    found = [{"detail": "a"}, {"detail": "b"}, {"detail": "c"}]
+    out = await pipeline.step_continuity(
+        _cel_ctx(tmp_path, _continuity_client([], found))
+    )
+    # Old: false_positive_rate = min(1, 3 control findings / 5 injected) = 0.6.
+    assert "false_positive_rate" not in out
+    words = len(pipeline.load_excerpts("cel")[: pipeline._CONTINUITY_WINDOW].split())
+    assert out["n_control_words"] == words
+    assert out["control_fp_per_1k_words"] == round(3000 / words, 4)
+    assert out["control_flagged_share"] == 1.0
+
+
+def _development_corpora() -> list[str]:
+    """Every corpus with a spec.json, less any marked "split": "holdout"
+    (SPEC-94 D19-4: its excerpts are not opened, so not even by a test)."""
+    out = []
+    for spec in sorted(pipeline.CORPORA.glob("*/spec.json")):
+        if json.loads(spec.read_text(encoding="utf-8")).get("split") != "holdout":
+            out.append(spec.parent.name)
+    return out
+
+
+def test_the_development_corpora_are_the_four_known_books():
+    assert {"cel", "dracula", "frankenstein", "wuthering"} <= set(
+        _development_corpora()
+    )
+
+
+@pytest.mark.parametrize("book", _development_corpora())
+def test_every_continuity_injection_applies_inside_the_graded_window(book):
+    # SPEC-94 S2: wuthering's name-misspell anchor lay past the window and was
+    # silently skipped, so its recall was over one injection, not two.
+    from evals.graders import continuity
+
+    spec = json.loads((pipeline.CORPORA / book / "spec.json").read_text("utf-8"))
+    text, gt = pipeline.load_corpus(book)
+    planned = spec.get("continuity_injections") or gt.get("continuity_injections")
+    if not planned:
+        pytest.skip(f"{book} plants no continuity injections")
+    if spec.get("continuity_injections"):  # the ground truth is built from it
+        assert gt["continuity_injections"] == spec["continuity_injections"]
+    source = (
+        pipeline.load_excerpts(book)
+        if gt.get("continuity_source") == "excerpts"
+        else text
+    )
+    window = source[: pipeline._CONTINUITY_WINDOW]
+    injected, expected = continuity.apply_injections(window, planned)
+    assert continuity.unapplied(planned, expected, source) == []
+    assert [e["id"] for e in expected] == [i["id"] for i in planned]
+    for e in expected:
+        a, b = e["span"]
+        assert injected[a:b] == e["injected"] and e["injected"].strip(), e["id"]
+        # The span is the changed part of the replacement, never its anchor.
+        assert e["injected"] in e["replace"] and len(e["injected"]) <= len(e["replace"])
+        # A finding quoting exactly the changed words catches it.
+        hit = {"detail": "x", "quote": e["injected"]}
+        assert continuity._finding_matches(e, hit, injected), e["id"]
+        # A respelled name contradicts something: the original spelling
+        # still stands in the window (cel's dead-speaks is not a respelling).
+        if e["expect_type"] == "character" and e["id"] != "dead-speaks":
+            a, b = continuity._changed(e["replace"], e["original"])
+            assert e["original"][a:b] in injected, e["id"]
+
+
+def test_unapplied_injections_are_named_with_why():
+    from evals.graders import continuity
+
+    source = "Aldous Kerr met Bell. " + "x " * 50 + "Late anchor here."
+    window = source[:30]
+    planned = [
+        {"id": "ok", "locate": "Aldous Kerr", "replace": "Aldous Karr"},
+        {"id": "late", "locate": "Late anchor", "replace": "Lute anchor"},
+        {"id": "gone", "locate": "Nowhere", "replace": "Somewhere"},
+    ]
+    _, expected = continuity.apply_injections(window, planned)
+    assert continuity.unapplied(planned, expected, source) == [
+        {"id": "late", "reason": "anchor outside the graded window"},
+        {"id": "gone", "reason": "anchor not found"},
+    ]
+
+
+async def test_continuity_step_reports_unapplied_injections(tmp_path):
+    ctx = _cel_ctx(tmp_path, _continuity_client([], []))
+    gt = dict(ctx.ground_truth)
+    gt["continuity_injections"] = gt["continuity_injections"] + [
+        {"id": "phantom", "locate": "no such words anywhere", "replace": "x"}
+    ]
+    ctx.ground_truth = gt
+    out = await pipeline.step_continuity(ctx)
+    assert out["n_injections_planned"] == 6 and out["n_injected"] == 5
+    assert out["n_injections_unapplied"] == 1
+    assert out["unapplied_injections"] == [
+        {"id": "phantom", "reason": "anchor not found"}
+    ]
+    assert out["recall_denominator"].startswith("applied")
+    # Nothing applied measures nothing: recall None, not 0.
+    gt["continuity_injections"] = gt["continuity_injections"][-1:]
+    out = await pipeline.step_continuity(ctx)
+    assert out["n_injected"] == 0 and out["score"] is None
