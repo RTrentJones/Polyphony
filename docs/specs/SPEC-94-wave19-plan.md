@@ -20,6 +20,8 @@ validity claims stated at their true strength, a human calibration of the judges
 | S4 | **Human calibration set.** About 40 blinded items rated by the user (≈45 minutes) on a private page: 20 R2 speaker-attribution items (the same numbered lines and samples the judge saw; the user names each line's speaker) and 20 scene-preference pairs (the same pair the pairwise panel saw, order randomised). Agreement is computed after rating: human-vs-judge accuracy on R2 and human-vs-panel agreement (and κ) on pairs. |
 | S5 | **Frozen holdout.** *The Woman in White* (Collins, 1859) and *The Moonstone* (Collins, 1868) — never used in any earlier wave — built as renamed corpora once, committed, and tagged `holdout-v1`. No development run reads them; they run once, at the end of a release, on that release's frozen code. |
 | S6 | **Case study.** A one-page write-up as the README's front door: the problem, the harness, the pre-registered result, the calibration, the holdout, and what did not work (R2 has stayed 0.2–0.4). |
+| S7 | **Validate RN and RC before trusting them.** A small blinded set of intact source chapters and deliberately damaged versions of each (narrator drift, a duplicated event, broken transitions, the planned change removed), built deterministically; the check is whether RN and RC reliably score the damaged version below the intact one, damage by damage. A sample of the same items goes into S4's human set. |
+| S8 | **Evidence beside every mean.** RN reports its eligible and scored scene counts, RC its scored-repetition count and how many repetitions were trimmed, so a mean never stands without the evidence under it. |
 
 ## Decisions
 - **D19-1 Order.** The S2 harness change merges only after wave 17's second R2 draw (10-26 05:00Z) is dispatched and after the
@@ -60,6 +62,12 @@ validity claims stated at their true strength, a human calibration of the judges
   injection's changed words (a quote under 8 characters must cover them), or by its detail naming them when they occur once in
   the text; recall may read lower than in earlier draws for that reason, and the change is the point. Injections outside the
   graded window are reported, not skipped silently (wuthering's `name-misspell` had been).
+
+- **D19-9 No new metrics this wave** (a second outside review, 2026-10-25, on `5bb2df2`): RN and RC are new and unvalidated,
+  so wave 19 adds none and validates these two (S7) instead. RC on a chapter over ≈3,000 words reads the scenes with their
+  middles trimmed, so a trimmed RC is a partial-chapter assessment and is reported as such; repetition or contradiction inside
+  a trimmed middle is invisible to it. S7's damage is placed outside the trimmed region and, separately, inside it, so the
+  blind spot is measured rather than assumed.
 
 ## Sequence
 1. 10-26 00:07Z — W12-9 day 6 (S1). 05:00Z — W17 draw 2; then the wave-18 product PR.
