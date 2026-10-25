@@ -1484,3 +1484,77 @@ def test_repeats_average_the_book_block():
     ]
     got = _aggregate(passes)["prose"]
     assert got["score"] == 0.7 and got["book"] == {"rn_mean": 0.5, "rc": 0.2}
+
+
+# --- SPEC-94 S2b/S2c through the continuity step ------------------------------
+
+
+def _continuity_client(injected_findings, control_findings):
+    class Client(_ProductClient):
+        async def create_book(self, title, synopsis, genre=""):
+            self.ids[title] = {}
+            return {"id": title}
+
+        async def create_chapter(self, book_id, title, summary=""):
+            return {"id": book_id}
+
+        async def create_scene(self, chapter_id, content="", characters=None):
+            pass
+
+        async def run_continuity(self, book_id, chapter_id=None):
+            return injected_findings if "injected" in book_id else control_findings
+
+    return Client()
+
+
+async def test_continuity_step_credits_only_findings_on_the_injected_span(tmp_path):
+    # "Edric Thane" stands all over the cel excerpt; the memo's injected
+    # "Edwin Thane" is the one planted error. A finding quoting another
+    # "Edric Thane" merely mentions a token (old: detected, precision 1.0).
+    elsewhere = [{"detail": "Edwin Thane vs Edric Thane", "quote": "Edric Thane"}]
+    client = _continuity_client(elsewhere, [])
+    out = await pipeline.step_continuity(_cel_ctx(tmp_path, client))
+    assert out["detected"] == [] and out["precision"] == 0.0
+    on_span = [{"detail": "signature", "quote": "Edwin Thane"}]
+    client = _continuity_client(on_span, [])
+    out = await pipeline.step_continuity(_cel_ctx(tmp_path, client))
+    assert out["detected"] == ["broken-alias"] and out["precision"] == 1.0
+
+
+async def test_continuity_step_reports_false_positives_per_1000_control_words(
+    tmp_path,
+):
+    found = [{"detail": "a"}, {"detail": "b"}, {"detail": "c"}]
+    out = await pipeline.step_continuity(
+        _cel_ctx(tmp_path, _continuity_client([], found))
+    )
+    # Old: false_positive_rate = min(1, 3 control findings / 5 injected) = 0.6.
+    assert "false_positive_rate" not in out
+    words = len(pipeline.load_excerpts("cel")[: pipeline._CONTINUITY_WINDOW].split())
+    assert out["n_control_words"] == words
+    assert out["control_fp_per_1k_words"] == round(3000 / words, 4)
+    assert out["control_flagged_share"] == 1.0
+
+
+@pytest.mark.parametrize("book", ["cel", "dracula", "frankenstein", "wuthering"])
+def test_every_corpus_injection_has_a_span_on_its_changed_words(book):
+    from evals.graders import continuity
+
+    text, gt = pipeline.load_corpus(book)
+    if gt.get("continuity_source") == "excerpts":
+        text = pipeline.load_excerpts(book)
+    window = text[: pipeline._CONTINUITY_WINDOW]
+    injected, expected = continuity.apply_injections(
+        window, gt["continuity_injections"]
+    )
+    # (Wuthering's name-misspell anchor lies past the window, so it is not
+    # applied: a gap that predates S2 and is not its to fix.)
+    assert expected
+    for e in expected:
+        a, b = e["span"]
+        assert injected[a:b] == e["injected"] and e["injected"].strip(), e["id"]
+        # The span is the changed part of the replacement, never its anchor.
+        assert e["injected"] in e["replace"] and len(e["injected"]) <= len(e["replace"])
+        # A finding quoting exactly the changed words catches it.
+        hit = {"detail": "x", "quote": e["injected"]}
+        assert continuity._finding_matches(e, hit, injected), e["id"]

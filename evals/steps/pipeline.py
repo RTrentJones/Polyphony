@@ -972,10 +972,16 @@ async def step_continuity(ctx: StepContext) -> dict:
 
     injected = await run_on(injected_text, "injected")
     control = await run_on(window, "control")
-    score = continuity.grade_continuity(expected, injected, control)
+    # SPEC-94 S2b: false positives per 1,000 words of the one clean control
+    # text (what the checker saw: `run_on` caps it at the window).
+    score = continuity.grade_continuity(
+        expected, injected, [(window[:_CONTINUITY_WINDOW], control)], injected_text
+    )
     # Precision on the injected run: findings that point at a planted error.
     on_target = sum(
-        1 for f in injected if any(continuity._finding_matches(e, f) for e in expected)
+        1
+        for f in injected
+        if any(continuity._finding_matches(e, f, injected_text) for e in expected)
     )
     return {
         **score.as_dict(),

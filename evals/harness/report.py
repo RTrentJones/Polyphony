@@ -80,7 +80,11 @@ def scorecard(run: dict) -> str:
                 for c, v in per
             )
         elif name == "continuity":
-            extra = f"recall={res['detection_recall']} fpr={res['false_positive_rate']}"
+            extra = (
+                f"recall={res['detection_recall']} "
+                f"fp/1k_control_words={res.get('control_fp_per_1k_words')} "
+                f"control_flagged={res.get('control_flagged_share')}"
+            )
         elif name == "outline":
             extra = (
                 f"cast={res.get('cast_fidelity')} "
@@ -323,7 +327,12 @@ _TRACER_RUN_METRICS: dict[str, tuple[str, ...]] = {
     "extraction": ("score", "f1", "precision", "recall"),
     "retrieval": ("score", "precision_at_k", "mrr"),
     "attribution": ("score", "accuracy", "chance"),
-    "continuity": ("score", "detection_recall", "false_positive_rate"),
+    "continuity": (
+        "score",
+        "detection_recall",
+        "control_fp_per_1k_words",
+        "control_flagged_share",
+    ),
     "outline": ("score", "cast_fidelity", "unknown_rate"),
     "prose": ("score", "words", "rn_mean", "rc"),
 }
@@ -386,7 +395,11 @@ def _case_output(name: str, res: dict) -> str:
     if name == "attribution":
         return f"accuracy={res.get('accuracy')} chance={res.get('chance')} n={res.get('n')}"
     if name == "continuity":
-        return f"detection_recall={res.get('detection_recall')} fpr={res.get('false_positive_rate')}"
+        return (
+            f"detection_recall={res.get('detection_recall')} "
+            f"fp_per_1k_control_words={res.get('control_fp_per_1k_words')} "
+            f"control_flagged_share={res.get('control_flagged_share')}"
+        )
     if name == "outline":
         return f"nodes={res.get('n_nodes')} structural_ok={res.get('structural_ok')}"
     if name == "prose":

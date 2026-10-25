@@ -341,10 +341,9 @@ class TestContinuity:
         assert mutated.count("Aldous Kerr") == 1  # the contradiction remains
         assert {e["id"] for e in expected} == {"name", "date"}
 
-    def test_grade_detects_and_scores_fpr(self):
-        _, expected = continuity.apply_injections(
-            "Aldous Kerr on _5 May._ then Aldous Kerr.", self.INJ
-        )
+    def test_grade_detects_and_counts_no_false_positives_on_a_clean_control(self):
+        clean = "Aldous Kerr on _5 May._ then Aldous Kerr."
+        injected, expected = continuity.apply_injections(clean, self.INJ)
         injected_findings = [
             {
                 "detail": "Name spelled Aldous Karr here but Aldous Kerr elsewhere",
@@ -352,23 +351,114 @@ class TestContinuity:
             },
             # date contradiction NOT flagged -> should be 'missed'
         ]
-        control_findings = []  # clean text: no false positives
         score = continuity.grade_continuity(
-            expected, injected_findings, control_findings
+            expected, injected_findings, [(clean, [])], injected
         )
         assert "name" in score.detected
         assert "date" in score.missed
         assert score.detection_recall == 0.5
-        assert score.false_positive_rate == 0.0
+        assert score.control_fp_per_1k_words == 0.0
+        assert score.control_flagged_share == 0.0
 
-    def test_false_positives_counted(self):
-        _, expected = continuity.apply_injections(
+    # --- SPEC-94 S2b: false positives per 1,000 control words ----------------
+
+    def test_false_positives_are_per_1000_control_words(self):
+        # Old: min(1, 2 control findings / 2 injected errors) = 1.0 — a ratio
+        # of two unrelated counts, and the same for a 10-word or 10k-word text.
+        clean = " ".join(["word"] * 500)
+        injected, expected = continuity.apply_injections(
             "Aldous Kerr _5 May._ Aldous Kerr", self.INJ
         )
-        score = continuity.grade_continuity(
-            expected, [], [{"detail": "spurious"}, {"detail": "spurious2"}]
+        spurious = [{"detail": "spurious"}, {"detail": "spurious2"}]
+        score = continuity.grade_continuity(expected, [], [(clean, spurious)], injected)
+        assert score.control_fp_per_1k_words == 4.0  # 2 findings / 500 words
+        assert score.control_flagged_share == 1.0
+        out = score.as_dict()
+        assert "false_positive_rate" not in out
+        assert out["n_control_words"] == 500 and out["n_control_findings"] == 2
+
+    def test_flagged_share_is_over_control_texts(self):
+        texts = [(" ".join(["a"] * 100), [{"detail": "x"}]), ("b " * 300, [])]
+        score = continuity.grade_continuity([], [], texts, "")
+        assert score.control_flagged_share == 0.5
+        assert score.control_fp_per_1k_words == 2.5  # 1 / 400 words
+        assert score.n_control_texts == 2
+
+    def test_no_control_text_reports_none_not_zero(self):
+        score = continuity.grade_continuity([], [], [], "")
+        assert score.control_fp_per_1k_words is None
+        assert score.control_flagged_share is None
+
+    # --- SPEC-94 S2c: a finding matches only the injected span --------------
+
+    TEXT = "Aldous Kerr wrote on _5 May._ to his sister. Later Aldous Kerr left."
+
+    def _graded(self, finding):
+        injected, expected = continuity.apply_injections(self.TEXT, self.INJ)
+        return continuity.grade_continuity(
+            expected, [finding], [(self.TEXT, [])], injected
+        ).detected
+
+    def test_expected_spans_point_at_the_injected_text(self):
+        injected, expected = continuity.apply_injections(self.TEXT, self.INJ)
+        by_id = {e["id"]: e for e in expected}
+        # Only the changed word: "Kerr" -> "Karr"; "May" -> "August".
+        assert by_id["name"]["injected"] == "Karr"
+        assert by_id["date"]["injected"] == "August"
+        for e in expected:
+            a, b = e["span"]
+            assert injected[a:b] == e["injected"]
+
+    def test_spans_shift_with_a_later_injection_before_them(self):
+        inj = [
+            {"id": "late", "locate": "left", "replace": "departed"},
+            {"id": "early", "locate": "wrote", "replace": "scribbled"},
+        ]
+        injected, expected = continuity.apply_injections(self.TEXT, inj)
+        for e in expected:
+            a, b = e["span"]
+            assert injected[a:b] == e["injected"], e
+        assert [e["injected"] for e in expected] == ["departed", "scribbled"]
+
+    def test_a_quote_of_the_original_elsewhere_is_not_a_catch(self):
+        # Old: "Aldous Kerr" (the original) in the quote matched.
+        assert (
+            self._graded({"detail": "name clash", "quote": "Later Aldous Kerr left"})
+            == []
         )
-        assert score.false_positive_rate > 0
+
+    def test_a_token_mention_in_the_detail_with_an_unrelated_quote_is_not_a_catch(
+        self,
+    ):
+        # Old: the detail's bare "Aldous Karr" matched whatever was quoted.
+        finding = {"detail": "Aldous Karr vs Aldous Kerr", "quote": "to his sister"}
+        assert self._graded(finding) == []
+
+    def test_a_quote_overlapping_the_injected_span_is_a_catch(self):
+        assert self._graded({"detail": "x", "quote": "“Aldous Karr wrote”"}) == ["name"]
+        # Whitespace and case differences still locate the quote.
+        assert self._graded({"detail": "x", "quote": "on  _5 AUGUST._"}) == ["date"]
+
+    def test_a_short_quote_must_cover_the_whole_span(self):
+        # "Aldous" (6 chars) sits beside "Karr" but not on it.
+        assert self._graded({"detail": "x", "quote": "Aldous"}) == []
+        assert self._graded({"detail": "x", "quote": "Karr"}) == ["name"]
+
+    def test_without_a_quote_the_detail_must_name_the_replacement(self):
+        assert self._graded({"detail": "first spelled Aldous Karr"}) == ["name"]
+        assert self._graded({"detail": "Karr is a respelling"}) == ["name"]
+        # Old: naming the original (all over the text) matched.
+        assert self._graded({"detail": "Aldous Kerr is spelled two ways"}) == []
+
+    def test_a_replacement_found_elsewhere_in_the_text_is_not_named_by_detail(self):
+        text = "Two days after the audit, Milo slept. Two days before the trial."
+        inj = [{"id": "t", "locate": "Two days after", "replace": "Two days before"}]
+        injected, expected = continuity.apply_injections(text, inj)
+        grade = continuity.grade_continuity
+        named = [{"detail": "it says Two days before the audit"}]
+        assert grade(expected, named, [(text, [])], injected).detected == []
+        quoted = [{"detail": "x", "quote": "Two days before the audit"}]
+        assert grade(expected, quoted, [(text, [])], injected).detected == ["t"]
 
 
 # The canon of *Bored to Undeath*: leads Milo Voss & Zara Okafor vs the

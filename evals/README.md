@@ -23,7 +23,7 @@ renamed excerpts of a few chapters are committed, never whole novels.
 | `retrieval`   | voices separate in embedding space | held-out line → nearest across pooled voices → **precision@k / MRR** | no (embedder) |
 | `attribution` | generated line sounds like the character | test-dialogue → embed → nearest train-line centroid (`reference: "train"`, SPEC-74) → **top-1 accuracy** vs chance; `normalised` beside it ranks by similarity less each centroid's mean similarity to the other characters' generated lines (topic control, W15-4) | yes (generate) |
 | `outline`     | recovers the story's shape    | generate outline (premise confirmed with the author's edit) → **R1 × mean(R6, R3)** + unknown-name rates | yes |
-| `continuity`  | catches contradictions        | inject known errors → **detection recall**, precision, quote-verbatim + false-positive rate | yes |
+| `continuity`  | catches contradictions        | inject known errors → **detection recall** (a finding counts only when its quote overlaps the injected span, or, quoting nothing, its detail names the replacement found nowhere else in the text), precision, quote-verbatim + false positives on the clean control: **per 1,000 control words** (`control_fp_per_1k_words`) and the **share of control texts flagged** (`control_flagged_share`) | yes |
 | `prose`       | end-to-end scene quality      | the product path: outline → promote → planned scenes → deterministic cast/seam checks + **R1 × mean(R2..R5)** per scene | yes |
 | `revise`      | AI revision does what was asked, and only that | three revisions of one scene through the revise API → outside-range bytes + new-name checks + **mean(RA, R5)** per revision | yes |
 
