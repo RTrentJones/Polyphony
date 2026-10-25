@@ -464,3 +464,137 @@ def test_rescore_recomputes_a_pre_s2_report_with_unparseable_as_none():
     again = rescore_report({"steps": {"prose": {"scenes": [capped]}}})
     assert again["steps"]["prose"]["scenes"][0]["rubrics"]["R4"]["score"] == 0.0
     assert again["unscored"]["rubrics"] == 0
+
+
+def test_rescore_recomputes_every_row_with_the_live_rule():
+    """Review B1: a claimed-empty R2 (None already in the old record, the row
+    kept its partial mean) must come out None like the live rule makes it, so
+    the step's score and the tally agree."""
+    from evals.graders import rubrics
+    from evals.harness.rescore import rescore_report
+    from evals.steps.pipeline import _scores as scores
+    from evals.steps.pipeline import _unscored_ids as unscored_ids
+
+    def row(rub):
+        rub = {k: dict(v) for k, v in rub.items()}
+        return {"rubrics": rub, "score": rubrics.scene_score(scores(rub))}
+
+    ok = {"score": 0.8, "explanation": "ok"}
+    s1 = row(
+        {
+            "R1": {"score": 1.0, "explanation": "ok"},
+            "R2": {
+                "score": None,
+                "explanation": "No dialogue provided",
+                "judge_claimed_empty": True,
+            },
+            "R3": ok,
+            "R4": ok,
+            "R5": ok,
+        }
+    )
+    assert s1["score"] == 0.8  # the old partial mean
+    s2 = row(
+        {
+            "R1": {"score": 1.0, "explanation": "ok"},
+            "R2": {"score": 0.4, "explanation": "ok"},
+            "R3": ok,
+            "R4": ok,
+            "R5": {"score": 0.0, "explanation": "unparseable judge reply"},
+        }
+    )
+    s3 = row({r: {"score": 0.5, "explanation": "ok"} for r in rubrics.SCENE_RUBRICS})
+    scenes = [s1, s2, s3]
+    report = {
+        "steps": {
+            "prose": {
+                "score": round(sum(s["score"] for s in scenes) / 3, 4),
+                "scenes": scenes,
+            }
+        }
+    }
+    out = rescore_report(report)["steps"]["prose"]
+
+    # The live computation over the same (nulled) rubrics.
+    live = []
+    for s in out["scenes"]:
+        live.append(
+            rubrics.scene_score(scores(s["rubrics"]), unscored_ids(s["rubrics"]))
+        )
+    assert live == [None, None, s3["score"]]
+    assert [s["score"] for s in out["scenes"]] == live
+    assert out["score"] == s3["score"]
+    assert out["unscored"] == {
+        "rubrics": 2,
+        "unparseable": 1,
+        "claimed_empty": 1,
+        "unavailable": 0,
+        "items": 2,
+    }
+
+
+def test_rescore_outline_is_recomputed_unconditionally():
+    """B1: an outline whose None was a claimed-empty (no unparseable zero)
+    is recomputed too, and a structural failure stays 0.0 (S1)."""
+    from evals.harness.rescore import rescore_step
+
+    judged = {
+        "R1": {"score": 1.0, "explanation": "ok"},
+        "R6": {"score": None, "explanation": "x", "judge_claimed_empty": True},
+        "R3": {"score": 0.6, "explanation": "ok"},
+    }
+    old = {"structural_ok": True, "score": 0.6, "rubrics": judged}
+    out = rescore_step("outline", old)
+    assert out["score"] is None and out["unscored"]["items"] == 1
+    broken = rescore_step("outline", dict(old, structural_ok=False))
+    assert broken["score"] == 0.0 and broken["unscored"]["items"] == 0
+
+
+def test_rescore_marks_a_repeated_steps_tally_as_last_pass_only():
+    """Review S3: a --repeat report keeps only the last pass's rows, so the
+    recomputed tally must not pass for the aggregate's."""
+    from evals.harness.rescore import rescore_report
+
+    rev = {
+        "score": 0.5,
+        "repeats": 3,
+        "revisions": [
+            {
+                "score": 0.4,
+                "rubrics": {
+                    "RA": {"score": 0.0, "explanation": "unparseable judge reply"},
+                    "R5": {"score": 0.8, "explanation": "ok"},
+                },
+            }
+        ],
+    }
+    out = rescore_report({"steps": {"revise": rev}})
+    assert out["steps"]["revise"]["unscored"]["scope"] == "last pass only"
+    assert "revise" in out["unscored"]["scope"]
+    single = rescore_report({"steps": {"revise": dict(rev, repeats=1)}})
+    assert "scope" not in single["steps"]["revise"]["unscored"]
+    assert "scope" not in single["unscored"]
+
+
+def test_rescore_runs_without_app_settings(tmp_path):
+    """Nit: `python -m evals.harness.rescore` needs no SECRET_KEY."""
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    src = tmp_path / "r.json"
+    src.write_text(json.dumps({"steps": {}}))
+    env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME")}
+    root = Path(__file__).resolve().parents[2]
+    got = subprocess.run(
+        [sys.executable, "-m", "evals.harness.rescore", str(src)],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert got.returncode == 0, got.stderr[-2000:]
+    assert json.loads(got.stdout)["unscored"]["rubrics"] == 0

@@ -26,6 +26,8 @@ from evals.harness.cache import Cache
 from evals.harness.client import PolyphonyClient
 from evals.harness.config import load as load_config
 from evals.harness.judge import Judge
+from evals.harness.unscored import run_unscored  # noqa: F401 — re-exported
+from evals.harness.unscored import sum_tallies as _sum_tallies
 from evals.preflight import RUNS, preflight
 from evals.baseline import arms  # noqa: F401 — registers `baseline` (W12-5)
 from evals.steps import pipeline  # noqa: F401 — registers the steps
@@ -170,30 +172,6 @@ def _aggregate(passes: list[dict]) -> dict:
             book = dict(out[name]["book"]) | {"unscored": _sum_tallies(book_tallies)}
             out[name] = dict(out[name]) | {"book": book}
     return out
-
-
-def _sum_tallies(tallies: list[dict]) -> dict:
-    total: dict = {}
-    for t in tallies:
-        for k, v in t.items():
-            if isinstance(v, int) and not isinstance(v, bool):
-                total[k] = total.get(k, 0) + v
-    return total
-
-
-def run_unscored(steps: dict) -> dict:
-    """SPEC-94 S2a: the run's `unscored` tally, beside its aggregates — every
-    step's (and the prose `book` block's) judged-but-unscored rubrics and the
-    items they left unscored, summed. Zeroes when the judge scored everything."""
-    tallies = []
-    for res in steps.values():
-        if not isinstance(res, dict):
-            continue
-        for t in (res.get("unscored"), (res.get("book") or {}).get("unscored")):
-            if isinstance(t, dict):
-                tallies.append(t)
-    zero = {"rubrics": 0, "unparseable": 0, "claimed_empty": 0, "unavailable": 0}
-    return zero | {"items": 0} | _sum_tallies(tallies)
 
 
 def _is_local(url: str) -> bool:

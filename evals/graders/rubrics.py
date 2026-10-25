@@ -195,11 +195,21 @@ def _any_unscored(rids, unscored) -> bool:
     return any(r in unscored for r in rids)
 
 
+def _is_zero(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and v == 0
+
+
 def scene_score(
     scores: dict[str, float | None], unscored: frozenset | set = frozenset()
 ) -> float | None:
     """R1 x mean(R2..R5); None when R1 or every other rubric is unscored, or
-    when any of R1..R5 is in `unscored` (the judge did not score it)."""
+    when any of R1..R5 is in `unscored` (the judge did not score it).
+
+    An R1 of 0 (capped by a deterministic failure, or judged 0) makes the
+    scene 0 whatever the others are: the product is 0 without them, so an
+    unscored R2 does not turn a measured failure into None (SPEC-94 D19-8)."""
+    if _is_zero(scores.get("R1")) and "R1" not in unscored:
+        return 0.0
     if _any_unscored(SCENE_RUBRICS, unscored):
         return None
     r1, rest = scores.get("R1"), _mean([scores.get(r) for r in SCENE_RUBRICS[1:]])
@@ -209,10 +219,18 @@ def scene_score(
 
 
 def outline_score(
-    scores: dict[str, float | None], unscored: frozenset | set = frozenset()
+    scores: dict[str, float | None],
+    unscored: frozenset | set = frozenset(),
+    structural: bool = True,
 ) -> float | None:
     """R1 x mean(R6, R3); None when R1 or both others are unscored, or when
-    any of them is in `unscored`."""
+    any of them is in `unscored`.
+
+    A deterministic 0 wins over unscored (SPEC-94 D19-8): an outline that
+    failed its structural check (`structural=False`), or whose R1 is 0, is
+    0.0 even when another rubric went unscored."""
+    if not structural or (_is_zero(scores.get("R1")) and "R1" not in unscored):
+        return 0.0
     if _any_unscored(OUTLINE_RUBRICS, unscored):
         return None
     r1, rest = scores.get("R1"), _mean([scores.get("R6"), scores.get("R3")])

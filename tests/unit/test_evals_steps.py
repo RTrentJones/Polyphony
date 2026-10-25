@@ -1818,3 +1818,16 @@ async def test_continuity_step_reports_unapplied_injections(tmp_path):
     gt["continuity_injections"] = gt["continuity_injections"][-1:]
     out = await pipeline.step_continuity(ctx)
     assert out["n_injected"] == 0 and out["score"] is None
+
+
+def test_a_deterministic_zero_wins_over_an_unscored_rubric():
+    """Review S1 (D19-8): R1 0 (capped or judged) is a measured 0, and an
+    outline that failed its structural check is 0.0, even when another
+    rubric went unscored."""
+    base = {"R1": 0.0, "R2": None, "R3": 0.9, "R4": 0.9, "R5": 0.9}
+    assert rubrics.scene_score(base, {"R2"}) == 0.0
+    assert rubrics.scene_score(base | {"R1": 1.0}, {"R2"}) is None
+    out = {"R1": 1.0, "R6": None, "R3": 0.6}
+    assert rubrics.outline_score(out, {"R6"}, structural=False) == 0.0
+    assert rubrics.outline_score(out | {"R1": 0.0}, {"R6"}) == 0.0
+    assert rubrics.outline_score(out, {"R6"}) is None

@@ -8,14 +8,22 @@ report and are recomputed here — not re-run:
 
 - each such rubric becomes `score: None, judge_unparseable: True` (a rubric
   capped by a deterministic failure keeps its 0: the failure was measured);
-- each scene / revision / outline score is recomputed with S2's composite
-  rule (rubrics.scene_score: any judged-but-unscored component -> None);
+- EVERY scene / revision / outline score is recomputed with the live
+  composite rule (rubrics.scene_score / outline_score / revise_score: a
+  deterministic 0 stands; otherwise any judged-but-unscored component ->
+  None), so a claimed-empty rubric (None already in old records) no longer
+  leaves its scene at a partial mean;
 - the step's `score` (mean over its items), `rubric_means`, the prose `book`
   block's `rn_mean`/`rc`, and the `unscored` tallies are recomputed.
 
 A step that ran with `--repeat N > 1` keeps only its last pass's details, so
 its aggregated `score` cannot be recomputed; it is left as recorded and marked
-`rescore: "repeated: ..."`. Compare such draws on their per-item rows.
+`rescore: "repeated: ..."`, and its recomputed `unscored` tally carries
+`scope: "last pass only"` (the run's tally names such steps in its own
+`scope`): it counts one pass, not the aggregate's N. Compare such draws on
+their per-item rows.
+
+Imports nothing from the app, so it runs without SECRET_KEY or settings.
 
     python -m evals.harness.rescore eval-report.json [out.json]
 """
@@ -28,6 +36,9 @@ import sys
 
 from evals.graders import rubrics
 from evals.harness.judge import is_unparseable
+from evals.harness.unscored import run_unscored, unscored_items, unscored_tally
+from evals.harness.unscored import scores as _scores
+from evals.harness.unscored import unscored_ids as _unscored_ids
 
 
 def null_unparseable(judgment: dict) -> bool:
@@ -49,39 +60,42 @@ def _rows(res: dict, key: str) -> list[dict]:
     return [r for r in res.get(key) or [] if isinstance(r.get("rubrics"), dict)]
 
 
-def _rescore_items(rows: list[dict], composite) -> int:
-    from evals.steps.pipeline import _scores, _unscored_ids
-
-    changed = 0
+def _rescore_items(rows: list[dict], composite) -> None:
+    """Every row's composite recomputed with the live rule — not only rows an
+    unparseable 0.0 touched: a claimed-empty rubric (already None in a pre-S2
+    record) left its row at a partial mean, which S2 makes None (D19-8)."""
     for r in rows:
-        if any([null_unparseable(j) for j in r["rubrics"].values()]):
-            changed += 1
-            r["score"] = composite(_scores(r["rubrics"]), _unscored_ids(r["rubrics"]))
-    return changed
+        for j in r["rubrics"].values():
+            null_unparseable(j)
+        r["score"] = composite(_scores(r["rubrics"]), _unscored_ids(r["rubrics"]))
+
+
+_LAST_PASS = "last pass only"
 
 
 def rescore_step(name: str, res: dict) -> dict:
     """One step's result, recomputed (a copy; the input is left as it was)."""
-    from evals.steps.pipeline import _scores, _unscored_ids, unscored_tally
-
     res = copy.deepcopy(res)
     if not isinstance(res, dict) or res.get("skipped") or "error" in res:
         return res
     repeated = (res.get("repeats") or 1) > 1
     if name == "outline" and isinstance(res.get("rubrics"), dict):
         judged = res["rubrics"]
-        if any([null_unparseable(j) for j in judged.values()]):
-            unscored = _unscored_ids(judged)
-            score = rubrics.outline_score(_scores(judged), unscored)
-            vals = [j.get("score") for j in judged.values()]
-            res["judge"] = _mean(vals)
-            res["unscored"] = unscored_tally(judged.values(), items=int(bool(unscored)))
-            if not repeated:
-                ok = res.get("structural_ok", True)
-                res["score"] = None if score is None else score if ok else 0.0
+        for j in judged.values():
+            null_unparseable(j)
+        unscored = _unscored_ids(judged)
+        ok = res.get("structural_ok", True)
+        score = rubrics.outline_score(_scores(judged), unscored, ok)
+        res["judge"] = _mean([j.get("score") for j in judged.values()])
+        res["unscored"] = unscored_tally(
+            judged.values(), items=int(bool(unscored) and score is None)
+        )
+        if not repeated:
+            res["score"] = score
     elif name == "prose":
         rows = _rows(res, "scenes")
-        if _rescore_items(rows, rubrics.scene_score) and not repeated:
+        _rescore_items(rows, rubrics.scene_score)
+        if not repeated:
             res["score"] = _mean([r.get("score") for r in res.get("scenes") or []])
         res["rubric_means"] = {
             rid: _mean([r["rubrics"].get(rid, {}).get("score") for r in rows])
@@ -94,17 +108,11 @@ def rescore_step(name: str, res: dict) -> dict:
                 for k, j in r["rubrics"].items()
                 if k in rubrics.SCENE_RUBRICS
             ],
-            items=sum(
-                1
-                for r in rows
-                if _unscored_ids(r["rubrics"]) & set(rubrics.SCENE_RUBRICS)
-            ),
+            items=unscored_items(rows, rubrics.SCENE_RUBRICS),
         )
         book = res.get("book")
         if isinstance(book, dict) and not repeated:
             rns = [r["rubrics"].get("RN") for r in rows if r["rubrics"].get("RN")]
-            for j in rns:
-                null_unparseable(j)
             book["rn_mean"] = _mean([j.get("score") for j in rns])
             explanation = book.get("rc_explanation")
             rc = {"score": book.get("rc"), "explanation": explanation}
@@ -113,7 +121,8 @@ def rescore_step(name: str, res: dict) -> dict:
             book["unscored"] = unscored_tally([rc, *rns])
     elif name == "revise":
         rows = _rows(res, "revisions")
-        if _rescore_items(rows, rubrics.revise_score) and not repeated:
+        _rescore_items(rows, rubrics.revise_score)
+        if not repeated:
             res["score"] = _mean([r.get("score") for r in res.get("revisions") or []])
         res["rubric_means"] = {
             rid: _mean([r["rubrics"].get(rid, {}).get("score") for r in rows])
@@ -121,20 +130,26 @@ def rescore_step(name: str, res: dict) -> dict:
         }
         res["unscored"] = unscored_tally(
             [j for r in rows for j in r["rubrics"].values()],
-            items=sum(1 for r in rows if _unscored_ids(r["rubrics"])),
+            items=unscored_items(rows),
         )
     if repeated:
         res["rescore"] = (
             "repeated: per-pass details not kept, step score left as recorded"
         )
+        # SPEC-94 S3: the tally above was counted from the last pass's rows,
+        # not the aggregate's N passes; it says so rather than pass for both.
+        if isinstance(res.get("unscored"), dict) and name in (
+            "outline",
+            "prose",
+            "revise",
+        ):
+            res["unscored"] = dict(res["unscored"], scope=_LAST_PASS)
     return res
 
 
 def rescore_report(report: dict) -> dict:
     """A pre-S2 report recomputed under D19-2 (a copy), with the run's
     `unscored` tally."""
-    from evals.run import run_unscored
-
     out = copy.deepcopy(report)
     out["steps"] = {
         name: rescore_step(name, res)
