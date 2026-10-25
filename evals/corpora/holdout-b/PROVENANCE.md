@@ -60,3 +60,18 @@ between development and holdout books of the same kind, not memorization.
 The underlying work is US public domain; the Project Gutenberg wrapper is stripped; only a
 renamed derivative of six chapters is committed — never the raw source, never the whole
 novel.
+
+## Ground truth checked against the full source (wave 19, before the freeze)
+Every claim in `spec.json` (synopsis, beats, chapter sources, narrators, injection notes)
+was located in the full Project Gutenberg text by phrase search, not from memory: the
+siege and the shrine, the Colonel's birthday bequest, the widowed mother and the Yorkshire
+house, the house-steward and his book, the cousin bringing the gem, the three Indians,
+the gem worn at dinner, the Indian cabinet, the detective's case against the heiress and
+the housemaid, the heiress declining to see the cousin, the proposal and the mother's
+death in the pious cousin's narrative, the life-interest will and the pledge to the
+money-lender's bank, the letter and the nightgown marked with the narrator's own name,
+the laudanum and the opium experiment, the inn, the disguise and the death, the god's
+forehead, and the wedding. Each span's start lies inside its narrator's section of the
+source. One correction: the two guests seated either side of the heiress at dinner are
+not the philanthropist cousin (he is at the dinner, elsewhere), so the synopsis now says
+he is among the guests.

@@ -58,3 +58,16 @@ memorization of a famous novel (SPEC-94 S3), which is why this corpus measures t
 The underlying work is US public domain; the Project Gutenberg wrapper is stripped; only a
 renamed derivative of five sections is committed — never the raw source, never the whole
 novel.
+
+## Ground truth checked against the full source (wave 19, before the freeze)
+Every claim in `spec.json` (synopsis, beats, chapter sources, narrators, injection notes)
+was located in the full Project Gutenberg text by phrase search, not from memory: the
+asylum escape and the midnight walk, the half-sisters and their uncle, the likeness,
+the engagement and the expedition abroad, the settlement, Greymere in its county, the
+Count's wife as the heroine's aunt, the signature scene, the death certificate and the
+tombstone, the asylum, the nurse bribed, the parents never married, the vestry fire,
+the Paris morgue, the marriage and the return home. Each span's start lies inside its
+narrator's section of the source. One correction: in the signature scene the baronet
+demands the signature and the Count persuades him to postpone it, so the third beat
+and the synopsis no longer say the two of them press her together. The synopsis and
+first beat also stopped quoting the novel's title phrase (SPEC-94 item 2).
