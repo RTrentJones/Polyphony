@@ -428,11 +428,17 @@ class TestContinuity:
             == []
         )
 
-    def test_a_token_mention_in_the_detail_with_an_unrelated_quote_is_not_a_catch(
-        self,
-    ):
-        # Old: the detail's bare "Aldous Karr" matched whatever was quoted.
-        finding = {"detail": "Aldous Karr vs Aldous Kerr", "quote": "to his sister"}
+    def test_a_finding_quoting_the_other_side_is_credited_by_its_detail(self):
+        # Review S2: a contradiction has two sides. A correct finding may quote
+        # the untouched one ("Later Aldous Kerr left") and name the injected
+        # one in its detail; "Aldous Karr" occurs once (at the injection).
+        finding = {
+            "detail": "Aldous Karr here vs Aldous Kerr later",
+            "quote": "Later Aldous Kerr left",
+        }
+        assert self._graded(finding) == ["name"]
+        # Naming only the original (all over the text) is still a token mention.
+        finding = {"detail": "Aldous Kerr is named", "quote": "Later Aldous Kerr left"}
         assert self._graded(finding) == []
 
     def test_a_quote_overlapping_the_injected_span_is_a_catch(self):
@@ -450,6 +456,65 @@ class TestContinuity:
         assert self._graded({"detail": "Karr is a respelling"}) == ["name"]
         # Old: naming the original (all over the text) matched.
         assert self._graded({"detail": "Aldous Kerr is spelled two ways"}) == []
+
+    # --- Review B2: typography normalised on both sides ----------------------
+
+    TYPO = "We came to Mr. O’Niel’s house on 5 May 1801—I have just returned."
+    TYPO_INJ = [
+        {"id": "name", "locate": "O’Niel’s house", "replace": "O’Neil’s house"},
+        {"id": "year", "locate": "1801—I have", "replace": "1901—I have"},
+    ]
+
+    def _typo(self, finding):
+        injected, expected = continuity.apply_injections(self.TYPO, self.TYPO_INJ)
+        return continuity.grade_continuity(
+            expected, [finding], [(self.TYPO, [])], injected
+        ).detected
+
+    def test_straight_quotes_locate_a_curly_apostrophe(self):
+        assert self._typo({"detail": "x", "quote": "Mr. O'Neil's house"}) == ["name"]
+
+    def test_a_spaced_or_double_dash_locates_an_em_dash(self):
+        assert self._typo({"detail": "x", "quote": "1901 — I have"}) == ["year"]
+        assert self._typo({"detail": "x", "quote": "May 1901 -- I have"}) == ["year"]
+        assert self._typo({"detail": "x", "quote": "1901 – I HAVE"}) == ["year"]
+
+    def test_a_detail_with_straight_apostrophes_names_the_curly_replacement(self):
+        assert self._typo({"detail": "it says O'Neil's house"}) == ["name"]
+
+    def test_a_quote_that_locates_nowhere_falls_back_to_the_detail(self):
+        finding = {"detail": "the year 1901 is out of order", "quote": "in 1901, I"}
+        assert self._typo(finding) == ["year"]
+        assert self._typo({"detail": "a date", "quote": "in 1901, I"}) == []
+
+    # --- Review S6 + nit: overlapping injections, spans past the window ----
+
+    def test_an_injection_overlapping_an_earlier_one_is_unapplied(self):
+        inj = [
+            {"id": "a", "locate": "Aldous Kerr wrote", "replace": "Aldous Karr wrote"},
+            {"id": "b", "locate": "Karr wrote on", "replace": "Karr scribbled on"},
+        ]
+        text, expected, skipped = continuity.inject(self.TEXT, inj)
+        assert [e["id"] for e in expected] == ["a"]
+        assert skipped == [{"id": "b", "reason": "overlaps an earlier injection"}]
+        e = expected[0]
+        assert text[e["span"][0] : e["span"][1]] == e["injected"] == "Karr"
+        why = continuity.unapplied(inj, expected, self.TEXT, skipped)
+        assert why == [{"id": "b", "reason": "overlaps an earlier injection"}]
+
+    def test_an_applied_span_past_the_window_is_unapplied(self):
+        text = "aaa bbb ccc ddd"
+        inj = [
+            {"id": "grow", "locate": "aaa", "replace": "aaaaaaaaaa"},
+            {"id": "end", "locate": "ddd", "replace": "eee"},
+        ]
+        mutated, expected, skipped = continuity.inject(text, inj, limit=len(text))
+        assert len(mutated) > len(text)
+        assert [e["id"] for e in expected] == ["grow"]
+        assert skipped == [
+            {"id": "end", "reason": "injected text past the graded window"}
+        ]
+        assert all(e["span"][1] <= len(text) for e in expected)
 
     def test_a_replacement_found_elsewhere_in_the_text_is_not_named_by_detail(self):
         text = "Two days after the audit, Milo slept. Two days before the trial."

@@ -984,8 +984,10 @@ async def step_continuity(ctx: StepContext) -> dict:
         else ctx.corpus_text
     )
     window = source[:_CONTINUITY_WINDOW]
-    injected_text, expected = continuity.apply_injections(
-        window, gt["continuity_injections"]
+    # An injection overlapping an earlier one, or pushed past the window the
+    # checker sees (`run_on` cuts at it), is unapplied, with why (review S6).
+    injected_text, expected, not_applied = continuity.inject(
+        window, gt["continuity_injections"], limit=_CONTINUITY_WINDOW
     )
 
     async def run_on(prose: str, tag: str) -> list[dict]:
@@ -1020,7 +1022,9 @@ async def step_continuity(ctx: StepContext) -> dict:
     )
     # SPEC-94 S2: a planned injection that did not apply (its anchor past the
     # window, or gone) is reported, and recall is explicitly over the applied.
-    skipped = continuity.unapplied(gt["continuity_injections"], expected, source)
+    skipped = continuity.unapplied(
+        gt["continuity_injections"], expected, source, not_applied
+    )
     return {
         **score.as_dict(),
         "score": score.detection_recall,

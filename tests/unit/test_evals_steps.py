@@ -1704,11 +1704,18 @@ def _continuity_client(injected_findings, control_findings):
 async def test_continuity_step_credits_only_findings_on_the_injected_span(tmp_path):
     # "Edric Thane" stands all over the cel excerpt; the memo's injected
     # "Edwin Thane" is the one planted error. A finding quoting another
-    # "Edric Thane" merely mentions a token (old: detected, precision 1.0).
-    elsewhere = [{"detail": "Edwin Thane vs Edric Thane", "quote": "Edric Thane"}]
+    # "Edric Thane" and naming only it merely mentions a token (old:
+    # detected, precision 1.0).
+    elsewhere = [{"detail": "Edric Thane signs it", "quote": "Edric Thane"}]
     client = _continuity_client(elsewhere, [])
     out = await pipeline.step_continuity(_cel_ctx(tmp_path, client))
     assert out["detected"] == [] and out["precision"] == 0.0
+    # Review S2: quoting the other side of the contradiction while naming the
+    # injected "Edwin Thane" (once in the text) is a catch.
+    other_side = [{"detail": "Edwin Thane vs Edric Thane", "quote": "Edric Thane"}]
+    client = _continuity_client(other_side, [])
+    out = await pipeline.step_continuity(_cel_ctx(tmp_path, client))
+    assert out["detected"] == ["broken-alias"] and out["precision"] == 1.0
     on_span = [{"detail": "signature", "quote": "Edwin Thane"}]
     client = _continuity_client(on_span, [])
     out = await pipeline.step_continuity(_cel_ctx(tmp_path, client))
@@ -1765,8 +1772,11 @@ def test_every_continuity_injection_applies_inside_the_graded_window(book):
         else text
     )
     window = source[: pipeline._CONTINUITY_WINDOW]
-    injected, expected = continuity.apply_injections(window, planned)
-    assert continuity.unapplied(planned, expected, source) == []
+    injected, expected, skipped = continuity.inject(
+        window, planned, limit=pipeline._CONTINUITY_WINDOW
+    )
+    assert skipped == []  # none overlaps another, none is pushed past the cut
+    assert continuity.unapplied(planned, expected, source, skipped) == []
     assert [e["id"] for e in expected] == [i["id"] for i in planned]
     for e in expected:
         a, b = e["span"]
@@ -1818,6 +1828,23 @@ async def test_continuity_step_reports_unapplied_injections(tmp_path):
     gt["continuity_injections"] = gt["continuity_injections"][-1:]
     out = await pipeline.step_continuity(ctx)
     assert out["n_injected"] == 0 and out["score"] is None
+
+
+async def test_continuity_step_reports_an_overlapping_injection(tmp_path):
+    """Review S6: an injection over an earlier one's replacement would leave
+    that one's span stale; it is unapplied, and says why."""
+    ctx = _cel_ctx(tmp_path, _continuity_client([], []))
+    gt = dict(ctx.ground_truth)
+    first = gt["continuity_injections"][0]
+    gt["continuity_injections"] = gt["continuity_injections"] + [
+        {"id": "over", "locate": first["replace"], "replace": "zzz"}
+    ]
+    ctx.ground_truth = gt
+    out = await pipeline.step_continuity(ctx)
+    assert out["n_injected"] == 5
+    assert out["unapplied_injections"] == [
+        {"id": "over", "reason": "overlaps an earlier injection"}
+    ]
 
 
 def test_a_deterministic_zero_wins_over_an_unscored_rubric():

@@ -8,11 +8,16 @@ text; because we authored the errors we know exactly what should be flagged.
   finding (`n_injected` is the applied count; a planned injection whose anchor
   is outside the graded window or missing is listed in the step's
   `unapplied_injections`, never silently dropped)
-  (SPEC-94 S2c: a finding matches only when its quote overlaps the injected
-  span, or — quoting nothing — its detail names the replacement)
+  (SPEC-94 S2c / D19-8: a finding matches when its quote overlaps the
+  injected span, or its detail names the replacement where it occurs only
+  once — either side of the contradiction is credited; quotes and names are
+  compared with typography normalised)
 - false positives (SPEC-94 S2b), from the CLEAN control texts (should be ~0):
   `control_fp_per_1k_words` = control findings per 1,000 control words, and
   `control_flagged_share` = the share of control texts with any finding.
+  The continuity step has ONE control text (the clean window), so there
+  `control_flagged_share` is a 0/1 flag, not a rate; it becomes a share
+  only when a step passes several control texts.
   (The old `false_positive_rate` divided control findings by the number of
   INJECTED errors — a ratio of two unrelated counts — and is gone.)
 
@@ -54,28 +59,42 @@ def _changed(loc: str, rep: str) -> tuple[int, int]:
     return a, b
 
 
-def apply_injections(clean_text: str, injections: list[dict]) -> tuple[str, list[dict]]:
-    """Return (mutated_text, expected) where expected is the list of planted
-    contradictions the checker should catch. Each injection replaces the FIRST
-    occurrence of `locate` with `replace`, leaving other occurrences intact so a
-    real contradiction (old vs new) exists in the text.
+def inject(
+    clean_text: str, injections: list[dict], limit: int | None = None
+) -> tuple[str, list[dict], list[dict]]:
+    """(mutated_text, expected, skipped): `apply_injections`, plus the planned
+    injections it did not apply because of the text it built, each with why
+    (`unapplied` adds the ones whose anchor was never found):
 
-    Each expected entry carries `span`: [start, end) of the changed text in the
-    FINAL mutated text (shifted by any later injection before it), and
-    `injected`: that text."""
+    - an injection whose anchor overlaps an earlier injection's replacement is
+      not applied ("overlaps an earlier injection"): editing inside it would
+      leave the earlier expected span pointing at stale text;
+    - with `limit` (the window the checker is shown), an applied injection
+      whose span ends past it is dropped from `expected` ("injected text past
+      the graded window"): a longer replacement can push it beyond the cut
+      the checker sees, so it could never be caught."""
     text = clean_text
     expected: list[dict] = []
+    skipped: list[dict] = []
+    regions: list[list[int]] = []  # each applied replacement's [start, end)
     for inj in injections:
         loc, rep = inj["locate"], inj["replace"]
         idx = text.find(loc)
         if idx == -1:
             continue
-        text = text[:idx] + rep + text[idx + len(loc) :]
+        end = idx + len(loc)
+        if any(idx < r_end and end > r_start for r_start, r_end in regions):
+            skipped.append({"id": inj["id"], "reason": "overlaps an earlier injection"})
+            continue
+        text = text[:idx] + rep + text[end:]
         delta = len(rep) - len(loc)
-        for e in expected:  # an earlier span after this edit moves with it
-            if e["span"][0] >= idx + len(loc):
+        for e, r in zip(expected, regions):  # what lies after this edit moves
+            if e["span"][0] >= end:
                 e["span"] = [e["span"][0] + delta, e["span"][1] + delta]
+            if r[0] >= end:
+                r[0], r[1] = r[0] + delta, r[1] + delta
         a, b = _changed(loc, rep)
+        regions.append([idx, idx + len(rep)])
         expected.append(
             {
                 "id": inj["id"],
@@ -85,23 +104,52 @@ def apply_injections(clean_text: str, injections: list[dict]) -> tuple[str, list
                 "span": [idx + a, idx + b],
             }
         )
+    if limit is not None:
+        past = [e for e in expected if e["span"][1] > limit]
+        skipped += [
+            {"id": e["id"], "reason": "injected text past the graded window"}
+            for e in past
+        ]
+        expected = [e for e in expected if e["span"][1] <= limit]
     for e in expected:
         e["injected"] = text[e["span"][0] : e["span"][1]]
+    return text, expected, skipped
+
+
+def apply_injections(clean_text: str, injections: list[dict]) -> tuple[str, list[dict]]:
+    """Return (mutated_text, expected) where expected is the list of planted
+    contradictions the checker should catch. Each injection replaces the FIRST
+    occurrence of `locate` with `replace`, leaving other occurrences intact so a
+    real contradiction (old vs new) exists in the text. An injection whose
+    anchor overlaps an earlier one's replacement is not applied (`inject`
+    reports why).
+
+    Each expected entry carries `span`: [start, end) of the changed text in the
+    FINAL mutated text (shifted by any later injection before it), and
+    `injected`: that text."""
+    text, expected, _ = inject(clean_text, injections)
     return text, expected
 
 
 def unapplied(
-    injections: list[dict], expected: list[dict], source: str | None = None
+    injections: list[dict],
+    expected: list[dict],
+    source: str | None = None,
+    skipped: list[dict] | None = None,
 ) -> list[dict]:
     """The planned injections apply_injections did NOT apply, each with why:
-    its anchor lies in `source` but past the graded window, or is not found
-    at all (SPEC-94 S2: never skipped silently). Recall is over the applied
-    ones only, so a missing one must be visible beside it."""
+    `inject`'s own reasons (`skipped`: overlapping an earlier injection, or
+    pushed past the graded window), else its anchor lies in `source` but past
+    the graded window, or is not found at all (SPEC-94 S2: never skipped
+    silently). Recall is over the applied ones only, so a missing one must be
+    visible beside it."""
     done = {e["id"] for e in expected}
+    why = {s["id"]: s["reason"] for s in skipped or []}
     return [
         {
             "id": inj["id"],
-            "reason": (
+            "reason": why.get(inj["id"])
+            or (
                 "anchor outside the graded window"
                 if source is not None and inj["locate"] in source
                 else "anchor not found"
@@ -116,19 +164,66 @@ def _quote(finding: dict) -> str:
     return str(finding.get("quote") or "").strip().strip(_QUOTES).strip()
 
 
+# SPEC-94 D19-8 (review B2): a checker quoting `O'Niel's` or `1901 — I have`
+# means the corpus's `O’Niel’s` / `1901—I have`. Both sides are normalised
+# before a quote is located or a name counted: curly quotes and apostrophes
+# become straight, a dash (—, –, ‒, ―, -- …) becomes one "-", whitespace
+# around a dash or before closing punctuation goes, other runs become one
+# space, and case is folded.
+_CHAR_MAP = {
+    **dict.fromkeys("‘’‚‛′ʼ`", "'"),
+    **dict.fromkeys("“”„‟″«»", '"'),
+    **dict.fromkeys("—–‒―−", "-"),
+}
+_CLOSERS = ",.;:!?)]"
+
+
+def normalise(text: str) -> tuple[str, list[int]]:
+    """(normalised text, index map): `out[i]` came from `text[map[i]]`, and
+    `map[len(out)]` is `len(text)`, so a span found in the normalised text
+    maps back to [map[a], map[b - 1] + 1) in the original."""
+    chars: list[str] = []
+    where: list[int] = []
+    for i, ch in enumerate(text):
+        ch = _CHAR_MAP.get(ch, ch)
+        if ch.isspace():
+            if chars and chars[-1] in " -":
+                continue  # a run of spaces, or a space after a dash
+            chars.append(" ")
+            where.append(i)
+            continue
+        if ch == "-" and chars and chars[-1] == "-":
+            continue  # "--", "---": one dash
+        if (ch == "-" or ch in _CLOSERS) and chars and chars[-1] == " ":
+            chars.pop()  # no space before a dash or closing punctuation
+            where.pop()
+        low = ch.lower()
+        chars.append(low if len(low) == 1 else ch)
+        where.append(i)
+    where.append(len(text))
+    return "".join(chars), where
+
+
+def _norm(text: str) -> str:
+    return normalise(text)[0].strip()
+
+
 def _quote_overlaps(quote: str, span: tuple[int, int], text: str) -> bool:
-    """Whether some occurrence of `quote` in `text` (case- and whitespace-
-    insensitive) overlaps `span`; a quote under _MIN_QUOTE characters must
-    cover the whole span."""
-    words = quote.split()
-    if not words:
+    """Whether some occurrence of `quote` in `text` (typography-, case- and
+    whitespace-insensitive, see `normalise`) overlaps `span`; a quote under
+    _MIN_QUOTE characters must cover the whole span."""
+    q = _norm(quote)
+    if not q:
         return False
-    pattern = re.compile(r"\s+".join(map(re.escape, words)), re.I)
+    hay, where = normalise(text)
     a, b = span
-    for m in pattern.finditer(text):
-        if m.start() < b and m.end() > a:
-            if len(quote) >= _MIN_QUOTE or (m.start() <= a and m.end() >= b):
+    at = hay.find(q)
+    while at != -1:
+        start, end = where[at], where[at + len(q) - 1] + 1
+        if start < b and end > a:
+            if len(q) >= _MIN_QUOTE or (start <= a and end >= b):
                 return True
+        at = hay.find(q, at + 1)
     return False
 
 
@@ -139,29 +234,33 @@ def _norm_name(s: str) -> str:
 
 def _names_only_here(name: str, detail: str, text: str) -> bool:
     """`detail` names `name`, and `name` occurs exactly once in `text` (at the
-    injection), so naming it can only point there."""
+    injection), so naming it can only point there. All three are normalised
+    (`normalise`) first."""
+    name = _norm(name).strip("'\" ,.;:")
     if not name:
         return False
     pat = rf"(?<!\w){re.escape(name)}(?!\w)"
-    norm_text = " ".join(text.split())
-    return len(re.findall(pat, norm_text, re.I)) == 1 and bool(
-        re.search(pat, detail, re.I)
+    return len(re.findall(pat, _norm(text))) == 1 and bool(
+        re.search(pat, _norm(detail))
     )
 
 
 def _finding_matches(expected: dict, finding: dict, text: str) -> bool:
-    """A finding catches an injection (SPEC-94 S2c) when its quote overlaps the
-    injected span in the injected `text`; a finding that quotes nothing
-    catches it when its detail names the replacement — the whole `replace`,
-    or the changed words — and that string occurs nowhere in `text` but at the
-    injection. Merely mentioning a token (the original name, which stands all
-    over the text; "before"; "1") is not a catch. Type-agnostic: checkers
+    """A finding catches an injection (SPEC-94 S2c, D19-8) when its quote
+    overlaps the injected span in the injected `text`, OR its detail names the
+    replacement — the whole `replace`, or the changed words — and that string
+    occurs nowhere in `text` but at the injection. A contradiction has two
+    sides: a correct finding may quote the other, untouched side and name the
+    injected one in its detail. A quote that locates nowhere falls back to
+    the same detail rule. Merely mentioning a token (the original name, which
+    stands all over the text; "before"; "1") is not a catch. Quotes and names
+    are compared typography-normalised (`normalise`). Type-agnostic: checkers
     vary in how they label."""
     quote = _quote(finding)
-    if quote:
-        return _quote_overlaps(quote, expected["span"], text)
-    detail = " ".join(str(finding.get("detail") or "").split())
-    if not detail:
+    if quote and _quote_overlaps(quote, expected["span"], text):
+        return True
+    detail = str(finding.get("detail") or "")
+    if not detail.strip():
         return False
     return any(
         _names_only_here(_norm_name(name), detail, text)
