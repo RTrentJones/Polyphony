@@ -23,3 +23,12 @@ empty-input detector wants a verb). Dracula's R2 never applies: Count Vasska, in
   ground-truth gap from his real speech.
 - **D17-3** Two prose draws ≈ $8–9 against $11.24 left in October; otherwise November.
 - **D17-4** Budgets: ≈ 60 product lines, ≈ 60 test lines.
+
+## PR B review (2026-10-25)
+- Blocking: sentence counts split at "Mr."/"Dr."/"St."/"p.m." and ellipses (a formal Victorian speaker read as clipped) —
+  titles, a.m./p.m. and ellipses no longer end a sentence. Should-fix: "shall"/"whilst" off the archaic list. The narration
+  label is soft ("lean toward…") when the character also has speech samples, strong only when narration is all there is;
+  contrast numbers are coarse (words/sentence to the nearest 5, rates to one decimal).
+- Known gap: the ensemble agent's `<voice>` block still prints own narration as quoted speech, with no label or contrast
+  (it does not opt in to the split); fixable in `context.py` without touching the frozen `ensemble.py` — wave 18.
+- **D17-4 amendment.** Product +95 added against ≈60; the user accepted the overrun on 2026-10-25 ("Accept").
