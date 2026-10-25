@@ -78,8 +78,12 @@ def test_no_eval_title_or_upload_name_is_built_from_the_corpus_id():
         r"""f["'](?:eval-[^"']*)?\{(?:ctx\.book|gt\[["']book["']\]|book|args\.book)\}"""
         r"""(?:[^"']*\.txt)?["']"""
     )
+    # evals/baseline stays frozen at W12-9's P⁵ (the gate's p-freeze row) until
+    # that result is published; its arms share one title, so the cue is common
+    # to both and does not bias the comparison (SPEC-94 D19-10).
+    frozen = ROOT / "evals" / "baseline"
     for p in [*(ROOT / "evals").rglob("*.py"), *(ROOT / "scripts").glob("*")]:
-        if p.is_file():
+        if p.is_file() and frozen not in p.parents:
             src = p.read_text(encoding="utf-8", errors="replace")
             assert not built.search(src), f"{p}: {built.search(src).group(0)}"
 

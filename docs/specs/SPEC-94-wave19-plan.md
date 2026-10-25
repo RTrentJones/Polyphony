@@ -92,6 +92,9 @@ validity claims stated at their true strength, a human calibration of the judges
   Titles are `eval-<step>-<8 hex of the corpus id's sha256>`. The first draws after this change carry the experiment label
   `opaque-titles` so Tracer keeps them apart. holdout-a's identifying phrase (the woman's dress) is renamed like the
   Moonstone's gem; its colour injection moves with it.
+  `evals/baseline/` keeps its `eval-baseline-<corpus>` title: it stays frozen at W12-9's P⁵ until that result is published.
+  The title reached every arm alike, so it is a recall cue shared by all arms, not a bias between them, and the write-up
+  says so.
 
 - **D19-11 S7 as built** (`evals/validation/`, the opt-in `rnrc_validation` step). Six development
   chapters (`chapters.json`: Frankenstein's Letter 4 and Chapter 5, Dracula's Chapter II, Wuthering's
