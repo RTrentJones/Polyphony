@@ -581,6 +581,8 @@ class TestCharacterContext:
         darcy = "Mr. Darcy and Dr. Lee went to St. Paul's at 3 p.m. today."
         assert ctx.voice_stats([darcy]) == (12, 0, 0)
         assert ctx.voice_stats(["Well... I suppose\u2026 we shall."])[:2] == (5, 0)
+        gate = "I waited beside the old gate (I knew he would return.)"
+        assert ctx.voice_stats([gate])[0] == 11  # ")" is no sentence (Codex)
         alone = await ctx.build_cast_context(cast[:1], "x", scope=_scope(*cast))
         assert ctx.VOICE_CONTRAST_NOTE not in alone
         assert ctx.voice_contrast({"Rowan": rowan, "Emeric": emeric[:1]}) == []

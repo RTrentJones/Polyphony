@@ -676,7 +676,8 @@ def voice_stats(texts: list[str]) -> tuple[float, float, float]:
     text = re.sub(r"\.{2,}|\u2026", " ", text)
     ends = re.findall(r"[.!?]+", text)
     words = re.findall(r"[A-Za-z']+", text)
-    n = max(1, sum(1 for c in re.split(r"[.!?]+", text) if c.strip()))
+    # A fragment counts as a sentence only if it has words: '…return.)' leaves ')'.
+    n = max(1, sum(1 for c in re.split(r"[.!?]+", text) if re.search(r"[A-Za-z]", c)))
     old = sum(w.lower() in _ARCHAIC or w.lower().strip("'") in _ARCHAIC for w in words)
     loud = sum(1 for e in ends if set(e) & {"!", "?"})
     return len(words) / n, loud / n, 100 * old / max(1, len(words))
