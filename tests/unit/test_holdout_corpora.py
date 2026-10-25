@@ -79,8 +79,12 @@ def test_the_runner_refuses_a_holdout_book_without_holdout(monkeypatch):
 def test_no_default_or_workflow_selects_a_holdout_corpus():
     """No default book, CI workflow, run sentinel or evals module names one: a
     holdout run is always an explicit `--holdout` (D19-4)."""
-    paths = [
-        *(ROOT / ".github" / "workflows").glob("*.yml"),
+    paths = [  # evals.yml names them only behind holdout=yes (tested below)
+        *(
+            p
+            for p in (ROOT / ".github" / "workflows").glob("*.yml")
+            if p.name != "evals.yml"
+        ),
         *(ROOT / "evals").rglob("*.py"),
         *(ROOT / "scripts").glob("*"),
         ROOT / "evals" / "history.csv",
@@ -95,6 +99,88 @@ def test_no_default_or_workflow_selects_a_holdout_corpus():
         src = (ROOT / "evals" / module).read_text(encoding="utf-8")
         default = re.search(r'"--book", default="([\w-]+)"', src).group(1)
         assert splits.split(default) == "development", module
+
+
+def _evals_step(tmp_path, book: str, holdout: str, sentinel: str = "") -> tuple:
+    """Run evals.yml's book-selection step with `python` stubbed to echo, so
+    the shell logic is tested as written. Returns (exit code, evals.run calls)."""
+    import subprocess
+
+    import yaml
+
+    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "evals.yml").read_text())
+    step = next(
+        s
+        for s in wf["jobs"]["eval"]["steps"]
+        if s.get("name", "").startswith("Run evals")
+    )
+    script = re.sub(r"\$\{\{[^}]*\}\}", "", step["run"])  # no other inputs
+    (tmp_path / "evals").mkdir(exist_ok=True)
+    (tmp_path / "evals" / ".run-eval").write_text(sentinel)
+    env = {
+        "PATH": "/usr/bin:/bin",
+        "BOOK_INPUT": book,
+        "HOLDOUT": holdout,
+        "STEPS": "all",
+        "BASE_LABEL": "ci",
+    }
+    stub = 'python() { [ "$2" = evals.run ] && echo "RUN $*"; return 0; }\n'
+    out = subprocess.run(
+        ["bash", "-c", stub + script],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    runs = [ln for ln in out.stdout.splitlines() if ln.startswith("RUN ")]
+    return out.returncode, runs, out.stdout
+
+
+@pytest.mark.parametrize(
+    "book, holdout, sentinel, books, flag",
+    [
+        ("", "no", "", ["dracula", "frankenstein", "cel"], False),  # push default
+        ("", "no", "books: dracula", ["dracula"], False),  # the sentinel
+        (
+            "dracula frankenstein cel",
+            "no",
+            "",
+            ["dracula", "frankenstein", "cel"],
+            False,
+        ),
+        (
+            "dracula frankenstein cel",
+            "yes",
+            "",
+            HOLDOUT,
+            True,
+        ),  # the default means both
+        ("holdout-b", "yes", "", ["holdout-b"], True),
+    ],
+)
+def test_the_evals_workflow_runs_a_holdout_book_only_with_holdout_yes(
+    tmp_path, book, holdout, sentinel, books, flag
+):
+    code, runs, _ = _evals_step(tmp_path, book, holdout, sentinel)
+    assert code == 0
+    assert [re.search(r"--book (\S+)", r).group(1) for r in runs] == books
+    assert all(("--holdout" in r) == flag for r in runs)
+
+
+@pytest.mark.parametrize(
+    "book, holdout",
+    [
+        ("holdout-a", "no"),
+        ("cel holdout-b", "no"),
+        ("dracula", "yes"),
+        ("holdout-a cel", "yes"),
+    ],
+)
+def test_the_evals_workflow_refuses_a_mixed_or_unflagged_holdout_run(
+    tmp_path, book, holdout
+):
+    code, runs, out = _evals_step(tmp_path, book, holdout)
+    assert code == 1 and not runs and "::error title=Holdout run::" in out
 
 
 # --- the renaming --------------------------------------------------------------

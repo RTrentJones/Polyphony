@@ -398,7 +398,7 @@ python -m evals.run --book holdout-b --steps all --holdout --out eval-report-hol
 Once per release, on that release's tag, after development has stopped. Without
 `--holdout` (which sets `EVAL_HOLDOUT=<book>` for the run) the runner and every
 corpus reader stop with the reason; `--holdout` on a development book is refused
-too. `evals.yml` never selects a holdout book by default.
+too. `evals.yml` never selects a holdout book by default; dispatch it with `holdout=yes` (the `book` input's default then means both holdout books, and any other book is refused).
 
 ## Corpora
 

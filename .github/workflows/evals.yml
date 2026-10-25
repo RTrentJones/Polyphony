@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       book:
-        description: corpus(es) to grade, space-separated (development corpora; cel = the fidelity gate). Holdout corpora (SPEC-94 S5) are refused without evals.run --holdout
+        description: corpus(es) to grade, space-separated (development corpora; cel = the fidelity gate). Holdout corpora need holdout=yes
         default: dracula frankenstein cel
       steps:
         description: comma list of steps or 'all'
@@ -42,6 +42,14 @@ on:
           for a deployed-prompts baseline) instead of booting one here. Leave
           blank to boot this ref's app. External mode needs EVAL_ADMIN_* secrets.
         default: ''
+      holdout:
+        description: >-
+          the frozen HOLDOUT run (SPEC-94 S5): once per release, on that release's tag. Grades
+          holdout-a holdout-b (or the one named in `book`) with evals.run --holdout; any other
+          book is refused. With 'no', a holdout book is refused.
+        type: choice
+        options: ['no', 'yes']
+        default: 'no'
       claude:
         description: >-
           write with Claude (Anthropic, BRD R7.9) instead of Gemini: the eval's own users
@@ -202,15 +210,38 @@ jobs:
         env:
           BASE_LABEL: ${{ github.event.inputs.env_label || 'ci' }}
           STEPS: ${{ github.event.inputs.steps || 'all' }}
+          BOOK_INPUT: ${{ github.event.inputs.book }}
+          HOLDOUT: ${{ github.event.inputs.holdout || 'no' }}
         run: |
           # Book selection: dispatch input wins; else on a push read the book
           # names from the sentinel file (so a single push can grade just one
           # book to stay inside the Gemini free-tier quota); else both.
-          BOOKS="${{ github.event.inputs.book }}"
-          if [ -z "$BOOKS" ]; then
-            BOOKS="$(grep -oiE 'dracula|frankenstein|cel' evals/.run-eval | tr '\n' ' ' || true)"
+          BOOKS="$BOOK_INPUT"
+          HOLDOUT_FLAG=""
+          if [ "$HOLDOUT" = "yes" ]; then
+            # The frozen holdout (SPEC-94 S5): exactly holdout-a / holdout-b. The
+            # book input's development default means "both holdout books".
+            if [ -z "$BOOKS" ] || [ "$BOOKS" = "dracula frankenstein cel" ]; then
+              BOOKS="holdout-a holdout-b"
+            fi
+            for BK in $BOOKS; do
+              case "$BK" in
+                holdout-a|holdout-b) ;;
+                *) echo "::error title=Holdout run::holdout=yes grades only holdout-a / holdout-b, not $BK"; exit 1 ;;
+              esac
+            done
+            HOLDOUT_FLAG="--holdout"
+          else
+            if [ -z "$BOOKS" ]; then
+              BOOKS="$(grep -oiE 'dracula|frankenstein|cel' evals/.run-eval | tr '\n' ' ' || true)"
+            fi
+            BOOKS="${BOOKS:-dracula frankenstein cel}"
+            for BK in $BOOKS; do
+              case "$BK" in
+                holdout-*) echo "::error title=Holdout run::$BK is a holdout corpus: dispatch with holdout=yes"; exit 1 ;;
+              esac
+            done
           fi
-          BOOKS="${BOOKS:-dracula frankenstein cel}"
           # Repeat count: dispatch input wins; else a "repeat: N" line in the
           # sentinel (mean±std noise band; N× the LLM cost — budget for it).
           REPEAT="${{ github.event.inputs.repeat }}"
@@ -231,7 +262,7 @@ jobs:
             if [ "$BK" = "cel" ] && [ "$STEPS" = "all" ]; then BK_STEPS="outline"; fi
             EVAL_ENV_LABEL="${BASE_LABEL}" python -m evals.run \
               --book "$BK" --steps "$BK_STEPS" --repeat "$REPEAT" \
-              --out "eval-report-$BK.json" --export "gl-export-$BK.json" --tracer || rc=1
+              --out "eval-report-$BK.json" --export "gl-export-$BK.json" --tracer $HOLDOUT_FLAG || rc=1
             # The BRD §7 acceptance gate: an outline that loses the author's
             # cast fails the run (docs/BRD.md R1.4).
             if [ "$BK" = "cel" ] && [ -f eval-report-cel.json ]; then
