@@ -1323,25 +1323,46 @@ def test_rn_and_rc_rubrics_are_anchored_and_outside_the_scores():
 
 @pytest.mark.parametrize("book", ["cel", "dracula", "frankenstein", "wuthering"])
 def test_narrator_samples_are_a_fixed_set_of_the_sources_narration(book):
-    got = pipeline.narrator_samples(book)
-    assert len(got) == 3 and got == pipeline.narrator_samples(book)
-    flat = " ".join(pipeline.load_excerpts(book).split()).replace("’", "'")
+    got, who = pipeline.narrator_samples(book)
+    assert who == "corpus" and len(got) == 3
+    assert (got, who) == pipeline.narrator_samples(book)
+    flat = " ".join(pipeline.load_excerpts(book).split()).replace("\u2019", "'")
     for s in got:
-        assert not re.search('["“”]', s)
-        assert 40 <= len(s.removesuffix(" …").split()) <= 150
-        assert " ".join(s.removesuffix(" …").split()[:12]) in flat
-    assert pipeline.narrator_samples("no-such-corpus") == []
+        assert not re.search('["\u201c\u201d]', s)
+        assert 20 <= len(s.split()) <= 150 and not s.endswith(" \u2026")
+        assert " ".join(s.split()[:12]) in flat
+    # B1: the spread reaches the excerpt's last narration paragraph.
+    assert flat.rindex(" ".join(got[-1].split()[:12])) > len(flat) * 2 // 3
+    assert pipeline.narrator_samples("no-such-corpus") == ([], "corpus")
 
 
-def test_scene_narration_removes_the_dialogue():
+def test_narrator_samples_follow_the_chapter_pov():
+    """B1: a POV with `voice_sources` chapters samples that narrator only."""
+    text = pipeline.load_excerpts("frankenstein").replace("\u2019", "'")
+    flat = " ".join(text.split())
+    letters = flat[: flat.index("Chapter 5")]
+    emeric, who = pipeline.narrator_samples("frankenstein", "Emeric Vandel")
+    assert who == "Emeric Vandel" and len(emeric) == 3
+    rowan, who = pipeline.narrator_samples("frankenstein", "Rowan Merrow")
+    assert who == "Rowan Merrow" and len(rowan) == 3
+    assert all(" ".join(s.split()[:12]) in letters for s in rowan)
+    assert not any(" ".join(s.split()[:12]) in letters for s in emeric)
+    assert pipeline.narrator_samples("frankenstein", "Nobody")[1] == "corpus"
+    assert pipeline.narrator_samples("cel", "Milo Voss")[1] == "corpus"
+
+
+def test_scene_narration_removes_the_dialogue_and_its_tags():
     text = (
         'Zara set down her pen and looked at the queue for a long time. "Read it,'
-        ' Milo," said Zara Okafor.\n\n"Is that normal?" Milo asked.\n\nHe laughed.'
+        ' Milo," said Zara Okafor.\n\n"Is that normal?" Milo asked.\n\n'
+        '"Why would it be, after all this time here?" she asked, low.\n\n'
+        "He laughed."
     )
     got = pipeline.scene_narration(text)
-    assert "Read it" not in got and "Is that normal" not in got
-    assert got.startswith("Zara set down her pen") and got.endswith("He laughed.")
-    assert "Milo asked" not in got  # a bare speech tag is dropped
+    assert got == (
+        "Zara set down her pen and looked at the queue for a long time.\n\n"
+        "He laughed."
+    )  # B2: no tag fragment, and a mostly-dialogue paragraph is left out
 
 
 def test_rc_trims_each_scene_middle_when_the_chapter_is_long():
@@ -1353,6 +1374,15 @@ def test_rc_trims_each_scene_middle_when_the_chapter_is_long():
     assert len(text.split()) < 1100
     short, trimmed = pipeline.rc_content({"title": "T"}, ["a b", "c d"], 1000)
     assert not trimmed and "[…]" not in short
+
+
+def test_rc_plan_lists_the_planned_beat_titles():
+    plan = {"title": "T", "summary": "S", "planned_beats": [{"title": "Intake"}]}
+    text, _ = pipeline.rc_content(plan, ["a b"])
+    assert text.startswith(
+        "PLAN (the outline's chapter):\nCHAPTER: T\nS\n"
+        "PLANNED BEATS (in order):\n1. Intake\n\nCHAPTER TO SCORE"
+    )
 
 
 class _BookJudge(_RubricJudge):
@@ -1376,8 +1406,12 @@ async def test_prose_reports_rn_and_rc_as_a_book_block(tmp_path):
     # RN: scene 1 is narration, judged beside the cel narrator; scene 2 is all
     # dialogue and speech tags, so RN is not applicable there.
     (rn,) = [c for rid, c in judge.seen if rid == "RN"]
-    assert rn.startswith("NARRATOR SAMPLES (the source's own narration")
-    for sample in pipeline.narrator_samples("cel"):
+    assert rn.startswith(
+        "THE BOOK'S CONFIGURED NARRATION: pov: third person limited, on Milo"
+    )
+    assert "\n\nNARRATOR SAMPLES (the source's own narration" in rn
+    assert "its dialogue and the speech tags beside it were removed" in rn
+    for sample in pipeline.narrator_samples("cel")[0]:
         assert sample in rn
     assert rn.split("TEXT TO SCORE")[1].count("Milo initialled the form") == 1
     assert s1["rubrics"]["RN"]["score"] == 0.3
@@ -1393,6 +1427,7 @@ async def test_prose_reports_rn_and_rc_as_a_book_block(tmp_path):
         "rc_explanation": "RC ok",
         "rc_trimmed": False,
         "narrator_samples": 3,
+        "narrator_sampled": "corpus",  # Milo has no voice_sources chapters
     }
     assert "RN" not in out["rubric_means"] and "RN" not in out["judge_explanation"]
     # D18-4: the prose score is the same whatever RN and RC say.

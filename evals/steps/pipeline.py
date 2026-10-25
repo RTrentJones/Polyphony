@@ -1179,56 +1179,100 @@ def _paragraphs(text: str) -> list[str]:
     return [" ".join(p.split()) for p in re.split(r"\n\s*\n", text) if p.strip()]
 
 
-def narrator_samples(book: str) -> list[str]:
-    """The source narrator, deterministically per corpus: of the excerpt's
-    paragraphs that are narration (>= 40 words, >= 90% of them outside
-    quotes, by the extractor's `narration_of`), three spread evenly from the
-    first to the last, each cut at 150 words."""
+def _chapter_body(text: str, heading: str) -> str:
+    """The excerpt text from `heading` (alone on its line) to the next one."""
+    from evals.tools.headings import HEADING_ALONE
+
+    m = re.search(rf"(?m)^{re.escape(heading)}\s*$", text)
+    if not m:
+        return ""
+    nxt = re.search(HEADING_ALONE, text[m.end() :])
+    end = m.end() + nxt.start() if nxt else len(text)
+    return text[m.end() : end]
+
+
+def _narrator_source(book: str, pov: str | None) -> tuple[str, str, bool]:
+    """(text, who, quoted): the POV character's own narration when spec.json's
+    `voice_sources` names their chapters, else the whole excerpt ("corpus")."""
+    text = load_excerpts(book)
+    spec = CORPORA / book / "spec.json"
+    sources = (
+        json.loads(spec.read_text("utf-8")).get("voice_sources") or {}
+        if spec.exists()
+        else {}
+    )
+    src = sources.get(pov) if pov else None
+    if src and src.get("chapters"):
+        body = "\n\n".join(_chapter_body(text, h) for h in src["chapters"])
+        if body.strip():
+            return body, pov, bool(src.get("quoted"))
+    return text, "corpus", False
+
+
+def _to_full_stop(words: list[str], limit: int) -> str:
+    """The first `limit` words, cut back to the last full stop among them."""
+    kept = " ".join(words[:limit])
+    if len(words) <= limit:
+        return kept
+    ends = [m.end() for m in re.finditer(r"[.!?][\"')\]\u201d\u2019]?(?=\s|$)", kept)]
+    return kept[: ends[-1]] if ends else kept + " …"
+
+
+def narrator_samples(book: str, pov: str | None = None) -> tuple[list[str], str]:
+    """(samples, who): the source narrator, deterministically. From the POV
+    character's `voice_sources` chapters when the chapter's POV maps there,
+    else the whole excerpt: of the paragraphs that are narration (>= 40 words,
+    >= 90% of them outside quotes, by the extractor's `narration_of`; a
+    `quoted` teller's frame quotes stripped first), three spread from the first
+    to the last, each cut back to its last full stop before 150 words."""
     from app.parsing.character_extractor import narration_of
 
     try:
-        paras = _paragraphs(load_excerpts(book))
+        text, who, quoted = _narrator_source(book, pov)
     except FileNotFoundError:
-        return []
+        return [], "corpus"
     pure = []
-    for p in paras:
+    for p in _paragraphs(text):
+        if quoted:
+            p = p.strip('"\u201c\u201d').strip()
         n = " ".join(narration_of(p).split())
         words = len(n.split())
         if words >= _NARRATOR_MIN_WORDS and words >= 0.9 * len(p.split()):
             pure.append(n)
-    if len(pure) > _NARRATOR_SAMPLES:
-        pure = [
-            pure[i * len(pure) // _NARRATOR_SAMPLES] for i in range(_NARRATOR_SAMPLES)
-        ]
-    out = []
-    for n in pure:
-        words = n.split()
-        cut = len(words) > _NARRATOR_SAMPLE_WORDS
-        out.append(" ".join(words[:_NARRATOR_SAMPLE_WORDS]) + (" …" if cut else ""))
-    return out
+    k, n = _NARRATOR_SAMPLES, len(pure)
+    if n > k:
+        pure = [pure[i * (n - 1) // (k - 1)] for i in range(k)]
+    return [_to_full_stop(x.split(), _NARRATOR_SAMPLE_WORDS) for x in pure], who
 
 
 def scene_narration(text: str) -> str:
-    """A scene with its dialogue removed: each paragraph's narration (the
-    extractor's `narration_of`); a paragraph left with only its speech tag
-    ("Milo asked.") is dropped."""
-    from app.parsing.character_extractor import narration_of
+    """The scene's narration, the same kind of text as the samples: only its
+    paragraphs that are at least half narration, each with its quoted speech
+    and the speech-tag clauses beside it removed (the extractor's
+    `_tagless_narration`, by `tag_spans`)."""
+    from app.parsing.character_extractor import _tagless_narration
 
     out = []
     for p in _paragraphs(text):
-        n = " ".join(narration_of(p).split())
-        if n and (len(n.split()) >= 4 or not _QUOTE_MARK.search(p)):
+        n = _tagless_narration(p) if _QUOTE_MARK.search(p) else p
+        if n and len(n.split()) >= 0.5 * len(p.split()):
             out.append(n)
     return "\n\n".join(out)
 
 
-def rn_content(samples: list[str], narration: str) -> str:
-    """RN's judge input: NARRATOR SAMPLES, then the TEXT TO SCORE."""
+def rn_content(samples: list[str], narration: str, style: dict | None = None) -> str:
+    """RN's judge input: the book's configured POV/tense (when its style guide
+    has them), NARRATOR SAMPLES, then the TEXT TO SCORE."""
+    style = style or {}
+    head = "; ".join(f"{k}: {style[k]}" for k in ("pov", "tense") if style.get(k))
     shown = "\n\n".join(f"{n + 1}. {s}" for n, s in enumerate(samples))
     return (
-        "NARRATOR SAMPLES (the source's own narration, quoted speech removed):\n"
+        (f"THE BOOK'S CONFIGURED NARRATION: {head}\n\n" if head else "")
+        + "NARRATOR SAMPLES (the source's own narration, quoted speech removed):\n"
         f"{shown}\n\n"
-        "TEXT TO SCORE (the generated scene's narration, dialogue removed):\n"
+        "TEXT TO SCORE (the generated scene's narration: its dialogue and the "
+        "speech tags beside it were removed, and paragraphs that were mostly "
+        "dialogue left out):\n"
         f"{narration}"
     )
 
@@ -1251,6 +1295,9 @@ def rc_content(
     chapter (scenes in order). Over `budget` words, each scene over its share
     is trimmed in the middle with "[…]", and the input says so."""
     share = budget // max(1, len(scenes))
+    titles = [b.get("title") for b in chapter.get("planned_beats") or []]
+    beats = "".join(f"{n + 1}. {t}\n" for n, t in enumerate(t for t in titles if t))
+    beats = f"PLANNED BEATS (in order):\n{beats}" if beats else ""
     over = sum(len(s.split()) for s in scenes) > budget
     parts, trimmed = [], False
     for n, s in enumerate(scenes):
@@ -1265,7 +1312,7 @@ def rc_content(
     )
     return (
         f"PLAN (the outline's chapter):\nCHAPTER: {chapter.get('title') or ''}\n"
-        f"{chapter.get('summary') or ''}\n\n"
+        f"{chapter.get('summary') or ''}\n{beats}\n"
         f"CHAPTER TO SCORE ({len(scenes)} scenes in order{note}):\n"
         + "\n\n".join(parts)
     ), trimmed
@@ -1421,7 +1468,8 @@ async def step_prose(ctx: StepContext) -> dict:
     alias_forms = [f for fs in forms.values() for f in fs]
     owned = gt.get("owned_phrases") or {}
     gold = _r2_gold(gt)
-    samples = narrator_samples(ctx.book)  # W18-6: the source's narrator
+    # W18-6: the source's narrator, the chapter POV's own when it has one.
+    samples, sampled = narrator_samples(ctx.book, chapter.get("pov"))
     detail, prev_text, r2_lines = [], "", 0
     for i, sc in enumerate(scenes):
         checks = _grade_scene_checks(sc, prev_text, forms)
@@ -1505,7 +1553,7 @@ async def step_prose(ctx: StepContext) -> dict:
             # W18-6: RN, the narration (dialogue removed) beside the source's.
             narration = scene_narration(sc["content"])
             if samples and narration:
-                contents["RN"] = rn_content(samples, narration)
+                contents["RN"] = rn_content(samples, narration, book.get("style"))
             judged = await _judge_rubrics(ctx, contents, checks["caps"])
             if not (samples and narration):
                 judged["RN"] = {
@@ -1564,6 +1612,7 @@ async def step_prose(ctx: StepContext) -> dict:
         + (' [chapter trimmed for length: "[…]" marks each cut]' if rc_trimmed else ""),
         "rc_trimmed": rc_trimmed,
         "narrator_samples": len(samples),
+        "narrator_sampled": sampled,
     }
     return {
         **result,
