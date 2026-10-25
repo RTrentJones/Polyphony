@@ -62,6 +62,18 @@ validity claims stated at their true strength, a human calibration of the judges
   injection's changed words (a quote under 8 characters must cover them), or by its detail naming them when they occur once in
   the text; recall may read lower than in earlier draws for that reason, and the change is the point. Injections outside the
   graded window are reported, not skipped silently (wuthering's `name-misspell` had been).
+  **Amended after the principal review of the integrated wave (S2 as fixed):** (1) *either side of the
+  contradiction is credited* — a finding matches when its quote overlaps the changed words **or** its
+  detail names them where they occur once, whatever it quotes, since a correct finding may quote the
+  other, untouched side; (2) *typography is normalised* on both sides before a quote is located or a
+  name counted (curly quotes and apostrophes to straight, any dash or `--` to one dash, no space around
+  a dash or before closing punctuation, case folded), and a quote that locates nowhere falls back to the
+  detail rule; (3) *a deterministic zero wins over unscored* — R1 at 0 (capped or judged) makes the scene
+  0.0, and an outline that failed its structural check is 0.0, even when another rubric went unscored;
+  such an item is scored, not counted in `unscored.items`. An injection whose anchor overlaps an earlier
+  injection, or whose span a longer replacement pushes past the 12,000-character window, is reported
+  unapplied with that reason. `rescore` recomputes every item with the live rule, so claimed-empty
+  scenes in old records also move to None; on a `--repeat` step its tally is marked "last pass only".
 
 - **D19-9 No new metrics this wave** (a second outside review, 2026-10-25, on `5bb2df2`): RN and RC are new and unvalidated,
   so wave 19 adds none and validates these two (S7) instead. RC on a chapter over ≈3,000 words reads the scenes with their
@@ -80,6 +92,20 @@ validity claims stated at their true strength, a human calibration of the judges
   Titles are `eval-<step>-<8 hex of the corpus id's sha256>`. The first draws after this change carry the experiment label
   `opaque-titles` so Tracer keeps them apart. holdout-a's identifying phrase (the woman's dress) is renamed like the
   Moonstone's gem; its colour injection moves with it.
+
+- **D19-11 S7 as built** (`evals/validation/`, the opt-in `rnrc_validation` step). Six development
+  chapters (`chapters.json`: Frankenstein's Letter 4 and Chapter 5, Dracula's Chapter II, Wuthering's
+  Chapters I, III and IX); three fit RC's budget and are seen whole, three are trimmed in the middle.
+  Each is damaged deterministically four ways — narrator drift, a duplicated event, reordered scenes
+  (broken transitions), the planned change removed — and on a trimmed chapter the damage is placed
+  outside, inside and partly inside RC's trimmed region, so D19-9's blind spot is measured: 36 items,
+  72 judge calls per run (RC on each item, RN on one scene of each), free on the free judges and
+  ≈$0.61 if every call fell through to Sonnet (≈$1.20 worst case). A sample of intact/damaged pairs
+  goes into S4's page as `chapter` items, which the human answers on RC's own anchors (0 / 0.4 / 0.7 /
+  1.0). The source chapters are famous and the judges have likely read them, so a result is an
+  **upper bound** on RC's (and RN's) sensitivity until it is repeated on generated chapters or on the
+  holdout. The holdout itself runs only from a tag: `evals.yml` refuses `holdout=yes` dispatched
+  from a branch.
 
 ## Sequence
 1. 10-26 00:07Z — W12-9 day 6 (S1). 05:00Z — W17 draw 2; then the wave-18 product PR.
