@@ -383,6 +383,19 @@ def test_the_agreement_arithmetic():
     assert ag.agreement(*_fixture()) == out  # seeded bootstrap
 
 
+def test_the_kappa_ci_reports_its_degenerate_resamples():
+    """Nit: κ is undefined on a resample whose pairs are all one category
+    for both raters; the CI drops those and says how many."""
+    ps = [("A", "A")] * 4 + [("B", "B")]
+    ci, dropped = ag.bootstrap_counted(ps, ag._kappa)
+    # P(all five draws are one category) = .8^5 + .2^5 ≈ .33 of 2,000.
+    assert 500 < dropped < 800 and ci == [1.0, 1.0]
+    assert ag.bootstrap_counted(ps, ag._agree)[1] == 0
+    items, key, answers = _fixture()
+    pairs = ag.agreement(items, key, answers)["pairs"]
+    assert isinstance(pairs["cohen_kappa_ci_degenerate_resamples"], int)
+
+
 def test_per_line_judge_speakers_are_used_when_the_key_has_them():
     items, key, answers = _fixture()
     key["items"]["s1"]["judge_speakers"] = ["X", "X", "X", "Y"]

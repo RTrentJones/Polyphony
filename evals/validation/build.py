@@ -63,11 +63,11 @@ def load_config(path: Path = CONFIG) -> list[dict]:
 
 
 def _check_split(book: str) -> None:
-    """Refuse a held-out corpus: validation reads development corpora only."""
+    """Refuse a holdout corpus: validation reads development corpora only."""
     spec = CORPORA / book / "spec.json"
     split = json.loads(spec.read_text("utf-8")).get("split") if spec.exists() else None
     if split == "holdout":
-        raise ValueError(f"{book} is a held-out corpus; S7 uses development corpora")
+        raise ValueError(f"{book} is a holdout corpus; S7 uses development corpora")
 
 
 def chapter_paragraphs(book: str, heading: str) -> list[str]:

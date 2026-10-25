@@ -82,3 +82,12 @@ def test_no_eval_title_or_upload_name_is_built_from_the_corpus_id():
         if p.is_file():
             src = p.read_text(encoding="utf-8", errors="replace")
             assert not built.search(src), f"{p}: {built.search(src).group(0)}"
+
+
+def test_the_prose_cache_key_moved_with_the_titles():
+    """Nit: the opaque titles (D19-10) change what generation saw (the title
+    reaches the canon prompt), so a prose generation cached under the old
+    titles is regenerated, never regraded as if it were this harness's."""
+    from evals.steps import pipeline
+
+    assert pipeline.PROSE_CACHE_KEY == "planned-v11"  # v10: corpus-named titles

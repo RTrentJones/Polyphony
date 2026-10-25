@@ -58,6 +58,33 @@ def test_a_run_reads_a_holdout_corpus_only_when_it_names_it(book, monkeypatch):
     assert gt["book"] == book and text  # asked for by name: readable
 
 
+def test_the_graders_corpus_readers_refuse_an_unrequested_holdout(
+    monkeypatch, tmp_path
+):
+    """Nit: prompt_contract and plot read evals/corpora directly; they go
+    through the same guard as the pipeline's readers."""
+    import json
+
+    from evals.graders import plot
+    from evals.graders import prompt_contract as pc
+
+    monkeypatch.delenv(splits.ALLOW_ENV, raising=False)
+    with pytest.raises(SystemExit, match="holdout corpus"):
+        pc.book_inputs("holdout-a")
+    with pytest.raises(SystemExit, match="holdout corpus"):
+        pc._corpus_file("holdout-b", "excerpts.txt")
+    with pytest.raises(SystemExit, match="holdout corpus"):
+        pc.corpus_inputs({"book": "holdout-a"}, {})
+    with pytest.raises(SystemExit, match="holdout corpus"):
+        plot.main(["draft", str(tmp_path), "--book", "holdout-a"])
+    (tmp_path / "eval-report-holdout-b.json").write_text(
+        json.dumps({"book": "holdout-b", "steps": {}})
+    )
+    with pytest.raises(SystemExit, match="holdout corpus"):
+        plot.regrade(tmp_path)
+    assert pc._corpus_file("", "excerpts.txt") == ""  # no book: nothing read
+
+
 @pytest.mark.parametrize("book", DEVELOPMENT)
 def test_development_corpora_need_no_request(book, monkeypatch):
     monkeypatch.delenv(splits.ALLOW_ENV, raising=False)

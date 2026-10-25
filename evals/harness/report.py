@@ -254,8 +254,9 @@ def tracer_export(
     flags, so an absent step reads as "didn't run", not "fine". A repeated step
     publishes only its averaged score and spread.
 
-    The book is the Tracer `suite`, so training (dracula), held-out
-    (frankenstein) and the fidelity gate (cel) trend as separate series. Each
+    The book is the Tracer `suite`, so each development corpus (dracula,
+    frankenstein, wuthering; SPEC-94 S3), the fidelity gate (cel) and the
+    frozen holdout corpora trend as separate series. Each
     step's numeric fields ride along as case `metrics`, and `<step>.<metric>`
     run metrics, so Tracer charts F1 / MRR / cast_fidelity over time rather than
     only the coarse pass flag. `provenance` (repo / branch / source_url) comes

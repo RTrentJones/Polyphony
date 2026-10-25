@@ -1161,9 +1161,10 @@ async def _planned_scenes(ctx: StepContext, book: dict) -> dict:
 # Bumped when what a generation records changes (v4: no fallback path, the
 # batch's queued/deferred; v5: its reason, and minor cast ported as secondary
 # names; v7: voice.movement; v8: name_warnings; v9: the brief is known to
-# them, and the hindsight example is ungendered; v10: chapter 1 only), so a
-# stale cache entry is regenerated, not regraded.
-PROSE_CACHE_KEY = "planned-v10"
+# them, and the hindsight example is ungendered; v10: chapter 1 only; v11:
+# opaque eval titles, SPEC-94 D19-10 — the title reaches the canon prompt), so
+# a stale cache entry is regenerated, not regraded.
+PROSE_CACHE_KEY = "planned-v11"
 
 
 def _planned_beat_text(scene: dict, beat: dict | None) -> str:

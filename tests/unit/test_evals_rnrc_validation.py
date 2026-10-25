@@ -172,7 +172,7 @@ def test_a_held_out_corpus_is_refused(tmp_path, monkeypatch):
     (tmp_path / "secret").mkdir()
     (tmp_path / "secret" / "spec.json").write_text('{"split": "holdout"}')
     monkeypatch.setattr(build, "CORPORA", tmp_path)
-    with pytest.raises(ValueError, match="held-out"):
+    with pytest.raises(ValueError, match="holdout corpus"):
         build.chapter_paragraphs("secret", "CHAPTER I")
 
 

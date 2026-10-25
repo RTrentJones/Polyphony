@@ -10,7 +10,7 @@ overfit, not noise.
 
 A change is **kept** only if it beats the baseline **beyond the noise band** on the
 graded dimension **and** does not regress any other dimension, on **two** corpora
-(Dracula + one held-out book). The campaign is **done** when every dimension is at or
+(Dracula + one held-out book — *SPEC-94 S3: Frankenstein, tuned on since, now a development corpus; the frozen holdout is `holdout-a` / `holdout-b`*). The campaign is **done** when every dimension is at or
 above target, or improvements have plateaued for two consecutive sprints.
 
 | Dimension | Grader | Metric | Baseline (measured in P1) | Target |
@@ -40,7 +40,7 @@ re-set once the true baseline is known.
 - **Generation is stochastic** → single-run deltas can be noise. Rigor (below) is
   mandatory, not optional.
 - **Overfitting risk:** tuning prompts against one book's ground truth. A held-out corpus
-  is a first-class requirement, not a "later."
+  is a first-class requirement, not a "later." *(SPEC-94 S3: that book, Frankenstein, has been tuned on since and is a development corpus; the frozen holdout is `holdout-a` / `holdout-b`.)*
 
 ---
 
@@ -86,6 +86,8 @@ Add `--repeat N` (default 3 for judge/generation steps, 1 for deterministic). Re
 deltas that exceed it (≥ 1σ and ≥ a floor, e.g. 0.03 absolute).
 
 ### A5. Held-out second corpus
+*(SPEC-94 S3: the second corpus became Frankenstein, which has been tuned on in every wave since and is a development corpus, not held out; the frozen holdout is `holdout-a` / `holdout-b`, run once per release. Renaming reduces name-cued recall but does not defeat memorization.)*
+
 Add a second book as **validation** (data-only: `aliases.json` + `spec.json`, then
 `rename`/`build_gt`). **Pride & Prejudice** (clear cast, strong distinct voices, third-
 person — complements Dracula's epistolary form) or **Sherlock** (dialogue-heavy). Rule:
@@ -111,7 +113,8 @@ for each dimension, ordered by (deficit × cheapness):
   3. Measure:
        - extraction/outline  → offline harness (fast, key-only) ×N
        - attribution/prose/continuity → CI boot-mode evals.yml ×N
-  4. Compare vs current baseline on Dracula AND the held-out book.
+  4. Compare vs current baseline on Dracula AND the held-out book (SPEC-94 S3: now a
+     development corpus, Frankenstein; the frozen holdout is `holdout-a` / `holdout-b`).
   5. Accept iff: Δ(target metric) > noise band  AND  no other dimension regresses
      beyond noise, on BOTH books.
   6. Accept → merge, ingest to Tracer (new "after" run, new baseline).
@@ -209,7 +212,7 @@ depends on it. Judge-scored steps (outline/prose) last, when a better judge may 
   are the trustworthy signal; judge steps are directional until a non-Gemini judge exists.
 - **N=3 repetitions** for any step involving generation; report **mean ± std**; the
   **accept threshold = max(1σ_baseline, 0.03 absolute)**.
-- **Two corpora**: accept only if the gain holds on Dracula **and** the held-out book.
+- **Two corpora**: accept only if the gain holds on Dracula **and** the held-out book. *(SPEC-94 S3: that book, Frankenstein, has been tuned on since and is a development corpus; the frozen holdout is `holdout-a` / `holdout-b`.)*
 - **Ablation discipline**: one variable per experiment; a combined change is only shipped
   after each part is individually justified.
 - **Caching** by `app_sha` so re-grades are free and comparisons use identical generations
@@ -241,7 +244,7 @@ an in-session Gemini key (offline loop) or accept CI-paced cycles.
 
 | Risk | Mitigation |
 |------|-----------|
-| Overfitting prompts to Dracula | Held-out second corpus (A5); accept only on both. |
+| Overfitting prompts to Dracula | Held-out second corpus (A5); accept only on both. *(SPEC-94 S3: Frankenstein is now a development corpus; the frozen holdout `holdout-a` / `holdout-b` runs once per release.)* |
 | Judge self-preference (Gemini judging Gemini) | Flag surfaced; lean on deterministic proxies; swap judge when a key exists (A6). |
 | Free-tier quota exhaustion | Cache by sha; deterministic-first; batch experiments; offline loop for extraction/outline; cap N. |
 | Generation variance masking/faking gains | N=3 + noise band + deterministic graders (§6). |

@@ -262,7 +262,7 @@ jobs:
           for BK in $BOOKS; do
             echo "::group::evals $BK"
             # Tracer keys each book as its own suite (report.tracer_export sets
-            # suite=book), so training vs held-out trend apart under one env label.
+            # suite=book), so each corpus trends apart under one env label.
             # cel is the synthetic fidelity corpus (no gold voice lines, no
             # continuity injections): grade only what it was built for, to
             # save quota.

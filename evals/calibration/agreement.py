@@ -17,7 +17,9 @@ Agreement is over the pairs the panel decided, plus a variant scoring a panel
 tie ½; Cohen's κ is human side vs panel side over the decided pairs.
 
 CIs: percentile bootstrap over items (r2: the scene is the cluster), 2,000
-resamples, 95%, seeded.
+resamples, 95%, seeded. κ's CI reports how many resamples it dropped as
+degenerate (κ undefined: one category on both sides),
+`cohen_kappa_ci_degenerate_resamples`.
 """
 
 from __future__ import annotations
@@ -53,19 +55,30 @@ def cohen_kappa(x: list, y: list) -> float | None:
 
 def bootstrap(units: list, stat, seed: int = SEED) -> list[float] | None:
     """Percentile CI of `stat` over resampled `units`; None if too few."""
+    return bootstrap_counted(units, stat, seed)[0]
+
+
+def bootstrap_counted(
+    units: list, stat, seed: int = SEED
+) -> tuple[list[float] | None, int]:
+    """(`bootstrap`'s CI, how many of the RESAMPLES were dropped because
+    `stat` was undefined on them — κ when a resample holds one category on
+    both sides). The CI is over the rest, so a large count means it rests on
+    fewer resamples than it says; it is reported beside it."""
     if len(units) < 2:
-        return None
+        return None, 0
     rng = random.Random(seed)
     vals = []
     for _ in range(RESAMPLES):
         v = stat(rng.choices(units, k=len(units)))
         if v is not None:
             vals.append(v)
+    dropped = RESAMPLES - len(vals)
     if not vals:
-        return None
+        return None, dropped
     vals.sort()
     lo = int(len(vals) * (1 - LEVEL) / 2)
-    return [round(vals[lo], 4), round(vals[len(vals) - lo - 1], 4)]
+    return [round(vals[lo], 4), round(vals[len(vals) - lo - 1], 4)], dropped
 
 
 def _r(v):
@@ -158,7 +171,11 @@ def pair_stats(items: dict, key: dict, answers: dict) -> dict:
     out["human_panel_agreement_ci"] = bootstrap(decided, _agree)
     out["human_panel_agreement_ties_half"] = _r(_agree(every))
     out["cohen_kappa"] = _r(_kappa(decided))
-    out["cohen_kappa_ci"] = bootstrap(decided, _kappa)
+    # κ is undefined on a resample whose pairs all fall on one side for both
+    # raters; those resamples are dropped from its CI and counted here.
+    out["cohen_kappa_ci"], out["cohen_kappa_ci_degenerate_resamples"] = (
+        bootstrap_counted(decided, _kappa)
+    )
     out["human_chose_A"] = _r(mean(h == "A" for h, _ in rows))  # side-bias check
     members = sorted({m for _, k in rows for m in k.get("members") or {}})
     out["members"] = {}
