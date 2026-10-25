@@ -162,13 +162,26 @@ async def scene_setup(
     narration = narration_excerpts(
         sources,
         later_from,
-        plot,
+        untold_lines(brief, plan, position),
         position=position,
         own=pov_narration(sources, pov, canon),
     )
     return SceneSetup(
         canon, cast, scope, pov, block, plan, earlier, summary, position, narration
     )
+
+
+def untold_lines(brief: str, plan: list, position: Optional[StoryPosition]) -> list:
+    """The events a scene's style excerpts may not narrate: the brief and the
+    plan lines of the scene's own and later chapters (all of them without a
+    position). An earlier chapter's line is already told (W18 review)."""
+    from app.planning.planned_beat import beat_scene_description
+
+    return [brief] + [
+        beat_scene_description(b)
+        for n, b in plan
+        if position is None or n >= position.chapter
+    ]
 
 
 # A paragraph opening with a dateline is a diary's or a letter's header, not
@@ -188,8 +201,9 @@ def narration_excerpts(
     for a book with no sample prose (SPEC-93 W18-5): paragraphs with no quoted
     speech at all (the extractor's `_narration_only` leaves them whole), no
     opening dateline, of 2+ sentences and NARRATION_EXCERPT_WORDS words,
-    narrating no `plot` line's event (`restates`, SPEC-36: the brief, the
-    book's plan, the chapter's earlier beats). In scope: before the source's
+    narrating no `plot` line's event (`restates`, SPEC-36: scene_setup passes
+    the brief and the plan lines of the scene's own and later chapters, the
+    events not yet told). In scope: before the source's
     later plot (`later_from`, SPEC-40); a source with no cut but a known
     `position` gives only its share up to the scene's chapter (the first
     chapter/of of its paragraphs). `own` ({source id: paragraph indexes}) is

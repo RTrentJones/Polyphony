@@ -303,8 +303,8 @@ async def test_scene_setup_builds_plot_and_later_plot(
     assert "practiced warmth\n" in setup.secondary_block
     (fen,) = _secondaries(cel, ["Old Fen"], load_excerpts("cel"), {"s1": 9})
     assert fen.samples == []
-    # W18-5 (B1): cel's eligible paragraphs before the cut (3 and 9) each
-    # restate a W4 plan line, so none is a style excerpt; (R) planless, both are.
+    # W18-5 (B1, narrowed): cel's paragraphs 3 and 9 each restate a plan line
+    # of chapter 1 (and later ones), so a chapter-1 scene shows neither.
     assert setup.narration == ()
     paragraphs = [
         " ".join(p.split()) for p in ce.source_paragraphs(load_excerpts("cel"))

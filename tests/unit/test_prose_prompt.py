@@ -400,6 +400,27 @@ def test_narration_excerpts_are_whole_unquoted_paragraphs_in_scope():
     assert not _DATELINE.match(para[0])
 
 
+def test_only_untold_plan_lines_rule_an_excerpt_out():
+    """(F) W18 review: an excerpt restating an EARLIER chapter's plan line is
+    kept (already told); one restating the scene's own or a LATER chapter's
+    line is dropped; without a position every line counts."""
+    from app.orchestration.prose import untold_lines
+    from app.planning.planned_beat import beat_scene_description
+
+    told = "The ledger burned slowly in the archive grate."
+    later = "The heron waded across the frozen marsh at dawn."
+    plan = [(1, {"title": told}), (3, {"title": "Milo signs."}), (4, {"title": later})]
+    untold = untold_lines("Brief", plan, StoryPosition(3, 5))
+    lines = [beat_scene_description(b) for _, b in plan]
+    assert untold == ["Brief", *lines[1:]]
+    assert len(untold_lines("Brief", plan, None)) == 4
+    tail = " The wind rose over the dark lake that night." * 5
+    burned = "The ledger burned in the archive grate, slowly." + tail
+    heron = "A heron waded the frozen marsh, at dawn." + tail
+    text = f"{burned}\n\n{heron}"
+    assert narration_excerpts([("s", text)], {}, untold) == (burned,)
+
+
 def test_a_first_person_pov_prefers_its_narrators_own_narration():
     """(F) N1: Rowan Merrow's (Walton's) letters, by the indexer's narrator
     rules; (R) a third-person scene has no preference."""
