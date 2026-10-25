@@ -1,0 +1,53 @@
+name: calibration # W19 S4's human calibration set (SPEC-94 D19-5): items and key, exported blind, as two artifacts
+run-name: calibration export ${{ inputs.label }}
+on:
+  workflow_dispatch:
+    inputs:
+      label: {description: the export label, e.g. W19-S4, required: true}
+      eval_runs: {description: 'comma-separated evals.yml run ids whose eval-report-* hold prose R2 scenes (spoken_lines: W15-3 or later)', required: true}
+      bundle_runs: {description: 'comma-separated baseline.yml generate run ids, as the rate dispatch was given', required: true}
+      ratings_run: {description: the baseline.yml rate run id whose baseline-ratings is the complete panel (kappa.json unrated 0), required: true}
+      panel_sha: {description: "the sha the panel rated at (its canon block); blank = this checkout's corpus", default: ''}
+      seed: {description: 'the export seed; blank = drawn and recorded in the key only', default: ''}
+      n_r2: {default: '20'}
+      n_pairs: {default: '20'}
+      with_arms: {description: 'also read baseline-key-* for arm labels in the key (only after S1 is published, D19-5)', type: choice, options: ['no', 'yes'], default: 'no'}
+permissions: {contents: read, actions: read}
+concurrency: {group: calibration, cancel-in-progress: false}
+jobs:
+  export: # no LLM call and no secret: it reads artifacts and writes items + key
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EVAL_RUNS: ${{ inputs.eval_runs }}
+      BUNDLE_RUNS: ${{ inputs.bundle_runs }}
+      RATINGS_RUN: ${{ inputs.ratings_run }}
+      WITH_ARMS: ${{ inputs.with_arms }}
+    steps:
+      - {uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5, with: {fetch-depth: 0}} # v4.3.1; history: each report's corpus at its harness_sha
+      - {uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065, with: {python-version: '3.12', cache: pip}} # v5.6.0
+      - run: sudo apt-get update && sudo apt-get install -y libmagic1 && pip install -r requirements.txt
+      - name: Download (reports, bundles, the panel's ratings; a key only with with_arms=yes)
+        run: |
+          set -euo pipefail
+          for r in ${EVAL_RUNS//,/ }; do gh run download "$r" -p 'eval-report-*' -D "in/reports/$r" -R "$GITHUB_REPOSITORY"; done
+          for r in ${BUNDLE_RUNS//,/ }; do gh run download "$r" -p 'baseline-bundle-*' -D "in/bundles/$r" -R "$GITHUB_REPOSITORY"; done
+          gh run download "$RATINGS_RUN" -n baseline-ratings -D in/ratings -R "$GITHUB_REPOSITORY"
+          if [ "$WITH_ARMS" = yes ]; then
+            for r in ${BUNDLE_RUNS//,/ }; do gh run download "$r" -p 'baseline-key-*' -D "in/keys/$r" -R "$GITHUB_REPOSITORY"; done
+          fi
+          python -c "import json,sys; u=json.load(open('in/ratings/kappa.json'))['unrated']; sys.exit(f'panel incomplete: {u} unrated' if u else 0)"
+      - name: Export (prints counts only)
+        env: {SEED: '${{ inputs.seed }}', PANEL_SHA: '${{ inputs.panel_sha }}', N_R2: '${{ inputs.n_r2 }}', N_PAIRS: '${{ inputs.n_pairs }}'}
+        run: |
+          set -euo pipefail
+          args=(--reports in/reports --bundles in/bundles --ratings in/ratings --n-r2 "$N_R2" --n-pairs "$N_PAIRS" --items out/items/items.json --key out/key/key.json)
+          [ -z "$SEED" ] || args+=(--seed "$SEED")
+          [ -z "$PANEL_SHA" ] || args+=(--panel-sha "$PANEL_SHA")
+          [ "$WITH_ARMS" != yes ] || args+=(--keys in/keys)
+          python -m evals.calibration.export "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Leak guard (items carry no label, verdict, score or source id)
+        run: python -m evals.calibration.guard out/items/items.json out/key/key.json
+      - {uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02, with: {name: calibration-items, path: out/items, retention-days: 90}} # v4.6.2
+      - {uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02, with: {name: calibration-key, path: out/key, retention-days: 90}} # v4.6.2
