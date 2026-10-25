@@ -59,6 +59,15 @@ VOICE_SAMPLES_LABEL = (
     "Voice samples (their own words, for manner only — match cadence, diction, "
     "syntax; never copy a sample's words: write new lines in this voice):"
 )
+# Own first-person narration standing in for speech (W17-1): labelled as
+# what it is, not as their words aloud.
+NARRATION_LABEL = (
+    "How they write (their own narration, for manner only) — their speech keeps "
+    "this diction, sentence length and period; do not modernise or clip it, and "
+    "never copy a sample's words:"
+)
+# A beat with 2+ sampled speakers: one computed line each (W17-1).
+VOICE_CONTRAST_NOTE = "How their voices differ (computed from the samples above):"
 EVIDENCE_LABEL = "Evidence:"
 EVIDENCE_ITEM = "- (part {part}) {quote}"  # .format(part=<1-based>, quote=...)
 # A member left with no verbatim quote (SPEC-56, SPEC-64): a mark, not a quote;
