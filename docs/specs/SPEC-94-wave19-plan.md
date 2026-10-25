@@ -69,6 +69,15 @@ validity claims stated at their true strength, a human calibration of the judges
   a trimmed middle is invisible to it. S7's damage is placed outside the trimmed region and, separately, inside it, so the
   blind spot is measured rather than assumed.
 
+- **D19-10 S5/S3 as built.** The holdout corpora are `holdout-a` (*The Woman in White*) and `holdout-b` (*The Moonstone*):
+  opaque names, because an eval book's title reached the canon prompt as `eval-<corpus>`, so the development corpora's titles
+  named their novels. Every eval title becomes opaque in this wave; that removes a recall cue from development measurements, so
+  draws before and after it are not strictly comparable. Every corpus declares `"split"`; the corpus readers refuse a holdout
+  book unless `evals.run --holdout` names it, and no default, workflow or history names one. The stronger renaming check found
+  originals left in the development corpora (Dracula, Wuthering), fixed in the same change. The holdout's synopsis, beats and
+  chapter attributions are checked against the full source before the freeze; `holdout-v1` tags the merge commit that carries
+  the corpora and `evals/tools/rename.py`.
+
 ## Sequence
 1. 10-26 00:07Z — W12-9 day 6 (S1). 05:00Z — W17 draw 2; then the wave-18 product PR.
 2. In parallel now, on branches: S2 (code + tests), S3 (docs), S5 (corpus build), S4's export (items + key, no LLM where
