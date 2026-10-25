@@ -259,6 +259,8 @@ _RUBRIC_SCORES = {
     "R5": 0.7,
     "R6": 0.5,
     "RA": 0.8,
+    "RN": 0.3,
+    "RC": 0.2,
 }
 
 
@@ -634,7 +636,7 @@ async def test_prose_writes_the_planned_scenes_of_chapter_1(tmp_path):
     assert [s["name_warnings"] for s in out["scenes"]] == [["Gary"], []]
     assert "unplaced_events" not in out
 
-    shown = dict(judge.seen[-5:])
+    shown = dict(judge.seen)  # each rubric's last input: scene 2's
     # The judge sees the canon, the style guide's sample prose and the beats...
     assert "Milo initialled the form in the box marked INITIAL HERE" in shown["R3"]
     assert "PLANNED BEATS (in order):\n1. Milo signs\n2. Zara warns" in shown["R3"]
@@ -1300,3 +1302,185 @@ def test_dracula_vasska_speech_lines_feed_r2_only():
     assert "Count Vasska" not in gt["gold_lines"]
     block = pipeline._voice_block(gt, ["Aldous Kerr", "Count Vasska"])
     assert "Count Vasska:" in block and "Aldous Kerr:" in block
+
+
+# --- W18-6/7 (SPEC-93): RN, the narrator; RC, the chapter as a whole -----------
+
+
+def test_rn_and_rc_rubrics_are_anchored_and_outside_the_scores():
+    for rid in rubrics.BOOK_RUBRICS:
+        text = rubrics.rubric(rid)
+        assert text.startswith(f"### {rid}. ")
+        for anchor in ("**1.0**", "**0.7**", "**0.4**", "**0.0**"):
+            assert anchor in text, (rid, anchor)
+    assert "NARRATOR SAMPLES" in rubrics.rubric("RN")
+    assert "POV" in rubrics.rubric("RN") and "tense" in rubrics.rubric("RN")
+    assert "PLAN" in rubrics.rubric("RC") and "repeated" in rubrics.rubric("RC")
+    assert not set(rubrics.BOOK_RUBRICS) & set(rubrics.SCENE_RUBRICS)
+    base = {"R1": 1.0, "R2": 0.8, "R3": 0.6, "R4": 0.9, "R5": 0.7}
+    assert rubrics.scene_score(base | {"RN": 0.0}) == rubrics.scene_score(base)
+
+
+@pytest.mark.parametrize("book", ["cel", "dracula", "frankenstein", "wuthering"])
+def test_narrator_samples_are_a_fixed_set_of_the_sources_narration(book):
+    got, who = pipeline.narrator_samples(book)
+    assert who == "corpus" and len(got) == 3
+    assert (got, who) == pipeline.narrator_samples(book)
+    flat = " ".join(pipeline.load_excerpts(book).split()).replace("\u2019", "'")
+    for s in got:
+        assert not re.search('["\u201c\u201d]', s)
+        assert 20 <= len(s.split()) <= 150 and not s.endswith(" \u2026")
+        assert " ".join(s.split()[:12]) in flat
+    # B1: the spread reaches the excerpt's last narration paragraph.
+    assert flat.rindex(" ".join(got[-1].split()[:12])) > len(flat) * 2 // 3
+    assert pipeline.narrator_samples("no-such-corpus") == ([], "corpus")
+
+
+def test_narrator_samples_follow_the_chapter_pov():
+    """B1: a POV with `voice_sources` chapters samples that narrator only."""
+    text = pipeline.load_excerpts("frankenstein").replace("\u2019", "'")
+    flat = " ".join(text.split())
+    letters = flat[: flat.index("Chapter 5")]
+    emeric, who = pipeline.narrator_samples("frankenstein", "Emeric Vandel")
+    assert who == "Emeric Vandel" and len(emeric) == 3
+    rowan, who = pipeline.narrator_samples("frankenstein", "Rowan Merrow")
+    assert who == "Rowan Merrow" and len(rowan) == 3
+    assert all(" ".join(s.split()[:12]) in letters for s in rowan)
+    assert not any(" ".join(s.split()[:12]) in letters for s in emeric)
+    assert pipeline.narrator_samples("frankenstein", "Nobody")[1] == "corpus"
+    assert pipeline.narrator_samples("cel", "Milo Voss")[1] == "corpus"
+
+
+def test_scene_narration_removes_the_dialogue_and_its_tags():
+    text = (
+        'Zara set down her pen and looked at the queue for a long time. "Read it,'
+        ' Milo," said Zara Okafor.\n\n"Is that normal?" Milo asked.\n\n'
+        '"Why would it be, after all this time here?" she asked, low.\n\n'
+        "He laughed."
+    )
+    got = pipeline.scene_narration(text)
+    assert got == (
+        "Zara set down her pen and looked at the queue for a long time.\n\n"
+        "He laughed."
+    )  # B2: no tag fragment, and a mostly-dialogue paragraph is left out
+
+
+def test_scene_narration_removes_single_quoted_dialogue_too():
+    assert pipeline.scene_narration("'You must go now,' Milo said.") == ""
+    got = pipeline.scene_narration(
+        "The boys' coats hung by the fire. It wasn't late, and the hall was dark."
+        " \u2018Go,\u2019 she said."
+    )
+    assert got == (
+        "The boys' coats hung by the fire. It wasn't late, and the hall was dark."
+    )  # Codex P2: single quotes are speech; apostrophes stay narration
+
+
+def test_rc_trims_each_scene_middle_when_the_chapter_is_long():
+    long = [" ".join(f"s{n}w{i}" for i in range(2000)) for n in range(2)]
+    text, trimmed = pipeline.rc_content({"title": "T", "summary": "S"}, long, 1000)
+    assert trimmed and text.split("[Scene 1]")[1].count(" […] ") == 2
+    assert '"[…]" marks each cut' in text and "trimmed in the middle" in text
+    assert "s0w0 " in text and "s0w1999" in text and "s0w1000" not in text
+    assert len(text.split()) < 1100
+    short, trimmed = pipeline.rc_content({"title": "T"}, ["a b", "c d"], 1000)
+    assert not trimmed and "[…]" not in short
+
+
+def test_rc_plan_lists_the_planned_beat_titles():
+    plan = {"title": "T", "summary": "S", "planned_beats": [{"title": "Intake"}]}
+    text, _ = pipeline.rc_content(plan, ["a b"])
+    assert text.startswith(
+        "PLAN (the outline's chapter):\nCHAPTER: T\nS\n"
+        "PLANNED BEATS (in order):\n1. Intake\n\nCHAPTER TO SCORE"
+    )
+
+
+class _BookJudge(_RubricJudge):
+    def __init__(self, rn, rc):
+        super().__init__()
+        self.rn, self.rc = rn, rc
+
+    async def score(self, rubric, content):
+        got = await super().score(rubric, content)
+        rid = self.seen[-1][0]
+        return SimpleNamespace(
+            score={"RN": self.rn, "RC": self.rc}.get(rid, got.score),
+            explanation=got.explanation,
+        )
+
+
+async def test_prose_reports_rn_and_rc_as_a_book_block(tmp_path):
+    judge = _RubricJudge()
+    out = await pipeline.step_prose(_cel_ctx(tmp_path, _ProductClient(), judge))
+    s1, s2 = out["scenes"]
+    # RN: scene 1 is narration, judged beside the cel narrator; scene 2 is all
+    # dialogue and speech tags, so RN is not applicable there.
+    (rn,) = [c for rid, c in judge.seen if rid == "RN"]
+    assert rn.startswith(
+        "THE BOOK'S CONFIGURED NARRATION: pov: third person limited, on Milo"
+    )
+    assert "\n\nNARRATOR SAMPLES (the source's own narration" in rn
+    assert "its dialogue and the speech tags beside it were removed" in rn
+    for sample in pipeline.narrator_samples("cel")[0]:
+        assert sample in rn
+    assert rn.split("TEXT TO SCORE")[1].count("Milo initialled the form") == 1
+    assert s1["rubrics"]["RN"]["score"] == 0.3
+    assert s2["rubrics"]["RN"]["not_applicable"]
+    # RC: one call, the whole chapter in order under the outline chapter's plan.
+    (rc,) = [c for rid, c in judge.seen if rid == "RC"]
+    assert rc.startswith("PLAN (the outline's chapter):\nCHAPTER: title ch-1")
+    one, two = rc.index("[Scene 1]\n" + SCENE_1), rc.index("[Scene 2]\n" + SCENE_2)
+    assert one < two and "[…]" not in rc
+    assert out["book"] == {
+        "rn_mean": 0.3,
+        "rc": 0.2,
+        "rc_explanation": "RC ok",
+        "rc_trimmed": False,
+        "narrator_samples": 3,
+        "narrator_sampled": "corpus",  # Milo has no voice_sources chapters
+    }
+    assert "RN" not in out["rubric_means"] and "RN" not in out["judge_explanation"]
+    # D18-4: the prose score is the same whatever RN and RC say.
+    for rn_score, rc_score in ((0.0, 0.0), (1.0, 1.0)):
+        again = await pipeline.step_prose(
+            _cel_ctx(tmp_path, _ProductClient(), _BookJudge(rn_score, rc_score))
+        )
+        assert again["score"] == out["score"]
+        assert [s["score"] for s in again["scenes"]] == [s1["score"], s2["score"]]
+        assert again["book"]["rc"] == rc_score
+
+
+def test_the_book_block_is_exported_as_its_own_metrics():
+    from evals.harness import report
+
+    book = {"rn_mean": 0.55, "rc": 0.4, "rc_explanation": "x", "rc_trimmed": True}
+    run = {
+        "app_sha": "s",
+        "book": "cel",
+        "judge": {"provider": "p", "self": False},
+        "steps": {"prose": {"score": 0.7, "words": 400, "book": book}},
+    }
+    out = report.tracer_export(run, model="m")
+    (case,) = out["cases"]
+    assert case["score"] == 0.7
+    assert (case["metrics"]["rn_mean"], case["metrics"]["rc"]) == (0.55, 0.4)
+    assert (out["metrics"]["prose.rn_mean"], out["metrics"]["prose.rc"]) == (0.55, 0.4)
+    gl = report.greenlight_export(run)
+    assert [c["name"] for c in gl["checks"]] == ["eval:prose"]
+    assert gl["checks"][0]["eval"]["score"] == 0.7
+    assert gl["metrics"] == {"prose.rn_mean": 0.55, "prose.rc": 0.4}
+    assert "RN=0.55 RC=0.4 (chapter trimmed)" in report.scorecard(run)
+    del run["steps"]["prose"]["book"]
+    assert "metrics" not in report.greenlight_export(run)
+
+
+def test_repeats_average_the_book_block():
+    from evals.run import _aggregate
+
+    passes = [
+        {"prose": {"score": 0.6, "book": {"rn_mean": 0.4, "rc": 0.2}}},
+        {"prose": {"score": 0.8, "book": {"rn_mean": 0.6, "rc": None}}},
+    ]
+    got = _aggregate(passes)["prose"]
+    assert got["score"] == 0.7 and got["book"] == {"rn_mean": 0.5, "rc": 0.2}

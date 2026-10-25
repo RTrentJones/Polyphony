@@ -95,6 +95,11 @@ def scorecard(run: dict) -> str:
                 f"r1_capped={res.get('r1_capped_scenes')} "
                 f"cast_from_beat={res.get('cast_from_beat')} {res.get('rubric_means')}"
             )
+            if res.get("book"):  # W18-6/7, beside the score (D18-4)
+                b = res["book"]
+                extra += f" book: RN={b.get('rn_mean')} RC={b.get('rc')}" + (
+                    " (chapter trimmed)" if b.get("rc_trimmed") else ""
+                )
         elif name == "revise":
             extra = (
                 f"tighten_n={res.get('tighten_n')} ras={res.get('tighten_ras')} "
@@ -238,7 +243,7 @@ def tracer_export(
         # identical on the trend. (It is also a case metric, below.)
         if res.get("score_std") is not None:
             out = f"score={score} ±{res['score_std']} (n={res.get('repeats')})  {out}"
-        metrics = _numeric_fields(res)
+        metrics = {**_numeric_fields(res), **book_metrics(res)}
         if (res.get("repeats") or 1) > 1:
             # _aggregate averages only `score`; every other field is the last draw's.
             # Publish just the averaged score and its spread so a trend never charts
@@ -246,7 +251,7 @@ def tracer_export(
             metrics = {
                 k: v
                 for k, v in metrics.items()
-                if k in ("score", "score_std", "repeats")
+                if k in ("score", "score_std", "repeats", *_BOOK_METRICS)
             }
         for k in _TRACER_RUN_METRICS.get(name, ("score",)):
             if k in metrics:
@@ -320,8 +325,21 @@ _TRACER_RUN_METRICS: dict[str, tuple[str, ...]] = {
     "attribution": ("score", "accuracy", "chance"),
     "continuity": ("score", "detection_recall", "false_positive_rate"),
     "outline": ("score", "cast_fidelity", "unknown_rate"),
-    "prose": ("score", "words"),
+    "prose": ("score", "words", "rn_mean", "rc"),
 }
+# W18-6/7 (D18-4): the prose step's `book` block, its own metrics (averaged
+# over repeats by evals.run._aggregate), never part of its score.
+_BOOK_METRICS = ("rn_mean", "rc")
+
+
+def book_metrics(res: dict) -> dict[str, float]:
+    """The numeric `book` fields of a step result ({} without one)."""
+    b = res.get("book") or {}
+    return {
+        k: round(float(b[k]), 6)
+        for k in _BOOK_METRICS
+        if isinstance(b.get(k), (int, float)) and not isinstance(b.get(k), bool)
+    }
 
 
 def _numeric_fields(res: dict) -> dict[str, float]:
@@ -388,7 +406,7 @@ def _case_output(name: str, res: dict) -> str:
 
 def greenlight_export(run: dict) -> dict:
     """Shape results as greenlight eval checks[] (score in 0..1)."""
-    checks = []
+    checks, metrics = [], {}
     for name, res in run["steps"].items():
         # A judge-less step (score None) has no 0..1 eval score to export, and a
         # reported one (SPEC-60) is not a check.
@@ -396,6 +414,7 @@ def greenlight_export(run: dict) -> dict:
             continue
         if res.get("status") == "reported":
             continue
+        metrics |= {f"{name}.{k}": v for k, v in book_metrics(res).items()}
         checks.append(
             {
                 "name": f"eval:{name}",
@@ -405,12 +424,15 @@ def greenlight_export(run: dict) -> dict:
                 },
             }
         )
-    return {
+    out = {
         "tool": "polyphony",
         "sha": run.get("app_sha"),
         "book": run["book"],
         "checks": checks,
     }
+    if metrics:  # D18-4: reported beside the checks, not as one
+        out["metrics"] = metrics
+    return out
 
 
 def write(run: dict, out_path: str) -> None:

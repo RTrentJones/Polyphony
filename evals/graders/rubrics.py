@@ -12,6 +12,10 @@ first: a deterministic failure caps its rubric at 0 whatever the judge says
     scene score   = R1 x mean(R2, R3, R4, R5)
     revise score  = mean(RA, R5)
 
+RN (narrative voice, per scene) and RC (the chapter as a whole) are the
+`book` rubrics (SPEC-93 W18-6/7): reported beside the prose score, never
+folded into it (D18-4), so the prose score's history stays comparable.
+
 The scene R1 cap (SPEC-28, H1) fires only when a principal the scene's plan
 names is neither named nor the attributed speaker of a quoted line, or when
 none of the cast is on the page; a principal who speaks unnamed is a recorded
@@ -101,6 +105,36 @@ RUBRICS: dict[str, str] = {
         "- **0.4**: The instruction is barely visible, or the passage drifts (new events, a new person).\n"
         "- **0.0**: The instruction is ignored or contradicted, or the passage is a different scene."
     ),
+    "RN": (
+        "### RN. Narrative voice (scenes, dialogue removed)\n"
+        "With the dialogue removed, does the scene's narration sound like this book's narrator, as the\n"
+        "NARRATOR SAMPLES (the source's own narration) show it?\n"
+        "- **1.0**: Same POV person and tense as the samples throughout. Register, diction and period\n"
+        "  match (no modern idiom in a period narrator, no ornament in a plain one). Sentence rhythm and\n"
+        "  length resemble the samples. A reader could not tell the narration from the source's.\n"
+        "- **0.7**: POV and tense match; register and period are right, with a few generic or\n"
+        "  out-of-period phrases, or a rhythm noticeably flatter or shorter than the samples'.\n"
+        "- **0.4**: POV or tense differs from the samples in places, or the narration reads as a\n"
+        "  generic modern narrator with the book's names (wrong register, diction or period).\n"
+        "- **0.0**: A different POV person or tense throughout, or the narration bears no resemblance\n"
+        "  to the samples (summary, a list, a script)."
+    ),
+    "RC": (
+        "### RC. The chapter as a whole (a generated chapter against its plan)\n"
+        "Read the whole CHAPTER (its scenes in order): does it read as one chapter of this book, doing\n"
+        "what the PLAN says the chapter changes?\n"
+        "- **1.0**: Scenes join with real transitions (time, place and who is present are clear). Pacing\n"
+        "  varies with purpose. No event, description or phrasing is repeated across scenes, and no\n"
+        "  scene restarts what an earlier one finished. One consistent narrator (POV, tense, register)\n"
+        "  from first scene to last. The planned change lands by the chapter's end.\n"
+        "- **0.7**: Reads as one chapter, with one abrupt seam, one repeated beat or phrase, or a\n"
+        "  sagging stretch; the planned change lands.\n"
+        "- **0.4**: Reads as separate scenes stitched together: several abrupt seams, content or\n"
+        "  phrasing repeated across scenes, the narrator shifting between scenes, or the planned change\n"
+        "  only half lands.\n"
+        "- **0.0**: Not one chapter: scenes contradict or restart each other, or the planned change\n"
+        "  never happens."
+    ),
 }
 
 # Which rubrics grade which artifact.
@@ -109,6 +143,8 @@ OUTLINE_RUBRICS = ("R1", "R6", "R3")
 # A revision: instruction adherence, and the span's continuity with its
 # surroundings (tpm-plan §3.4).
 REVISE_RUBRICS = ("RA", "R5")
+# Reported as the prose step's `book` block, outside every score (D18-4).
+BOOK_RUBRICS = ("RN", "RC")
 
 _INSTRUCTIONS = (
     "Score this artifact against the rubric above on 0.0-1.0. The anchors are "
@@ -120,7 +156,7 @@ _INSTRUCTIONS = (
 
 
 def rubric(rid: str) -> str:
-    """The rubric text the judge receives for `rid` (R1..R6, RA)."""
+    """The rubric text the judge receives for `rid` (R1..R6, RA, RN, RC)."""
     if rid not in RUBRICS:
         raise KeyError(f"unknown rubric {rid!r} (known: {sorted(RUBRICS)})")
     return f"{RUBRICS[rid]}\n\n{_INSTRUCTIONS}"
