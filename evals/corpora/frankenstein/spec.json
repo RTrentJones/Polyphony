@@ -1,5 +1,6 @@
 {
-  "_comment": "Data-only book spec consumed by evals/tools/build_gt.py. Frankenstein is the held-out validation corpus: like Dracula it has multiple disjoint first-person narrators (Walton's letters, Victor's creation chapter, the creature's chapter), so the voice-separability premise holds, but a different cast/genre so an improvement that only overfits Dracula won't score here. Names renamed for anti-memorization (see PROVENANCE.md).",
+  "_comment": "Data-only book spec consumed by evals/tools/build_gt.py. Frankenstein was added as the second (then 'held-out') corpus and is now a development corpus (SPEC-94 S3): like Dracula it has multiple disjoint first-person narrators (Walton's letters, Victor's creation chapter, the creature's chapter), so the voice-separability premise holds, but a different cast/genre so an improvement that only overfits Dracula won't score here. Names renamed for anti-memorization (see PROVENANCE.md).",
+  "split": "development",
   "author": "Mary Wollstonecraft Shelley",
   "year": 1818,
   "source": "Project Gutenberg #84 (public domain, US; PG wrapper stripped)",

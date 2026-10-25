@@ -37,6 +37,7 @@ from evals.graders import (
 from evals.harness import embed
 from evals.harness.vecmath import cosine
 from evals.measure.wilson import wilson
+from evals.splits import require as require_split
 from evals.steps.base import StepContext, step
 
 CORPORA = Path(__file__).resolve().parent.parent / "corpora"
@@ -90,6 +91,7 @@ def load_style(book: str) -> dict | None:
 
 
 def load_excerpts(book: str) -> str:
+    require_split(book)  # a holdout corpus only when asked for (SPEC-94 S5)
     return (CORPORA / book / "excerpts.txt").read_text(encoding="utf-8")
 
 
@@ -168,6 +170,7 @@ def load_corpus(book: str) -> tuple[str, dict]:
     Uploading the excerpt alone graded extraction against a cast the text
     never names (Edric Thane is not in it), so the score was 0 whatever the
     model did."""
+    require_split(book)  # a holdout corpus only when asked for (SPEC-94 S5)
     d = CORPORA / book
     text = (d / "excerpts.txt").read_text(encoding="utf-8")
     synopsis = d / "synopsis.txt"

@@ -20,6 +20,7 @@ from pathlib import Path
 import httpx
 
 from app.llm.providers import active_provider
+from evals import splits
 from evals.harness import report
 from evals.harness.cache import Cache
 from evals.harness.client import PolyphonyClient
@@ -342,6 +343,11 @@ def main() -> None:
         "Re-generates per pass, so N x the LLM cost — use for judge/generation steps.",
     )
     ap.add_argument("--run", choices=list(RUNS), help="a declared run (SPEC-68)")
+    ap.add_argument(
+        "--holdout",
+        action="store_true",
+        help="allow a holdout corpus (SPEC-94 S5): once per release, on frozen code",
+    )
     ap.add_argument("--export", help="also write the greenlight eval-export JSON here")
     ap.add_argument(
         "--tracer",
@@ -349,6 +355,11 @@ def main() -> None:
         help="POST the run to Tracer (EVAL_TRACER_URL + TRACER_INGEST_TOKEN)",
     )
     args = ap.parse_args()
+    if args.holdout:
+        if splits.split(args.book) != "holdout":
+            raise SystemExit(f"--holdout: {args.book} is not a holdout corpus")
+        os.environ[splits.ALLOW_ENV] = args.book
+    splits.require(args.book)  # a holdout book without --holdout stops here
 
     step_names = (
         [s for s in all_steps() if s != "baseline"]  # its own run (SPEC-84)

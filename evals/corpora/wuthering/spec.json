@@ -1,5 +1,6 @@
 {
   "_comment": "Data-only book spec consumed by evals/tools/build_gt.py. Wuthering Heights is the nonlinear manuscript: Pembury's dated frame (Chapters 1-3) and Mattie's narration of two timelines a generation apart (the mother's in Chapters 9 and 15, the daughter's in Chapters 21-22), with two Rosalind/Ottilie Catherines and every Penhale sharing one surname. Names renamed for anti-memorization (see PROVENANCE.md).",
+  "split": "development",
   "author": "Emily Brontë",
   "year": 1847,
   "source": "Project Gutenberg #768 (public domain, US; PG wrapper stripped)",

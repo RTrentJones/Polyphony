@@ -1,0 +1,101 @@
+{
+  "_comment": "Rename map for the HOLDOUT corpus (SPEC-94 S5; see PROVENANCE.md): original public-domain names -> invented replacements, longest-first so multi-word names replace before their parts. Real-world places, people and nations (London streets, India, William Cobbett) keep their names; the novel's people, houses, gem and home county do not (the gem's title name and the book its first narrator reads are renamed too). `spans` cuts six single-narrator sections out of the source (each narrative restarts at CHAPTER I), each under its own excerpt heading; `sections` lists those headings.",
+  "sections": [
+    "CHAPTER I",
+    "CHAPTER II",
+    "CHAPTER III",
+    "CHAPTER IV",
+    "CHAPTER V",
+    "CHAPTER VI"
+  ],
+  "spans": [
+    {
+      "heading": "CHAPTER I",
+      "start": "I spoke of my lady a line or two back.",
+      "end": "\nCHAPTER III\n"
+    },
+    {
+      "heading": "CHAPTER II",
+      "start": "One on the top of the other the rest of the company",
+      "end": "\nCHAPTER XI\n"
+    },
+    {
+      "heading": "CHAPTER III",
+      "start": "I am indebted to my dear parents",
+      "end": "\nCHAPTER II\n"
+    },
+    {
+      "heading": "CHAPTER IV",
+      "start": "My fair friend, Miss Clack, having laid down the pen",
+      "end": "\nCHAPTER II\n"
+    },
+    {
+      "heading": "CHAPTER V",
+      "start": "In the spring of the year eighteen hundred and forty-nine I was",
+      "end": "\nCHAPTER II\n"
+    },
+    {
+      "heading": "CHAPTER VI",
+      "start": "“Betteredge!” I said, pointing to the well-remembered book",
+      "end": "\nCHAPTER III\n"
+    }
+  ],
+  "aliases": {
+    "Gabriel Betteredge": "Amos Pennock",
+    "Betteredge": "Pennock",
+    "Gabriel": "Amos",
+    "Julia": "Honoria",
+    "Verinder": "Castlemere",
+    "Rachel": "Isabel",
+    "John": "Edmund",
+    "Franklin Blake": "Lewis Tremayne",
+    "Franklin": "Lewis",
+    "Blake": "Tremayne",
+    "Godfrey Ablewhite": "Cecil Mortlake",
+    "Godfrey": "Cecil",
+    "Ablewhites": "Mortlakes",
+    "Ablewhite": "Mortlake",
+    "Drusilla": "Tabitha",
+    "Clack": "Sneyd",
+    "Mathew": "Josiah",
+    "Bruff": "Hedley",
+    "Cuff": "Pellow",
+    "Seegrave": "Mallin",
+    "Rosanna Spearman": "Dorcas Coldridge",
+    "Rosanna": "Dorcas",
+    "Spearman": "Coldridge",
+    "Penelope": "Lettice",
+    "Candy": "Frome",
+    "Ezra": "Silas",
+    "Jennings": "Quarles",
+    "Septimus Luker": "Barnaby Grisewood",
+    "Septimus": "Barnaby",
+    "Luker": "Grisewood",
+    "Herncastles": "Stannards",
+    "Herncastle": "Stannard",
+    "Murthwaite": "Halloran",
+    "Lucy": "Nell",
+    "Yolland": "Pask",
+    "Smalley": "Dowson",
+    "Threadgall": "Fennimore",
+    "Merridew": "Lumley",
+    "Goby": "Tolley",
+    "Skipp": "Bidwell",
+    "Hotherstone": "Ormerod",
+    "Bouncers": "Tunstalls",
+    "Begbie": "Haddow",
+    "Selina": "Augusta",
+    "Adelaide": "Matilda",
+    "Caroline": "Sophia",
+    "Robinson Crusoe": "Jonas Harrow",
+    "Crusoe": "Harrow",
+    "Robinson": "Jonas",
+    "Moonstone": "Larkstone",
+    "Seringapatam": "Kalinpur",
+    "Somnauth": "Dhurapur",
+    "Frizinghall": "Kettlebridge",
+    "Yorkshire": "Coldmoor",
+    "Cobb’s Hole": "Gurney’s Wash",
+    "Shivering Sand": "Sighing Shoal"
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "_comment": "Rename map for the HOLDOUT corpus (SPEC-94 S5; see PROVENANCE.md): original public-domain names -> invented replacements, longest-first so multi-word names replace before their parts. Real-world places, people and nations (London streets, Italy, Henry the Eighth) keep their names; the novel's people, houses and home counties do not. `spans` cuts five single-narrator sections out of the source (Collins restarts chapter numbering per narrator and heads some sections with bare numerals), each under its own excerpt heading; `sections` lists those headings.",
+  "sections": [
+    "CHAPTER I",
+    "CHAPTER II",
+    "CHAPTER III",
+    "CHAPTER IV",
+    "CHAPTER V"
+  ],
+  "spans": [
+    {
+      "heading": "CHAPTER I",
+      "start": "The heat had been painfully oppressive all day",
+      "end": "\n\nV\n\n"
+    },
+    {
+      "heading": "CHAPTER II",
+      "start": "When I rose the next morning and drew up my blind",
+      "end": "\n\nVII\n\n"
+    },
+    {
+      "heading": "CHAPTER III",
+      "start": "I write these lines at the request of my friend",
+      "end": "\n\nII\n\n"
+    },
+    {
+      "heading": "CHAPTER IV",
+      "start": "June 15th.—The confusion of their arrival",
+      "end": "\n\nIII\n\n"
+    },
+    {
+      "heading": "CHAPTER V",
+      "start": "It is the grand misfortune of my life that nobody will let me alone.",
+      "end": "THE STORY CONTINUED BY ELIZA MICHELSON"
+    }
+  ],
+  "aliases": {
+    "Walter Hartright": "Edwin Calloway",
+    "Hartright": "Calloway",
+    "Walter": "Edwin",
+    "Marian Halcombe": "Harriet Lisle",
+    "Halcombe": "Lisle",
+    "Marian": "Harriet",
+    "Laura Fairlie": "Clara Wendover",
+    "Fairlie": "Wendover",
+    "Laura": "Clara",
+    "Frederick": "Lionel",
+    "Philip": "Gerald",
+    "Eleanor": "Beatrice",
+    "Percival Glyde": "Roderick Ashby",
+    "Percival": "Roderick",
+    "Glyde": "Ashby",
+    "Isidor": "Lucio",
+    "Ottavio": "Teodoro",
+    "Baldassare": "Rinaldo",
+    "Fosco": "Morandi",
+    "Anne Catherick": "Ellen Pryor",
+    "Catherick": "Pryor",
+    "Anne": "Ellen",
+    "Vincent Gilmore": "Matthew Hollins",
+    "Gilmore": "Hollins",
+    "Vincent": "Matthew",
+    "Merriman": "Tansley",
+    "Louis": "Gaspard",
+    "Fanny": "Bessie",
+    "Vesey": "Danby",
+    "Todd": "Hobb",
+    "Pesca": "Galli",
+    "Nina": "Bella",
+    "Kyrle": "Pargeter",
+    "Michelson": "Rennick",
+    "Clements": "Garside",
+    "Rubelle": "Bastide",
+    "Limmeridge": "Thornholm",
+    "Blackwater": "Greymere",
+    "Welmingham": "Stallbridge",
+    "Cumberland": "Fellshire",
+    "Hampshire": "Southmarch",
+    "Carlisle": "Kelbrook"
+  }
+}

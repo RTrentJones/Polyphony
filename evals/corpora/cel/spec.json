@@ -1,5 +1,6 @@
 {
   "_comment": "Fully SYNTHETIC corpus (no public-domain source, no rename). Purpose-built to reproduce the 'Elara' incident for the outline-fidelity eval: a ~17k-char synopsis whose leads (Milo Voss, Zara Okafor, Edric Thane) first appear past char 4,000, and an in-world term 'the CEL' = Chief Executive Lich that reads like a company. synopsis.txt is the editable source; ground_truth.json is generated from it.",
+  "split": "development",
   "book": "cel",
   "title": "Bored to Undeath",
   "synthetic": true,
