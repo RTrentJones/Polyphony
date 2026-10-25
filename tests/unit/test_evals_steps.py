@@ -747,6 +747,7 @@ async def test_outline_confirms_the_authors_premise_and_caps_r1(tmp_path):
 
 
 _EMPTY = "No artifact was provided to score."
+_NO_VOICE = "No dialogue provided to evaluate voice distinctness"
 
 
 @pytest.mark.parametrize(
@@ -754,6 +755,9 @@ _EMPTY = "No artifact was provided to score."
     [
         (_EMPTY, "No text was given.", None),
         (_EMPTY, "ok", 0.7),
+        # W17-2: the verb is optional.
+        ("No dialogue provided", _NO_VOICE, None),
+        (_NO_VOICE, "No dialogue provided", None),
         # Not a claim of absent input: scored as answered, never re-asked.
         ("There is no outline deviation; every beat given is realised", "", 0.0),
         ("Text provided: no dialogue errors, beats given in order", "", 0.0),
