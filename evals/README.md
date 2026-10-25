@@ -18,10 +18,21 @@ renamed excerpts of a few chapters are committed, never whole novels.
 name-cued recall; it does **not** defeat memorization of a famous novel. The
 prose itself (Walton's letters, a diary kept in a Carpathian castle, two
 houses on the moor) is in every large model's training data and is
-recognisable without a single name, and the eval books are titled
-`eval-<corpus>` (`eval-dracula`), which the canon block the model reads opens
-with (`Title: …`). Scores on these books measure the pipeline *plus* whatever
-the model remembers.
+recognisable without a single name. Scores on these books measure the pipeline
+*plus* whatever the model remembers.
+
+**Opaque eval titles (wave 19).** Until wave 19 the eval books were titled
+`eval-<corpus>` (`eval-prose-dracula`), and the canon block every planning prompt
+carries opens with that title (`Title: …`), so the model was told which novel it
+was reading. Every eval book, source title and upload filename is now
+`pipeline.eval_title(<corpus>, <step>)` = `eval-<step>-<tag>`, where the tag is the
+first eight hex digits of the corpus id's SHA-256 (`dracula` → `a0126546`): stable
+and distinct per corpus, so a book can still be found by computing its title, but
+with no lexical content. `tests/unit/test_eval_titles.py` checks that no corpus id
+or original title reaches the canon block. **Comparability:** this removes a cue,
+so development scores before and after it are not like for like (the same kind of
+break as SPEC-90 D6): compare a post-change run with post-change runs, and label
+the first one.
 
 **Development and holdout corpora (SPEC-94).** `frankenstein`, `dracula`,
 `wuthering` and `cel` are **development corpora**: the prompts, the harness and

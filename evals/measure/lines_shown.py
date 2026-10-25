@@ -3,7 +3,9 @@ in order, from the product's own `character_samples`, called with the probe's
 arguments (`dialogue.generate_dialogue`, `api/characters.test_dialogue`).
 
     DATABASE_URL=...polyphony_w7r python -m evals.measure.lines_shown \\
-        eval-attr-cel "Zara Okafor" "Edric Thane"
+        eval-attr-e910c860 "Zara Okafor" "Edric Thane"
+
+(the title is `pipeline.eval_title(<corpus>, "attr")`: `eval-attr-<tag>`, SPEC-94).
 """
 
 import asyncio
