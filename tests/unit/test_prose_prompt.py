@@ -15,7 +15,11 @@ from pathlib import Path
 import pytest
 
 from app.core.llm_text import as_quoted_block
-from app.core.prompt_markers import VOICE_CONTRAST_NOTE, VOICE_SAMPLES_LABEL
+from app.core.prompt_markers import (
+    NARRATION_LABEL,
+    VOICE_CONTRAST_NOTE,
+    VOICE_SAMPLES_LABEL,
+)
 from app.orchestration import prose as prose_module
 from app.orchestration.pov import NAMING_RULE, Pov, pov_instruction
 from app.orchestration.revise import build_revise_prompt
@@ -258,18 +262,21 @@ class TestBeatPrompt:
         assert "speaker whose samples run long keeps long lines" in fake.prompts[0]
 
     async def test_each_beat_speaker_is_tied_to_their_own_block(self, fake):
-        """(F) W18-1: both speakers named, with their block and the contrast
-        line, ahead of the style section; (R) a name with no block is not."""
+        """(F) W18-1: speakers whose block shows samples are named, with their
+        block and the contrast line, ahead of the style section; (R) a name with
+        no block, or a block with no samples, is not."""
         cast = (
-            "<character>\n### Victor\nVoice samples\n</character>\n\n"
-            "<character>\n### Elizabeth\n</character>\n\n"
+            f'<character>\n### Victor\n{VOICE_SAMPLES_LABEL}\n- "Hm."\n</character>'
+            f"\n\n<character>\n### Elizabeth\n{NARRATION_LABEL}x\n- I wept.\n"
+            "</character>\n\n<character>\n### Justine\n</character>\n\n"
             f"{VOICE_CONTRAST_NOTE}\n<contrast>\n- Victor: …\n</contrast>"
         )
-        beat = {"description": "They talk.", "characters": ["Victor", "Elizabeth"]}
+        beat = {"description": "Talk.", "characters": ["Victor", "Elizabeth"]}
         kw = dict(pov=Pov("first person"), story_position=None, secondary_block="")
         await write_beat_prose(beat, _REQUEST, cast, "", speakers=None, **kw)
         await write_beat_prose(beat, _REQUEST, cast, "", speakers=["Walton"], **kw)
-        voices, unnamed = fake.prompts
+        await write_beat_prose(beat, _REQUEST, cast, "", speakers=["Justine"], **kw)
+        voices, unnamed, unsampled = fake.prompts
         rule = voices.split("VOICES — ")[1].split("\n\n")[0]
         assert "THEIR OWN <character> block and the <contrast> line" in rule
         assert "Victor's lines follow Victor's block; Elizabeth's lines" in rule
@@ -277,6 +284,7 @@ class TestBeatPrompt:
         assert "long and periodic" in rule
         assert voices.index("VOICES — ") < voices.index(GENERIC_CRAFT_GUIDANCE)
         assert "VOICES — " not in unnamed  # Walton has no block here
+        assert "VOICES — " not in unsampled  # N5: Justine's block is empty
         await _write(_BEATS[0])  # the stub cast "cast" shows no block
         assert "VOICES — " not in fake.prompts[-1]
 
@@ -293,7 +301,12 @@ class TestBeatPrompt:
         block = as_quoted_block("\n\n".join(excerpts), "book_narration")
         assert f"write new prose in this voice:\n{block}\n\nWrite approx" in bare
         assert "STYLE — the book's own narration" in bare
-        assert "person and tense" in bare and "Never copy their words" in bare
+        assert "Never copy their words" in bare
+        # N2: no configured POV, the passages set person; a configured one wins.
+        assert "person and tense from these passages (the book sets no" in bare
+        first = types.SimpleNamespace(pov="first person", tone=None)
+        await _write(_BEATS[0], narration=excerpts, style=first)
+        assert "person and tense as the point of view above says;" in (fake.prompts[-1])
         assert GENERIC_CRAFT_GUIDANCE not in bare
         assert f"{block}\nFollow the tone in the canon's style guide" in toned
         assert "<book_narration>" not in sampled
@@ -346,10 +359,14 @@ def test_scene_name_warnings_on_the_archived_scenes():
 
 
 def test_narration_excerpts_are_whole_unquoted_paragraphs_in_scope():
-    """(F) W18-5: quoted, short, long, later-plot and brief-restating paragraphs
-    are skipped; the rest are picked evenly, whole, in upload order."""
+    """(F) W18-5: quoted, short, long, dateline, later-plot and plot-restating
+    paragraphs are skipped; the rest are picked evenly, whole (line breaks
+    joined), in upload order; the POV narrator's own are preferred."""
+    from app.orchestration.prose import _DATELINE
+
     sentence = "The wind rose over the dark lake that night. "
     para = [(f"Para {i}. " + sentence * 6).strip() for i in range(8)]  # 51 words
+    ledger = "Para x. The ledger burned in the archive grate. " + sentence * 5
     text = "\n\n".join(
         [
             para[0],
@@ -358,18 +375,52 @@ def test_narration_excerpts_are_whole_unquoted_paragraphs_in_scope():
             sentence * 30,  # 270 words: skipped, never cut
             para[1],
             para[2],
-            ledger := "Para x. The ledger burned in the archive grate. "
-            + (sentence * 5).strip(),
+            ledger.strip(),
             para[3],
             para[4],
+            "_5 May._--" + sentence * 5,  # a diary's dateline
+            para[6].replace(" The wind", "\nThe wind"),  # hard-wrapped
         ]
     )
-    picks = narration_excerpts([("s", text), ("t", para[5])], {}, "")
-    assert picks == (para[0], ledger, para[5])  # 7 eligible: 0, 3, 6
-    assert narration_excerpts([("s", text)], {"s": 5}, "") == (para[0], para[1])
-    brief = "The ledger burned slowly in the archive grate."
-    assert narration_excerpts([("s", text)], {}, brief) == (para[0], para[2], para[4])
-    assert narration_excerpts([], {}, "") == ()
+    ledger = ledger.strip()
+    pick = narration_excerpts
+    assert pick([("s", text), ("t", para[5])], {}) == (para[0], para[3], para[5])
+    assert pick([("s", text)], {"s": 5}) == (para[0], para[1])
+    plot = ["", "The ledger burned slowly in the archive grate.", "Milo signs."]
+    assert pick([("s", text)], {}, plot) == (para[0], para[2], para[6])
+    # B1: no later-plot cut, a known position: only the share up to its chapter.
+    assert pick([("s", text)], {}, position=StoryPosition(5, 11)) == tuple(para[:2])
+    early = StoryPosition(1, 11)  # (R) a later-plot cut wins over the share
+    assert pick([("s", text)], {"s": 9}, position=early) == (para[0], para[2], para[4])
+    # N1: the POV narrator's own paragraphs first; none eligible, the mix.
+    assert pick([("s", text)], {}, own={"s": {5, 7, 10}}) == (para[2], para[3], para[6])
+    assert pick([("s", text)], {}, own={"s": {1}}) == pick([("s", text)], {})
+    assert pick([], {}) == ()
+    assert _DATELINE.match("R. M. Renwick, ætat 59.--His was a strange case.")
+    assert not _DATELINE.match(para[0])
+
+
+def test_a_first_person_pov_prefers_its_narrators_own_narration():
+    """(F) N1: Rowan Merrow's (Walton's) letters, by the indexer's narrator
+    rules; (R) a third-person scene has no preference."""
+    from app.orchestration.prose import pov_narration
+    from app.parsing.character_extractor import source_paragraphs
+    from evals.steps.pipeline import load_excerpts
+
+    text = load_excerpts("frankenstein")
+    names = ["Emeric Vandel", "Rowan Merrow", "Hollis Crane", "Cosima Lorenzi"]
+    roles = {"Rowan Merrow": "narrator", "Emeric Vandel": "protagonist, narrator"}
+    cast = [types.SimpleNamespace(name=n, aliases=[], role=roles.get(n)) for n in names]
+    canon = types.SimpleNamespace(characters=cast)
+    own = pov_narration([("s", text)], Pov("first person", "Rowan Merrow"), canon)
+    paragraphs = [" ".join(p.split()) for p in source_paragraphs(text)]
+    picks = narration_excerpts([("s", text)], {}, ["A brief"], own=own)
+    assert len(picks) == 3 and all(paragraphs.index(p) in own["s"] for p in picks)
+    assert paragraphs.index(picks[0]) == 3  # "You will rejoice to hear …"
+    assert (
+        pov_narration([("s", text)], Pov("third person limited", "Rowan Merrow"), canon)
+        is None
+    )
 
 
 # --- scene_chapter (SPEC-30) ----------------------------------------------------

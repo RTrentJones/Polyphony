@@ -272,7 +272,7 @@ async def test_scene_setup_builds_plot_and_later_plot(
     import json
     from pathlib import Path
 
-    from app.orchestration.prose import scene_setup
+    from app.orchestration.prose import narration_excerpts, scene_setup
     from app.planning.planned_beat import beat_scene_description
     from tests.unit.factories import add_planned_chapter, add_scene, add_scene_beats
 
@@ -303,8 +303,11 @@ async def test_scene_setup_builds_plot_and_later_plot(
     assert "practiced warmth\n" in setup.secondary_block
     (fen,) = _secondaries(cel, ["Old Fen"], load_excerpts("cel"), {"s1": 9})
     assert fen.samples == []
-    # W18-5: the style excerpts are whole paragraphs before the later plot.
-    paragraphs = [p.strip() for p in ce.source_paragraphs(load_excerpts("cel"))]
-    assert setup.narration and all(
-        paragraphs.index(p) < 14 for p in setup.narration
-    ), setup.narration
+    # W18-5 (B1): cel's eligible paragraphs before the cut (3 and 9) each
+    # restate a W4 plan line, so none is a style excerpt; (R) planless, both are.
+    assert setup.narration == ()
+    paragraphs = [
+        " ".join(p.split()) for p in ce.source_paragraphs(load_excerpts("cel"))
+    ]
+    planless = narration_excerpts([("s", load_excerpts("cel"))], {"s": 14}, ["Brief"])
+    assert planless == (paragraphs[3], paragraphs[9])
