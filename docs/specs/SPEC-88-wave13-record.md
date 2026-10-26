@@ -93,6 +93,9 @@ then OpenRouter's 50/day · rate-state 12541928872: 280 checked, 0 removed · `u
 answered within 16384 tokens except `panel-cc97d25b80c727066774` (3 replies of `{}`: its first P⁵ failure; SPEC-84's fallback needs a
 second), then OpenRouter's 50/day · rate-state: 319 checked, 0 removed, 319/319 read identically at P⁵ · `unrated` 5 · 1 day left
 (about 10-26).
+40248080586 · `sha=P⁵` (`f57f026`) · prior 40145592398 · green: 5 Nemotron requests, all answered, `panel-cc97d25b80c727066774`
+included (no second failure, so SPEC-84's fallback is not used) · rate-state: 324 checked, 0 removed, 324/324 read identically
+at P⁵ (preferences 216, error counts 108, all in range) · `unrated` 0 · rating complete (2026-10-26); `score` and κ per SPEC-84 next.
  run id · `sha=19838a1` (P + the recorded `panel.py` lines) · `prior_run` · rate-state check (invalid
 entries removed, by key, or none) · `unrated` after the dispatch.
 
