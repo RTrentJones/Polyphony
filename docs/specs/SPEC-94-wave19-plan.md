@@ -45,6 +45,10 @@ validity claims stated at their true strength, a human calibration of the judges
 - **D19-6 Limits.** The monthly eval total ($40) is the only budget. S5's holdout run and any S4 item generation that needs LLM
   calls run in November unless October's remainder covers them.
 
+  **Amended 2026-10-26 (the user): "Budget is 100 a month total."** The monthly eval total is $100 (`evals.yml`'s default
+  `claude_monthly_usd`; the `EVAL_CLAUDE_MONTHLY_USD` repo variable, if set, still wins and must say 100). October has about
+  $64 left after ≈ $35.51 spent, so S5's holdout run, the Wuthering re-run of S7 and W18-4's after-draws need not wait for
+  November.
 - **D19-7 S4 as built** (`evals/calibration/`, `calibration.yml`). The inputs live only in Actions artifacts: R2's in
   `eval-report-*` (90 days), the pairs in W12-9's `baseline-bundle-*`/`baseline-ratings` (30 days, so the export must be
   dispatched before ≈11-18, after S1's last rating). R2's judge returns a score, not per-line attributions, so human-vs-judge
