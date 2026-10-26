@@ -320,7 +320,18 @@ class TestBeatPrompt:
         assert "person and tense from these passages (the book sets no" in bare
         first = types.SimpleNamespace(pov="first person", tone=None)
         await _write(_BEATS[0], narration=excerpts, style=first)
-        assert "person and tense as the point of view above says;" in (fake.prompts[-1])
+        assert "person as the point of view above says, tense from these" in (
+            fake.prompts[-1]
+        )
+        # Codex P2 on #67: a configured tense holds whether or not a POV is set.
+        tensed = types.SimpleNamespace(pov=None, tense="present", tone=None)
+        await _write(_BEATS[0], narration=excerpts, style=tensed)
+        assert "tense as the style guide above says, person from these" in (
+            fake.prompts[-1]
+        )
+        both = types.SimpleNamespace(pov="first person", tense="present", tone=None)
+        await _write(_BEATS[0], narration=excerpts, style=both)
+        assert "person and tense as the style guide above says;" in fake.prompts[-1]
         assert GENERIC_CRAFT_GUIDANCE not in bare
         assert f"{block}\nFollow the tone in the canon's style guide" in toned
         assert "<book_narration>" not in sampled
@@ -370,6 +381,17 @@ def test_scene_name_warnings_on_the_archived_scenes():
     assert scene_name_warnings(text, canon, also, "") == []
     brief = {"scene_description": "Milo nods to Imre Kasza."}
     assert scene_name_warnings(text, canon, brief, "") == []  # (R) the author's
+
+
+def test_a_continued_single_quoted_speech_is_not_narration():
+    """Codex P2 on #67: a single-quoted speech running over paragraphs opens
+    with a quote it never closes; it is the speaker's voice, never the
+    narrator's, so it is not an excerpt."""
+    sentence = "The wind rose over the dark lake that night. "
+    speech = "\u2018I have walked these shores for years. " + sentence * 6
+    narration = "Para 0. " + sentence * 6
+    picks = narration_excerpts([("s", f"{speech}\n\n{narration}")], {}, ["A brief"])
+    assert picks == (narration.strip(),)
 
 
 def test_narration_excerpts_are_whole_unquoted_paragraphs_in_scope():

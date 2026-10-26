@@ -246,8 +246,12 @@ def narration_excerpts(
             cut = ceil(len(paragraphs) * position.chapter / position.of)
         for i, raw in enumerate(paragraphs[:cut]):
             paragraph = " ".join(raw.split())
-            quoted = _narration_only(paragraph).split() != (
-                normalize_quotes(paragraph).split()
+            plain = normalize_quotes(paragraph)
+            # A single-quoted speech running over paragraphs opens with a quote
+            # it never closes, which `_narration_only` strips only for double
+            # quotes: an opening quote at all marks the paragraph as speech.
+            quoted = plain.startswith("'") or (
+                _narration_only(paragraph).split() != plain.split()
             )
             if (
                 low <= len(paragraph.split()) <= high
@@ -517,12 +521,25 @@ def _style_section(style, narration: tuple = ()) -> str:
     )
     if narration:
         excerpts = as_quoted_block("\n\n".join(narration), BOOK_NARRATION_FENCE)
-        person = (
-            "person and tense as the point of view above says"
-            if pov_mode(getattr(style, "pov", None))
-            else "person and tense from these passages (the book sets no point "
-            "of view, so the mode named above is only a default)"
-        )
+        # Only the settings the book leaves unset come from the passages: a
+        # configured tense holds even when the point of view is unset.
+        has_pov = bool(pov_mode(getattr(style, "pov", None)))
+        has_tense = bool(clean_for_llm(getattr(style, "tense", None)))
+        if has_pov and has_tense:
+            person = "person and tense as the style guide above says"
+        elif has_pov:
+            person = "person as the point of view above says, tense from these passages"
+        elif has_tense:
+            person = (
+                "tense as the style guide above says, person from these passages "
+                "(the book sets no point of view, so the mode named above is only "
+                "a default)"
+            )
+        else:
+            person = (
+                "person and tense from these passages (the book sets no point "
+                "of view, so the mode named above is only a default)"
+            )
         return (
             "STYLE — the book's own narration. These passages are from the "
             "author's source, outside any quotation: they are your primary style "
