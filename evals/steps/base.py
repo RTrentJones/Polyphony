@@ -34,18 +34,23 @@ class Step:
     name: str
     run: Callable[[StepContext], Awaitable[dict]]
     needs_api: bool  # True → needs the running server + admin creds
+    # False → the runner refuses `--repeat` > 1: the step's result carries no
+    # numeric score, so the repeat fold would keep only its last pass.
+    repeatable: bool = True
 
 
 _REGISTRY: dict[str, Step] = {}
 
 
-def step(name: str, *, needs_api: bool):
+def step(name: str, *, needs_api: bool, repeatable: bool = True):
     """Register a step under `name`. Order of registration = default run order."""
 
     def deco(fn: Callable[[StepContext], Awaitable[dict]]) -> Callable:
         if name in _REGISTRY:
             raise ValueError(f"duplicate eval step {name!r}")
-        _REGISTRY[name] = Step(name=name, run=fn, needs_api=needs_api)
+        _REGISTRY[name] = Step(
+            name=name, run=fn, needs_api=needs_api, repeatable=repeatable
+        )
         return fn
 
     return deco

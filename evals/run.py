@@ -188,6 +188,15 @@ def _is_local(url: str) -> bool:
 async def run(
     book: str, step_names: list[str], out: str, repeat: int = 1, name: str | None = None
 ) -> dict:
+    steps = [get_step(n) for n in step_names]
+    once = [s.name for s in steps if not s.repeatable]
+    if repeat > 1 and once:  # refused before any call is made
+        raise SystemExit(
+            f"--repeat {repeat} is refused for {', '.join(once)}: the repeat fold "
+            "keeps only the last pass of a step with no numeric score. Dispatch "
+            "the run again instead (separate reports) and pass every report "
+            "to its analysis, which averages each item over them."
+        )
     cfg = load_config()
     text, gt = pipeline.load_corpus(book)
     started = time.time()
@@ -231,7 +240,6 @@ async def run(
         "steps": {},
     }
 
-    steps = [get_step(n) for n in step_names]
     have_creds = bool(cfg.admin_email and cfg.admin_password)
     if any(s.needs_api for s in steps) and have_creds:
         ctx.client = PolyphonyClient(cfg.base_url)

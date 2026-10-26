@@ -364,9 +364,16 @@ calls/cost (72 calls, about $0.61 if every call went to the paid judge, $0 on th
 ones). Run it by name, never in `all`: dispatch evals.yml with
 `steps=rnrc_validation` and `book=frankenstein dracula wuthering` (each book's report
 judges its own chapters, on the run's judge chain and spend ceiling); then
-`python -m evals.validation.analyze <downloaded artifact dir>` prints, per damage and
-location, how often the damaged chapter scores below the intact one. `export` writes
-a `chapter` sample for S4's human calibration page.
+`python -m evals.validation.analyze <downloaded artifact dir>...` prints, per damage and
+location, how often the damaged chapter scores below the intact one. The step refuses
+`--repeat` > 1 (its score is null, so the repeat fold would keep only the last pass's
+judgments): to judge each item more than once, dispatch again and pass every run's
+artifact dir to `analyze`, which averages each item's judgments across the reports
+first and prints how many judgments each item's mean rests on. Its intervals resample
+chapters, not variants: a trimmed chapter's two variants of a damage (in / out) are
+averaged within the chapter, so each chapter weighs once. `export` writes a `chapter`
+sample for S4's human calibration page; `evals.calibration.agreement` compares the
+human's RC scores on it with the judge's.
 
 ## Relay runs: an agent plays the model
 

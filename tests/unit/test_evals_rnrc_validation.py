@@ -266,9 +266,12 @@ async def test_the_step_stops_on_a_spend_pause(monkeypatch):
 
 
 def test_summarize_counts_ties_apart_and_bootstraps_the_mean():
-    rows = [{"drop": d} for d in (0.3, 0.3, 0.0, -0.1, 0.3)]
+    rows = [
+        {"chapter": c, "drop": d} for c, d in zip("abcde", (0.3, 0.3, 0.0, -0.1, 0.3))
+    ]
     s = analyze.summarize(rows, resamples=500, seed=1)
-    assert (s["n"], s["below"], s["ties"], s["above"]) == (5, 3, 1, 1)
+    assert (s["n_observations"], s["below"], s["ties"], s["above"]) == (5, 3, 1, 1)
+    assert s["n_chapters"] == 5
     assert s["share_below"] == 0.6
     assert s["mean_drop"] == pytest.approx(0.16)
     lo, hi = s["ci95"]
@@ -276,6 +279,25 @@ def test_summarize_counts_ties_apart_and_bootstraps_the_mean():
     assert analyze.summarize(rows, 500, 1) == s  # seeded
     assert analyze.bootstrap_ci([0.2], 100, 0) is None
     assert analyze.bootstrap_ci([0.2, 0.2], 100, 0) == (0.2, 0.2)
+
+
+def test_a_chapters_variants_are_one_cluster_weighed_once():
+    """Review: a trimmed chapter's in/out variants share an intact score and a
+    text; they are averaged within the chapter and resampled together."""
+    rows = [
+        {"chapter": "A", "drop": 0.6},  # A's `out` variant
+        {"chapter": "A", "drop": 0.6},  # A's `in` variant
+        {"chapter": "B", "drop": 0.0},
+    ]
+    s = analyze.summarize(rows, resamples=500, seed=0)
+    assert (s["n_observations"], s["n_chapters"]) == (3, 2)
+    assert (s["below"], s["ties"]) == (2, 1)  # counts stay per observation
+    assert s["mean_drop"] == pytest.approx(0.3)  # not 0.4: A weighs once
+    assert s["share_below"] == 0.5
+    # Resampling chapters: a resample is A,A / A,B / B,B -> mean 0.6 / 0.3 / 0.
+    assert set(s["ci95"]) <= {0.0, 0.3, 0.6}
+    one = analyze.summarize(rows[:2], resamples=100)
+    assert one["n_chapters"] == 1 and one["ci95"] is None  # one cluster: no CI
 
 
 def test_pairs_and_table_split_by_location():
@@ -302,8 +324,10 @@ def test_pairs_and_table_split_by_location():
         ("partial", 0.0),
     ]
     t = analyze.table(rows, resamples=200)["dup"]
-    assert t["all"]["n"] == 3 and t["all"]["ties"] == 2
-    assert t["visible"]["n"] == 2 and t["visible"]["below"] == 1
+    assert t["all"]["n_observations"] == 3 and t["all"]["ties"] == 2
+    assert t["all"]["n_chapters"] == 2  # A's two variants are one chapter
+    assert {r["chapter"] for r in rows} == {"A", "B"}
+    assert t["visible"]["n_observations"] == 2 and t["visible"]["below"] == 1
     assert t["in"]["share_below"] == 0.0 and t["out"]["mean_drop"] == 0.5
 
 
@@ -319,6 +343,8 @@ def test_analyze_reads_reports_and_refuses_another_item_set(built, tmp_path):
     )
     out = analyze.analyze([tmp_path], resamples=200)
     assert out["items_judged"] == {"rc": 36, "rn": 36}
+    assert out["judgments"] == {"rc": {"1": 36}, "rn": {"1": 36}}
+    assert out["RC"]["duplicated_event"]["all"]["n_chapters"] == 6
     assert out["RC"]["duplicated_event"]["out"]["share_below"] == 1.0
     assert out["RC"]["duplicated_event"]["in"]["share_below"] == 0.0
     assert out["RN"]["narrator_drift"]["all"]["mean_drop"] == pytest.approx(0.7)
@@ -331,6 +357,49 @@ def test_analyze_reads_reports_and_refuses_another_item_set(built, tmp_path):
     )
     with pytest.raises(SystemExit, match="different item set"):
         analyze.analyze([tmp_path], resamples=10)
+
+
+def _report(path, key, judged):
+    v = {"seed": key["seed"], "items_digest": key["items_digest"], "judged": judged}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"steps": {"rnrc_validation": {"score": None, "validation": v}}})
+    )
+
+
+def test_repeats_are_separate_reports_averaged_per_item(built, tmp_path):
+    """Review: repeats come as separate dispatches; each item's judgments are
+    averaged across the reports, and the count they rest on is reported."""
+    _, key = built
+    for run_, intact in (("r1", 1.0), ("r2", 0.6)):
+        judged = {
+            i: {"rc": intact if k["damage"] is None else 0.4}
+            for i, k in key["items"].items()
+        }
+        _report(tmp_path / run_ / "eval-report-x.json", key, judged)
+    # r1's report named twice (its dir and its file) is read once
+    out = analyze.analyze(
+        [tmp_path / "r1", tmp_path / "r2", tmp_path / "r1" / "eval-report-x.json"],
+        resamples=50,
+    )
+    assert out["judgments"] == {"rc": {"2": 36}, "rn": {}}
+    # intact mean 0.8, damaged 0.4: a drop of 0.4 everywhere
+    assert out["RC"]["broken_transitions"]["all"]["mean_drop"] == pytest.approx(0.4)
+    assert "judgments per item" in analyze.render(out)
+
+
+async def test_the_runner_refuses_repeat_for_the_validation_step(tmp_path):
+    """Review: `--repeat` would keep only the last pass of a null-score step;
+    the runner refuses it before any call, pointing to separate dispatches."""
+    from evals import run as runner
+    from evals.steps.base import get_step
+
+    assert get_step(vstep.STEP).repeatable is False
+    with pytest.raises(SystemExit, match="Dispatch the run again"):
+        await runner.run(
+            "frankenstein", [vstep.STEP], str(tmp_path / "r.json"), repeat=2
+        )
+    assert not (tmp_path / "r.json").exists()
 
 
 # --- export ------------------------------------------------------------------

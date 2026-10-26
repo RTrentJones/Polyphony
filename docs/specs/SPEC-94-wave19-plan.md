@@ -109,6 +109,12 @@ validity claims stated at their true strength, a human calibration of the judges
   **upper bound** on RC's (and RN's) sensitivity until it is repeated on generated chapters or on the
   holdout. The holdout itself runs only from a tag: `evals.yml` refuses `holdout=yes` dispatched
   from a branch.
+  Review rules: the step refuses `--repeat` > 1 (its null score would make the repeat fold keep only
+  the last pass) — repeats are separate dispatches, averaged per item by `analyze`, which reports the
+  judgments each mean rests on; `agreement` scores `chapter` items (human RC vs `judge_rc`: mean
+  absolute difference, same-anchor share, damaged-below-intact ordering for both and their accord);
+  every `analyze` CI resamples chapters as clusters, a chapter's variants averaged first so each
+  chapter weighs once (n_chapters beside n_observations).
 
 ## Sequence
 1. 10-26 00:07Z — W12-9 day 6 (S1). 05:00Z — W17 draw 2; then the wave-18 product PR.

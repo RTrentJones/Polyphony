@@ -1,15 +1,26 @@
 """W19 S7: does a damaged chapter score below its intact one? Aggregates only.
 
 Reads the `rnrc_validation` results of one or more eval reports (one per book,
-or repeats: an item judged more than once is averaged first), rebuilds the key
-from the reports' seed (refusing a digest mismatch), and pairs each damaged
-item with its chapter's intact item. Per damage type and per location against
-RC's trimming (out / partial / in; D19-9), for RC and for RN (RN reads one
-scene, the same in every variant: drift is its signal, the rest a control):
+and repeats as separate dispatches: the step refuses `--repeat`, whose
+aggregation would keep only its last pass). An item judged in several reports
+is averaged first, and `judgments` says how many judgments each item's mean
+rests on. It rebuilds the key from the reports' seed (refusing a digest
+mismatch) and pairs each damaged item with its chapter's intact item. Per
+damage type and per location against RC's trimming (out / partial / in;
+D19-9), for RC and for RN (RN reads one scene, the same in every variant:
+drift is its signal, the rest a control):
 
-- n: chapters with both scores; below / ties / above: damaged < = > intact;
-- share_below = below / n; mean_drop = mean(intact - damaged) with a seeded
-  bootstrap 95% interval over chapters.
+- n_observations: damaged/intact pairs; n_chapters: the chapters they come
+  from (a trimmed chapter gives narrator_drift and duplicated_event two
+  variants each, in and out); below / ties / above: pairs with damaged < = >
+  intact;
+- the chapter is the unit: its variants' drops (intact - damaged) are averaged
+  within the chapter first, so each chapter weighs once, and its two variants
+  (correlated: one intact score, one text) never count as independent.
+  share_below = the mean over chapters of the share of the chapter's variants
+  below; mean_drop = the mean over chapters of the chapter's mean drop, with a
+  seeded bootstrap 95% interval resampling chapters (all of a chapter's
+  variants together).
 
 python -m evals.validation.analyze REPORT_OR_DIR... [--json OUT]
 """
@@ -19,7 +30,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from evals.validation.build import build
@@ -28,9 +39,10 @@ from evals.validation.step import STEP
 
 def collect(paths: list[Path]) -> tuple[int, str, dict[str, dict[str, list]]]:
     """(seed, digest, {item id: {"rc": [scores], "rn": [scores]}})."""
-    files = []
+    files: dict[Path, None] = {}  # a report named twice is read once
     for p in paths:
-        files += sorted(p.rglob("eval-report-*.json")) if p.is_dir() else [p]
+        for f in sorted(p.rglob("eval-report-*.json")) if p.is_dir() else [p]:
+            files[f.resolve()] = None
     seeds, scores = set(), defaultdict(lambda: {"rc": [], "rn": []})
     for f in files:
         res = (json.loads(f.read_text("utf-8")).get("steps") or {}).get(STEP) or {}
@@ -49,8 +61,8 @@ def collect(paths: list[Path]) -> tuple[int, str, dict[str, dict[str, list]]]:
 
 
 def pairs(key: dict, scores: dict, rid: str) -> list[dict]:
-    """[{damage, variant, location, drop}]: intact minus damaged, per chapter,
-    for every damaged item whose chapter's intact item was also scored."""
+    """[{chapter, damage, variant, location, drop}]: intact minus damaged, for
+    every damaged item whose chapter's intact item was also scored."""
     mean = {i: sum(s[rid]) / len(s[rid]) for i, s in scores.items() if s.get(rid)}
     intact = {k["chapter"]: i for i, k in key.items() if k["variant"] == "intact"}
     out = []
@@ -62,6 +74,7 @@ def pairs(key: dict, scores: dict, rid: str) -> list[dict]:
             continue
         out.append(
             {
+                "chapter": k["chapter"],
                 "damage": k["damage"],
                 "variant": k["variant"],
                 "location": k["location"],
@@ -83,19 +96,32 @@ def bootstrap_ci(xs: list[float], resamples: int, seed: int) -> tuple | None:
 
 
 def summarize(rows: list[dict], resamples: int = 2000, seed: int = 0) -> dict:
-    """One line of aggregates for `rows` (each with a `drop`)."""
+    """One line of aggregates for `rows` (each with a `chapter` and a `drop`).
+
+    Counts are of observations; share_below, mean_drop and its interval are
+    over chapters, each the mean of its own variants, so a chapter with two
+    variants weighs as much as one with one, and resampling a chapter's mean
+    resamples the whole cluster."""
     drops = [r["drop"] for r in rows]
     n = len(drops)
     below = sum(1 for d in drops if d > 0)
     ties = sum(1 for d in drops if d == 0)
+    by: dict[str, list[float]] = defaultdict(list)
+    for r in rows:
+        by[r["chapter"]].append(r["drop"])
+    clusters = [by[c] for c in sorted(by)]
+    chapter_drop = [sum(ds) / len(ds) for ds in clusters]
+    chapter_below = [sum(d > 0 for d in ds) / len(ds) for ds in clusters]
+    m = len(clusters)
     return {
-        "n": n,
+        "n_observations": n,
+        "n_chapters": m,
         "below": below,
         "ties": ties,
         "above": n - below - ties,
-        "share_below": round(below / n, 4) if n else None,
-        "mean_drop": round(sum(drops) / n, 4) if n else None,
-        "ci95": bootstrap_ci(drops, resamples, seed),
+        "share_below": round(sum(chapter_below) / m, 4) if m else None,
+        "mean_drop": round(sum(chapter_drop) / m, 4) if m else None,
+        "ci95": bootstrap_ci(chapter_drop, resamples, seed),
     }
 
 
@@ -114,6 +140,15 @@ def table(rows: list[dict], resamples: int = 2000, seed: int = 0) -> dict:
     return dict(out)
 
 
+def judgments(scores: dict) -> dict:
+    """{rid: {judgments per item: items}}: what each item's mean rests on."""
+    out = {}
+    for rid in ("rc", "rn"):
+        n = Counter(len(s[rid]) for s in scores.values() if s.get(rid))
+        out[rid] = {str(k): n[k] for k in sorted(n)}
+    return out
+
+
 def analyze(paths: list[Path], resamples: int = 2000) -> dict:
     seed, digest, scores = collect(paths)
     _, key = build(seed)
@@ -126,6 +161,7 @@ def analyze(paths: list[Path], resamples: int = 2000) -> dict:
         "items_judged": {
             rid: sum(1 for s in scores.values() if s.get(rid)) for rid in ("rc", "rn")
         },
+        "judgments": judgments(scores),
         "RC": table(pairs(key["items"], scores, "rc"), resamples),
         "RN": table(pairs(key["items"], scores, "rn"), resamples),
     }
@@ -133,19 +169,22 @@ def analyze(paths: list[Path], resamples: int = 2000) -> dict:
 
 def render(result: dict) -> str:
     lines = [
-        f"RN/RC validation (seed {result['seed']}, judged {result['items_judged']})"
+        f"RN/RC validation (seed {result['seed']}, judged {result['items_judged']},"
+        f" judgments per item {result['judgments']})"
     ]
     for rid in ("RC", "RN"):
         lines.append(f"\n{rid}: damaged below intact, per damage and location")
         lines.append(
-            f"  {'damage':24s} {'where':8s}  n  below ties above  share  mean drop [95% CI]"
+            f"  {'damage':24s} {'where':8s} obs ch  below ties above  share"
+            "  mean drop [95% CI over chapters]"
         )
         for damage, rows in result[rid].items():
             for where, s in rows.items():
                 ci = s["ci95"]
                 ci_s = f"[{ci[0]:+.3f}, {ci[1]:+.3f}]" if ci else "[n/a]"
                 lines.append(
-                    f"  {damage:24s} {where:8s} {s['n']:2d}  {s['below']:5d} {s['ties']:4d}"
+                    f"  {damage:24s} {where:8s} {s['n_observations']:3d}"
+                    f" {s['n_chapters']:2d}  {s['below']:5d} {s['ties']:4d}"
                     f" {s['above']:5d}  {s['share_below']:.2f}  {s['mean_drop']:+.3f} {ci_s}"
                 )
     return "\n".join(lines)

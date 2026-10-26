@@ -4,7 +4,7 @@ python -m evals.calibration.agreement items.json key.json answers.json
 
 `answers.json` is the page's export, {item_id: answer}: for an r2 item a list
 of candidate names in line order (or {"1": name, ...}); for a pair "A" or "B"
-(1 or 2 also read). Only aggregates are printed, never an item or a verdict.
+(1 or 2 also read); for a chapter an RC score. Only aggregates are printed, never an item or a verdict.
 
 R2. The truth is each line's credited speaker (`spoken_lines`). The R2 judge
 returns a rubric score, not per-line attributions, so "judge accuracy" per line
@@ -15,6 +15,16 @@ per-scene accuracy is put through R2's own bands (≥ 90% → 1.0, 70–89% → 
 Pairs. The panel verdict is the members' agreement (a tie when they differ).
 Agreement is over the pairs the panel decided, plus a variant scoring a panel
 tie ½; Cohen's κ is human side vs panel side over the decided pairs.
+
+Chapters (S7's `chapter` items, evals.validation.export). The human answers an
+RC score on the rubric's anchors (0 / 0.4 / 0.7 / 1.0; a number, or its
+string); the key carries the judge's RC (`judge_rc`, its judgments averaged).
+On the items with both: the mean absolute difference human - judge, and the
+share landing on the same anchor (each snapped to its nearest). Ordering: for
+each intact/damaged partner pair the human scored, the share where the human
+put damaged below intact, ties apart; the same for the judge on those pairs
+where it scored both; and how often human and judge order the pair alike
+(below / tie / above). An item's bootstrap cluster is its chapter.
 
 CIs: percentile bootstrap over items (r2: the scene is the cluster), 2,000
 resamples, 95%, seeded. κ's CI reports how many resamples it dropped as
@@ -190,15 +200,114 @@ def pair_stats(items: dict, key: dict, answers: dict) -> dict:
     return out
 
 
+ANCHORS = (0.0, 0.4, 0.7, 1.0)
+KINDS = ("r2", "pair", "chapter")
+
+
+def _rc_answer(answer) -> float | None:
+    """A human RC score in [0, 1], or None for an unreadable answer."""
+    if isinstance(answer, str):
+        try:
+            answer = float(answer.strip())
+        except ValueError:
+            return None
+    if isinstance(answer, bool) or not isinstance(answer, (int, float)):
+        return None
+    return float(answer) if 0.0 <= answer <= 1.0 else None
+
+
+def _judge_rc(k: dict) -> float | None:
+    v = k.get("judge_rc")
+    if isinstance(v, list):
+        v = [x for x in v if isinstance(x, (int, float)) and not isinstance(x, bool)]
+        return mean(v) if v else None
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _anchor(x: float) -> float:
+    """The nearest of RC's anchors (the lower on an exact midpoint)."""
+    return min(ANCHORS, key=lambda a: (abs(a - x), a))
+
+
+def _order(damaged: float, intact: float) -> str:
+    return "below" if damaged < intact else "tie" if damaged == intact else "above"
+
+
+def _flat(clusters: list[list]) -> list:
+    return [x for c in clusters for x in c]
+
+
+def chapter_stats(items: dict, key: dict, answers: dict) -> dict:
+    ids = [i for i, it in items.items() if it["kind"] == "chapter"]
+    human = {i: _rc_answer(answers.get(i)) for i in ids}
+    human = {i: h for i, h in human.items() if h is not None}
+    out: dict = {
+        "items": len(ids),
+        "answered": len(human),
+        "unreadable": sum(1 for i in ids if i in answers) - len(human),
+    }
+    if not human:
+        return out
+    judge = {i: _judge_rc(key[i]) for i in ids}
+    by_ch: dict = {}
+    for i, h in human.items():
+        if judge[i] is not None:
+            by_ch.setdefault(key[i]["chapter"], []).append((h, judge[i]))
+    clusters = [by_ch[c] for c in sorted(by_ch)]
+    out["judged"] = sum(len(c) for c in clusters)
+    out["chapters"] = len(clusters)
+    if clusters:
+        mad = lambda cs: mean(abs(h - j) for h, j in _flat(cs))  # noqa: E731
+        same = lambda cs: mean(_anchor(h) == _anchor(j) for h, j in _flat(cs))  # noqa
+        gap = lambda cs: mean(h - j for h, j in _flat(cs))  # noqa: E731
+        out["mean_abs_diff"] = _r(mad(clusters))
+        out["mean_abs_diff_ci"] = bootstrap(clusters, mad)
+        out["anchor_agreement"] = _r(same(clusters))
+        out["anchor_agreement_ci"] = bootstrap(clusters, same)
+        out["human_minus_judge"] = _r(gap(clusters))
+        out["human_minus_judge_ci"] = bootstrap(clusters, gap)
+    # Ordering, over the partner pairs the human scored both halves of.
+    rows = []  # (human order, judge order | None)
+    for i in ids:
+        k = key[i]
+        if k.get("variant") == "intact" or k.get("damage") is None:
+            continue
+        p = k.get("partner")
+        if i not in human or p not in human:
+            continue
+        j = None
+        if judge[i] is not None and judge.get(p) is not None:
+            j = _order(judge[i], judge[p])
+        rows.append((_order(human[i], human[p]), j))
+    order: dict = {"pairs": len(rows)}
+    if rows:
+        hs = [h for h, _ in rows]
+        order["human_below"] = _r(mean(h == "below" for h in hs))
+        order["human_ties"] = _r(mean(h == "tie" for h in hs))
+        both = [(h, j) for h, j in rows if j is not None]
+        order["judge_pairs"] = len(both)
+        if both:
+            alike = lambda ps: mean(h == j for h, j in ps)  # noqa: E731
+            order["judge_below"] = _r(mean(j == "below" for _, j in both))
+            order["judge_ties"] = _r(mean(j == "tie" for _, j in both))
+            order["human_judge_agreement"] = _r(alike(both))
+            order["human_judge_agreement_ci"] = bootstrap(both, alike)
+    out["ordering"] = order
+    return out
+
+
 def agreement(items_doc: dict, key_doc: dict, answers: dict) -> dict:
     items = {it["id"]: it for it in items_doc["items"]}
     key = key_doc["items"]
     if set(items) != set(key):
         raise SystemExit("items.json and key.json are not one export")
-    stray = set(answers) - set(items)
+    # An answer counts as known only on an item of a kind measured here (r2,
+    # pair, chapter); anything else is reported, not silently dropped.
+    stray = set(answers) - {i for i, it in items.items() if it["kind"] in KINDS}
     return {
         "r2": r2_stats(items, key, answers),
         "pairs": pair_stats(items, key, answers),
+        "chapters": chapter_stats(items, key, answers),
         "unknown_answer_ids": len(stray),
         "ci": f"{LEVEL:.0%} percentile bootstrap, {RESAMPLES} resamples",
     }

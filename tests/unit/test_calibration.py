@@ -416,3 +416,66 @@ def test_agreement_prints_aggregates_only(tmp_path, capsys):
     assert '"q1"' not in text and '"s1"' not in text
     with pytest.raises(SystemExit, match="not one export"):
         ag.agreement({"items": [{"id": "z", "kind": "pair"}]}, key, answers)
+
+
+def _chapters():
+    """Two chapters' intact/damaged partner pairs (S7's export) and a pair."""
+    items = {
+        "items": [{"id": i, "kind": "chapter"} for i in ("c1", "c2", "c3", "c4", "c5")]
+        + [{"id": "q1", "kind": "pair"}]
+    }
+    ch = lambda chapter, variant, partner, judge: {  # noqa: E731
+        "kind": "chapter",
+        "chapter": chapter,
+        "variant": variant,
+        "damage": None if variant == "intact" else variant,
+        "partner": partner,
+        "judge_rc": judge,
+    }
+    key = {
+        "items": {
+            "c1": ch("A", "intact", "c2", [1.0, 0.8]),  # judge mean 0.9
+            "c2": ch("A", "duplicated_event", "c1", [0.4]),
+            "c3": ch("B", "intact", "c4", [0.7]),
+            "c4": ch("B", "narrator_drift", "c3", [0.7]),
+            "c5": ch("C", "intact", "c6", None),  # partner unanswered/unjudged
+            "q1": {"kind": "pair", "panel": "A", "members": {}},
+        }
+    }
+    answers = {"c1": 1.0, "c2": "0.4", "c3": 0.7, "c4": 0.4, "c5": 0.9, "q1": "A"}
+    return items, key, answers
+
+
+def test_chapter_items_compare_the_humans_rc_with_the_judges():
+    """Review: S7's chapter items were ignored; now RC score agreement and
+    the damaged-below-intact ordering are reported, aggregates only."""
+    out = ag.agreement(*_chapters())
+    c = out["chapters"]
+    assert (c["items"], c["answered"], c["judged"], c["chapters"]) == (5, 5, 4, 2)
+    # |1-.9| + |.4-.4| + |.7-.7| + |.4-.7| = .4 over 4
+    assert c["mean_abs_diff"] == pytest.approx(0.1)
+    lo, hi = c["mean_abs_diff_ci"]
+    assert lo <= 0.1 <= hi
+    # anchors: 1.0/1.0, .4/.4, .7/.7, .4/.7 -> 3 of 4
+    assert c["anchor_agreement"] == 0.75
+    o = c["ordering"]
+    # A: human .4 < 1.0 below, judge .4 < .9 below; B: human below, judge tie
+    assert o == {
+        "pairs": 2,
+        "human_below": 1.0,
+        "human_ties": 0.0,
+        "judge_pairs": 2,
+        "judge_below": 0.5,
+        "judge_ties": 0.5,
+        "human_judge_agreement": 0.5,
+        "human_judge_agreement_ci": o["human_judge_agreement_ci"],
+    }
+    assert out["unknown_answer_ids"] == 0  # chapter ids are known
+    assert out["pairs"]["answered"] == 1
+    text = json.dumps(out)
+    assert not re.search(r'"c[1-5]"', text)  # aggregates only
+    items, key, answers = _chapters()
+    answers.update({"c3": "high", "c9": 0.5})
+    out = ag.agreement(items, key, answers)
+    assert out["chapters"]["unreadable"] == 1 and out["unknown_answer_ids"] == 1
+    assert out["chapters"]["ordering"]["pairs"] == 1

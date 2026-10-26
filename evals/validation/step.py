@@ -13,6 +13,15 @@ scene_narration(scene)) for one scene, both through pipeline._judge_rubrics.
 A run judges the items of its `--book` (one book per report), in the items'
 seeded order. The report holds scores by item id, never a label; join them to
 the key with evals.validation.analyze.
+
+The step refuses `--repeat` > 1 (`repeatable=False`, checked by evals.run
+before any call): its score is deliberately null, and evals.run._aggregate
+keeps only the last pass of a step with no numeric score, so N passes of judge
+calls would leave one pass's judgments. Repeats are separate dispatches, one
+report each; analyze averages each item over every report it is given.
+Carrying every pass in the step's output instead was not chosen: a later pass
+that errors or is skipped (quota) is the one _aggregate keeps, losing them
+all, and separate reports keep one aggregation path, analyze's.
 """
 
 from __future__ import annotations
@@ -99,7 +108,7 @@ def _ceiling() -> float | None:
     return c if c > 0 else None
 
 
-@step(STEP, needs_api=True)
+@step(STEP, needs_api=True, repeatable=False)
 async def step_rnrc_validation(ctx: StepContext) -> dict:
     from app.llm.errors import QuotaExhaustedError
 
