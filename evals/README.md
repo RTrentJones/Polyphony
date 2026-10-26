@@ -253,7 +253,7 @@ schedule, because each run spends the shared Gemini free-tier quota. It needs
 
 **Claude runs and the monthly budget (SPEC-90 D1).** `claude=yes` writes with
 Claude (paid). Evals get their own monthly budget (`claude_monthly_usd`, else
-the `EVAL_CLAUDE_MONTHLY_USD` repo variable, else $40). Each run boots an empty
+the `EVAL_CLAUDE_MONTHLY_USD` repo variable, else $100). Each run boots an empty
 database, so before boot the job sums this UTC month's spend from every run
 attempt's `eval-report-<run>[-<attempt>]` artifact (`evals/spend.py`: per
 attempt, the max `usage.month_cost_usd` over its boot-mode book reports; an

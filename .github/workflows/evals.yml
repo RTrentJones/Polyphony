@@ -61,7 +61,7 @@ on:
       claude_monthly_usd:
         description: >-
           with claude=yes, the month's Claude eval budget in USD (SPEC-90 D1); earlier runs' spend this
-          UTC month is subtracted. Blank = the EVAL_CLAUDE_MONTHLY_USD repo variable, else 40.
+          UTC month is subtracted. Blank = the EVAL_CLAUDE_MONTHLY_USD repo variable, else 100.
         default: ''
       claude_usd_cap:
         description: with claude=yes, an optional tighter per-run ceiling in USD (blank = the month's remainder)
@@ -161,7 +161,7 @@ jobs:
         if: ${{ github.event.inputs.claude == 'yes' && github.event.inputs.base_url == '' }}
         env:
           KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          BUDGET: ${{ github.event.inputs.claude_monthly_usd || vars.EVAL_CLAUDE_MONTHLY_USD || '40' }}
+          BUDGET: ${{ github.event.inputs.claude_monthly_usd || vars.EVAL_CLAUDE_MONTHLY_USD || '100' }}
           CAP: ${{ github.event.inputs.claude_usd_cap || '' }}
           GH_TOKEN: ${{ github.token }}
         run: |
