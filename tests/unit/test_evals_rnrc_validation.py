@@ -438,3 +438,44 @@ def test_chapter_items_pass_the_calibration_pages_leak_check(built):
     assert calibration.leaks(items, key) == []
     leaky = {**items, "items": [{**items["items"][0], "damage": "x"}]}
     assert calibration.leaks(leaky, key)
+
+
+def test_export_with_reports_rebuilds_their_set_and_refuses_another(built, tmp_path):
+    """Review: the judge's RC joins by item id, which survives a changed
+    chapter text or plan; the export keeps the reports' seed and digest and
+    refuses a set that is not theirs, as analyze does."""
+    _, key = built
+    some = sorted(key["items"])[:3]
+    _report(tmp_path / "ok" / "eval-report-x.json", key, {i: {"rc": 0.7} for i in some})
+    items_p, key_p = tmp_path / "items.json", tmp_path / "key.json"
+    args = ["--seed", "7", "--items", str(items_p), "--key", str(key_p)]
+    export.main([*args, "--reports", str(tmp_path / "ok")])
+    k = json.loads(key_p.read_text())
+    assert k["build_seed"] == key["seed"]
+    assert k["items_digest"] == key["items_digest"]
+    with pytest.raises(SystemExit, match="not the reports' seed"):
+        export.main([*args, "--build-seed", "1", "--reports", str(tmp_path / "ok")])
+
+    stale = {**key, "items_digest": "0" * 64}
+    _report(tmp_path / "stale" / "eval-report-x.json", stale, {some[0]: {"rc": 1.0}})
+    key_p.unlink()
+    with pytest.raises(SystemExit, match="different item set"):
+        export.main([*args, "--reports", str(tmp_path / "stale")])
+    assert not key_p.exists()
+    with pytest.raises(SystemExit, match="different item set"):
+        export.export(seed=7, n=8, rc={some[0]: [1.0]}, digest="0" * 64)
+
+
+def test_export_with_reports_uses_the_reports_seed(tmp_path):
+    other_seed = build.DEFAULT_SEED + 1
+    _, other = build.build(other_seed)
+    some = sorted(other["items"])[:2]
+    _report(tmp_path / "eval-report-x.json", other, {i: {"rc": 0.4} for i in some})
+    key_p = tmp_path / "key.json"
+    export.main(
+        ["--seed", "7", "--items", str(tmp_path / "i.json"), "--key", str(key_p)]
+        + ["--reports", str(tmp_path)]
+    )
+    k = json.loads(key_p.read_text())
+    assert k["build_seed"] == other_seed
+    assert k["items_digest"] == other["items_digest"]

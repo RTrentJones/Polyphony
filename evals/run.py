@@ -161,14 +161,15 @@ def _aggregate(passes: list[dict]) -> dict:
                 got = [b[k] for b in books if isinstance(b.get(k), int)]
                 if got:
                     agg[f"{k}_total"] = sum(got)
-            # ...and the book block's unscored tally over those same passes.
-            tallies = [
-                b["unscored"] for b in books if isinstance(b.get("unscored"), dict)
-            ]
-            if tallies:
-                agg["unscored"] = _sum_tallies(tallies)
         out[name] = merged
-    for name in names:  # SPEC-94 S2a: the unscored tally covers every pass
+    # Two scopes. The book block's means and their evidence (rn_mean, rc,
+    # rn_eligible_total, rn_scored_total, rc_scored_passes, rc_trimmed_passes)
+    # are over the SCORED passes above: they describe the numbers they sit
+    # beside. The unscored tallies (the step's and the book block's, SPEC-94
+    # S2a / D19-8) are over EVERY pass, scored or not, in every path above:
+    # a pass with no numeric score (every scene unscored) is exactly where the
+    # unparseable / claimed-empty / unavailable judgments are.
+    for name in names:
         tallies = [
             p[name]["unscored"]
             for p in passes
@@ -176,6 +177,19 @@ def _aggregate(passes: list[dict]) -> dict:
         ]
         if len(tallies) > 1:
             out[name] = dict(out[name]) | {"unscored": _sum_tallies(tallies)}
+        book_tallies = [
+            p[name]["book"]["unscored"]
+            for p in passes
+            if isinstance((p.get(name) or {}).get("book"), dict)
+            and isinstance(p[name]["book"].get("unscored"), dict)
+        ]
+        if len(book_tallies) > 1 or (
+            book_tallies and not isinstance(out[name].get("book"), dict)
+        ):
+            book = out[name].get("book")
+            book = dict(book) if isinstance(book, dict) else {}
+            book["unscored"] = _sum_tallies(book_tallies)
+            out[name] = dict(out[name]) | {"book": book}
     return out
 
 

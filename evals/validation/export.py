@@ -13,6 +13,9 @@ The sample is `n/2` chapters, each with its intact item and one damaged
 variant, damage types taken in turn so each appears; untrimmed chapters first
 (a rater then reads the whole chapter). The key carries chapter, variant,
 damage, location, the partner item's id and, with --reports, the judge's RC.
+With --reports the item set is rebuilt from the reports' seed and refused
+(as analyze refuses it) when its digest differs from theirs: the judge's RC
+joins by item id, and an id survives a changed chapter text or plan.
 
 python -m evals.validation.export [--n 8] [--seed N] [--reports R...]
     --items items.json --key key.json
@@ -62,17 +65,29 @@ def sample(key: dict, rng: random.Random, n: int) -> list[tuple[str, str]]:
     return out
 
 
-def judge_rc(reports: list[Path]) -> dict[str, list[float]]:
+def judge_rc(reports: list[Path]) -> tuple[int, str, dict[str, list[float]]]:
+    """(seed, items digest, {item id: RC scores}) of the reports."""
     from evals.validation.analyze import collect
 
-    _, _, scores = collect(reports)
-    return {i: s["rc"] for i, s in scores.items() if s.get("rc")}
+    seed, digest, scores = collect(reports)
+    return seed, digest, {i: s["rc"] for i, s in scores.items() if s.get("rc")}
 
 
 def export(
-    seed: int, n: int = 8, build_seed: int = DEFAULT_SEED, rc: dict | None = None
+    seed: int,
+    n: int = 8,
+    build_seed: int = DEFAULT_SEED,
+    rc: dict | None = None,
+    digest: str | None = None,
 ) -> tuple[dict, dict]:
-    items_doc, key_doc = build(build_seed)
+    """`digest` (the reports' items_digest, given with `rc`) must be the
+    rebuilt set's, or the export is refused: `rc` joins by item id only."""
+    if digest is None:
+        items_doc, key_doc = build(build_seed)
+    else:
+        from evals.validation.analyze import rebuild
+
+        items_doc, key_doc = rebuild(build_seed, digest)
     by_id = {it["id"]: it for it in items_doc["items"]}
     key = key_doc["items"]
     rng = random.Random(seed)
@@ -120,6 +135,7 @@ def export(
             "schema": KEY_SCHEMA,
             "seed": seed,
             "build_seed": build_seed,
+            "items_digest": key_doc["items_digest"],
             "items": out_key,
         },
     )
@@ -144,14 +160,22 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--n", type=int, default=8)
     ap.add_argument("--seed", type=int, default=None)
-    ap.add_argument("--build-seed", type=int, default=DEFAULT_SEED)
+    ap.add_argument("--build-seed", type=int, default=None)
     ap.add_argument("--reports", type=Path, nargs="*")
     ap.add_argument("--items", type=Path, required=True)
     ap.add_argument("--key", type=Path, required=True)
     a = ap.parse_args(argv)
     seed = a.seed if a.seed is not None else random.SystemRandom().getrandbits(32)
-    rc = judge_rc(a.reports) if a.reports else None
-    items, key = export(seed, a.n, a.build_seed, rc)
+    build_seed = DEFAULT_SEED if a.build_seed is None else a.build_seed
+    rc = digest = None
+    if a.reports:
+        report_seed, digest, rc = judge_rc(a.reports)
+        if a.build_seed is not None and a.build_seed != report_seed:
+            raise SystemExit(
+                f"--build-seed {a.build_seed} is not the reports' seed {report_seed}"
+            )
+        build_seed = report_seed
+    items, key = export(seed, a.n, build_seed, rc, digest)
     if leaks(items, key):
         raise SystemExit("items.json would unblind the rater; nothing written")
     for path, doc in ((a.items, items), (a.key, key)):

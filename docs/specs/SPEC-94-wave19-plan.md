@@ -74,6 +74,9 @@ validity claims stated at their true strength, a human calibration of the judges
   injection, or whose span a longer replacement pushes past the 12,000-character window, is reported
   unapplied with that reason. `rescore` recomputes every item with the live rule, so claimed-empty
   scenes in old records also move to None; on a `--repeat` step its tally is marked "last pass only".
+  Over repeats the book block's `unscored` tally sums every pass, scored or not (a pass whose every scene went unscored
+  still carries its RC/RN judgments), while its means and their evidence (`rn_*_total`, `rc_*_passes`) stay over the
+  scored passes.
 
 - **D19-9 No new metrics this wave** (a second outside review, 2026-10-25, on `5bb2df2`): RN and RC are new and unvalidated,
   so wave 19 adds none and validates these two (S7) instead. RC on a chapter over ≈3,000 words reads the scenes with their
@@ -114,7 +117,9 @@ validity claims stated at their true strength, a human calibration of the judges
   judgments each mean rests on; `agreement` scores `chapter` items (human RC vs `judge_rc`: mean
   absolute difference, same-anchor share, damaged-below-intact ordering for both and their accord);
   every `analyze` CI resamples chapters as clusters, a chapter's variants averaged first so each
-  chapter weighs once (n_chapters beside n_observations).
+  chapter weighs once (n_chapters beside n_observations). The export with `--reports` rebuilds the
+  item set from the reports' seed, keeps their digest in the key, and refuses (as `analyze` does) a
+  set whose digest differs, since `judge_rc` joins by item id and an id survives a changed chapter.
 
 ## Sequence
 1. 10-26 00:07Z — W12-9 day 6 (S1). 05:00Z — W17 draw 2; then the wave-18 product PR.

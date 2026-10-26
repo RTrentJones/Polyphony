@@ -227,3 +227,45 @@ def test_the_unscored_tally_is_reported_beside_the_aggregates():
     assert out["metrics"]["unscored.rubrics"] == 2
     assert out["metrics"]["unscored.items"] == 1
     assert out["labels"]["unscored_rubrics"] == "2"
+
+
+def test_the_book_tally_covers_every_pass_not_only_the_scored_ones():
+    """Review (D19-8): a pass with no numeric score (every scene unscored)
+    still carries its book-level RC/RN judgments; the book tally sums every
+    pass, while the evidence under the means stays over the scored passes."""
+    from evals.run import _aggregate, run_unscored
+
+    zero = {"rubrics": 0, "unparseable": 0, "claimed_empty": 0, "unavailable": 0}
+    bad = zero | {"rubrics": 1, "unparseable": 1}
+    scored = {
+        "score": 0.6,
+        "book": {
+            "rn_mean": 0.5,
+            "rc": 0.7,
+            "rn_eligible": 3,
+            "rn_scored": 3,
+            "unscored": zero,
+        },
+    }
+    unscored = {
+        "score": None,
+        "book": {"rn_mean": None, "rc": None, "rn_eligible": 3, "unscored": bad},
+    }
+    # one scored pass: the early return keeps it, but the tally is both passes'
+    steps = _aggregate([{"prose": scored}, {"prose": unscored}])
+    assert steps["prose"]["score"] == 0.6
+    assert steps["prose"]["book"]["rc"] == 0.7
+    assert steps["prose"]["book"]["unscored"]["unparseable"] == 1
+    assert run_unscored(steps)["unparseable"] == 1
+    assert scored["book"]["unscored"] == zero  # the pass itself is not mutated
+    # two scored passes and an unscored one: the means and their evidence are
+    # the scored passes', the tally all three
+    steps = _aggregate([{"prose": scored}, {"prose": unscored}, {"prose": scored}])
+    book = steps["prose"]["book"]
+    assert book["rc"] == 0.7 and book["rc_scored_passes"] == 2
+    assert book["rn_eligible_total"] == 6 and book["rn_scored_total"] == 6
+    assert book["unscored"]["unparseable"] == 1
+    assert book["unscored"]["rubrics"] == 1
+    # no scored pass: the last pass is reported, with every pass's tally
+    steps = _aggregate([{"prose": unscored}, {"prose": unscored}])
+    assert steps["prose"]["book"]["unscored"]["unparseable"] == 2

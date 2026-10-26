@@ -149,13 +149,21 @@ def judgments(scores: dict) -> dict:
     return out
 
 
-def analyze(paths: list[Path], resamples: int = 2000) -> dict:
-    seed, digest, scores = collect(paths)
-    _, key = build(seed)
+def rebuild(seed: int, digest: str) -> tuple[dict, dict]:
+    """build(seed), refusing it when its digest is not the reports' `digest`:
+    a chapter's text or plan changed since they were judged, so their scores
+    (joined by item id) would belong to different material."""
+    items, key = build(seed)
     if key["items_digest"] != digest:
         raise SystemExit(
             "the reports judged a different item set than this checkout builds"
         )
+    return items, key
+
+
+def analyze(paths: list[Path], resamples: int = 2000) -> dict:
+    seed, digest, scores = collect(paths)
+    _, key = rebuild(seed, digest)
     return {
         "seed": seed,
         "items_judged": {

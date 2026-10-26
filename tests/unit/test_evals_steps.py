@@ -1554,7 +1554,8 @@ def test_repeats_report_the_book_blocks_evidence():
         {"prose": {"score": 0.8, "book": book(0.6, None, False, 3, 2, 2)}},
         {"prose": {"score": 0.7, "book": book(None, 0.4, True, 2, 0, 2)}},
         # A pass with no numeric score is not in the means, nor in the counts
-        # or the book block's tally beside them (review S5).
+        # beside them (review S5); its unscored judgments are in the book
+        # block's tally, which covers every pass (D19-8 review).
         {"prose": {"score": None, "book": book(0.9, 0.9, True, 4, 4, 5)}},
     ]
     got = _aggregate(passes)["prose"]
@@ -1565,7 +1566,7 @@ def test_repeats_report_the_book_blocks_evidence():
     assert (b["rc_scored_passes"], b["rc_trimmed_passes"]) == (2, 2)
     assert (b["rn_eligible_total"], b["rn_scored_total"]) == (8, 5)
     assert not {"rn_eligible", "rn_scored", "rc_trimmed", "rc_scored"} & set(b)
-    assert b["unscored"] == {"rubrics": 4, "unparseable": 4, "claimed_empty": 0}
+    assert b["unscored"] == {"rubrics": 9, "unparseable": 9, "claimed_empty": 0}
     run = {
         "app_sha": "s",
         "book": "cel",
