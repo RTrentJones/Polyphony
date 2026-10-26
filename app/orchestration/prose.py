@@ -879,7 +879,10 @@ def _canon_hash(setup: SceneSetup, summary: str, position, prior_tail="") -> str
     the job is paused restarts it rather than continuing from beats that no
     longer follow. The book's plan and the chapter's earlier beats the planner
     sees (SPEC-43) count too, when there are any, so an unplanned scene keeps
-    its old fingerprint."""
+    its old fingerprint. So do the book's own narration excerpts (W18-5): a
+    source edit leaves the approved canon as it was but can change them, and
+    beats written against one narration reference must not be finished
+    against another."""
     import hashlib
     import json
 
@@ -892,6 +895,8 @@ def _canon_hash(setup: SceneSetup, summary: str, position, prior_tail="") -> str
     parts = (canon, (summary or "") + story_position_line(position), tail)
     if setup.plan or setup.earlier:
         parts += (json.dumps([setup.plan, setup.earlier], sort_keys=True),)
+    if setup.narration:
+        parts += ("\x01".join(setup.narration),)
     return hashlib.sha256("\x00".join(parts).encode("utf-8")).hexdigest()[:16]
 
 

@@ -151,6 +151,20 @@ class TestProseTail:
         earlier = bare._replace(earlier=[("Retained", ["Milo signs."])])
         assert _canon_hash(earlier, "ch", None) != _canon_hash(bare, "ch", None)
 
+    def test_changed_narration_excerpts_change_the_fingerprint(self):
+        """Codex P2 on #67: a source edit can change the book's own narration
+        excerpts without touching the canon, so a paused scene restarts rather
+        than finishing against another narration reference; none keeps the old
+        fingerprint."""
+        bare = SceneSetup(Canon("c"), [], None, None, "", [], [], "", None)
+        one = bare._replace(narration=("She walked out into the rain.",))
+        other = bare._replace(narration=("I walked out into the rain.",))
+        hashes = {_canon_hash(s, "ch", None) for s in (bare, one, other)}
+        assert len(hashes) == 3
+        assert _canon_hash(bare._replace(narration=()), "ch", None) == _canon_hash(
+            bare, "ch", None
+        )
+
 
 # --- trim_seam_repeat ---------------------------------------------------------
 
