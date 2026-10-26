@@ -88,10 +88,10 @@
     },
     {
       "id": "name-misspell",
-      "locate": "“My name is Wendell Ashdown,” growled",
-      "replace": "“My name is Wendel Ashdown,” growled",
+      "locate": "“Ezekiel, take Mr.",
+      "replace": "“Ezekial, take Mr.",
       "expect_type": "character",
-      "note": "the young man's name respelled where he gives it, inconsistent with every other spelling"
+      "note": "the old servant's name respelled where he is first called for, inconsistent with the three later spellings inside the graded window (SPEC-94 S2: the earlier anchor, Wendell's \"My name is\", lay past the window and was never applied)"
     }
   ]
 }

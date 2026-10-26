@@ -46,3 +46,30 @@ Against wave 16 (Frankenstein 0.31 Claude-judged; 0.21 Groq, ≈0.42 without its
 not clearly moved: the judge still reads the lines as "terse, plain, unlike the long ornate samples". One Dracula 0.0 is
 another empty claim ("No dialogue was presented"), so the detector also takes presented/included/shown. Spend: $4.61
 (month $33.37 of $40). Draw 2 runs on Groq alone once its daily tokens recover.
+
+## W17-4 draw 2 (run 40272098890, `5bb2df2`, 2026-10-26, Groq-judged; wave 18's before-row)
+| book | R2 | applicable | RN mean | RC | scenes (R2 / RN) |
+|---|---|---|---|---|---|
+| frankenstein | — (step failed) | — | — | — | — |
+| dracula | **1.0** (one scene) | 1/3 | 0.27 | 1.0 | 1.0 / 0.0, n/a / 0.4, n/a / 0.4 |
+- **Frankenstein failed after its prose was written.** Groq's 8,000-TPM limit outlasted the client's 90 s of 429 retries, and the
+  judge re-raised a per-minute `QuotaExhaustedError` (only a daily cap failed over, D14), so the whole prose step errored. Fixed on
+  the wave-19 branch: a per-minute limit now waits a minute on the same judge, twice at most, before failing over.
+- **Dracula's R2 rests on one scene.** Two of three scenes had under two cast speakers with voice samples (not applicable), so
+  1.0 is a single scene's reading and does not compare with draw 1's 0.24 over four scenes.
+- **RN, first live reading (W18-6).** 0.0–0.4 per scene: every explanation names the same gap — the generated narration is
+  third person where the source narrator (Aldous Kerr's journal) writes in the first. RC read the chapter as coherent (1.0). This
+  is the before-row for W18-5 (the book's own narration as style reference, taking person and tense from it when no POV is set).
+- **Judge:** Groq throughout for Dracula; no failover recorded.
+- **Spend:** $3.73 for this draw (Frankenstein $2.49, mostly generation before the failed judging; Dracula $1.24). `evals.spend`
+  read $31.78 spent before it, so October stands at ≈ $35.51 of $40 (draw 1's "$33.37" above counted an unsettled ceiling).
+
+## Close record (2026-10-26)
+- **W17-1** (honest narration label, per-beat voice contrast in the cast context) shipped; Frankenstein's R2 did not clearly
+  move (draw 1: 0.42 against wave 16's ≈0.42), and draw 2 could not re-measure it. D17-1's condition is met; the user unfroze
+  `prose.py` for wave 18 (SPEC-93 D18-1).
+- **W17-2/3** (empty-claim detector, Vasska's gold lines) shipped; Dracula's R2 applied for the first time in draw 1.
+- **Carried to wave 18:** the ensemble agent's `<voice>` block (W18-2) and Dracula's "Transylvanian" renaming leftover
+  (W18-3, then the fuller wave-19 sweep, SPEC-94 D19-10).
+- **Measurement carried to wave 19:** a single-scene R2 is too thin to compare draws on; S8's evidence counts make that visible,
+  and the per-minute judge fix keeps one busy minute from losing a book.

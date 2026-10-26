@@ -20,14 +20,18 @@ from pathlib import Path
 import httpx
 
 from app.llm.providers import active_provider
+from evals import splits
 from evals.harness import report
 from evals.harness.cache import Cache
 from evals.harness.client import PolyphonyClient
 from evals.harness.config import load as load_config
 from evals.harness.judge import Judge
+from evals.harness.unscored import run_unscored  # noqa: F401 — re-exported
+from evals.harness.unscored import sum_tallies as _sum_tallies
 from evals.preflight import RUNS, preflight
 from evals.baseline import arms  # noqa: F401 — registers `baseline` (W12-5)
 from evals.steps import pipeline  # noqa: F401 — registers the steps
+from evals.validation import step as validation  # noqa: F401 — W19 S7, opt-in
 from evals.steps.base import StepContext, all_steps, get_step
 
 
@@ -140,7 +144,52 @@ def _aggregate(passes: list[dict]) -> dict:
             for k in ("rn_mean", "rc"):
                 got = [b[k] for b in books if isinstance(b.get(k), (int, float))]
                 merged["book"][k] = round(statistics.mean(got), 4) if got else None
+            # SPEC-94 S8: the evidence under those means, over the same passes.
+            # Summed counts get their own names (review S5): a single run's
+            # `rn_eligible` is one pass's scenes, and a sum over N passes under
+            # the same key would jump the Tracer series by N. The last pass's
+            # single-run fields are dropped, not left to pass for the repeats.
+            agg = merged["book"]
+            for k in ("rn_eligible", "rn_scored", "rc_trimmed"):
+                agg.pop(k, None)
+            agg["rc_scored_passes"] = sum(
+                isinstance(b.get("rc"), (int, float)) and not isinstance(b["rc"], bool)
+                for b in books
+            )
+            agg["rc_trimmed_passes"] = sum(bool(b.get("rc_trimmed")) for b in books)
+            for k in ("rn_eligible", "rn_scored"):
+                got = [b[k] for b in books if isinstance(b.get(k), int)]
+                if got:
+                    agg[f"{k}_total"] = sum(got)
         out[name] = merged
+    # Two scopes. The book block's means and their evidence (rn_mean, rc,
+    # rn_eligible_total, rn_scored_total, rc_scored_passes, rc_trimmed_passes)
+    # are over the SCORED passes above: they describe the numbers they sit
+    # beside. The unscored tallies (the step's and the book block's, SPEC-94
+    # S2a / D19-8) are over EVERY pass, scored or not, in every path above:
+    # a pass with no numeric score (every scene unscored) is exactly where the
+    # unparseable / claimed-empty / unavailable judgments are.
+    for name in names:
+        tallies = [
+            p[name]["unscored"]
+            for p in passes
+            if isinstance((p.get(name) or {}).get("unscored"), dict)
+        ]
+        if len(tallies) > 1:
+            out[name] = dict(out[name]) | {"unscored": _sum_tallies(tallies)}
+        book_tallies = [
+            p[name]["book"]["unscored"]
+            for p in passes
+            if isinstance((p.get(name) or {}).get("book"), dict)
+            and isinstance(p[name]["book"].get("unscored"), dict)
+        ]
+        if len(book_tallies) > 1 or (
+            book_tallies and not isinstance(out[name].get("book"), dict)
+        ):
+            book = out[name].get("book")
+            book = dict(book) if isinstance(book, dict) else {}
+            book["unscored"] = _sum_tallies(book_tallies)
+            out[name] = dict(out[name]) | {"book": book}
     return out
 
 
@@ -153,6 +202,15 @@ def _is_local(url: str) -> bool:
 async def run(
     book: str, step_names: list[str], out: str, repeat: int = 1, name: str | None = None
 ) -> dict:
+    steps = [get_step(n) for n in step_names]
+    once = [s.name for s in steps if not s.repeatable]
+    if repeat > 1 and once:  # refused before any call is made
+        raise SystemExit(
+            f"--repeat {repeat} is refused for {', '.join(once)}: the repeat fold "
+            "keeps only the last pass of a step with no numeric score. Dispatch "
+            "the run again instead (separate reports) and pass every report "
+            "to its analysis, which averages each item over them."
+        )
     cfg = load_config()
     text, gt = pipeline.load_corpus(book)
     started = time.time()
@@ -196,7 +254,6 @@ async def run(
         "steps": {},
     }
 
-    steps = [get_step(n) for n in step_names]
     have_creds = bool(cfg.admin_email and cfg.admin_password)
     if any(s.needs_api for s in steps) and have_creds:
         ctx.client = PolyphonyClient(cfg.base_url)
@@ -239,6 +296,7 @@ async def run(
                         quota_exhausted = True
             passes.append(one)
         result["steps"] = _aggregate(passes)
+        result["unscored"] = run_unscored(result["steps"])
         if cfg.relay_archive and "baseline" not in step_names:  # no contract draw
             # Over the whole run's archive, once (not per pass).
             try:
@@ -342,6 +400,11 @@ def main() -> None:
         "Re-generates per pass, so N x the LLM cost — use for judge/generation steps.",
     )
     ap.add_argument("--run", choices=list(RUNS), help="a declared run (SPEC-68)")
+    ap.add_argument(
+        "--holdout",
+        action="store_true",
+        help="allow a holdout corpus (SPEC-94 S5): once per release, on frozen code",
+    )
     ap.add_argument("--export", help="also write the greenlight eval-export JSON here")
     ap.add_argument(
         "--tracer",
@@ -349,9 +412,15 @@ def main() -> None:
         help="POST the run to Tracer (EVAL_TRACER_URL + TRACER_INGEST_TOKEN)",
     )
     args = ap.parse_args()
+    if args.holdout:
+        if splits.split(args.book) != "holdout":
+            raise SystemExit(f"--holdout: {args.book} is not a holdout corpus")
+        os.environ[splits.ALLOW_ENV] = args.book
+    splits.require(args.book)  # a holdout book without --holdout stops here
 
     step_names = (
-        [s for s in all_steps() if s != "baseline"]  # its own run (SPEC-84)
+        # baseline is its own run (SPEC-84); rnrc_validation is asked for by name
+        [s for s in all_steps() if s not in ("baseline", validation.STEP)]
         if args.steps == "all"
         else [s.strip() for s in args.steps.split(",")]
     )

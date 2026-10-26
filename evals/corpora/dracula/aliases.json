@@ -2,6 +2,7 @@
   "_comment": "Rename map for anti-memorization eval integrity (see PROVENANCE.md). Original public-domain names -> invented replacements. Longest keys are applied first so multi-word names replace before their parts. Sections lists the curated chapters extracted into excerpts.txt.",
   "sections": ["CHAPTER II", "CHAPTER V", "CHAPTER VIII", "CHAPTER X"],
   "aliases": {
+    "Transylvanian": "Vardaranian",
     "Jonathan Harker": "Aldous Kerr",
     "Van Helsing": "Verhoeven",
     "Quincey Morris": "Cassidy Boone",

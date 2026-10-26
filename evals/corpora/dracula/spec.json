@@ -1,5 +1,6 @@
 {
   "_comment": "Data-only book spec consumed by evals/tools/build_gt.py. Adding a book = a new corpora/<book>/{aliases.json,spec.json}, no code change. voice_sources kinds: {\"chapters\":[...]} (whole disjoint single-narrator chapters) or {\"blocks\":\"regex\"} (letter/diary block headers).",
+  "split": "development",
   "author": "Bram Stoker",
   "year": 1897,
   "source": "Standard Ebooks / Project Gutenberg (public domain, US)",

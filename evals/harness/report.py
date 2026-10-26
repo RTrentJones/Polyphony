@@ -26,6 +26,21 @@ ACT_RULE = (
 POOL_FROM = "W7"  # W8-2 (c): attribution is pooled over W7, W7r and later runs
 
 
+def _unscored_line(run: dict) -> list[str]:
+    """SPEC-94 S2a: the run's unscored tally, beside its aggregates (none
+    when the judge scored every rubric it was asked)."""
+    t = run.get("unscored") or {}
+    if not t.get("rubrics"):
+        return []
+    return [
+        f"unscored: {t['rubrics']} judged rubric(s) not scored "
+        f"(unparseable={t.get('unparseable', 0)} "
+        f"claimed_empty={t.get('claimed_empty', 0)} "
+        f"unavailable={t.get('unavailable', 0)}); {t.get('items', 0)} item(s) "
+        "left out of the means"
+    ]
+
+
 def scorecard(run: dict) -> str:
     lines = [
         f"Polyphony evals — book={run['book']} sha={run.get('app_sha','?')[:12]}",
@@ -52,6 +67,7 @@ def scorecard(run: dict) -> str:
             else ""
         ),
         f"run={run.get('run') or 'undeclared'}  relogin={run.get('relogin', 0)}",
+        *_unscored_line(run),
         "-" * 64,
     ]
     for name, res in run["steps"].items():
@@ -80,7 +96,15 @@ def scorecard(run: dict) -> str:
                 for c, v in per
             )
         elif name == "continuity":
-            extra = f"recall={res['detection_recall']} fpr={res['false_positive_rate']}"
+            extra = (
+                f"recall={res['detection_recall']} "
+                f"fp/1k_control_words={res.get('control_fp_per_1k_words')} "
+                f"control_flagged={res.get('control_flagged_share')}"
+            ) + (
+                f" ⚠ unapplied={[u['id'] for u in res['unapplied_injections']]}"
+                if res.get("unapplied_injections")
+                else ""
+            )
         elif name == "outline":
             extra = (
                 f"cast={res.get('cast_fidelity')} "
@@ -97,9 +121,26 @@ def scorecard(run: dict) -> str:
             )
             if res.get("book"):  # W18-6/7, beside the score (D18-4)
                 b = res["book"]
-                extra += f" book: RN={b.get('rn_mean')} RC={b.get('rc')}" + (
-                    " (chapter trimmed)" if b.get("rc_trimmed") else ""
-                )
+                extra += f" book: RN={b.get('rn_mean')}"
+                if "rn_scored" in b:  # SPEC-94 S8: the evidence under each mean
+                    extra += (
+                        f" (scored {b['rn_scored']}/{b.get('rn_eligible')} eligible)"
+                    )
+                elif "rn_scored_total" in b:  # summed over the repeats
+                    n = res.get("repeats") or "?"
+                    extra += (
+                        f" (scored {b['rn_scored_total']}/"
+                        f"{b.get('rn_eligible_total')} eligible over {n} passes)"
+                    )
+                extra += f" RC={b.get('rc')}"
+                if "rc_scored_passes" in b:  # aggregated over repeats
+                    n = res.get("repeats") or "?"
+                    extra += (
+                        f" (scored {b['rc_scored_passes']}/{n},"
+                        f" trimmed {int(b.get('rc_trimmed_passes') or 0)}/{n})"
+                    )
+                elif b.get("rc_trimmed"):
+                    extra += " (chapter trimmed)"
         elif name == "revise":
             extra = (
                 f"tighten_n={res.get('tighten_n')} ras={res.get('tighten_ras')} "
@@ -213,8 +254,9 @@ def tracer_export(
     flags, so an absent step reads as "didn't run", not "fine". A repeated step
     publishes only its averaged score and spread.
 
-    The book is the Tracer `suite`, so training (dracula), held-out
-    (frankenstein) and the fidelity gate (cel) trend as separate series. Each
+    The book is the Tracer `suite`, so each development corpus (dracula,
+    frankenstein, wuthering; SPEC-94 S3), the fidelity gate (cel) and the
+    frozen holdout corpora trend as separate series. Each
     step's numeric fields ride along as case `metrics`, and `<step>.<metric>`
     run metrics, so Tracer charts F1 / MRR / cast_fidelity over time rather than
     only the coarse pass flag. `provenance` (repo / branch / source_url) comes
@@ -269,6 +311,10 @@ def tracer_export(
         )
         if res.get("status") != "reported":  # SPEC-60: trended, never gated
             gated.append(cases[-1])
+    for k in ("rubrics", "items"):  # SPEC-94 S2a: trended beside the scores
+        v = (run.get("unscored") or {}).get(k)
+        if isinstance(v, int) and not isinstance(v, bool):
+            run_metrics[f"unscored.{k}"] = v
     n = len(gated)
     n_pass = sum(1 for c in gated if c["passed"])
     judge = run.get("judge") or {}
@@ -284,6 +330,8 @@ def tracer_export(
             "skipped": ",".join(skipped + unscored) or None,
             "unscored": ",".join(unscored) or None,
             "errored": ",".join(errored) or None,
+            # SPEC-94 S2a: judged rubrics the judge did not score this run.
+            "unscored_rubrics": (run.get("unscored") or {}).get("rubrics"),
             "judge_unavailable": judge.get("unavailable"),
             "judge_partial": judge.get("partial"),
             # Dispatched on demand, not on a schedule: Tracer must not read a
@@ -323,23 +371,59 @@ _TRACER_RUN_METRICS: dict[str, tuple[str, ...]] = {
     "extraction": ("score", "f1", "precision", "recall"),
     "retrieval": ("score", "precision_at_k", "mrr"),
     "attribution": ("score", "accuracy", "chance"),
-    "continuity": ("score", "detection_recall", "false_positive_rate"),
+    "continuity": (
+        "score",
+        "detection_recall",
+        "control_fp_per_1k_words",
+        "control_flagged_share",
+    ),
     "outline": ("score", "cast_fidelity", "unknown_rate"),
-    "prose": ("score", "words", "rn_mean", "rc"),
+    "prose": (
+        "score",
+        "words",
+        "rn_mean",
+        "rc",
+        "rn_eligible",
+        "rn_scored",
+        "rc_trimmed",
+        "rn_eligible_total",
+        "rn_scored_total",
+        "rc_scored_passes",
+        "rc_trimmed_passes",
+    ),
 }
 # W18-6/7 (D18-4): the prose step's `book` block, its own metrics (averaged
 # over repeats by evals.run._aggregate), never part of its score.
-_BOOK_METRICS = ("rn_mean", "rc")
+# SPEC-94 S8: with the evidence under them. One run: RN-eligible and RN-scored
+# scenes and `rc_trimmed` (a flag, exported 0/1). Over repeats the sums carry
+# their own names (review S5), so a trend never mixes one pass's count with N
+# passes' under one key: `rn_eligible_total`, `rn_scored_total`, and the
+# passes with a numeric RC / a trimmed chapter, `rc_scored_passes` /
+# `rc_trimmed_passes`.
+_BOOK_METRICS = (
+    "rn_mean",
+    "rc",
+    "rn_eligible",
+    "rn_scored",
+    "rc_trimmed",
+    "rn_eligible_total",
+    "rn_scored_total",
+    "rc_scored_passes",
+    "rc_trimmed_passes",
+)
 
 
 def book_metrics(res: dict) -> dict[str, float]:
     """The numeric `book` fields of a step result ({} without one)."""
     b = res.get("book") or {}
-    return {
-        k: round(float(b[k]), 6)
-        for k in _BOOK_METRICS
-        if isinstance(b.get(k), (int, float)) and not isinstance(b.get(k), bool)
-    }
+    out = {}
+    for k in _BOOK_METRICS:
+        v = b.get(k)
+        if k == "rc_trimmed" and isinstance(v, bool):
+            v = int(v)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            out[k] = round(float(v), 6) if isinstance(v, float) else v
+    return out
 
 
 def _numeric_fields(res: dict) -> dict[str, float]:
@@ -386,7 +470,11 @@ def _case_output(name: str, res: dict) -> str:
     if name == "attribution":
         return f"accuracy={res.get('accuracy')} chance={res.get('chance')} n={res.get('n')}"
     if name == "continuity":
-        return f"detection_recall={res.get('detection_recall')} fpr={res.get('false_positive_rate')}"
+        return (
+            f"detection_recall={res.get('detection_recall')} "
+            f"fp_per_1k_control_words={res.get('control_fp_per_1k_words')} "
+            f"control_flagged_share={res.get('control_flagged_share')}"
+        )
     if name == "outline":
         return f"nodes={res.get('n_nodes')} structural_ok={res.get('structural_ok')}"
     if name == "prose":

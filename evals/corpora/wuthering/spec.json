@@ -1,5 +1,6 @@
 {
   "_comment": "Data-only book spec consumed by evals/tools/build_gt.py. Wuthering Heights is the nonlinear manuscript: Pembury's dated frame (Chapters 1-3) and Mattie's narration of two timelines a generation apart (the mother's in Chapters 9 and 15, the daughter's in Chapters 21-22), with two Rosalind/Ottilie Catherines and every Penhale sharing one surname. Names renamed for anti-memorization (see PROVENANCE.md).",
+  "split": "development",
   "author": "Emily Brontë",
   "year": 1847,
   "source": "Project Gutenberg #768 (public domain, US; PG wrapper stripped)",
@@ -38,10 +39,10 @@
     },
     {
       "id": "name-misspell",
-      "locate": "“My name is Wendell Ashdown,” growled",
-      "replace": "“My name is Wendel Ashdown,” growled",
+      "locate": "“Ezekiel, take Mr.",
+      "replace": "“Ezekial, take Mr.",
       "expect_type": "character",
-      "note": "the young man's name respelled where he gives it, inconsistent with every other spelling"
+      "note": "the old servant's name respelled where he is first called for, inconsistent with the three later spellings inside the graded window (SPEC-94 S2: the earlier anchor, Wendell's \"My name is\", lay past the window and was never applied)"
     }
   ]
 }

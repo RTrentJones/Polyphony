@@ -1492,6 +1492,10 @@ def corpus_inputs(gt: dict, style: dict | None) -> dict:
 
 
 def _corpus_file(book: str, name: str) -> str:
+    from evals.splits import require
+
+    if book:
+        require(book)  # SPEC-94 D19-4: a holdout book only when asked for
     path = Path(__file__).resolve().parent.parent / "corpora" / book / name
     return path.read_text(encoding="utf-8") if book and path.is_file() else ""
 
@@ -1504,7 +1508,11 @@ def _source(book: str) -> str:
 
 
 def book_inputs(book: str) -> dict:
-    """grade()'s keyword arguments for a corpus, read from evals/corpora."""
+    """grade()'s keyword arguments for a corpus, read from evals/corpora (a
+    holdout corpus only when the process asked for it, evals.splits)."""
+    from evals.splits import require
+
+    require(book)
     corpus = Path(__file__).resolve().parent.parent / "corpora" / book
     gt = json.loads((corpus / "ground_truth.json").read_text(encoding="utf-8"))
     style_path = corpus / "style.json"

@@ -18,6 +18,7 @@ imports it so the registry is populated.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -35,8 +36,13 @@ from evals.graders import (
     rubrics,
 )
 from evals.harness import embed
+from evals.harness.judge import is_unparseable
+from evals.harness.unscored import scores as _scores
+from evals.harness.unscored import unscored_ids as _unscored_ids
+from evals.harness.unscored import unscored_items, unscored_tally
 from evals.harness.vecmath import cosine
 from evals.measure.wilson import wilson
+from evals.splits import require as require_split
 from evals.steps.base import StepContext, step
 
 CORPORA = Path(__file__).resolve().parent.parent / "corpora"
@@ -89,7 +95,23 @@ def load_style(book: str) -> dict | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def corpus_tag(book: str) -> str:
+    """An opaque, stable stand-in for a corpus id (SPEC-94): the first eight hex
+    digits of its name's SHA-256. The id names the novel ("dracula"), and an eval
+    book's title is the canon block's first line (`Title: …`), so no title,
+    upload or filename the app can show a model carries the id itself."""
+    return hashlib.sha256(book.encode("utf-8")).hexdigest()[:8]
+
+
+def eval_title(book: str, purpose: str = "") -> str:
+    """The title of an eval book or source: `eval-<purpose>-<corpus_tag>`.
+    The `eval-<purpose>-` prefix still says which step made it, and one corpus
+    always gets the same title, so a book can be found again by computing it."""
+    return "-".join(p for p in ("eval", purpose, corpus_tag(book)) if p)
+
+
 def load_excerpts(book: str) -> str:
+    require_split(book)  # a holdout corpus only when asked for (SPEC-94 S5)
     return (CORPORA / book / "excerpts.txt").read_text(encoding="utf-8")
 
 
@@ -129,9 +151,9 @@ async def _index_voice(ctx: StepContext, book_id: str, names: list[str]) -> dict
     chunks of >= 3 words}} (SPEC-42's diagnostic), and movement: {name: the
     text of every chunk that is not dialogue} (D6 reads it, SPEC-45)."""
     up = await ctx.client.upload_source(
-        f"{ctx.book}-voice.txt",
+        f"{corpus_tag(ctx.book)}-voice.txt",
         load_excerpts(ctx.book).encode("utf-8"),
-        title=f"eval-voice-{ctx.book}",
+        title=eval_title(ctx.book, "voice"),
         book_id=book_id,
     )
     run = await ctx.client.wait_extraction(book_id, up["extraction_run_id"])
@@ -168,6 +190,7 @@ def load_corpus(book: str) -> tuple[str, dict]:
     Uploading the excerpt alone graded extraction against a cast the text
     never names (Edric Thane is not in it), so the score was 0 whatever the
     model did."""
+    require_split(book)  # a holdout corpus only when asked for (SPEC-94 S5)
     d = CORPORA / book
     text = (d / "excerpts.txt").read_text(encoding="utf-8")
     synopsis = d / "synopsis.txt"
@@ -274,13 +297,15 @@ async def _judge_rubrics(
         out[rid] = {"score": score, "explanation": why}
         if _claims_empty(score, why):
             out[rid].update(score=None, judge_claimed_empty=True)
+        elif score is None and is_unparseable(why):  # SPEC-94 S2a: never 0.0
+            out[rid]["judge_unparseable"] = True
         if rid in caps:
             out[rid].update(score=0.0, capped=caps[rid])
     return out
 
 
-def _scores(judged: dict[str, dict]) -> dict[str, float | None]:
-    return {rid: j.get("score") for rid, j in judged.items()}
+# SPEC-94 S2a: `_scores`, `_unscored_ids` and `unscored_tally` live in
+# evals.harness.unscored, shared with `rescore`, which runs without the app.
 
 
 async def _canon_block(ctx: StepContext, book_id: str) -> str:
@@ -409,7 +434,9 @@ def _unknown_canon(text: str, gt: dict, context: str = "") -> tuple[float, list[
 @step("extraction", needs_api=True)
 async def step_extraction(ctx: StepContext) -> dict:
     up = await ctx.client.upload_source(
-        f"{ctx.book}.txt", ctx.corpus_text.encode("utf-8"), title=f"eval-{ctx.book}"
+        f"{corpus_tag(ctx.book)}.txt",
+        ctx.corpus_text.encode("utf-8"),
+        title=eval_title(ctx.book),
     )
     run = await ctx.client.wait_extraction(up["book_id"], up["extraction_run_id"])
     if run.get("status") != "ready":
@@ -516,7 +543,9 @@ async def step_ingestion(ctx: StepContext) -> dict:
     # The corpus as-is: an upload without a book_id gets its own book, so the
     # extraction step's copy of the same text is no duplicate (SPEC-68).
     up, _run = await ctx.client.extract_and_commit(
-        f"{ctx.book}-ing.txt", ctx.corpus_text.encode("utf-8"), f"eval-ing-{ctx.book}"
+        f"{corpus_tag(ctx.book)}-ing.txt",
+        ctx.corpus_text.encode("utf-8"),
+        eval_title(ctx.book, "ing"),
     )
     chars = await ctx.client.wait_voice_indexed(up["id"])
     if not chars:
@@ -590,7 +619,8 @@ async def step_attribution(ctx: StepContext) -> dict:
     }
 
     book = await ctx.client.create_book(
-        title=f"eval-attr-{ctx.book}", synopsis=ctx.ground_truth.get("synopsis", "")
+        title=eval_title(ctx.book, "attr"),
+        synopsis=ctx.ground_truth.get("synopsis", ""),
     )
     char_ids = {}
     for char, v in gold.items():
@@ -825,7 +855,7 @@ async def step_outline(ctx: StepContext) -> dict:
     from evals.graders.fidelity import grade_fidelity
 
     gt = ctx.ground_truth
-    book = await _book_with_cast(ctx, f"eval-{gt['book']}", genre="")
+    book = await _book_with_cast(ctx, eval_title(ctx.book), genre="")
     # The secondaries an author accepting extraction's defaults has (S6),
     # introduced as "Add to cast" does (W6-5): the synopsis first, then the
     # excerpt (Bell is only in the excerpt), cut to the first appositive.
@@ -898,7 +928,12 @@ async def step_outline(ctx: StepContext) -> dict:
     judged = await _judge_rubrics(ctx, contents, caps)
     result["rubrics"] = judged
     result["deterministic_failures"] = caps
-    score = rubrics.outline_score(_scores(judged))
+    unscored = _unscored_ids(judged)
+    # SPEC-94 D19-8: a structural failure is 0.0 even beside an unscored rubric.
+    score = rubrics.outline_score(_scores(judged), unscored, structural)
+    result["unscored"] = unscored_tally(
+        judged.values(), items=int(bool(unscored) and score is None)
+    )
     judged_vals = [j["score"] for j in judged.values() if j["score"] is not None]
     # `judge` keeps its old meaning (the judge's view, before the R1 product).
     result["judge"] = (
@@ -907,7 +942,7 @@ async def step_outline(ctx: StepContext) -> dict:
     result["judge_explanation"] = " | ".join(
         f"{rid}: {j['explanation']}" for rid, j in judged.items()
     )[:2000]
-    result["score"] = None if score is None else score if structural else 0.0
+    result["score"] = score
     return result
 
 
@@ -949,13 +984,15 @@ async def step_continuity(ctx: StepContext) -> dict:
         else ctx.corpus_text
     )
     window = source[:_CONTINUITY_WINDOW]
-    injected_text, expected = continuity.apply_injections(
-        window, gt["continuity_injections"]
+    # An injection overlapping an earlier one, or pushed past the window the
+    # checker sees (`run_on` cuts at it), is unapplied, with why (review S6).
+    injected_text, expected, not_applied = continuity.inject(
+        window, gt["continuity_injections"], limit=_CONTINUITY_WINDOW
     )
 
     async def run_on(prose: str, tag: str) -> list[dict]:
         # The canon an author would have; the excerpt is beat 1 (SPEC-33).
-        book = await _book_with_cast(ctx, f"eval-cont-{tag}")
+        book = await _book_with_cast(ctx, eval_title(ctx.book, f"cont-{tag}"))
         chapter = await ctx.client.create_chapter(
             book["id"], "Chapter", summary=gt["canonical_beats"][0]["title"]
         )
@@ -972,14 +1009,29 @@ async def step_continuity(ctx: StepContext) -> dict:
 
     injected = await run_on(injected_text, "injected")
     control = await run_on(window, "control")
-    score = continuity.grade_continuity(expected, injected, control)
+    # SPEC-94 S2b: false positives per 1,000 words of the one clean control
+    # text (what the checker saw: `run_on` caps it at the window).
+    score = continuity.grade_continuity(
+        expected, injected, [(window[:_CONTINUITY_WINDOW], control)], injected_text
+    )
     # Precision on the injected run: findings that point at a planted error.
     on_target = sum(
-        1 for f in injected if any(continuity._finding_matches(e, f) for e in expected)
+        1
+        for f in injected
+        if any(continuity._finding_matches(e, f, injected_text) for e in expected)
+    )
+    # SPEC-94 S2: a planned injection that did not apply (its anchor past the
+    # window, or gone) is reported, and recall is explicitly over the applied.
+    skipped = continuity.unapplied(
+        gt["continuity_injections"], expected, source, not_applied
     )
     return {
         **score.as_dict(),
         "score": score.detection_recall,
+        "n_injections_planned": len(gt["continuity_injections"]),
+        "n_injections_unapplied": len(skipped),
+        "unapplied_injections": skipped,
+        "recall_denominator": "applied injections (n_injected)",
         "source": gt.get("continuity_source") or "corpus",
         "n_findings": len(injected),
         "precision": round(on_target / len(injected), 4) if injected else None,
@@ -1109,9 +1161,10 @@ async def _planned_scenes(ctx: StepContext, book: dict) -> dict:
 # Bumped when what a generation records changes (v4: no fallback path, the
 # batch's queued/deferred; v5: its reason, and minor cast ported as secondary
 # names; v7: voice.movement; v8: name_warnings; v9: the brief is known to
-# them, and the hindsight example is ungendered; v10: chapter 1 only), so a
-# stale cache entry is regenerated, not regraded.
-PROSE_CACHE_KEY = "planned-v10"
+# them, and the hindsight example is ungendered; v10: chapter 1 only; v11:
+# opaque eval titles, SPEC-94 D19-10 — the title reaches the canon prompt), so
+# a stale cache entry is regenerated, not regraded.
+PROSE_CACHE_KEY = "planned-v11"
 
 
 def _planned_beat_text(scene: dict, beat: dict | None) -> str:
@@ -1412,7 +1465,7 @@ async def step_prose(ctx: StepContext) -> dict:
 
     gt = ctx.ground_truth
     forms = _forms(gt)
-    book = await _book_with_cast(ctx, f"eval-prose-{gt['book']}")
+    book = await _book_with_cast(ctx, eval_title(ctx.book, "prose"))
 
     async def gen():
         # Voice indexing costs an extraction run, so only a real generation
@@ -1571,7 +1624,7 @@ async def step_prose(ctx: StepContext) -> dict:
                 },
             )
             row["rubrics"] = judged
-            row["score"] = rubrics.scene_score(_scores(judged))
+            row["score"] = rubrics.scene_score(_scores(judged), _unscored_ids(judged))
         detail.append(row)
         prev_text = sc["content"]
 
@@ -1604,19 +1657,43 @@ async def step_prose(ctx: StepContext) -> dict:
         for r in detail
         if r.get("rubrics") and r["rubrics"]["RN"]["score"] is not None
     ]
+    scene_judgments = [
+        j
+        for r in detail
+        for rid, j in (r.get("rubrics") or {}).items()
+        if rid in rubrics.SCENE_RUBRICS
+    ]
     book_block = {
         "rn_mean": round(sum(rns) / len(rns), 4) if rns else None,
         "rc": rc["score"],
         "rc_explanation": rc["explanation"]
         + (' [chapter trimmed for length: "[…]" marks each cut]' if rc_trimmed else ""),
         "rc_trimmed": rc_trimmed,
+        # SPEC-94 S8: the evidence under rn_mean — scenes whose narration made
+        # RN applicable, and those of them the judge gave a number.
+        "rn_eligible": sum(
+            1
+            for r in detail
+            if r.get("rubrics") and not r["rubrics"]["RN"].get("not_applicable")
+        ),
+        "rn_scored": len(rns),
         "narrator_samples": len(samples),
         "narrator_sampled": sampled,
+        # SPEC-94 S2a: RN (per scene) and RC the judge did not score.
+        "unscored": unscored_tally(
+            [rc] + [r["rubrics"]["RN"] for r in detail if r.get("rubrics")]
+        ),
     }
     return {
         **result,
         "score": round(sum(scored) / len(scored), 4) if scored else None,
         "rubric_means": means,
+        # SPEC-94 S2a: scene rubrics the judge did not score, and the scenes
+        # left unscored by them (out of `score`'s mean, never scored lower).
+        "unscored": unscored_tally(
+            scene_judgments,
+            items=unscored_items(detail, rubrics.SCENE_RUBRICS),
+        ),
         # Review N3: how much R2 rests on (W15-3 makes it not applicable).
         "r2_applicable": (
             round(sum(r2 is not None for r2 in r2s) / len(r2s), 4) if r2s else None
@@ -1762,7 +1839,7 @@ async def _revise_scene(ctx: StepContext) -> tuple[str | None, str]:
     text = (first or {}).get("content") or "\n\n".join(
         load_excerpts(ctx.book).split("\n\n")[:_REVISE_FALLBACK_PARAGRAPHS]
     )
-    book = await _book_with_cast(ctx, f"eval-revise-{gt['book']}")
+    book = await _book_with_cast(ctx, eval_title(ctx.book, "revise"))
     chapter = await ctx.client.create_chapter(
         book["id"], "Revise", summary="revise eval"
     )
@@ -1857,7 +1934,7 @@ async def step_revise(ctx: StepContext) -> dict:
             ctx, {rid: content for rid in rubrics.REVISE_RUBRICS}, caps
         )
         row["rubrics"] = judged
-        row["score"] = rubrics.revise_score(_scores(judged))
+        row["score"] = rubrics.revise_score(_scores(judged), _unscored_ids(judged))
         return row, prop
 
     async def discarded(req: dict, draft: str) -> dict:
@@ -1922,6 +1999,12 @@ async def step_revise(ctx: StepContext) -> dict:
             for rid in rubrics.REVISE_RUBRICS
         },
         "revisions": rows,
+        # SPEC-94 S2a: RA/R5 the judge did not score, and the revisions they
+        # left unscored (out of `score`'s mean).
+        "unscored": unscored_tally(
+            [j for r in rows for j in (r.get("rubrics") or {}).values()],
+            items=unscored_items(rows),
+        ),
         # D2: the tightens requested and their RAs, which the act rule reads
         # (history `tighten_ra_1..3`).
         "tighten_n": len(tightens),
@@ -1945,7 +2028,7 @@ async def step_ensemble(ctx: StepContext) -> dict:
 
     gt = ctx.ground_truth
     cast = (list(gt.get("gold_lines") or {}) or list(gt.get("cast", [])))[:2]
-    book = await _book_with_cast(ctx, f"eval-ens-{gt['book']}")
+    book = await _book_with_cast(ctx, eval_title(ctx.book, "ens"))
     cast = [c for c in cast if c in book["character_ids"]] or list(
         book["character_ids"]
     )[:2]
@@ -1964,6 +2047,7 @@ async def step_ensemble(ctx: StepContext) -> dict:
         "and do their voices read as distinct? Characters: " + ", ".join(cast)
     )
     out: dict = {"characters": cast}
+    asked: list[dict] = []
     for mode in ("prose", "ensemble"):
         scene = await ctx.client.generate_scene(chapter["id"], {**base, "mode": mode})
         if mode == "ensemble" and scene.get("mode_used") != "ensemble":
@@ -1973,6 +2057,7 @@ async def step_ensemble(ctx: StepContext) -> dict:
             }
         prose = scene.get("content") or ""
         judge, why = await _judge(ctx, rubric, prose or "(empty)")
+        asked.append({"score": judge, "explanation": why})
         out[mode] = {
             "action_coverage": action_coverage(prose, cast),
             "judge": judge,
@@ -1993,6 +2078,7 @@ async def step_ensemble(ctx: StepContext) -> dict:
         if judged
         else None
     )
+    out["unscored"] = unscored_tally(asked, items=int(not judged))  # SPEC-94 S2a
     return out
 
 

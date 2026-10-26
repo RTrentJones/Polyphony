@@ -3,12 +3,14 @@ coherence, prose quality).
 
 Grades with a provider chosen by config (default Gemini today; swap to Anthropic
 etc. once that key exists) — ideally NOT the model under test. Returns a 0..1
-score + explanation, parsed robustly. Reuses the app's own LLMClient so the
+score + explanation, parsed robustly; a reply with no readable score is
+`None` ("unparseable judge reply"), never 0.0 (SPEC-94 S2a). Reuses the app's own LLMClient so the
 call goes through the same pacing/retry/breaker as production.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -21,6 +23,10 @@ _SYSTEM = (
     "rubric on a scale from 0.0 (fails the rubric entirely) to 1.0 (fully meets "
     'it). Reply ONLY with JSON: {"score": <float 0..1>, "explanation": <one sentence>}.'
 )
+
+
+_MINUTE_WAITS = 2  # per call, after the client's own 429 retries
+_MINUTE_WAIT_SECONDS = 60.0
 
 
 def _daily_quota(e: Exception) -> bool:
@@ -45,36 +51,63 @@ class JudgeUnavailable(RuntimeError):
     model). Steps record it and still report their deterministic metrics."""
 
 
+# SPEC-94 S2a: the reason recorded for a reply with no readable score. Such a
+# judgment is unscored (score None), never 0.0; a pre-S2 record carrying this
+# reason with score 0.0 is recomputable as None (D19-2: evals.harness.rescore).
+UNPARSEABLE = "unparseable judge reply"
+
+
+def is_unparseable(explanation) -> bool:
+    """True for a judgment whose reason says the judge's reply had no score."""
+    return isinstance(explanation, str) and explanation.startswith(UNPARSEABLE)
+
+
 @dataclass
 class Judgment:
-    score: float
+    score: float | None  # None: the reply had no readable score (UNPARSEABLE)
     explanation: str
     judge_provider: str
     judge_model: str
 
 
-def _clamp01(x) -> float:
+def _clamp01(x) -> float | None:
+    """The score clamped to 0..1; None when it is not a number at all."""
+    if isinstance(x, bool):
+        return None
     try:
-        return max(0.0, min(1.0, float(x)))
+        v = float(x)
     except (TypeError, ValueError):
-        return 0.0
+        return None
+    if v != v:  # NaN
+        return None
+    return max(0.0, min(1.0, v))
 
 
-def _parse(text: str) -> tuple[float, str]:
-    """Extract {score, explanation} from a judge reply; tolerant of fences/prose."""
+def _parse(text: str) -> tuple[float | None, str]:
+    """Extract {score, explanation} from a judge reply; tolerant of fences/prose.
+
+    A reply with no readable score (no JSON, a JSON object without a numeric
+    `score`, no `score: <n>` in prose) is (None, UNPARSEABLE...): unscored and
+    counted as such by the steps, never a 0.0 that reads as a judgment."""
     t = (text or "").strip().replace("```json", "").replace("```", "")
     start, end = t.find("{"), t.rfind("}")
     if start != -1 and end > start:
         try:
             obj = json.loads(t[start : end + 1])
-            return _clamp01(obj.get("score")), str(obj.get("explanation", ""))[:300]
         except json.JSONDecodeError:
-            pass
+            obj = None
+        if isinstance(obj, dict):
+            why = str(obj.get("explanation", ""))[:300]
+            score = _clamp01(obj.get("score"))
+            if score is not None:
+                return score, why
+            why = f"{UNPARSEABLE}: no numeric score" + (f" ({why})" if why else "")
+            return None, why[:300]
     # last resort: pull the first float that looks like a score.
     m = re.search(r'score"?\s*[:=]\s*([01](?:\.\d+)?)', t)
     if m:
         return _clamp01(m.group(1)), "recovered score from unstructured reply"
-    return 0.0, "unparseable judge reply"
+    return None, UNPARSEABLE
 
 
 class Judge:
@@ -216,6 +249,7 @@ class Judge:
 
         from app.llm.errors import QuotaExhaustedError
 
+        minute_waits = 0
         while True:
             try:
                 judgment = await once(prompt)
@@ -229,8 +263,22 @@ class Judge:
                 # tier refuses a long outline). Neither is transient: grade
                 # with the next provider in the chain instead of failing the
                 # whole step it belongs to. So is a spent daily cap (D14).
+                # A per-minute limit that outlasted the client's own retries
+                # (run 40272098890: Groq's 8,000 TPM, the step's judge calls
+                # landing together) recovers within a minute: wait it out on
+                # the same judge, so a busy minute neither fails the step nor
+                # moves the rest of the run to a paid judge; past that, fail
+                # over like a spent daily cap. Only the client's own give-up on
+                # a provider's 429 (the base class) is such a limit; a spend or
+                # accounting pause, a user budget or an unavailable provider (its
+                # subclasses) propagates at once, as before.
                 if isinstance(e, QuotaExhaustedError) and not _daily_quota(e):
-                    raise
+                    if type(e) is not QuotaExhaustedError:
+                        raise
+                    if minute_waits < _MINUTE_WAITS:
+                        minute_waits += 1
+                        await asyncio.sleep(_MINUTE_WAIT_SECONDS)
+                        continue
                 if isinstance(e, APIStatusError) and e.status_code not in (404, 413):
                     raise
                 if not self._next_in_chain():

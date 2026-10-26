@@ -131,7 +131,10 @@ RUN_BROWSER_E2E=1 scripts/e2e_stub.sh       # …plus the Playwright browser jou
 
 CI runs the same script on every PR (`test.yml` → `e2e`). The live-model evals
 (`evals.yml`) are dispatched on demand and gate on `cast_fidelity >= 0.9` for the
-`cel` corpus. Specs for in-flight work live in [docs/specs](docs/specs/README.md);
+`cel` corpus. Those scores are on **development corpora** (renamed public-domain
+novels and the synthetic `cel`, tuned on for many waves; renaming reduces
+name-cued recall but does not defeat memorization of a famous novel); the frozen
+holdout corpora run once per release ([evals/README.md](evals/README.md)). Specs for in-flight work live in [docs/specs](docs/specs/README.md);
 parallel work follows [docs/specs/PARALLEL-WORK.md](docs/specs/PARALLEL-WORK.md).
 
 ## Ship

@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 
 from app.core.prompt_markers import ACT_CHAPTERS_HEADER, OUTLINE_SOURCE_WARNING
+from evals.splits import require as require_split
 
 _ACT = re.compile(re.escape(ACT_CHAPTERS_HEADER).replace(r"\{number\}", r"(\d+)"))
 
@@ -266,6 +267,7 @@ def regrade(run_dir: str | Path) -> dict:
     if len(reports) != 1:
         raise ValueError(f"{run}: want one eval-report-*.json, found {len(reports)}")
     doc = json.loads(reports[0].read_text(encoding="utf-8"))
+    require_split(doc["book"])  # SPEC-94 D19-4, before any corpus is read
     voice = (doc["steps"].get("prose") or {}).get("voice") or {}
     store = voice.get("movement")
     records = pc.load_archive(run / "answered-archive" / "model" / "answered")
@@ -307,6 +309,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "regrade":
         print(json.dumps(regrade(args.archive), indent=2, ensure_ascii=False))
         return
+    require_split(args.book)  # SPEC-94 D19-4: a holdout book only when asked for
     corpus = _CORPORA / args.book
     gt = json.loads((corpus / "ground_truth.json").read_text(encoding="utf-8"))
     records = load_archive(args.archive)

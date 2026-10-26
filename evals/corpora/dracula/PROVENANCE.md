@@ -38,8 +38,10 @@ Verhoeven, Whitby → Marrow Cove, …). This is for **evaluation integrity only
 feeding a model the *original* text measures how well it recalls a famous novel
 from its training data, not how well Polyphony's pipeline extracts characters,
 grounds voice, and plans plot from the text actually in front of it. Renaming
-defeats that memorization while preserving the (public-domain) prose and the
-ground truth. **It is not an attempt to obscure the source** — this file credits
+removes the name cue while preserving the (public-domain) prose and the ground
+truth; it reduces name-cued recall but does not defeat memorization of a famous
+novel, whose prose a model can recognise without the names (SPEC-94 S3). This
+is a **development corpus**, tuned on across many waves. **It is not an attempt to obscure the source** — this file credits
 it plainly.
 
 ## Legal summary
@@ -64,3 +66,13 @@ the train/test split is unchanged). Only the R2 judge reads
 `speech_lines` (as voice samples); retrieval, attribution and the ensemble step
 read `gold_lines`, so their character sets are unchanged. `build_gt` does not
 write this key: re-add it if `ground_truth.json` is regenerated.
+
+## Rename leftovers fixed (wave 19, SPEC-94)
+A stricter leak check (italics, plurals and adjectival forms) found five lines the
+whole-word rename had missed: "Transylvanian" (now an `aliases.json` key, →
+"Vardaranian"), the two letter headings "to Nora Murray" (→ Vance), and the
+italicised journal headings "_Mina Vance's Journal._" and "_Lucy Ellis's Diary._"
+(→ Nora, Cora), which `\b` missed because `_` is a word character. The fix re-applies
+the (now italics-aware) aliases to `excerpts.txt` chapter by chapter;
+`ground_truth.json` is unchanged (no gold, speech or injection line held a leak).
+

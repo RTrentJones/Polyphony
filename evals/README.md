@@ -9,10 +9,44 @@ A finished novel is a labelled dataset: it gives the true cast, each character's
 real dialogue (gold voice), the plot's shape, and a fixed timeline. Feeding a
 model the *original* text would test its memory of a famous book, not the
 pipeline — so every character and place is **renamed** (Mina Harker → Nora Vance,
-Van Helsing → Verhoeven, …). The prose stays; the ground truth holds; memorization
-is defeated. See `corpora/<book>/PROVENANCE.md` — all sources are US public domain
+Van Helsing → Verhoeven, …). The prose stays and the ground truth holds. See
+`corpora/<book>/PROVENANCE.md` — all sources are US public domain
 (Standard Ebooks CC0 / Project Gutenberg with the PG wrapper stripped). Only
 renamed excerpts of a few chapters are committed, never whole novels.
+
+**What renaming does not do.** Renaming removes the name cue, so it reduces
+name-cued recall; it does **not** defeat memorization of a famous novel. The
+prose itself (Walton's letters, a diary kept in a Carpathian castle, two
+houses on the moor) is in every large model's training data and is
+recognisable without a single name. Scores on these books measure the pipeline
+*plus* whatever the model remembers.
+
+**Opaque eval titles (wave 19).** Until wave 19 the eval books were titled
+`eval-<corpus>` (`eval-prose-dracula`), and the canon block every planning prompt
+carries opens with that title (`Title: …`), so the model was told which novel it
+was reading. Every eval book, source title and upload filename is now
+`pipeline.eval_title(<corpus>, <step>)` = `eval-<step>-<tag>`, where the tag is the
+first eight hex digits of the corpus id's SHA-256 (`dracula` → `a0126546`): stable
+and distinct per corpus, so a book can still be found by computing its title, but
+with no lexical content. `tests/unit/test_eval_titles.py` checks that no corpus id
+or original title reaches the canon block. **Comparability:** this removes a cue,
+so development scores before and after it are not like for like (the same kind of
+break as SPEC-90 D6): compare a post-change run with post-change runs, and label
+the first one.
+
+**Development and holdout corpora (SPEC-94).** `frankenstein`, `dracula`,
+`wuthering` and `cel` are **development corpora**: the prompts, the harness and
+the product rules have been tuned against them across eighteen waves, so a gain
+on them is partly fit to them, and their numbers (including every row of
+`history.csv`) are development numbers. `holdout-a` and `holdout-b` are the
+**frozen holdout** (two multi-narrator Victorian novels never used before wave 19,
+under opaque directory names so no title reaches the model): built once, frozen at
+tag `holdout-v1`, and run **once per release on that release's frozen code**.
+Each corpus' `spec.json` declares its `split`; the corpus readers refuse a
+holdout corpus unless the run asks for it (`--holdout`, below), and no default
+book list names one. Nobody opens the holdout excerpts after the build's
+mechanical checks, and a holdout result is never "fixed for": that would make it
+a development corpus, and the next holdout would need new books.
 
 ## The steps
 
@@ -23,7 +57,7 @@ renamed excerpts of a few chapters are committed, never whole novels.
 | `retrieval`   | voices separate in embedding space | held-out line → nearest across pooled voices → **precision@k / MRR** | no (embedder) |
 | `attribution` | generated line sounds like the character | test-dialogue → embed → nearest train-line centroid (`reference: "train"`, SPEC-74) → **top-1 accuracy** vs chance; `normalised` beside it ranks by similarity less each centroid's mean similarity to the other characters' generated lines (topic control, W15-4) | yes (generate) |
 | `outline`     | recovers the story's shape    | generate outline (premise confirmed with the author's edit) → **R1 × mean(R6, R3)** + unknown-name rates | yes |
-| `continuity`  | catches contradictions        | inject known errors → **detection recall**, precision, quote-verbatim + false-positive rate | yes |
+| `continuity`  | catches contradictions        | inject known errors → **detection recall** (a finding counts when its quote overlaps the injected span, or its detail names the replacement found nowhere else in the text — either side of the contradiction may be quoted; quotes are compared with curly quotes, dashes and spacing normalised), precision, quote-verbatim + false positives on the clean control: **per 1,000 control words** (`control_fp_per_1k_words`) and the **share of control texts flagged** (`control_flagged_share`; with the step's one control text, a 0/1 flag) | yes |
 | `prose`       | end-to-end scene quality      | the product path: outline → promote → planned scenes → deterministic cast/seam checks + **R1 × mean(R2..R5)** per scene | yes |
 | `revise`      | AI revision does what was asked, and only that | three revisions of one scene through the revise API → outside-range bytes + new-name checks + **mean(RA, R5)** per revision | yes |
 
@@ -282,12 +316,64 @@ self-graded run is always labelled, never silent. Judge calls are temperature 0.
 Note: switching judge families shifts absolute scores; compare trends within one
 judge (the report's `judge.provider` records which one graded each run).
 
+**Unscored, never zero (SPEC-94 S2a).** A judge reply with no readable score
+(no JSON, or JSON without a numeric `score`) is `score: None` with the reason
+"unparseable judge reply" and `judge_unparseable: true` — not 0.0. The rule for
+a composite (scene `R1 × mean(R2..R5)`, outline `R1 × mean(R6, R3)`, revision
+`mean(RA, R5)`): a component that is *not applicable* (R2 with under two voiced
+speakers) is left out as before, but a component the judge *did not score*
+(unparseable, a repeated "nothing was provided", the judge chain unavailable)
+makes the whole item `None`. The item is left out of the step's mean and
+counted, never scored on whichever rubrics happened to parse. Each judged step
+reports an `unscored` tally (`rubrics`, split into `unparseable` /
+`claimed_empty` / `unavailable`, and `items` left unscored; the prose `book`
+block has its own for RN/RC, summed over the same scored passes as its RN/RC
+counts), summed over repeats; the run's total is the
+report's top-level `unscored`, printed under the scorecard header and sent to
+Tracer as `labels.unscored_rubrics` and the `unscored.rubrics` / `unscored.items`
+run metrics.
+
+**Pre-S2 reports (D19-2).** Before S2 an unparseable reply scored 0.0 with the
+same reason, so an old report is recomputable rather than re-run:
+`python -m evals.harness.rescore eval-report.json [out.json]` sets those zeros
+to `None` and recomputes **every** scene, revision and outline score with the
+live rule above — so a scene whose R2 the judge claimed empty (already `None` in
+old records, but then averaged over the rest) becomes `None` too, and a
+deterministic 0 (R1 capped, an outline's structural failure) stays 0 — then the
+step means, rubric means and tallies. It reads only the report (no app settings
+or `SECRET_KEY`). A `--repeat` step keeps only its last pass's details, so its
+aggregated score is left as recorded and marked `rescore`, and its recomputed
+`unscored` tally carries `scope: "last pass only"` (the run's tally names those
+steps in its `scope`): it counts one pass, not the aggregate. Only the
+"unparseable judge reply" reason is recoverable this way: a JSON reply without a
+numeric score was not recorded as such before S2.
+
 **A judge at its own endpoint.** `EVAL_JUDGE_BASE_URL` sends the judge to any
 OpenAI-compatible URL, bypassing the provider chain: `EVAL_JUDGE_LABEL` names it in
 the report (default `relay-judge`), `EVAL_JUDGE_MODEL` sets the model string, and
 `EVAL_JUDGE_API_KEY` is optional (a relay takes any key). The report's `judge` block
 records the `endpoint`, and `self` is false unless that URL equals
 `EVAL_APP_LLM_BASE_URL`. The scorecard prints `@ <endpoint>`.
+
+**Validating RN and RC (W19 S7, `evals/validation/`).** 36 blinded items: six intact
+development-corpus chapters (`chapters.json`: scenes, plan, where each damage goes) and
+their damaged variants (narrator drift, a duplicated event, broken transitions, the
+planned change removed), with damage both where RC reads it and inside its trimmed
+middles. `python -m evals.validation.build --estimate` prints the items and the judge
+calls/cost (72 calls, about $0.61 if every call went to the paid judge, $0 on the free
+ones). Run it by name, never in `all`: dispatch evals.yml with
+`steps=rnrc_validation` and `book=frankenstein dracula wuthering` (each book's report
+judges its own chapters, on the run's judge chain and spend ceiling); then
+`python -m evals.validation.analyze <downloaded artifact dir>...` prints, per damage and
+location, how often the damaged chapter scores below the intact one. The step refuses
+`--repeat` > 1 (its score is null, so the repeat fold would keep only the last pass's
+judgments): to judge each item more than once, dispatch again and pass every run's
+artifact dir to `analyze`, which averages each item's judgments across the reports
+first and prints how many judgments each item's mean rests on. Its intervals resample
+chapters, not variants: a trimmed chapter's two variants of a damage (in / out) are
+averaged within the chapter, so each chapter weighs once. `export` writes a `chapter`
+sample for S4's human calibration page; `evals.calibration.agreement` compares the
+human's RC scores on it with the judge's.
 
 ## Relay runs: an agent plays the model
 
@@ -349,14 +435,44 @@ python -m evals.tools.rename   --book dracula --source /path/to/source.txt   # r
 python -m evals.tools.build_gt --book dracula                                 # ground_truth.json
 ```
 
+A corpus whose edition repeats or bare-numbers its headings (the holdout's
+narratives each restart at chapter I) lists `spans` in `aliases.json` instead:
+each is cut from a unique `start` literal to the next `end` literal and headed with
+its own `CHAPTER N`, so `build_gt` finds every narrator's chapter by name.
+
+## The holdout run
+
+```bash
+python -m evals.run --book holdout-a --steps all --holdout --out eval-report-holdout-a.json
+python -m evals.run --book holdout-b --steps all --holdout --out eval-report-holdout-b.json
+```
+
+Once per release, on that release's tag, after development has stopped. Without
+`--holdout` (which sets `EVAL_HOLDOUT=<book>` for the run) the runner and the
+corpus readers stop with the reason: the pipeline's (`load_corpus`,
+`load_excerpts`), the prompt contract's (`book_inputs`, its corpus files) and
+`evals.graders.plot` (`draft --book`, `regrade`); S7's validation builder refuses
+a holdout book outright. `--holdout` on a development book is refused too. The
+corpus **builders** (`evals.tools.rename`, `evals.tools.build_gt`) are not
+guarded: they read only the `--book` they are explicitly given, since building
+the corpus is how it comes to exist. `evals.yml` never selects a holdout book by
+default; dispatch it with `holdout=yes` **from the release tag** (a dispatch from
+a branch is refused; the `book` input's default then means both holdout books,
+and any other book is refused).
+
 ## Corpora
 
-- **`dracula`** — the training corpus (epistolary; three diary/letter narrators).
-- **`frankenstein`** — the **held-out validation** corpus (Walton's letters,
-  Victor's creation chapter, the creature's quoted tale). A prompt/architecture
-  change counts only if it improves **both**: a gain on Dracula alone is likely
-  overfitting to one book's ground truth. CI grades both; Tracer keys each book
-  as its own suite (`suite=dracula` / `frankenstein`), so they trend apart.
+Development corpora (tuned on; see "What renaming does not do" above):
+
+- **`dracula`** — the original training corpus (epistolary; three diary/letter narrators).
+- **`frankenstein`** — added as a second corpus (Walton's letters,
+  Victor's creation chapter, the creature's quoted tale) so a change had to
+  improve **both** books, not Dracula alone. It was called "held-out" then, but it
+  has been graded and tuned against in every wave since, so it is a development
+  corpus too. CI grades both; Tracer keys each book as its own suite
+  (`suite=dracula` / `frankenstein`), so they trend apart.
+- **`wuthering`** — the nonlinear manuscript (a dated frame narrator and a second
+  narrator telling two timelines; SPEC-84).
 - **`cel`** — the synthetic fidelity corpus (the outline gate, and the harness v2
   book). `load_corpus` uploads the 17k-char `synopsis.txt` + the excerpt.
   `excerpts.txt` is ~4.7k chars of synthetic prose with tagged and inverted lines,
@@ -364,6 +480,13 @@ python -m evals.tools.build_gt --book dracula                                 # 
   speaker-labelled `gold_lines` (≥ 6 per principal, train/test), `other_lines`,
   `premise_edit` and five continuity injections planted in the excerpt;
   `style.json` is the style guide. Provenance in `corpora/cel/PROVENANCE.md`.
+
+Holdout corpora (frozen at `holdout-v1`; `split: "holdout"`):
+
+- **`holdout-a`** and **`holdout-b`** — two renamed multi-narrator Victorian
+  novels (Project Gutenberg #583 and #155), five and six single-narrator sections.
+  Source, chapters and narrators are in each `PROVENANCE.md`; the excerpts are not
+  read outside the release run.
 
 ## Signed placements
 

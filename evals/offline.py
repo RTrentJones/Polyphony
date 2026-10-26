@@ -20,7 +20,7 @@ import asyncio
 import re
 
 from evals.graders import extraction as extraction_grader
-from evals.steps.pipeline import known_names, load_corpus
+from evals.steps.pipeline import eval_title, known_names, load_corpus
 
 _WORD = re.compile(r"[a-z']+")
 
@@ -114,7 +114,7 @@ def corpus_canon(gt: dict):
         for n in gt.get("cast", [])
     ]
     return Canon(
-        title=f"eval-{gt['book']}",
+        title=eval_title(gt["book"]),
         synopsis=gt["synopsis"],
         characters=cast,
     )
