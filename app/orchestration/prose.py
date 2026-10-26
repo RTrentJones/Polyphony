@@ -28,15 +28,19 @@ from app.core.prompt_markers import (
     BEATS_FENCE,
     CHARACTERS_SECTION,
     CURRENT_BEAT_MARK,
+    NAME_HEADING,
+    NARRATION_LABEL,
     PRIOR_FENCE,
     STOP_AT_NEXT_BEAT,
+    VOICE_CONTRAST_NOTE,
+    VOICE_SAMPLES_LABEL,
 )
 from app.llm.client import get_llm_client
 from app.llm.errors import QuotaExhaustedError
 from app.planning.canon import Canon, build_canon
 from app.planning.fidelity import canon_known_text, unknown_proper_nouns
 
-from .pov import NAMING_RULE, Pov, pov_instruction, resolve_pov
+from .pov import NAMING_RULE, Pov, pov_instruction, pov_mode, resolve_pov
 from .workflow import (
     StoryPosition,
     chapter_context,
@@ -56,8 +60,16 @@ PREV_TAIL_WORDS = 500
 GENERIC_CRAFT_GUIDANCE = (
     "Ground the reader in the setting and in the characters' actions, gestures, "
     "expressions, and interiority — description and action carry the scene; "
-    "dialogue PUNCTUATES it, it does not dominate."
+    "dialogue PUNCTUATES it, it does not dominate. This sets the narration's "
+    "pacing and how much of the scene is dialogue, not how a character speaks: "
+    "a speaker whose samples run long keeps long lines."
 )
+
+# The book's own narration as the style reference when it has no sample prose
+# (SPEC-93 W18-5): whole source paragraphs outside quotes, never cut (R2.2).
+NARRATION_EXCERPTS = 3
+NARRATION_EXCERPT_WORDS = (40, 120)  # a paragraph's word count, inclusive
+BOOK_NARRATION_FENCE = "book_narration"
 
 # A sentence ends at . ! ? or … (optionally followed by closing quotes or
 # brackets) and whitespace, before a capital or an opening quote.
@@ -101,6 +113,7 @@ class SceneSetup(NamedTuple):
     earlier: list  # earlier_beats: (title, beat lines) of the scenes before it
     chapter_summary: str  # scene_chapter: "" without a chapter
     position: Optional[StoryPosition]  # scene_chapter: None without a live chapter
+    narration: tuple = ()  # narration_excerpts: the book's own narration (W18-5)
 
 
 async def scene_setup(
@@ -146,7 +159,144 @@ async def scene_setup(
     speech = {sid: speech_paragraphs(text) for sid, text in sources}
     scope = SceneScope.of(canon, cast, names, plot, later_from, [brief], speech)
     block = render_secondaries(scene_secondaries(names, canon, sources, later_from))
-    return SceneSetup(canon, cast, scope, pov, block, plan, earlier, summary, position)
+    narration = narration_excerpts(
+        sources,
+        later_from,
+        untold_lines(brief, plan, position),
+        position=position,
+        own=pov_narration(sources, pov, canon),
+        names=[n for c in canon.characters for n in (c.name, *(c.aliases or []))],
+    )
+    return SceneSetup(
+        canon, cast, scope, pov, block, plan, earlier, summary, position, narration
+    )
+
+
+def untold_lines(brief: str, plan: list, position: Optional[StoryPosition]) -> list:
+    """The events a scene's style excerpts may not narrate: the brief and the
+    plan lines of the scene's own and later chapters (all of them without a
+    position). An earlier chapter's line is already told (W18 review)."""
+    from app.planning.planned_beat import beat_scene_description
+
+    return [brief] + [
+        beat_scene_description(b)
+        for n, b in plan
+        if position is None or n >= position.chapter
+    ]
+
+
+def _without_names(names):
+    """Text minus the capitalised words of the cast's names and aliases (and
+    their possessives), so `restates` weighs the event, not who is in it: a
+    paragraph and a plan line naming the same three people share their names'
+    content words without telling the same event (W18 review)."""
+    words = {w for n in names for w in re.findall(r"[A-Z][\w'’-]*", n or "")}
+    if not words:
+        return lambda text: text
+    alternation = "|".join(map(re.escape, sorted(words, key=len, reverse=True)))
+    rx = re.compile(rf"(?<!\w)(?:{alternation})(?:['’]s)?(?!\w)")
+    return lambda text: rx.sub(" ", text)
+
+
+# A paragraph opening with a dateline is a diary's or a letter's header, not
+# the narrator's prose ("_5 May._--", "R. M. Renwick, ætat 59.--").
+_DATELINE = re.compile(r"^[\s_*]*[^\n]{0,80}?\._?\s*(?:--|—)")
+
+
+def narration_excerpts(
+    sources: list[tuple[str, str]],
+    later_from: dict,
+    plot=(),
+    *,
+    position: Optional[StoryPosition] = None,
+    own: Optional[dict] = None,
+    names=(),
+) -> tuple[str, ...]:
+    """Up to NARRATION_EXCERPTS whole paragraphs of the book's own narration,
+    for a book with no sample prose (SPEC-93 W18-5): paragraphs with no quoted
+    speech at all (the extractor's `_narration_only` leaves them whole), no
+    opening dateline, of 2+ sentences and NARRATION_EXCERPT_WORDS words,
+    narrating no `plot` line's event (`restates`, SPEC-36: scene_setup passes
+    the brief and the plan lines of the scene's own and later chapters, the
+    events not yet told), with the cast's `names` taken out of both. In scope: before the source's
+    later plot (`later_from`, SPEC-40); a source with no cut but a known
+    `position` gives only its share up to the scene's chapter (the first
+    chapter/of of its paragraphs). `own` ({source id: paragraph indexes}) is
+    the POV narrator's own narration: when any of it is eligible, only it is
+    picked. Picked evenly from first to last eligible, in upload order;
+    deterministic, no LLM call. Never trimmed: a paragraph too long is skipped,
+    not cut (R2.2); its line breaks are joined (whitespace only)."""
+    from math import ceil
+
+    from app.characters.context import restates
+    from app.parsing.character_extractor import (
+        _narration_only,
+        normalize_quotes,
+        source_paragraphs,
+    )
+
+    low, high = NARRATION_EXCERPT_WORDS
+    unnamed = _without_names(names)
+    plot = [unnamed(line) for line in plot if line]
+    eligible, theirs = [], []
+    for sid, text in sources:
+        paragraphs = source_paragraphs(text)
+        cut = later_from.get(sid)
+        if cut is None and position is not None and position.of > 0:
+            cut = ceil(len(paragraphs) * position.chapter / position.of)
+        for i, raw in enumerate(paragraphs[:cut]):
+            paragraph = " ".join(raw.split())
+            plain = normalize_quotes(paragraph)
+            # A single-quoted speech running over paragraphs opens with a quote
+            # it never closes, which `_narration_only` strips only for double
+            # quotes: an opening quote at all marks the paragraph as speech.
+            quoted = plain.startswith("'") or (
+                _narration_only(paragraph).split() != plain.split()
+            )
+            if (
+                low <= len(paragraph.split()) <= high
+                and len(_sentences(paragraph)) >= 2
+                and not quoted  # it quotes someone: not the narrator's alone
+                and not _DATELINE.match(paragraph)
+                and not any(restates(unnamed(paragraph), line) for line in plot)
+            ):
+                eligible.append(paragraph)
+                if i in (own or {}).get(sid, ()):
+                    theirs.append(paragraph)
+    eligible = theirs or eligible
+    if len(eligible) <= NARRATION_EXCERPTS:
+        return tuple(eligible)
+    last, k = len(eligible) - 1, NARRATION_EXCERPTS
+    return tuple(eligible[round(j * last / (k - 1))] for j in range(k))
+
+
+def pov_narration(sources: list[tuple[str, str]], pov: Pov, canon) -> Optional[dict]:
+    """{source id: paragraph indexes} of a first-person POV character's own
+    narration, by the indexer's narrator rules (headings, self-naming,
+    signatures, the per-chapter "I" of W16-2), or None when the scene is not
+    first person or its POV character is not in the cast."""
+    from app.parsing.character_extractor import CharacterExtractor, source_location
+
+    member = next((c for c in canon.characters if c.name == pov.who), None)
+    if member is None or not pov.mode.startswith("first person"):
+        return None
+    cast = [
+        {"name": c.name, "aliases": c.aliases or [], "role": c.role or ""}
+        for c in canon.characters
+    ]
+    extractor = CharacterExtractor()
+    found = {}
+    for sid, text in sources:
+        chunks = extractor.extract_narration(
+            text,
+            member.name,
+            aliases=member.aliases or [],
+            cast=cast,
+            is_narrator="narrator" in (member.role or "").lower(),
+        )
+        at = [source_location(c.get("source_location")) for c in chunks]
+        found[sid] = {loc[1] for loc in at if loc and loc[0] == "narration"}
+    return found
 
 
 def scene_name_warnings(prose, canon, scene_request, earlier) -> list[str]:
@@ -348,26 +498,100 @@ def beats_block(all_beats: list[dict], beat_index: int) -> str:
     return as_quoted_block("\n".join(lines), BEATS_FENCE)
 
 
-def _style_section(style) -> str:
+def person_from_narration(setup: SceneSetup) -> bool:
+    """True when the writer took person (and tense) from the book's own
+    narration: there are excerpts and the style guide names no POV mode. The
+    revise prompt then keeps the draft's person (Codex review, #67)."""
+    style = getattr(setup.canon, "style", None)
+    return bool(setup.narration) and not pov_mode(getattr(style, "pov", None))
+
+
+def _style_section(style, narration: tuple = ()) -> str:
     """Style guidance, the author's first (SPEC-18, B5).
 
-    Sample prose is the primary reference whenever it exists; a style-guide
-    tone alone replaces the house style; the generic craft text appears only
-    when the book gives neither. The sample and the tone themselves are in the
-    canon block's style guide (`render_style`), so they are referred to here,
-    never repeated (W1-S3)."""
+    Sample prose is the primary reference whenever it exists. Without it, the
+    book's own source narration (`narration_excerpts`, W18-5) is, fenced and
+    labelled as the narration to match, never to copy; a style-guide tone
+    follows it, or alone replaces the house style; the generic craft text
+    appears only when the book gives none of these. The sample and the tone
+    themselves are in the canon block's style guide (`render_style`), so they
+    are referred to here, never repeated (W1-S3)."""
     if style is not None and clean_for_llm(getattr(style, "sample_prose", None)):
         return (
             "STYLE — the author's sample prose (the canon's style guide, above) "
             "is your primary style reference. Match its voice and rhythm: its "
             "sentence length, its balance of dialogue and narration, its diction."
         )
-    if style is not None and clean_for_llm(getattr(style, "tone", None)):
+    tone = style is not None and clean_for_llm(getattr(style, "tone", None))
+    tone_line = (
+        "Follow the tone in the canon's style guide, above. Let it decide how "
+        "much the scene leans on dialogue or on description."
+    )
+    if narration:
+        excerpts = as_quoted_block("\n\n".join(narration), BOOK_NARRATION_FENCE)
+        # Only the settings the book leaves unset come from the passages: a
+        # configured tense holds even when the point of view is unset.
+        has_pov = bool(pov_mode(getattr(style, "pov", None)))
+        has_tense = bool(clean_for_llm(getattr(style, "tense", None)))
+        if has_pov and has_tense:
+            person = "person and tense as the style guide above says"
+        elif has_pov:
+            person = "person as the point of view above says, tense from these passages"
+        elif has_tense:
+            person = (
+                "tense as the style guide above says, person from these passages "
+                "(the book sets no point of view, so the mode named above is only "
+                "a default)"
+            )
+        else:
+            person = (
+                "person and tense from these passages (the book sets no point "
+                "of view, so the mode named above is only a default)"
+            )
         return (
-            "STYLE — follow the tone in the canon's style guide, above. Let it "
-            "decide how much the scene leans on dialogue or on description."
+            "STYLE — the book's own narration. These passages are from the "
+            "author's source, outside any quotation: they are your primary style "
+            f"reference for the NARRATION. Match its narrative voice — {person}; "
+            "its diction, period, and sentence length and rhythm. Never copy "
+            f"their words or their events; write new prose in this voice:\n"
+            f"{excerpts}" + (f"\n{tone_line}" if tone else "")
         )
+    if tone:
+        return f"STYLE — {tone_line[0].lower()}{tone_line[1:]}"
     return GENERIC_CRAFT_GUIDANCE
+
+
+def speaker_rule(speakers: list[str], cast_context: str) -> str:
+    """Name each beat speaker and tie their lines to their own block (W18-1):
+    one generic "distinct voices" ask let every speaker drift into the
+    narration's register. Only names whose block shows samples (speech or own
+    narration), so the rule never points at an empty block."""
+    blocks = {
+        block.split("\n", 1)[0]: block
+        for block in f"\n{cast_context}".split(f"\n{NAME_HEADING}")[1:]
+    }
+    shown = [
+        clean_for_llm(n)
+        for n in dict.fromkeys(speakers)
+        if VOICE_SAMPLES_LABEL in blocks.get(n, "")
+        or NARRATION_LABEL in blocks.get(n, "")
+    ]
+    if not shown:
+        return ""
+    contrast = (
+        " and the <contrast> line about them"
+        if VOICE_CONTRAST_NOTE in cast_context
+        else ""
+    )
+    each = "; ".join(f"{n}'s lines follow {n}'s block" for n in shown)
+    return (
+        f"VOICES — when they speak, each speaker's lines follow THEIR OWN "
+        f"<character> block{contrast}, not a shared narrative register: {each}. "
+        "Whatever the STYLE below says about pacing or dialogue governs the "
+        "narration, not how a character speaks: a speaker whose samples run "
+        "long and periodic speaks in long, periodic sentences; a terse one "
+        "stays terse.\n\n"
+    )
 
 
 async def write_beat_prose(
@@ -386,6 +610,8 @@ async def write_beat_prose(
     all_beats: Optional[list[dict]] = None,
     beat_index: Optional[int] = None,
     style=None,
+    speakers: Optional[list[str]] = None,
+    narration: tuple = (),
 ) -> str:
     """Write one beat's full prose (narration + in-voice dialogue) in one call.
 
@@ -398,7 +624,12 @@ async def write_beat_prose(
     `pov` is `resolve_pov`'s; the prompt states its mode and character and
     keeps the narration in that character's head (SPEC-24). The story position
     follows the chapter (SPEC-30), the secondaries the cast (SPEC-29).
+    `speakers` (default: the beat's characters) are named in the VOICES rule
+    (W18-1); `narration` is the book's own narration for the style section
+    when it has no sample prose (W18-5).
     """
+    if speakers is None:
+        speakers = list(beat.get("characters") or [])
     style_notes = scene_request.get("style_notes") or ""
     prior_block = (
         "The prose so far (continue seamlessly from it; do not restate "
@@ -453,7 +684,7 @@ faithful to the canon above: its people, places, terms, and its style guide
 
 {BEAT_TO_WRITE_LABEL}: {clean_for_llm(beat["description"])}{stop_line}
 
-{_style_section(style)}
+{speaker_rule(speakers, cast_context)}{_style_section(style, narration)}
 
 Write approximately {target_words} words of polished NARRATIVE PROSE. When a
 character does speak, give each a DISTINCT voice — diction, cadence, and syntax
@@ -571,6 +802,8 @@ async def run_prose_scene_workflow(
                 all_beats=beats,
                 beat_index=idx,
                 style=getattr(canon, "style", None),
+                speakers=[c.name for c in beat_cast],
+                narration=setup.narration,
             )
             prose_parts.append(trim_seam_repeat(prose, prior_tail))
             grounding[str(idx)] = beat_grounding
@@ -671,7 +904,10 @@ def _canon_hash(setup: SceneSetup, summary: str, position, prior_tail="") -> str
     the job is paused restarts it rather than continuing from beats that no
     longer follow. The book's plan and the chapter's earlier beats the planner
     sees (SPEC-43) count too, when there are any, so an unplanned scene keeps
-    its old fingerprint."""
+    its old fingerprint. So do the book's own narration excerpts (W18-5): a
+    source edit leaves the approved canon as it was but can change them, and
+    beats written against one narration reference must not be finished
+    against another."""
     import hashlib
     import json
 
@@ -684,6 +920,8 @@ def _canon_hash(setup: SceneSetup, summary: str, position, prior_tail="") -> str
     parts = (canon, (summary or "") + story_position_line(position), tail)
     if setup.plan or setup.earlier:
         parts += (json.dumps([setup.plan, setup.earlier], sort_keys=True),)
+    if setup.narration:
+        parts += ("\x01".join(setup.narration),)
     return hashlib.sha256("\x00".join(parts).encode("utf-8")).hexdigest()[:16]
 
 

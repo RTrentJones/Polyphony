@@ -1026,3 +1026,39 @@ def test_new_names_knows_what_the_synopsis_says():
     assert rv.new_names("He felt, God help him, seen.", DRAFT, _canon({"Milo"})) == [
         "God"
     ]
+
+
+def test_a_revision_keeps_the_drafts_person_when_the_book_sets_no_pov():
+    """Codex P2 on #67: with no configured POV the writer took person and tense
+    from the book's own narration, so a revision keeps the draft's rather than
+    restating the default third person; with a POV set nothing is added."""
+    import types
+
+    from app.orchestration.prose import SceneSetup, person_from_narration
+    from app.planning.canon import Canon
+
+    def prompt(flag):
+        return rv.build_revise_prompt(
+            canon_block="CANON",
+            chapter_summary="",
+            cast_context="",
+            prior="",
+            target=P2,
+            after="",
+            instruction="tighten this",
+            pov=Pov("third person limited"),
+            story_position=None,
+            secondary_block="",
+            person_from_draft=flag,
+        )
+
+    assert rv.DRAFT_PERSON_CLAUSE in prompt(True)
+    assert rv.DRAFT_PERSON_CLAUSE not in prompt(False)
+
+    bare = SceneSetup(Canon("c"), [], None, None, "", [], [], "", None)
+    excerpts = bare._replace(narration=("I walked out into the rain.",))
+    assert person_from_narration(excerpts)
+    assert not person_from_narration(bare)  # no excerpts: the default holds
+    posed = Canon("c")
+    posed.style = types.SimpleNamespace(pov="third person limited")
+    assert not person_from_narration(excerpts._replace(canon=posed))
