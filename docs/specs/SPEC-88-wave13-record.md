@@ -95,7 +95,30 @@ second), then OpenRouter's 50/day · rate-state: 319 checked, 0 removed, 319/319
 (about 10-26).
 40248080586 · `sha=P⁵` (`f57f026`) · prior 40145592398 · green: 5 Nemotron requests, all answered, `panel-cc97d25b80c727066774`
 included (no second failure, so SPEC-84's fallback is not used) · rate-state: 324 checked, 0 removed, 324/324 read identically
-at P⁵ (preferences 216, error counts 108, all in range) · `unrated` 0 · rating complete (2026-10-26); `score` and κ per SPEC-84 next.
+at P⁵ (preferences 216, error counts 108, all in range) · `unrated` 0 · rating complete (2026-10-26).
+
+**Provenance of the rated bundles.** Every rate dispatch from P⁵ on used `bundles=39475808924,39480425231,39561988660`:
+Frankenstein 39475808924 (green, 2026-10-20, `baseline-bundle-frankenstein` sha256:f841cbe9…de24), Wuthering Heights 39480425231
+(green, 2026-10-20, sha256:029e3a1f…5df3), cel 39561988660 (green, 2026-10-21, label W12-9, `LLM_PROVIDER=gemini`,
+`gemini-3.5-flash-lite`; sha256:759ecfe4…016b), the run that completed cel after 39487847529 and 39495277558 stopped red. The stub
+demo bundle 39462843795 was never a rate input.
+
+**W12-9 result** (pre-registered in SPEC-84; scored 2026-10-26 by `evals/baseline/score.py` at P⁵ `f57f026` over rate run
+40248080586, the keys and records read by script and only aggregates printed; principal sign-off on the computation and the
+decision). Free (gemini-3.5-flash-lite, not prod's prose model), model panel, not human; C is the paid-tier ensemble; n = 18 slots
+over three development corpora. Decision under the pre-registered rule: **simplify toward A**, because neither primary 97.5%
+slot-cluster bootstrap CI excludes 0.5 in B's or C's favour. P(C>A) = 0.25 [0.111, 0.389]: the ensemble lost to the A baseline,
+never won a pair against A or B on the panel (P(C>B) = 0.139 [0.028, 0.278], descriptive), and used 20.3 requests per scene
+(6.4× A, 4.9× B), with p50 latency 195 s (5.6× A, 5.0× B) and 1.86 panel-counted continuity errors per scene (A 0.78, B 0.67).
+B versus A is **undetermined, not equal**: P(B>A) = 0.5 [0.5, 0.5] because every AB pair scored a tie. Groq's answer flipped with
+presentation order on all 18 AB pairs and Nemotron's on 10, and agreement on AB was below chance (Fleiss κ AB = −0.205; AC = 0.329;
+BC = 0.542; overall 0.411 ≥ 0.2, the pre-data reading of SPEC-84's gate, which tests the pooled value; under a per-pair reading
+the B-vs-A primary would be "no decision", which does not change the decision). As SPEC-84 warns, this null may mean too little
+data or too weak a judge. The panel is not yet human-calibrated (SPEC-94 S4); the corpora are development corpora (SPEC-94 S3);
+all arms carried the same `eval-baseline-<corpus>` title, a recall cue shared by every arm, not a bias between them. A's request
+and latency figures exclude the beat planning it reused from B (cost is per job id); the members ran under fixed, different
+`max_tokens` conditions (Groq 1,664, Nemotron 16,384). With 18 scenes, p95 latency is in effect the maximum. Not to be read as
+"A and B are equivalent" or as the panel validating A; the continuity gap between A and B has no CI.
  run id · `sha=19838a1` (P + the recorded `panel.py` lines) · `prior_run` · rate-state check (invalid
 entries removed, by key, or none) · `unrated` after the dispatch.
 
