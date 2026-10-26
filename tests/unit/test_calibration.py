@@ -296,6 +296,17 @@ def test_the_workflow_pins_actions_and_reads_a_baseline_key_only_on_request():
     assert "calibration" not in Path(".github/workflows/baseline.yml").read_text()
 
 
+def test_the_workflow_can_load_the_app_settings_the_export_imports():
+    """Run 40298444974: the export imports the pipeline's R2 helpers, which load
+    the app's settings, and the job set none. Throwaway CI values, as evals.yml
+    and test.yml use; the job still has no secret."""
+    wf = yaml.safe_load(Path(".github/workflows/calibration.yml").read_text())
+    env = wf["jobs"]["export"]["env"]
+    assert env["SECRET_KEY"] == "ci_secret_key_minimum_32_characters_long"
+    assert env["POSTGRES_PASSWORD"] == "ci_password_12345"
+    assert "secrets." not in Path(".github/workflows/calibration.yml").read_text()
+
+
 # --- agreement ------------------------------------------------------------------
 
 
