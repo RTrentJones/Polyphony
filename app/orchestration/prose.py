@@ -498,6 +498,14 @@ def beats_block(all_beats: list[dict], beat_index: int) -> str:
     return as_quoted_block("\n".join(lines), BEATS_FENCE)
 
 
+def person_from_narration(setup: SceneSetup) -> bool:
+    """True when the writer took person (and tense) from the book's own
+    narration: there are excerpts and the style guide names no POV mode. The
+    revise prompt then keeps the draft's person (Codex review, #67)."""
+    style = getattr(setup.canon, "style", None)
+    return bool(setup.narration) and not pov_mode(getattr(style, "pov", None))
+
+
 def _style_section(style, narration: tuple = ()) -> str:
     """Style guidance, the author's first (SPEC-18, B5).
 

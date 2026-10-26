@@ -45,6 +45,13 @@ PURPOSE = "scene_revise"
 # enqueues it without importing the job module (API -> orchestration <- job).
 JOB_KIND = "revise_scene"
 
+# A book with no configured point of view is written in its own narration's
+# person and tense (W18-5); a revision keeps the draft's, not the default's.
+DRAFT_PERSON_CLAUSE = (
+    " The book sets no point of view: keep the draft's own narrative person "
+    "and tense; the mode named here is only a default."
+)
+
 
 class SpanError(ValueError):
     """The requested span cannot be resolved against the current draft. The
@@ -305,6 +312,7 @@ def build_revise_prompt(
     secondary_block: str,
     beat: Optional[tuple[int, list[str]]] = None,
     keep: Sequence[tuple[str, str]] = (),
+    person_from_draft: bool = False,
 ) -> str:
     """The revise prompt. Everything the author wrote reaches the model whole:
     the canon, the chapter and its place in the book, the cast's and the
@@ -315,7 +323,10 @@ def build_revise_prompt(
     redo a beat: the prompt names the beat and shows the scene's whole plan
     with it marked, then `keep` (what the rest of the chapter refers to, as
     (term, context)) and how much to change (SPEC-41, SPEC-47). A cut request
-    also gets `TIGHTEN_CLAUSE`: a direction, never a quota (SPEC-59)."""
+    also gets `TIGHTEN_CLAUSE`: a direction, never a quota (SPEC-59).
+    `person_from_draft`: the book sets no point of view and generation took
+    person and tense from the book's own narration (W18-5), so the revision
+    keeps the draft's rather than the default mode's."""
     asked = _REDO_LEAD.sub("", instruction).strip()
     tighten = f"\n{TIGHTEN_CLAUSE}" if _CUT_WORDS.search(asked) else ""
     plan_line = ""
@@ -363,7 +374,7 @@ to you about the TARGET passage. Follow it for the TARGET only.
 
 {cast_block}
 
-{pov_instruction(pov)}
+{pov_instruction(pov)}{DRAFT_PERSON_CLAUSE if person_from_draft else ""}
 {NAMING_RULE}{plan_line}
 
 {prior_block}
