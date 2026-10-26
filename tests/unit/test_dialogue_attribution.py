@@ -550,6 +550,22 @@ class TestCharacterContext:
         assert "- I wrote by the lamp until Bistritz." in narration
         assert narration.startswith(ctx.NARRATION_WITH_SPEECH)
         assert ctx.voice_clause(out) == "matching their voice samples"
+        # W18-2: the ensemble agent's <voice> splits it the same way, unquoted.
+        agent = await ctx.build_agent_context(
+            _char("Jonathan Harker"), "Jonathan Harker", "the castle", scope=_scope()
+        )
+        voice = agent.split("<voice>")[1].split("</voice>")[0]
+        speech, narration = voice.split(ctx.NARRATION_LABEL)
+        assert '- "Welcome to my house, sir."' in speech and "Bistritz" not in speech
+        assert narration == (
+            ctx.NARRATION_WITH_SPEECH + "\n- I wrote by the lamp until Bistritz.\n"
+        )
+        assert '"I wrote by the lamp' not in agent
+        store.samples = [s for s in store.samples if s["id"] == "n1"]
+        agent = await ctx.build_agent_context(
+            _char("Jonathan Harker"), "Jonathan Harker", "the castle", scope=_scope()
+        )
+        assert ctx.NARRATION_LABEL + ctx.NARRATION_ONLY in agent  # no speech shown
 
     async def test_cast_contrast_line_only_for_two_sampled_speakers(self, monkeypatch):
         rowan = [

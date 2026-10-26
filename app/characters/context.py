@@ -243,14 +243,23 @@ def render_character(
         # They used to be cut to 200 chars, which severed most of them
         # mid-sentence and taught the model half a cadence.
         lines.extend(f'- "{clean_for_llm(s["text"])}"' for s in words)
-    if narration:
-        tail = NARRATION_WITH_SPEECH if words else NARRATION_ONLY
-        lines.append(NARRATION_LABEL + tail)
-        lines.extend(f"- {clean_for_llm(s['text'])}" for s in narration)
+    lines.extend(narration_lines(narration, bool(words)))
     if movement:
         lines.append(MOVEMENT_LABEL)
         lines.extend(f"- {clean_for_llm(s['text'])}" for s in movement)
     return "\n".join(lines)
+
+
+def narration_lines(narration, with_speech: bool) -> list[str]:
+    """Own narration under its honest label (W17-1): the cast block's and the
+    ensemble agent's <voice> (W18-2) print it the same way."""
+    if not narration:
+        return []
+    tail = NARRATION_WITH_SPEECH if with_speech else NARRATION_ONLY
+    return [
+        NARRATION_LABEL + tail,
+        *(f"- {clean_for_llm(s['text'])}" for s in narration),
+    ]
 
 
 def voice_clause(cast_context: str) -> str:
@@ -756,7 +765,9 @@ async def build_agent_context(
     """A character agent's fenced context: bible, then <voice> (their own words)
     and <physicality> (action/description) samples retrieved separately
     (SPEC-14, SPEC-17). <voice> never falls back to narration. Physicality that
-    centres another member of `scope.cast` is left out."""
+    centres another member of `scope.cast` is left out. Their own first-person
+    narration sits in <voice> after their speech, under NARRATION_LABEL, as
+    the cast block prints it (W17-1, W18-2): not quoted as speech."""
     # The ensemble prompt has no canon block, so the agent keeps its bible.
     bio = _bible_lines(character) if character else []
     blocks = [as_quoted_block(render_character(name, [], [], bio), "character")]
@@ -769,15 +780,14 @@ async def build_agent_context(
         k,
         scope=scope,
         threshold=settings.RAG_SCORE_THRESHOLD,
+        own=(narration := []),
     )
     if grounding is not None:
-        grounding.extend(grounding_entries(character, [*voice, *body]))
-    if voice:
-        blocks.append(
-            as_quoted_block(
-                "\n".join(f'- "{clean_for_llm(s["text"])}"' for s in voice), "voice"
-            )
-        )
+        grounding.extend(grounding_entries(character, [*voice, *narration, *body]))
+    lines = [f'- "{clean_for_llm(s["text"])}"' for s in voice]
+    lines += narration_lines(narration, bool(voice))
+    if lines:
+        blocks.append(as_quoted_block("\n".join(lines), "voice"))
     if body:
         blocks.append(
             as_quoted_block(

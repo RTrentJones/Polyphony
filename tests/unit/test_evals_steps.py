@@ -153,6 +153,20 @@ def test_a_renamed_corpus_leaks_no_original_and_renames_one_to_one(book):
             assert not set(rep.split()) & originals, rep
 
 
+@pytest.mark.parametrize("book", ["dracula", "frankenstein"])
+def test_no_original_name_starts_a_word_of_the_excerpt(book):
+    """(F) W18-3: "Transylvanian" and the italic "Nora Murray_" slipped past the
+    whole-word check above; (R) their renames are in the text. Wuthering still
+    has "_Catherine Heathcliff_"-style leftovers (not fixed in W18)."""
+    spec = json.loads((pipeline.CORPORA / book / "aliases.json").read_text())
+    text = pipeline.load_excerpts(book)
+    for src in spec["aliases"]:
+        assert not re.search(rf"\b{re.escape(src)}", text), src
+    if book == "dracula":
+        assert "We Vardaranian nobles" in text
+        assert text.count("_Letter, Cora Ellis to Nora Vance_.") == 2
+
+
 def test_dracula_card_is_signed_with_the_renamed_initial():
     """(F) W16-4: the Count (Vasska) signs his card "--V.", not "--D."."""
     text = pipeline.load_excerpts("dracula")

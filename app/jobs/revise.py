@@ -41,7 +41,7 @@ class RevisionConflict(RuntimeError):
 async def run(payload: dict) -> None:
     from app.characters.context import build_cast_context
     from app.orchestration import revise as rv
-    from app.orchestration.prose import scene_setup
+    from app.orchestration.prose import person_from_narration, scene_setup
 
     scene_id = UUID(payload["scene_id"])
     book_id = UUID(payload["book_id"])
@@ -103,6 +103,7 @@ async def run(payload: dict) -> None:
             after=after,
             instruction=instruction,
             pov=setup.pov,
+            person_from_draft=person_from_narration(setup),
             story_position=setup.position,
             secondary_block=setup.secondary_block,
             # SPEC-47: the beat the API located by its number, not a position.
