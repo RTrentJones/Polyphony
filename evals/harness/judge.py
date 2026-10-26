@@ -268,8 +268,13 @@ class Judge:
                 # landing together) recovers within a minute: wait it out on
                 # the same judge, so a busy minute neither fails the step nor
                 # moves the rest of the run to a paid judge; past that, fail
-                # over like a spent daily cap.
+                # over like a spent daily cap. Only the client's own give-up on
+                # a provider's 429 (the base class) is such a limit; a spend or
+                # accounting pause, a user budget or an unavailable provider (its
+                # subclasses) propagates at once, as before.
                 if isinstance(e, QuotaExhaustedError) and not _daily_quota(e):
+                    if type(e) is not QuotaExhaustedError:
+                        raise
                     if minute_waits < _MINUTE_WAITS:
                         minute_waits += 1
                         await asyncio.sleep(_MINUTE_WAIT_SECONDS)

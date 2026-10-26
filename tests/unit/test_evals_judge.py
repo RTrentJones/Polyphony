@@ -195,6 +195,34 @@ async def test_a_per_minute_limit_waits_on_the_same_judge_then_falls_through(
     assert used == (["groq", "groq"] if busy == 1 else ["groq"] * 3 + ["openrouter"])
 
 
+async def test_a_spend_pause_propagates_without_waiting(monkeypatch):
+    """Codex P2 on #68: a spend or accounting pause (SpendPausedError, a
+    QuotaExhaustedError subclass) is not a per-minute limit: it propagates at
+    once, with no wait and no failover."""
+    from app.llm.errors import SpendPausedError
+    from evals.harness import judge as judge_mod
+
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or_test")
+    j = Judge(_cfg(monkeypatch, "groq,openrouter"))
+    slept, used = [], []
+
+    async def no_sleep(seconds):
+        slept.append(seconds)
+
+    monkeypatch.setattr(judge_mod.asyncio, "sleep", no_sleep)
+
+    class Paused:
+        async def generate(self, *a, **kw):
+            used.append(j.provider_id)
+            raise SpendPausedError("monthly ceiling reached")
+
+    monkeypatch.setattr(j, "_ensure", lambda: Paused())
+    with pytest.raises(SpendPausedError):
+        await j.score("rubric", "content")
+    assert slept == [] and used == ["groq"] and not j.exhausted
+
+
 async def test_an_exhausted_chain_is_judge_unavailable_and_steps_keep_metrics(
     monkeypatch,
 ):
