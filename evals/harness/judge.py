@@ -10,6 +10,7 @@ call goes through the same pacing/retry/breaker as production.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -22,6 +23,10 @@ _SYSTEM = (
     "rubric on a scale from 0.0 (fails the rubric entirely) to 1.0 (fully meets "
     'it). Reply ONLY with JSON: {"score": <float 0..1>, "explanation": <one sentence>}.'
 )
+
+
+_MINUTE_WAITS = 2  # per call, after the client's own 429 retries
+_MINUTE_WAIT_SECONDS = 60.0
 
 
 def _daily_quota(e: Exception) -> bool:
@@ -244,6 +249,7 @@ class Judge:
 
         from app.llm.errors import QuotaExhaustedError
 
+        minute_waits = 0
         while True:
             try:
                 judgment = await once(prompt)
@@ -257,8 +263,17 @@ class Judge:
                 # tier refuses a long outline). Neither is transient: grade
                 # with the next provider in the chain instead of failing the
                 # whole step it belongs to. So is a spent daily cap (D14).
+                # A per-minute limit that outlasted the client's own retries
+                # (run 40272098890: Groq's 8,000 TPM, the step's judge calls
+                # landing together) recovers within a minute: wait it out on
+                # the same judge, so a busy minute neither fails the step nor
+                # moves the rest of the run to a paid judge; past that, fail
+                # over like a spent daily cap.
                 if isinstance(e, QuotaExhaustedError) and not _daily_quota(e):
-                    raise
+                    if minute_waits < _MINUTE_WAITS:
+                        minute_waits += 1
+                        await asyncio.sleep(_MINUTE_WAIT_SECONDS)
+                        continue
                 if isinstance(e, APIStatusError) and e.status_code not in (404, 413):
                     raise
                 if not self._next_in_chain():

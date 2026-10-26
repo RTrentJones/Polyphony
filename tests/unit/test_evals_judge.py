@@ -151,6 +151,50 @@ async def test_a_retired_judge_model_falls_through_the_chain(monkeypatch, status
         assert used[-1] == ("anthropic", "claude-sonnet-5-5")
 
 
+@pytest.mark.parametrize("busy", [1, 3])
+async def test_a_per_minute_limit_waits_on_the_same_judge_then_falls_through(
+    monkeypatch, busy
+):
+    """Run 40272098890: Groq's per-minute limit outlasted the client's retries
+    and failed Frankenstein's prose step. A per-minute QuotaExhaustedError now
+    waits (twice at most) on the same judge; only a third fails over."""
+    import types
+
+    from app.llm.errors import QuotaExhaustedError
+    from evals.harness import judge as judge_mod
+
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or_test")
+    j = Judge(_cfg(monkeypatch, "groq,openrouter"))
+    slept, used = [], []
+
+    async def no_sleep(seconds):
+        slept.append(seconds)
+
+    monkeypatch.setattr(judge_mod.asyncio, "sleep", no_sleep)
+
+    class Fake:
+        def __init__(self, pid):
+            self.pid = pid
+
+        async def generate(self, *a, **kw):
+            used.append(self.pid)
+            if self.pid == "groq" and used.count("groq") <= busy:
+                raise QuotaExhaustedError(
+                    "Error code: 429 - Rate limit reached on tokens per minute (TPM)"
+                )
+            return types.SimpleNamespace(
+                text='{"score": 0.8, "explanation": "ok"}', model="m", cost_usd=0.0
+            )
+
+    monkeypatch.setattr(j, "_ensure", lambda: Fake(j.provider_id))
+    judgment = await j.score("rubric", "content")
+    want = "groq" if busy == 1 else "openrouter"
+    assert judgment.score == 0.8 and judgment.judge_provider == want
+    assert slept == [60.0] * min(busy, 2)
+    assert used == (["groq", "groq"] if busy == 1 else ["groq"] * 3 + ["openrouter"])
+
+
 async def test_an_exhausted_chain_is_judge_unavailable_and_steps_keep_metrics(
     monkeypatch,
 ):
