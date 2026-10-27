@@ -6,9 +6,10 @@ two judges' outcome when they agree, else a tie, SPEC-84's rule):
 
 - the win rate of `--new` over `--old`, ties ½, a forfeit (a chapter one
   release did not write) a loss for that release, with a seeded bootstrap 95%
-  interval resampling chapter pairs (the cluster: a (book, chapter) pair; with
-  several judgments of one pair, all of them move together, as SPEC-84's
-  slot-cluster bootstrap), 2,000 resamples;
+  interval resampling outline chapters: the cluster is (book, chapter), and
+  every replicate and batch of that chapter moves with it, as SPEC-84's
+  slot-cluster bootstrap; 2,000 resamples. `n` counts clusters, `pairs` the
+  chapter pairs under them;
 - n pairs, unrated pairs (an order left unanswered), forfeits, and how often
   the two orders agreed (order consistency);
 - per book, the same win rate without an interval;
@@ -48,11 +49,17 @@ def collect(paths: list[Path]) -> list[dict]:
         if not c:
             continue
         for pair in c["pairs"]:
-            key = (c["book"], pair["position"])
+            key = (
+                c["book"],
+                c.get("batch"),
+                pair.get("replicate", 1),
+                pair["position"],
+            )
             if key in seen:
                 raise SystemExit(f"{key} is judged in more than one report")
             seen.add(key)
             out.append(pair | {"book": c["book"], "releases": c["releases"]})
+            out[-1].setdefault("replicate", 1)
     return out
 
 
@@ -105,12 +112,13 @@ def win_rate(pairs: list[dict], judge: str, new: str, old: str) -> dict:
         if v is None:
             unrated += p.get("forfeit") != "both"
             continue
-        clusters[(p["book"], p["position"])] = [v]
+        clusters.setdefault((p["book"], p["position"]), []).append(v)
         per_book[p["book"]].append(v)
         if judge in JUDGES and not p.get("forfeit"):
             ordered += 1
             consistent += p["judges"][judge]["outcome"] != "tie"
     out = bootstrap(clusters) | {
+        "pairs": sum(len(v) for v in clusters.values()),
         "unrated": unrated,
         "forfeits": sum(1 for p in pairs if p.get("forfeit") not in (None, "both")),
         "both_empty": sum(1 for p in pairs if p.get("forfeit") == "both"),
@@ -144,7 +152,7 @@ def rc(pairs: list[dict], judge: str, new: str, old: str) -> dict:
             if isinstance(s[sha], (int, float)):
                 scores[sha].append(s[sha])
         if all(isinstance(v, (int, float)) for v in s.values()):
-            diffs[(p["book"], p["position"])] = [s[new] - s[old]]
+            diffs.setdefault((p["book"], p["position"]), []).append(s[new] - s[old])
     return {
         "new_mean": round(mean(scores[new]), 4) if scores[new] else None,
         "old_mean": round(mean(scores[old]), 4) if scores[old] else None,
@@ -154,18 +162,33 @@ def rc(pairs: list[dict], judge: str, new: str, old: str) -> dict:
 
 
 def power(
-    n: int, p: float, ties: float, sims: int = 400, seed: int = 0, resamples: int = 500
+    n: int,
+    p: float,
+    ties: float,
+    reps: int = 1,
+    spread: float = 0.0,
+    sims: int = 400,
+    seed: int = 0,
+    resamples: int = 500,
 ) -> float:
-    """Share of simulated runs of n pairs (true win rate p, a `ties` share of
-    order-flipped pairs) whose bootstrap 95% interval excludes 0.5 upward."""
-    a = p - ties / 2
-    if not 0 <= a <= 1 - ties:
-        raise ValueError("p and ties are inconsistent")
+    """Share of simulated runs whose cluster-bootstrap 95% interval excludes 0.5
+    upward: n clusters (outline chapters) of `reps` pairs each, a `ties` share
+    of order-flipped pairs, and each chapter's own win rate drawn uniformly
+    within ±`spread` of p (chapters differ; replicates of one chapter share it)."""
+    if not (ties / 2 <= p - spread and p + spread <= 1 - ties / 2):
+        raise ValueError("p, spread and ties are inconsistent")
     rng = random.Random(seed)
     hits = 0
     for _ in range(sims):
-        xs = rng.choices([1.0, 0.5, 0.0], weights=[a, ties, 1 - ties - a], k=n)
-        boot = sorted(mean(rng.choices(xs, k=n)) for _ in range(resamples))
+        clusters = []
+        for _ in range(n):
+            a = rng.uniform(p - spread, p + spread) - ties / 2
+            w = [a, ties, 1 - ties - a]
+            clusters.append(rng.choices([1.0, 0.5, 0.0], weights=w, k=reps))
+        boot = sorted(
+            mean(v for c in rng.choices(clusters, k=n) for v in c)
+            for _ in range(resamples)
+        )
         hits += boot[int(resamples * (1 - LEVEL) / 2)] > 0.5
     return hits / sims
 

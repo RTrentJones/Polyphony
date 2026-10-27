@@ -11,6 +11,17 @@ as names) instead of generating one; otherwise it generates one and stores its
 portable form back, so both releases promote the identical outline and so get
 the identical chapters and planned beats (promotion is deterministic). The
 outline's digest is recorded; compare refuses a pair whose digests differ.
+
+EVAL_CHAPTERS=0 makes an outline-only run (the book's outline day). With
+EVAL_CHAPTER_REPLICATES=R the K chapters are written R times in one run: each
+replicate is a continuous attempt at chapters 1..K, recorded, then its scenes
+are deleted (trashed) so the next replicate writes from the same plan.
+
+Requests are counted from the app's /usage (calls by purpose, this run's user):
+the setup's, and each chapter's, so the Flash-Lite day budget can be planned
+from measured numbers. Before each chapter the run stops cleanly when the
+generator's requests left today are under EVAL_CHAPTER_RESERVE (default 40):
+a chapter that hits the provider's daily cap would pause, not finish.
 """
 
 from __future__ import annotations
@@ -18,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import uuid
 from pathlib import Path
 
 from evals.steps.base import StepContext, step
@@ -31,6 +43,7 @@ from evals.steps.pipeline import (
 
 STEP = "chapters"
 DEFAULT_CHAPTERS = 3
+DEFAULT_RESERVE = 40
 
 
 def digest(outline: list) -> str:
@@ -68,11 +81,37 @@ def prior_outline(book: str) -> tuple[list, str] | None:
     return next(iter(found.values()), None)
 
 
-def chapter_count() -> int:
-    n = int(os.getenv("EVAL_CHAPTERS") or DEFAULT_CHAPTERS)
-    if not 1 <= n <= 12:
-        raise SystemExit(f"EVAL_CHAPTERS must be 1..12, got {n}")
+def _bounded(var: str, default: int, lo: int, hi: int) -> int:
+    raw = os.getenv(var)
+    n = int(raw) if raw not in (None, "") else default
+    if not lo <= n <= hi:
+        raise SystemExit(f"{var} must be {lo}..{hi}, got {n}")
     return n
+
+
+def chapter_count() -> int:
+    """K; 0 = an outline-only run."""
+    return _bounded("EVAL_CHAPTERS", DEFAULT_CHAPTERS, 0, 12)
+
+
+def replicate_count() -> int:
+    return _bounded("EVAL_CHAPTER_REPLICATES", 1, 1, 6)
+
+
+async def _calls(ctx: StepContext) -> int:
+    """This run's user's LLM calls so far (GET /usage, by purpose)."""
+    u = await ctx.client.usage()
+    return sum(int(r.get("calls") or 0) for r in u.get("by_purpose_30d") or [])
+
+
+async def _left_today(ctx: StepContext) -> int | None:
+    """Requests left today on the generator's model (None: not tracked)."""
+    from evals.harness.config import generator
+
+    model = generator().get("model")
+    row = ((await ctx.client.usage()).get("models") or {}).get(model) or {}
+    left = row.get("left")
+    return left if isinstance(left, int) else None
 
 
 async def _write_chapter(ctx: StepContext, ch: dict, names: dict) -> dict:
@@ -115,7 +154,9 @@ async def _write_chapter(ctx: StepContext, ch: dict, names: dict) -> dict:
 
 @step(STEP, needs_api=True, repeatable=False)
 async def step_chapters(ctx: StepContext) -> dict:
-    k = chapter_count()
+    k, reps = chapter_count(), replicate_count()
+    reserve = _bounded("EVAL_CHAPTER_RESERVE", DEFAULT_RESERVE, 0, 500)
+    calls0 = await _calls(ctx)
     book = await _book_with_cast(ctx, eval_title(ctx.book, STEP))
     names = {cid: name for name, cid in book["character_ids"].items()}
     voice = None
@@ -133,18 +174,45 @@ async def step_chapters(ctx: StepContext) -> dict:
     chapters = sorted(
         promoted.get("chapters") or [], key=lambda c: c.get("position") or 0
     )
-    rows = [await _write_chapter(ctx, ch, names) for ch in chapters[:k]]
+    setup_calls = await _calls(ctx) - calls0
+    rows, stopped = [], None
+    for rep in range(1, reps + 1) if k else ():
+        for ch in chapters[:k]:
+            left = await _left_today(ctx)
+            if left is not None and left < reserve:
+                stopped = f"{left} generator requests left today (< {reserve})"
+                break
+            before = await _calls(ctx)
+            row = await _write_chapter(ctx, ch, names)
+            rows.append(row | {"replicate": rep, "calls": await _calls(ctx) - before})
+        if stopped:
+            break
+        if rep < reps:  # the next replicate writes the same plan afresh
+            for r in rows:
+                for sc in r["scenes"] if r["replicate"] == rep else ():
+                    await ctx.client.delete_scene(sc["id"])
     written = sum(
         1 for r in rows if any((s.get("content") or "").strip() for s in r["scenes"])
     )
     return {
         "score": None,  # material for chapters_compare, not a quality score
         "judge_explanation": f"{STEP}: {written}/{len(rows)} chapters written "
-        f"(outline {source}); judge with chapters_compare",
+        f"(outline {source}, {reps} replicate(s))"
+        + (f"; stopped: {stopped}" if stopped else "")
+        + "; judge with chapters_compare",
         "outline": outline,
         "outline_digest": digest(outline),
         "outline_source": source,
+        # Names this run's chapters: compare pairs one day's two runs as a batch.
+        "batch": uuid.uuid4().hex[:12],
         "voice_indexed": bool(voice and voice.get("indexed")),
         "chapters_asked": k,
+        "replicates_asked": reps,
+        "stopped": stopped,
+        "requests": {
+            "setup": setup_calls,
+            "per_chapter": [r["calls"] for r in rows],
+            "left_today_at_end": await _left_today(ctx),
+        },
         "chapters": rows,
     }

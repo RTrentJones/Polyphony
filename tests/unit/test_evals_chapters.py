@@ -67,11 +67,30 @@ def test_digest_ignores_key_order_and_chapter_count_is_bounded(monkeypatch):
     monkeypatch.setenv("EVAL_CHAPTERS", "13")
     with pytest.raises(SystemExit):
         generate.chapter_count()
+    monkeypatch.setenv("EVAL_CHAPTERS", "0")  # the outline-only run
+    assert generate.chapter_count() == 0
+    monkeypatch.setenv("EVAL_CHAPTER_REPLICATES", "7")
+    with pytest.raises(SystemExit):
+        generate.replicate_count()
 
 
 class _Client:
-    def __init__(self, fail_at=None):
+    """17 calls per chapter; `left` requests today on the generator's model."""
+
+    def __init__(self, fail_at=None, left=500):
         self.puts, self.generated, self.fail_at = [], [], fail_at
+        self.calls, self.left, self.deleted = 0, left, []
+
+    async def usage(self):
+        from evals.harness.config import generator
+
+        return {
+            "by_purpose_30d": [{"purpose": "llm", "calls": self.calls}],
+            "models": {generator()["model"]: {"left": self.left}},
+        }
+
+    async def delete_scene(self, sid):
+        self.deleted.append(sid)
 
     async def put_outline(self, book_id, content):
         self.puts.append(content)
@@ -95,11 +114,15 @@ class _Client:
         if cid == self.fail_at:
             raise EvalClientError("422")
         self.generated.append(cid)
-        return {"queued": 1, "deferred": 0, "total": 1, "scenes": [{"id": f"s-{cid}"}]}
+        self.calls += 17
+        self.left -= 17
+        sid = f"s-{cid}-{len(self.generated)}"
+        return {"queued": 1, "deferred": 0, "total": 1, "scenes": [{"id": sid}]}
 
 
 def _fake_pipeline(monkeypatch, client):
     async def book_with_cast(ctx, title):
+        client.calls += 5  # the setup's own calls
         return {"id": "bk", "character_ids": {"Ann": "id-ann"}, "title": title}
 
     async def index_voice(ctx, book_id, names):
@@ -146,6 +169,48 @@ async def test_chapters_generates_the_outline_once_and_writes_k_in_order(
         "Ann"
     ]
     assert res["score"] is None and res["voice_indexed"]
+    assert res["requests"]["setup"] == 5
+    assert res["requests"]["per_chapter"] == [17, 0, 17]  # the failed one spent none
+
+
+async def test_outline_only_run_writes_nothing(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVAL_PRIOR_REPORTS", str(tmp_path))
+    monkeypatch.setenv("EVAL_CHAPTERS", "0")
+    client = _Client()
+    res = await generate.step_chapters(_fake_pipeline(monkeypatch, client))
+    assert res["outline"] == [{"title": "generated"}] and res["chapters"] == []
+    assert client.generated == [] and client.puts == [[{"title": "generated"}]]
+
+
+async def test_replicates_rewrite_the_same_plan_after_trashing(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVAL_PRIOR_REPORTS", str(tmp_path))
+    monkeypatch.setenv("EVAL_CHAPTERS", "2")
+    monkeypatch.setenv("EVAL_CHAPTER_REPLICATES", "3")
+    client = _Client()
+    res = await generate.step_chapters(_fake_pipeline(monkeypatch, client))
+    rows = res["chapters"]
+    assert [(r["replicate"], r["position"]) for r in rows] == [
+        (1, 1),
+        (1, 2),
+        (2, 1),
+        (2, 2),
+        (3, 1),
+        (3, 2),
+    ]
+    assert client.generated == ["c0", "c1"] * 3
+    # replicates 1 and 2 are trashed before the next; the last stays
+    assert client.deleted == [s["id"] for r in rows[:4] for s in r["scenes"]]
+    assert res["batch"] and res["stopped"] is None
+
+
+async def test_the_run_stops_before_the_day_cap(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVAL_PRIOR_REPORTS", str(tmp_path))
+    monkeypatch.setenv("EVAL_CHAPTERS", "4")
+    monkeypatch.setenv("EVAL_CHAPTER_RESERVE", "40")
+    client = _Client(left=80)
+    res = await generate.step_chapters(_fake_pipeline(monkeypatch, client))
+    assert len(res["chapters"]) == 3  # 80 -> 63 -> 46 -> 29 < 40
+    assert "29 generator requests left" in res["stopped"]
 
 
 async def test_chapters_reuses_a_prior_runs_outline(tmp_path, monkeypatch):
@@ -280,6 +345,26 @@ async def test_compare_is_blind_both_orders_and_scores_forfeits(tmp_path, monkey
         assert OLD not in p and NEW not in p and "[[eval" not in p
         assert "<canon>" in p and "PLANNED BEATS" in p
     assert by[1]["rc"]["sonnet"][NEW] == {"score": 0.7, "trimmed": False}
+    assert "free" not in by[1]["rc"]  # the free chain's quota goes to preference
+
+
+async def test_compare_pairs_replicates_of_one_batch(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVAL_PRIOR_REPORTS", str(tmp_path))
+    old = [_row(1, "o-r1") | {"replicate": 1}, _row(1, "o-r2") | {"replicate": 2}]
+    new = [_row(1, "n-r1") | {"replicate": 1}, _row(1, "n-r2") | {"replicate": 2}]
+    _two_releases(tmp_path, old, new)
+    sonnet = _Judge("anthropic", favour="n-")
+    monkeypatch.setattr(compare, "judges", lambda: {"sonnet": sonnet, "free": None})
+    gt = {"synopsis": "S", "cast": ["Ann"]}
+    res = await compare.step_chapters_compare(
+        SimpleNamespace(book="dracula", ground_truth=gt)
+    )
+    pairs = res["compare"]["pairs"]
+    assert [(p["replicate"], p["position"]) for p in pairs] == [(1, 1), (2, 1)]
+    # replicate r of one release is judged against replicate r of the other
+    assert "o-r1" in sonnet.prompts[0] and "n-r1" in sonnet.prompts[0]
+    assert "o-r2" in sonnet.prompts[2] and "n-r2" in sonnet.prompts[2]
+    assert res["compare"]["batch"] == "None+None"  # no batch ids in these fixtures
 
 
 async def test_compare_stops_on_a_spend_pause(tmp_path, monkeypatch):
@@ -374,6 +459,38 @@ def test_power_rises_with_the_effect():
     assert analyze.power(12, 0.5, 0.3, sims=60, resamples=200) < 0.2
     with pytest.raises(ValueError):
         analyze.power(10, 0.9, 0.5)
+    # replicates of a chapter add power; chapters that differ take some back
+    one = analyze.power(16, 0.7, 0.0, reps=1, sims=80, resamples=200, seed=2)
+    three = analyze.power(16, 0.7, 0.0, reps=3, sims=80, resamples=200, seed=2)
+    assert three > one
+    with pytest.raises(ValueError):
+        analyze.power(10, 0.9, 0.0, spread=0.2)
+
+
+def test_replicates_and_batches_move_with_their_chapter(tmp_path):
+    for n, batch in ((1, "b1"), (2, "b2")):  # two days of one book: two batches
+        c = {
+            "book": "dracula",
+            "batch": batch,
+            "releases": [OLD, NEW],
+            "pairs": [
+                _pair("dracula", 1, NEW, NEW) | {"replicate": 1},
+                _pair("dracula", 1, OLD, OLD) | {"replicate": 2},
+                _pair("dracula", 2, NEW, NEW) | {"replicate": 1},
+            ],
+        }
+        _report(
+            tmp_path / f"{n}/eval-report-dracula.json",
+            "dracula",
+            NEW,
+            "chapters_compare",
+            {"compare": c},
+        )
+    pairs = analyze.collect([tmp_path])
+    assert len(pairs) == 6
+    s = analyze.analyze(pairs, NEW, OLD)["P(new>old) sonnet"]
+    assert s["n"] == 2 and s["pairs"] == 6  # clusters are outline chapters
+    assert s["p"] == pytest.approx(4 / 6, abs=1e-4)
 
 
 # --- evals.yml --------------------------------------------------------------
@@ -496,3 +613,14 @@ def test_holdout_corpora_must_be_holdout_v1s(repo):
     _git(r, "commit", "-qm", "corpus edit")
     out = _run(step, r)
     assert out.returncode == 1 and "holdout-v1" in out.stdout
+
+
+def test_chapter_inputs_reach_the_step_through_env():
+    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "evals.yml").read_text())
+    inputs, env = wf[True]["workflow_dispatch"]["inputs"], wf["jobs"]["eval"]["env"]
+    assert "0 = the outline only" in inputs["chapters"]["description"]
+    assert inputs["replicates"]["default"] == "1"
+    assert env["EVAL_CHAPTERS"] == "${{ github.event.inputs.chapters || '3' }}"
+    assert (
+        env["EVAL_CHAPTER_REPLICATES"] == "${{ github.event.inputs.replicates || '1' }}"
+    )

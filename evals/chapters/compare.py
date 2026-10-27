@@ -135,17 +135,22 @@ async def step_chapters_compare(ctx: StepContext) -> dict:
     seed = int(os.getenv("CHAPTERS_SEED") or DEFAULT_SEED)
     runs = releases(ctx.book)
     shas = sorted(runs)
-    by_pos = {sha: {c["position"]: c for c in runs[sha]["chapters"]} for sha in shas}
+    by_pos = {
+        sha: {(c.get("replicate", 1), c["position"]): c for c in runs[sha]["chapters"]}
+        for sha in shas
+    }
     positions = sorted(set(by_pos[shas[0]]) & set(by_pos[shas[1]]))
+    batch = "+".join(str(runs[sha].get("batch")) for sha in shas)
     gt = ctx.ground_truth
     canon = f"<canon>\n{gt['synopsis']}\nCast: {', '.join(gt['cast'])}\n</canon>"
     js = judges()
     pairs, stopped = [], None
-    for pos in positions:
-        rows = {sha: by_pos[sha][pos] for sha in shas}
+    for rep, pos in positions:
+        rows = {sha: by_pos[sha][(rep, pos)] for sha in shas}
         texts = {sha: chapter_text(rows[sha]) for sha in shas}
         pair: dict = {
             "position": pos,
+            "replicate": rep,
             "words": {sha: len(texts[sha].split()) for sha in shas},
             "forfeit": None,
             "judges": {},
@@ -160,7 +165,7 @@ async def step_chapters_compare(ctx: StepContext) -> dict:
             pair["forfeit"] = empty[0]
             pairs.append(pair)
             continue
-        a, b = random.Random(f"{seed}|{ctx.book}|{pos}").sample(shas, 2)
+        a, b = random.Random(f"{seed}|{ctx.book}|{batch}|{rep}|{pos}").sample(shas, 2)
         plan = plan_text(rows[a])
         try:
             for name, j in js.items():
@@ -173,6 +178,8 @@ async def step_chapters_compare(ctx: StepContext) -> dict:
                     "orders": [[a, b, x], [b, a, y]],
                     "outcome": outcome(x, y, a, b),
                 }
+                if name != "sonnet":  # the free chain's quota goes to preference
+                    continue
                 rc = {}
                 for sha in shas:
                     scenes = [
@@ -197,6 +204,7 @@ async def step_chapters_compare(ctx: StepContext) -> dict:
             "book": ctx.book,
             "seed": seed,
             "releases": shas,
+            "batch": batch,
             "outline_digest": runs[shas[0]]["outline_digest"],
             "judges": {n: (j.provider_id if j else None) for n, j in js.items()},
             "stopped": stopped,

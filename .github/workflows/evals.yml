@@ -86,8 +86,11 @@ on:
           outline to reuse; the two releases to compare). Blank = none.
         default: ''
       chapters:
-        description: "E4's `chapters` step: how many outline chapters to write, in order (1..12)"
+        description: "E4's `chapters` step: how many outline chapters to write, in order (0..12; 0 = the outline only)"
         default: '3'
+      replicates:
+        description: "E4's `chapters` step: how many times to write those chapters afresh in this run (1..6)"
+        default: '1'
       judge:
         description: >-
           who judges (SPEC-95 E0): chain = the free judges (with claude=yes, Claude Sonnet only as the last
@@ -167,6 +170,7 @@ jobs:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
       EVAL_CHAPTERS: ${{ github.event.inputs.chapters || '3' }}
+      EVAL_CHAPTER_REPLICATES: ${{ github.event.inputs.replicates || '1' }}
     steps:
       - uses: actions/checkout@v4
       # D19-4: holdout-v1 fixes the holdout corpora, the release under test fixes the code; a holdout
