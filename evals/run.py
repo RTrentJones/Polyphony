@@ -33,10 +33,11 @@ from evals.baseline import arms  # noqa: F401 — registers `baseline` (W12-5)
 from evals.steps import pipeline  # noqa: F401 — registers the steps
 from evals.validation import step as validation  # noqa: F401 — W19 S7, opt-in
 from evals.validation import rn2  # noqa: F401 — SPEC-95 E2, opt-in
+from evals.calibration import answer as calibration  # noqa: F401 — E5, opt-in
 from evals.steps.base import StepContext, all_steps, get_step
 
 # Never part of `--steps all`.
-OPT_IN = ("baseline", validation.STEP, rn2.STEP)
+OPT_IN = ("baseline", validation.STEP, rn2.STEP, calibration.STEP)
 
 
 def _record_judge_failover(result: dict, judge) -> None:

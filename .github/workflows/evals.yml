@@ -74,6 +74,11 @@ on:
         type: choice
         options: ['chain', 'claude']
         default: 'chain'
+      calibration_run:
+        description: >-
+          with steps=calibration_answers (SPEC-95 E5): the calibration.yml run id whose calibration-items
+          artifact the judge answers (its key is never downloaded)
+        default: ''
   # On-demand trigger for when workflow_dispatch isn't available (e.g. an
   # integration token can't press "Run workflow"): bump evals/.run-eval and push.
   # Path-scoped so ordinary commits don't fire it (this run spends Gemini quota).
@@ -186,6 +191,29 @@ jobs:
             echo "EVAL_JUDGE_PROVIDER=$CHAIN"
             echo "EVAL_JUDGE_MODE=$JUDGE"
           } >> "$GITHUB_ENV"
+      # SPEC-95 E5: the human calibration page's items (never its key) for the
+      # opt-in calibration_answers step, which the judge chain answers as the page asks.
+      - name: Calibration items (steps=calibration_answers)
+        env:
+          STEPS: ${{ github.event.inputs.steps || 'all' }}
+          CAL_RUN: ${{ github.event.inputs.calibration_run || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case ",$STEPS," in
+            *,calibration_answers,*) ;;
+            *) exit 0 ;;
+          esac
+          if ! printf '%s' "$CAL_RUN" | grep -Eq '^[0-9]+$'; then
+            echo "::error title=Calibration::steps=calibration_answers needs calibration_run, a calibration.yml run id (got '$CAL_RUN')"
+            exit 1
+          fi
+          DIR="$RUNNER_TEMP/calibration-items"
+          gh run download "$CAL_RUN" -R "$GITHUB_REPOSITORY" -n calibration-items -D "$DIR"
+          if [ ! -f "$DIR/items.json" ] || [ -n "$(find "$DIR" -name 'key*.json')" ]; then
+            echo "::error title=Calibration::the calibration-items artifact of run $CAL_RUN holds no items.json, or holds a key"
+            exit 1
+          fi
+          echo "EVAL_CALIBRATION_ITEMS=$DIR/items.json" >> "$GITHUB_ENV"
       - name: Preflight — Gemini key present (boot mode only)
         if: ${{ github.event.inputs.base_url == '' }}
         run: |
@@ -330,6 +358,20 @@ jobs:
           # spend. Without this marker (killed mid-book) the budget charges the ceiling.
           echo '{}' > eval-done.json
           exit $rc
+      # The calibration_answers reports merged into the {item_id: answer} file
+      # evals.calibration.agreement reads (counts printed, never an answer).
+      - name: Calibration answers (steps=calibration_answers)
+        if: always()
+        env:
+          STEPS: ${{ github.event.inputs.steps || 'all' }}
+        run: |
+          case ",$STEPS," in
+            *,calibration_answers,*) ;;
+            *) exit 0 ;;
+          esac
+          ls eval-report-*.json >/dev/null 2>&1 || exit 0
+          python -m evals.calibration.answer collect eval-report-*.json --out calibration-answers.json \
+            | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Stop app
         if: ${{ always() && github.event.inputs.base_url == '' }}
         run: kill "$(cat /tmp/app.pid)" 2>/dev/null || true
@@ -345,5 +387,6 @@ jobs:
             eval-ceiling.json
             eval-done.json
             gl-export-*.json
+            calibration-answers.json
             app.log
           if-no-files-found: warn

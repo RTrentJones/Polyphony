@@ -399,6 +399,17 @@ judge against chance (0.5), with a chapter-cluster bootstrap interval, the
 unparseable count and the share answering "1" (position bias). RN-v2 replaces
 nothing until it is above chance for both judges on this set.
 
+**A judge on the human calibration set (SPEC-95 E5).** The opt-in step
+`calibration_answers` puts each item of the calibration page's `items.json` to the
+run's judge chain exactly as the page asks it (r2: a candidate per line; pair: A or
+B; chapter: an RC score) and never reads the key. Dispatch evals.yml with
+`steps=calibration_answers`, `calibration_run=<calibration.yml run id>` and `book`
+= the items' books; the job downloads only that run's `calibration-items` artifact
+and uploads `calibration-answers.json` ({item_id: answer}) with the reports.
+`python -m evals.calibration.agreement items.json key.json human=h.json
+free=f.json sonnet=s.json` scores each against the key and every two against each
+other, aggregates only.
+
 ## Relay runs: an agent plays the model
 
 `evals/relay_llm.py` is an OpenAI-compatible endpoint answered by whoever watches a

@@ -1,6 +1,17 @@
 """W19 S4 (SPEC-94, D19-5): the human ratings against the judges, as aggregates.
 
 python -m evals.calibration.agreement items.json key.json answers.json
+python -m evals.calibration.agreement items.json key.json \
+    human=human.json free=free.json sonnet=sonnet.json
+
+With several answer files (SPEC-95 E5: the human, the free judge chain and
+Sonnet, each answering the page via evals.calibration.answer), each is scored
+against the key as below (`raters`), and every two are compared with each
+other (`pairwise`), on the items both answered: r2 the share of lines named
+alike (the scene the bootstrap cluster), pairs the share of the same side and
+Cohen's κ, chapters the mean absolute difference and the same-anchor share
+(the chapter the cluster). A file is named by its `name=` prefix, else its
+stem. Aggregates only, as for one file.
 
 `answers.json` is the page's export, {item_id: answer}: for an r2 item a list
 of candidate names in line order (or {"1": name, ...}); for a pair "A" or "B"
@@ -313,12 +324,95 @@ def agreement(items_doc: dict, key_doc: dict, answers: dict) -> dict:
     }
 
 
+def pairwise(items_doc: dict, key_doc: dict, x: dict, y: dict) -> dict:
+    """Two raters' answer files against each other (not against the key),
+    on the items both answered readably. Aggregates only."""
+    items = {it["id"]: it for it in items_doc["items"]}
+    key = key_doc["items"]
+    out: dict = {}
+    r2 = []  # per scene: [(x line, y line)]
+    for i, it in items.items():
+        if it["kind"] != "r2":
+            continue
+        n = len(it.get("lines") or (key.get(i) or {}).get("speakers") or [])
+        a, b = (_r2_answer(d.get(i), n) for d in (x, y))
+        if a is not None and b is not None:
+            r2.append(list(zip(a, b)))
+    same = lambda cs: mean(a == b for c in cs for a, b in c)  # noqa: E731
+    out["r2"] = {"items": len(r2), "lines": sum(len(c) for c in r2)}
+    if r2:
+        out["r2"]["line_agreement"] = _r(same(r2))
+        out["r2"]["line_agreement_ci"] = bootstrap(r2, same)
+    ps = []
+    for i, it in items.items():
+        if it["kind"] == "pair":
+            a, b = _side(x.get(i)), _side(y.get(i))
+            if a and b:
+                ps.append((a, b))
+    out["pairs"] = {"items": len(ps)}
+    if ps:
+        alike = lambda u: mean(a == b for a, b in u)  # noqa: E731
+        out["pairs"]["agreement"] = _r(alike(ps))
+        out["pairs"]["agreement_ci"] = bootstrap(ps, alike)
+        out["pairs"]["cohen_kappa"] = _r(_kappa(ps))
+        (
+            out["pairs"]["cohen_kappa_ci"],
+            out["pairs"]["cohen_kappa_ci_degenerate_resamples"],
+        ) = bootstrap_counted(ps, _kappa)
+    by_ch: dict = {}
+    for i, it in items.items():
+        if it["kind"] == "chapter":
+            a, b = _rc_answer(x.get(i)), _rc_answer(y.get(i))
+            if a is not None and b is not None:
+                ch = (key.get(i) or {}).get("chapter", i)
+                by_ch.setdefault(ch, []).append((a, b))
+    clusters = [by_ch[c] for c in sorted(by_ch)]
+    out["chapters"] = {"items": sum(len(c) for c in clusters)}
+    if clusters:
+        mad = lambda cs: mean(abs(a - b) for a, b in _flat(cs))  # noqa: E731
+        anc = lambda cs: mean(_anchor(a) == _anchor(b) for a, b in _flat(cs))  # noqa
+        out["chapters"]["mean_abs_diff"] = _r(mad(clusters))
+        out["chapters"]["mean_abs_diff_ci"] = bootstrap(clusters, mad)
+        out["chapters"]["anchor_agreement"] = _r(anc(clusters))
+        out["chapters"]["anchor_agreement_ci"] = bootstrap(clusters, anc)
+    return out
+
+
+def _named(arg: str) -> tuple[str, Path]:
+    name, sep, path = arg.partition("=")
+    return (name, Path(path)) if sep and name else (Path(arg).stem, Path(arg))
+
+
+def compare(items: dict, key: dict, raters: dict[str, dict]) -> dict:
+    """Each rater against the key, and every two raters against each other."""
+    names = list(raters)
+    return {
+        "raters": {n: agreement(items, key, raters[n]) for n in names},
+        "pairwise": {
+            f"{a} vs {b}": pairwise(items, key, raters[a], raters[b])
+            for k, a in enumerate(names)
+            for b in names[k + 1 :]
+        },
+        "ci": f"{LEVEL:.0%} percentile bootstrap, {RESAMPLES} resamples",
+    }
+
+
 def main(argv: list[str] | None = None) -> None:
-    paths = [Path(p) for p in (argv if argv is not None else sys.argv[1:])]
-    if len(paths) != 3:
+    args = list(argv if argv is not None else sys.argv[1:])
+    if len(args) < 3:
         raise SystemExit(__doc__.split("\n\n")[1])
-    items, key, answers = (json.loads(p.read_text("utf-8")) for p in paths)
-    print(json.dumps(agreement(items, key, answers), indent=1))
+    items, key = (json.loads(Path(p).read_text("utf-8")) for p in args[:2])
+    if len(args) == 3:  # one answer file: the human, as in W19 S4
+        answers = json.loads(_named(args[2])[1].read_text("utf-8"))
+        print(json.dumps(agreement(items, key, answers), indent=1))
+        return
+    raters: dict[str, dict] = {}
+    for a in args[2:]:
+        name, path = _named(a)
+        if name in raters:
+            raise SystemExit(f"two answer files are named {name!r}")
+        raters[name] = json.loads(path.read_text("utf-8"))
+    print(json.dumps(compare(items, key, raters), indent=1))
 
 
 if __name__ == "__main__":

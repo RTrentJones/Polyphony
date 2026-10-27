@@ -39,6 +39,10 @@ one comparison that says whether a release writes better books.
   items and digest (`d8cc3434…`, pinned by a test) are untouched: 12 items (6 chapters × intact/drift), samples from
   `narrator_samples` minus any paragraph a passage quotes (two donors), labels seeded per item; 12 calls a run, ≤ $0.06
   ($0.18 worst) on Sonnet. Accuracy per judge vs 0.5, chapter-cluster CI, unparseable counted (D19-2).
+- **D20-7 E5 as built.** An opt-in step `calibration_answers` in `evals.yml` (`calibration_run` = the calibration.yml run;
+  only its `calibration-items` artifact is downloaded), not a new workflow: the spend guard needs the run's database and
+  `evals.spend` counts only `evals.yml`'s reports, so a separate workflow would spend outside the month's ledger.
+  `collect` writes `calibration-answers.json`; `agreement` takes `name=answers.json` files and adds pairwise agreement.
 
 ## Ledger
 | run | item | Claude cost | running total |

@@ -322,6 +322,56 @@ def test_the_judge_chain_is_set_only_by_the_judge_step():
     assert judge["options"] == ["chain", "claude"] and judge["default"] == "chain"
 
 
+def _calibration_items_step(tmp_path, steps: str, run_id: str, artifact: dict):
+    """Run the calibration-items step with `gh` stubbed to write `artifact`."""
+    import subprocess
+
+    step = _wf_step("Calibration items (steps=calibration_answers)")
+    assert "${{" not in step["run"]
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    env_file = tmp_path / "github_env"
+    env_file.write_text("")
+    files = " ".join(f"{name}" for name in artifact)
+    stub = (
+        'gh() { echo "GH $*"; d="${@: -1}"; mkdir -p "$d"; '
+        f'for f in {files}; do echo "{{}}" > "$d/$f"; done; }}\n'
+    )
+    out = subprocess.run(
+        ["bash", "-e", "-c", stub + step["run"]],
+        cwd=tmp_path,
+        env={
+            "PATH": "/usr/bin:/bin",
+            "STEPS": steps,
+            "CAL_RUN": run_id,
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_REPOSITORY": "o/r",
+            "GITHUB_ENV": str(env_file),
+        },
+        capture_output=True,
+        text=True,
+    )
+    return out.returncode, out.stdout, env_file.read_text()
+
+
+def test_the_calibration_items_step_downloads_items_only(tmp_path):
+    code, out, env = _calibration_items_step(tmp_path, "prose", "", {})
+    assert code == 0 and "GH" not in out and not env  # not asked for
+    code, out, env = _calibration_items_step(
+        tmp_path, "calibration_answers", "", {"items.json": 1}
+    )
+    assert code == 1 and "::error title=Calibration::" in out and not env
+    code, out, env = _calibration_items_step(
+        tmp_path, "calibration_answers", "123", {"items.json": 1}
+    )
+    want = f"GH run download 123 -R o/r -n calibration-items -D {tmp_path}/"
+    assert code == 0 and want + "calibration-items\n" in out  # the items only
+    assert env.strip().endswith("calibration-items/items.json")
+    code, out, env = _calibration_items_step(
+        tmp_path / "k", "calibration_answers", "123", {"items.json": 1, "key.json": 1}
+    )
+    assert code == 1 and "holds a key" in out
+
+
 # --- the renaming --------------------------------------------------------------
 
 
