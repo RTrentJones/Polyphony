@@ -281,3 +281,4 @@ compare, analyze chain-tail).
 | 40469753340 (RN/RC on the S7 set, Sonnet, pass 2) | E1 | $0.85 | $6.74 |
 | 40470509603 (RN-v2 validation, Sonnet, pass 2) | E2 | $0.09 | $6.83 |
 | 40470971826 (calibration answers, Sonnet: wuthering) | E5 | $0.04 | $6.87 |
+| 40473458504 (e3 rate: Sonnet pass and retest, 162 calls each, nothing unrated; cap $5) | E3 | $4.25 | $11.12 |

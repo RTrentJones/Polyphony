@@ -239,6 +239,9 @@ def test_the_workflow_rates_bundles_only_with_one_key_and_a_cap(tmp_path):
     assert WF["env"]["W12_9_RATE_RUN"] == "40248080586"
     assert "baseline-key-*" in "\n".join(s.get("run", "") for s in score["steps"])
     for job in (rate, score):
+        # boot-app migrates against localhost:5432, so every job using it brings the database
+        if any("boot-app" in s.get("uses", "") for s in job["steps"]):
+            assert "5432:5432" in job["services"]["postgres"]["ports"]
         checkout = next(s for s in job["steps"] if "checkout@" in s.get("uses", ""))
         assert checkout["with"]["persist-credentials"] is False
         for s in job["steps"]:

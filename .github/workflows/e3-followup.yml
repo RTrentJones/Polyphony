@@ -77,6 +77,9 @@ jobs:
     if: inputs.stage == 'score'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    services: # boot-app migrates a throwaway database before the scorer imports the app
+      postgres: {image: pgvector/pgvector:pg16, env: {POSTGRES_PASSWORD: ci_password_12345, POSTGRES_DB: polyphony_eval}, ports: ['5432:5432'],
+        options: '--health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10'}
     steps:
       - {uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5, with: {persist-credentials: false}} # v4.3.1
       - {uses: ./.github/actions/boot-app, with: {serve: 'false'}}
