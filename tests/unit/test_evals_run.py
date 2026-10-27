@@ -269,3 +269,25 @@ def test_the_book_tally_covers_every_pass_not_only_the_scored_ones():
     # no scored pass: the last pass is reported, with every pass's tally
     steps = _aggregate([{"prose": unscored}, {"prose": unscored}])
     assert steps["prose"]["book"]["unscored"]["unparseable"] == 2
+
+
+@pytest.mark.parametrize("mode", ["claude", "chain", None])
+async def test_a_report_records_the_requested_judge_mode(tmp_path, monkeypatch, mode):
+    """SPEC-95 E0: the judge block says what was asked for (evals.yml's `judge`
+    input) beside the chain it was given and who actually graded."""
+    import evals.run as r
+    from tests.unit.test_evals_preflight import _cfg
+
+    if mode:
+        monkeypatch.setenv("EVAL_JUDGE_MODE", mode)
+    else:
+        monkeypatch.delenv("EVAL_JUDGE_MODE", raising=False)
+    cfg = _cfg(tmp_path)
+    judge = SimpleNamespace(provider_id="anthropic", is_self=False, graded_by=[])
+    judge.model_override = judge.fell_back = judge.endpoint = None
+    monkeypatch.setattr(r, "load_config", lambda: cfg)
+    monkeypatch.setattr(r, "Judge", lambda _cfg: judge)
+    monkeypatch.setattr(r.get_step("retrieval"), "run", AsyncMock(return_value={}))
+    out = await r.run("cel", ["retrieval"], str(tmp_path / "r.json"), 1, None)
+    assert out["judge"]["requested_mode"] == mode
+    assert out["judge"]["requested"] == cfg.judge_provider

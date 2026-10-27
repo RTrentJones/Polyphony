@@ -670,3 +670,17 @@ def test_rescore_runs_without_app_settings(tmp_path):
     )
     assert got.returncode == 0, got.stderr[-2000:]
     assert json.loads(got.stdout)["unscored"]["rubrics"] == 0
+
+
+def test_a_claude_first_chain_judges_with_sonnet_then_the_free_judges(monkeypatch):
+    """SPEC-95 E0: judge=claude sets the chain anthropic,<free chain>; Claude
+    grades first with its fast model (Sonnet, never the Opus default), and a
+    run without its key falls to the free judges, which the report names."""
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk_test")
+    j = Judge(_cfg(monkeypatch, "anthropic,groq,openrouter"))
+    assert (j.provider_id, j.model_override) == ("anthropic", "claude-sonnet-5-5")
+    assert j.fell_back is False
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+    j = Judge(_cfg(monkeypatch, "anthropic,groq,openrouter"))
+    assert j.provider_id == "groq" and j.model_override is None

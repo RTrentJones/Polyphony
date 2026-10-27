@@ -32,6 +32,9 @@ one comparison that says whether a release writes better books.
   into this spec and signed by the principal before any of their data is generated or rated.
 - **D20-4 Holdout.** E4's holdout chapters need the `holdout-v1` tag on `bdb5567` (the user creates it; the session cannot) and
   run once, from the tag, per SPEC-94 D19-4. Without the tag by Nov 7, E4 runs on the development corpora alone and says so.
+- **D20-5 E0 as built.** `evals.yml` input `judge` (`chain` default | `claude`), resolved in a tested "Judge chain" step:
+  `claude` = `anthropic,<free chain>` (Sonnet via `_fast_if_claude`), refused with an `::error` unless `claude=yes` on a
+  booted app; reports add `judge.requested_mode` beside `requested` (the chain) and `provider`/`graded_by` (who graded).
 
 ## Ledger
 | run | item | Claude cost | running total |

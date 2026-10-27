@@ -34,6 +34,9 @@ from evals.steps import pipeline  # noqa: F401 — registers the steps
 from evals.validation import step as validation  # noqa: F401 — W19 S7, opt-in
 from evals.steps.base import StepContext, all_steps, get_step
 
+# Never part of `--steps all`.
+OPT_IN = ("baseline", validation.STEP)
+
 
 def _record_judge_failover(result: dict, judge) -> None:
     """A retired judge model fails over mid-run (Judge._next_in_chain): record
@@ -245,6 +248,9 @@ async def run(
             "model": ctx.judge.model_override,
             "self": ctx.judge.is_self,
             "requested": cfg.judge_provider,
+            # SPEC-95 E0: evals.yml's `judge` input, "claude" (Sonnet first,
+            # the free chain behind it) or "chain"; None outside that workflow.
+            "requested_mode": os.getenv("EVAL_JUDGE_MODE") or None,
             "fell_back": ctx.judge.fell_back,
             # A judge at its own URL (a separate relay queue), or None.
             "endpoint": ctx.judge.endpoint,
@@ -419,8 +425,9 @@ def main() -> None:
     splits.require(args.book)  # a holdout book without --holdout stops here
 
     step_names = (
-        # baseline is its own run (SPEC-84); rnrc_validation is asked for by name
-        [s for s in all_steps() if s not in ("baseline", validation.STEP)]
+        # baseline is its own run (SPEC-84); the validation and calibration
+        # steps are asked for by name
+        [s for s in all_steps() if s not in OPT_IN]
         if args.steps == "all"
         else [s.strip() for s in args.steps.split(",")]
     )

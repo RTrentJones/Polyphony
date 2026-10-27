@@ -316,6 +316,17 @@ self-graded run is always labelled, never silent. Judge calls are temperature 0.
 Note: switching judge families shifts absolute scores; compare trends within one
 judge (the report's `judge.provider` records which one graded each run).
 
+**A Claude-first judge (SPEC-95 E0).** evals.yml's `judge` input picks the chain:
+`chain` (default) is the free chain (`EVAL_JUDGE_PROVIDER` repo variable, else
+`groq,openrouter`), with `anthropic` appended as the last resort when `claude=yes`;
+`claude` puts `anthropic` first (`anthropic,<free chain>`), so Sonnet grades on
+purpose (the judge always picks Claude's fast model, never Opus) and the free judges
+take over only if it gives out. `judge=claude` needs `claude=yes` and a booted app,
+since the Anthropic key, the month's spend guard and the run's ceiling are wired
+only then; otherwise the job stops with an error before anything runs. The report's
+`judge` block records the request (`requested_mode`, `requested` = the chain) beside
+who actually graded (`provider`, `graded_by`).
+
 **Unscored, never zero (SPEC-94 S2a).** A judge reply with no readable score
 (no JSON, or JSON without a numeric `score`) is `score: None` with the reason
 "unparseable judge reply" and `judge_unparseable: true` — not 0.0. The rule for

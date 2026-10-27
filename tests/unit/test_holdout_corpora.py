@@ -243,6 +243,85 @@ def test_the_repeat_input_reaches_the_runner_through_env(tmp_path):
     assert "--repeat 2" in runs[0]
 
 
+# --- the judge input (SPEC-95 E0) ---------------------------------------------
+
+
+def _wf_step(name: str) -> dict:
+    import yaml
+
+    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "evals.yml").read_text())
+    return next(s for s in wf["jobs"]["eval"]["steps"] if s.get("name") == name)
+
+
+def _judge_step(tmp_path, judge: str, claude: str, base_url: str = "") -> tuple:
+    """Run evals.yml's judge-chain step as written: (exit code, stdout,
+    {name: value} it wrote to GITHUB_ENV)."""
+    import subprocess
+
+    step = _wf_step("Judge chain")
+    # every input reaches the shell through `env`, never interpolated
+    assert "${{" not in step["run"]
+    assert step["env"]["JUDGE"] == "${{ github.event.inputs.judge || 'chain' }}"
+    env_file = tmp_path / "github_env"
+    env_file.write_text("")
+    out = subprocess.run(
+        ["bash", "-e", "-c", step["run"]],
+        cwd=tmp_path,
+        env={
+            "PATH": "/usr/bin:/bin",
+            "JUDGE": judge,
+            "CLAUDE": claude,
+            "BASE_URL": base_url,
+            "FREE_CHAIN": "groq,openrouter",
+            "GITHUB_ENV": str(env_file),
+        },
+        capture_output=True,
+        text=True,
+    )
+    written = dict(
+        ln.split("=", 1) for ln in env_file.read_text().splitlines() if "=" in ln
+    )
+    return out.returncode, out.stdout, written
+
+
+@pytest.mark.parametrize(
+    "judge, claude, chain",
+    [
+        ("chain", "no", "groq,openrouter"),  # the default: the free chain
+        ("chain", "yes", "groq,openrouter,anthropic"),  # Claude last (SPEC-90 D14)
+        ("claude", "yes", "anthropic,groq,openrouter"),  # Claude first (E0)
+    ],
+)
+def test_the_judge_input_orders_the_chain(tmp_path, judge, claude, chain):
+    code, _, env = _judge_step(tmp_path, judge, claude)
+    assert code == 0
+    assert env == {"EVAL_JUDGE_PROVIDER": chain, "EVAL_JUDGE_MODE": judge}
+
+
+def test_judge_claude_without_claude_yes_or_a_booted_app_is_refused(tmp_path):
+    code, out, env = _judge_step(tmp_path, "claude", "no")
+    assert code == 1 and not env
+    assert "::error title=Judge::judge=claude needs claude=yes" in out
+    code, out, env = _judge_step(tmp_path, "claude", "yes", "https://x.example")
+    assert code == 1 and not env and "::error title=Judge::" in out
+    code, out, env = _judge_step(tmp_path, "sonnet", "yes")
+    assert code == 1 and not env and "::error title=Judge::" in out
+
+
+def test_the_judge_chain_is_set_only_by_the_judge_step():
+    """The job env no longer computes the chain, and the judge step runs before
+    anything that grades; its input is a choice defaulting to the free chain."""
+    import yaml
+
+    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "evals.yml").read_text())
+    job = wf["jobs"]["eval"]
+    assert "EVAL_JUDGE_PROVIDER" not in job["env"]
+    names = [s.get("name") for s in job["steps"]]
+    assert names.index("Judge chain") < names.index("Run evals + ingest to Tracer")
+    judge = wf[True]["workflow_dispatch"]["inputs"]["judge"]
+    assert judge["options"] == ["chain", "claude"] and judge["default"] == "chain"
+
+
 # --- the renaming --------------------------------------------------------------
 
 
