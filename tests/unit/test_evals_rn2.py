@@ -277,3 +277,14 @@ def test_analysis_refuses_a_different_item_set(built, tmp_path):
     b = _report(tmp_path, "b", key, {})
     with pytest.raises(SystemExit, match="exactly one item set"):
         rn2.analyze([a, b])
+
+
+@pytest.mark.parametrize(
+    "reply", [{"narrator": [1]}, {"narrator": {"n": 1}}, {"narrator": True}]
+)
+def test_a_non_scalar_narrator_answer_is_unparseable_not_a_crash(reply):
+    """Codex P2 on #72: a list or object answer must be None, not a TypeError
+    that would discard the book's other judgments."""
+    from evals.validation import rn2
+
+    assert rn2.parse(reply) is None
