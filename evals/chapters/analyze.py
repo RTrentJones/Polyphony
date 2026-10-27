@@ -1,7 +1,9 @@
 """E4: P(new release's chapter > old release's), per judge. Aggregates only.
 
-Reads `chapters_compare` results from eval reports (files or directories) and
-prints, for each judge (sonnet, free) and for their agreement ("panel": the
+Reads `chapters_compare` results from eval reports (files or directories),
+only the last report of each batch's resume chain (refusing one whose earlier
+rated outcomes changed), leaves out excluded pairs (quota, not attempted;
+counted per release) and prints, for each judge (sonnet, free) and for their agreement ("panel": the
 two judges' outcome when they agree, else a tie, SPEC-84's rule):
 
 - the win rate of `--new` over `--old`, ties ½, a forfeit (a chapter one
@@ -34,20 +36,58 @@ RESAMPLES, LEVEL, SEED = 2000, 0.95, 0
 JUDGES = ("sonnet", "free")
 
 
+def _last_of_batch(reports: list[dict]) -> dict:
+    """The tail of a batch's resume chain; every outcome an earlier report
+    rated must be unchanged in it (a resume judges only unrated pairs)."""
+    ids = {c.get("report_id") for c in reports}
+    resumed = {r.get("resumed_from") for r in reports} - {None}
+    tails = [c for c in reports if c.get("report_id") not in resumed]
+    if len(tails) != 1 or (len(reports) > 1 and None in ids):
+        raise SystemExit(
+            f"batch {reports[0].get('batch')}: {len(reports)} compare reports that "
+            "are not one resume chain"
+        )
+    last = tails[0]
+    now = {(p.get("replicate", 1), p["position"]): p for p in last["pairs"]}
+    for c in reports:
+        for p in c["pairs"]:
+            for name, j in (p.get("judges") or {}).items():
+                was = j.get("outcome")
+                got = (
+                    (
+                        (now.get((p.get("replicate", 1), p["position"])) or {}).get(
+                            "judges"
+                        )
+                        or {}
+                    )
+                    .get(name, {})
+                    .get("outcome")
+                )
+                if was is not None and got != was:
+                    raise SystemExit(
+                        f"batch {c.get('batch')}: {name}'s rated outcome at "
+                        f"{(p.get('replicate', 1), p['position'])} changed on resume"
+                    )
+    return last
+
+
 def collect(paths: list[Path]) -> list[dict]:
-    """Every `chapters_compare` pair, tagged with its book; a pair judged in
-    two reports is refused (dispatch again explicitly, not twice by accident)."""
+    """Every `chapters_compare` pair of the last report of each batch, tagged
+    with its book; a pair in two batches' last reports is refused."""
     files: dict[Path, None] = {}
     for p in paths:
         for f in sorted(p.rglob("eval-report-*.json")) if p.is_dir() else [p]:
             files[f.resolve()] = None
-    out, seen = [], set()
+    batches: dict = defaultdict(list)
     for f in files:
         c = ((json.loads(f.read_text("utf-8")).get("steps") or {}).get(STEP) or {}).get(
             "compare"
         )
-        if not c:
-            continue
+        if c:
+            batches[(c["book"], c.get("batch"))].append(c)
+    out, seen = [], set()
+    for reports in batches.values():
+        c = _last_of_batch(reports)
         for pair in c["pairs"]:
             key = (
                 c["book"],
@@ -56,9 +96,16 @@ def collect(paths: list[Path]) -> list[dict]:
                 pair["position"],
             )
             if key in seen:
-                raise SystemExit(f"{key} is judged in more than one report")
+                raise SystemExit(f"{key} is judged twice in one report")
             seen.add(key)
-            out.append(pair | {"book": c["book"], "releases": c["releases"]})
+            out.append(
+                pair
+                | {
+                    "book": c["book"],
+                    "releases": c["releases"],
+                    "batch": c.get("batch"),
+                }
+            )
             out[-1].setdefault("replicate", 1)
     return out
 
@@ -72,7 +119,10 @@ def value(outcome: str | None, new: str, old: str) -> float | None:
 
 
 def judge_outcome(pair: dict, judge: str) -> str | None:
-    """The pair's outcome for a judge (or "panel"), a forfeit applied."""
+    """The pair's outcome for a judge (or "panel"), a forfeit applied; None
+    for a pair left out (not attempted, or a quota failure on either side)."""
+    if pair.get("excluded"):
+        return None
     f = pair.get("forfeit")
     if f and f != "both":  # the release that wrote nothing loses
         (other,) = [s for s in pair["releases"] if s != f]
@@ -104,15 +154,31 @@ def bootstrap(clusters: dict, seed: int = SEED, level: float = LEVEL) -> dict:
     }
 
 
-def win_rate(pairs: list[dict], judge: str, new: str, old: str) -> dict:
+def _excluded(pairs: list[dict], new: str, old: str) -> dict:
+    """Pairs left out on both sides, by reason and by the release it hit."""
+    out = {}
+    for reason in ("quota", "not_attempted"):
+        hit = [p for p in pairs if p.get("excluded") == reason]
+        who = [s for p in hit for s in (p.get(reason) or [])]
+        out[reason] = {"pairs": len(hit), "new": who.count(new), "old": who.count(old)}
+    return out
+
+
+def win_rate(
+    pairs: list[dict], judge: str, new: str, old: str, by: str = "chapter"
+) -> dict:
+    """`by` = "chapter" (the primary: (book, k)) or "run" (sensitivity: (book, batch))."""
     clusters, unrated, consistent, ordered = {}, 0, 0, 0
     per_book: dict = defaultdict(list)
     for p in pairs:
+        if p.get("excluded"):
+            continue
         v = value(judge_outcome(p, judge), new, old)
         if v is None:
             unrated += p.get("forfeit") != "both"
             continue
-        clusters.setdefault((p["book"], p["position"]), []).append(v)
+        cluster = p["position"] if by == "chapter" else p.get("batch")
+        clusters.setdefault((p["book"], cluster), []).append(v)
         per_book[p["book"]].append(v)
         if judge in JUDGES and not p.get("forfeit"):
             ordered += 1
@@ -122,6 +188,7 @@ def win_rate(pairs: list[dict], judge: str, new: str, old: str) -> dict:
         "unrated": unrated,
         "forfeits": sum(1 for p in pairs if p.get("forfeit") not in (None, "both")),
         "both_empty": sum(1 for p in pairs if p.get("forfeit") == "both"),
+        "excluded": _excluded(pairs, new, old),
         "per_book": {b: round(mean(v), 4) for b, v in sorted(per_book.items())},
     }
     if judge in JUDGES:
@@ -136,7 +203,7 @@ def kappa(pairs: list[dict], new: str, old: str) -> float | None:
     table = []
     for p in pairs:
         got = [judge_outcome(p, j) for j in JUDGES]
-        if p.get("forfeit") or None in got:
+        if p.get("forfeit") or p.get("excluded") or None in got:
             continue
         table.append([sum(g == c for g in got) for c in (new, old, "tie")])
     return round(fleiss(table), 4) if table else None
@@ -193,6 +260,50 @@ def power(
     return hits / sims
 
 
+def detectable(n: int, ties: float, reps: int, **kw) -> float | None:
+    """The smallest win rate p on a 0.01 grid with power(n, p, ties, reps,
+    spread=0, sims=400, seed=0) >= 0.80 (None if none up to the grid's end)."""
+    grid = [round(0.51 + k / 100, 2) for k in range(49)]
+    grid = [p for p in grid if p <= 1 - ties / 2]
+    kw = {"spread": 0.0, "sims": 400, "seed": 0} | kw
+    lo, hi, best = 0, len(grid) - 1, None
+    while lo <= hi:  # power rises with p
+        mid = (lo + hi) // 2
+        if power(n, grid[mid], ties, reps, **kw) >= 0.80:
+            best, hi = grid[mid], mid - 1
+        else:
+            lo = mid + 1
+    return best
+
+
+def decision(res: dict, mde_kw: dict | None) -> str:
+    s, f = res["P(new>old) sonnet"], res["P(new>old) free"]
+    flips, rated = res["sonnet_flips"]
+    if rated and flips > rated / 2:
+        return "undetermined: Sonnet is order-driven on these chapters"
+    n_pairs = s["pairs"]
+    if s["ci"] and s["ci"][0] > 0.5:
+        line = f"Sonnet prefers wave 18's chapters to wave 17's (n = {n_pairs})"
+    elif s["ci"] and s["ci"][1] < 0.5:
+        line = f"Sonnet prefers wave 17's chapters to wave 18's (n = {n_pairs})"
+    else:
+        line = f"no difference detectable at n = {n_pairs} (not equivalence)"
+        if mde_kw is not None and s["n"]:
+            ties = flips / rated if rated else 0.0
+            reps = max(1, round(n_pairs / s["n"]))
+            p80 = detectable(s["n"], ties, reps, **mde_kw)
+            line += f"; detectable at 80% power: p >= {p80} ({s['n']} chapters, ties {ties:.2f}, reps {reps})"
+        return line
+    if f["ci"] and s["p"] is not None:
+        other = (f["ci"][1] < 0.5) if s["p"] > 0.5 else (f["ci"][0] > 0.5)
+        if other:
+            line += (
+                f"; the free chain disagrees (P = {f['p']}, provider "
+                f"{', '.join(res['free_providers']) or '?'}): judge-dependent"
+            )
+    return line
+
+
 def resolve(prefix: str, pairs: list[dict]) -> str:
     """The one release sha in the reports that starts with `prefix`."""
     got = {s for p in pairs for s in p["releases"] if s.startswith(prefix)}
@@ -201,7 +312,7 @@ def resolve(prefix: str, pairs: list[dict]) -> str:
     return got.pop()
 
 
-def analyze(pairs: list[dict], new: str, old: str) -> dict:
+def analyze(pairs: list[dict], new: str, old: str, mde_kw: dict | None = None) -> dict:
     if not pairs:
         raise SystemExit(f"no {STEP} pairs in the reports")
     new, old = resolve(new, pairs), resolve(old, pairs)
@@ -220,8 +331,40 @@ def analyze(pairs: list[dict], new: str, old: str) -> dict:
     for j in (*JUDGES, "panel"):
         out[f"P(new>old) {j}"] = win_rate(pairs, j, new, old)
     out["fleiss_kappa sonnet~free"] = kappa(pairs, new, old)
+    out["P(new>old) sonnet, by book-day run (sensitivity)"] = win_rate(
+        pairs, "sonnet", new, old, by="run"
+    )
     for j in JUDGES:
         out[f"RC {j}"] = rc(pairs, j, new, old)
+    rated = [
+        p["judges"]["sonnet"]["outcome"]
+        for p in pairs
+        if not p.get("excluded")
+        and not p.get("forfeit")
+        and (p.get("judges") or {}).get("sonnet", {}).get("outcome") is not None
+    ]
+    out["sonnet_flips"] = [rated.count("tie"), len(rated)]
+    out["free_providers"] = sorted(
+        {
+            o[4]
+            for p in pairs
+            for o in ((p.get("judges") or {}).get("free") or {}).get("orders", [])
+            if len(o) > 4 and o[4]
+        }
+    )
+    words = {new: [], old: []}
+    for p in pairs:
+        for sha, w in (p.get("words") or {}).items():
+            if sha in words and not p.get("excluded"):
+                words[sha].append(w)
+    out["words per chapter"] = {
+        k: round(mean(v), 1) if v else None
+        for k, v in (("new", words[new]), ("old", words[old]))
+    }
+    out["decision"] = decision(out, mde_kw)
+    out["n"] = (
+        f"{out['P(new>old) sonnet']['pairs']} pairs (Sonnet-rated plus forfeits) over {out['P(new>old) sonnet']['n']} outline chapters"
+    )
     return out
 
 
@@ -232,7 +375,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--new", required=True, help="the later release's app sha")
     ap.add_argument("--json", type=Path)
     a = ap.parse_args(argv)
-    res = analyze(collect(a.paths), a.new, a.old)
+    res = analyze(collect(a.paths), a.new, a.old, mde_kw={})
     text = json.dumps(res, indent=1)
     print(text)
     if a.json:

@@ -29,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import uuid
 from pathlib import Path
 
@@ -44,6 +45,29 @@ from evals.steps.pipeline import (
 STEP = "chapters"
 DEFAULT_CHAPTERS = 3
 DEFAULT_RESERVE = 40
+# A chapter that did not finish for quota or provider availability (a 429 at
+# enqueue, a daily limit, a job left paused until the poll timed out, an
+# unavailable provider) says nothing about the release: compare excludes the
+# pair on both sides. Anything else that left no text is the product's.
+_QUOTA = re.compile(
+    r"\b429\b|\b503\b|quota|rate.?limit|DailyRequestLimit|per.?day|paused|"
+    r"poll timed out|ProviderUnavailable|unavailable",
+    re.I,
+)
+
+
+def failure(error: str | None, scenes: list[dict], deferred=None) -> str | None:
+    """`quota`, `product` or None (the chapter has text and nothing deferred)."""
+    if error is not None:
+        return "quota" if _QUOTA.search(error) else "product"
+    if deferred:  # the day's token budget held beats back (SPEC-34)
+        return "quota"
+    if any((s.get("content") or "").strip() for s in scenes):
+        return None
+    errs = " ".join(str(s.get("error") or "") for s in scenes)
+    if any(s.get("status") == "paused" for s in scenes) or _QUOTA.search(errs):
+        return "quota"
+    return "product"
 
 
 def digest(outline: list) -> str:
@@ -137,19 +161,37 @@ async def _write_chapter(ctx: StepContext, ch: dict, names: dict) -> dict:
     try:
         started = await ctx.client.generate_planned(ch["chapter_id"], {})
     except EvalClientError as e:  # recorded; the next chapter still runs
-        return row | {"error": str(e)[:300], "scenes": []}
+        return row | {
+            "error": str(e)[:300],
+            "failure": failure(str(e), []),
+            "scenes": [],
+        }
     scenes = [await _collect_scene(ctx, s["id"]) for s in started["scenes"]]
     return row | {
+        "failure": failure(None, scenes, started.get("deferred")),
         "queued": started.get("queued"),
         "deferred": started.get("deferred"),
         "reason": started.get("reason"),
         "total": started.get("total"),
         "scenes": [
-            {k: s.get(k) for k in ("id", "status", "content", "planned_beat_id")}
+            {
+                k: s.get(k)
+                for k in ("id", "status", "content", "planned_beat_id", "error")
+            }
             for s in scenes
         ],
         "words": sum(len((s.get("content") or "").split()) for s in scenes),
     }
+
+
+async def _trash_replicate(ctx: StepContext, chapters: list[dict]) -> None:
+    """Every live scene of these chapters, read back from the app: a paused or
+    failed leftover of an errored chapter included, so none of it reaches the
+    next replicate's context."""
+    for ch in chapters:
+        detail = await ctx.client.get_chapter(ch["chapter_id"])
+        for sc in detail.get("scenes") or []:
+            await ctx.client.delete_scene(sc["id"])
 
 
 @step(STEP, needs_api=True, repeatable=False)
@@ -188,9 +230,7 @@ async def step_chapters(ctx: StepContext) -> dict:
         if stopped:
             break
         if rep < reps:  # the next replicate writes the same plan afresh
-            for r in rows:
-                for sc in r["scenes"] if r["replicate"] == rep else ():
-                    await ctx.client.delete_scene(sc["id"])
+            await _trash_replicate(ctx, chapters[:k])
     written = sum(
         1 for r in rows if any((s.get("content") or "").strip() for s in r["scenes"])
     )

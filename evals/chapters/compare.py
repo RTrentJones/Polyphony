@@ -13,8 +13,16 @@ not used, and the result says so.
 The judge sees no release label: chapters are the scenes' text in order,
 markers stripped (evals.baseline.blind), under <chapter_1>/<chapter_2>. The
 report keeps outcomes by app sha; evals.chapters.analyze aggregates them.
-A chapter one release failed to write (no scene text) is a forfeit: no call,
-scored as a loss for that release; both empty, the pair is left out, counted.
+Each pair is classed before any call (generate.failure): a chapter only one
+release attempted is `not_attempted`, and a quota or provider-availability
+failure on either side (`quota`) leaves the pair out on both sides, counted
+per release; a product failure (a job failed otherwise, or no text) is a
+forfeit, a loss for that release; both, the pair is left out, counted.
+
+A refused or unparseable answer leaves the pair unrated, never stopping the
+step. A resume passes the batch's last compare report in from_runs: its rated
+pairs are copied verbatim (`resumed`), only unrated ones are judged, and the
+new report names it in `resumed_from`.
 """
 
 from __future__ import annotations
@@ -97,17 +105,27 @@ def outcome(x: int | None, y: int | None, a: str, b: str) -> str | None:
     return (a if one else b) if one == two else "tie"
 
 
-async def preferred(judge, text: str) -> int | None:
+async def preferred(judge, text: str) -> dict:
+    """{"answer": 1 | 2 | None, "status", "provider"} for one order. A reply
+    the provider refused or truncated (UnusableReplyError) is `refused`; three
+    unparseable replies `unparseable`; a chain that gave out `unavailable`.
+    None of them stops the step: the pair stays unrated, for a resume."""
+    from app.llm.errors import UnusableReplyError
     from evals.harness.judge import JudgeUnavailable
 
+    status = "unparseable"
     for _ in range(TRIES):
         try:
             v = (await judge.ask_json(text)).get("preferred")
         except JudgeUnavailable:
-            return None
+            status = "unavailable"
+            break
+        except UnusableReplyError:
+            status = "refused"
+            continue
         if type(v) is int and v in (1, 2):
-            return v
-    return None
+            return {"answer": v, "status": "ok", "provider": judge.provider_id}
+    return {"answer": None, "status": status, "provider": judge.provider_id}
 
 
 def judges() -> dict:
@@ -128,71 +146,127 @@ def judges() -> dict:
     return out
 
 
+def prior_compare(book: str, batch: str) -> dict | None:
+    """The batch's earlier compare report from from_runs, which a resume
+    continues (exactly one: pass the last of the batch)."""
+    got = []
+    for r in prior_reports(book):
+        c = ((r.get("steps") or {}).get(STEP) or {}).get("compare")
+        if isinstance(c, dict) and c.get("batch") == batch:
+            got.append(c)
+    if len(got) > 1:
+        raise SystemExit(
+            f"{STEP}: {len(got)} compare reports of batch {batch}; pass the last"
+        )
+    return got[0] if got else None
+
+
+def _key(p: dict) -> tuple:
+    return (p.get("replicate", 1), p["position"])
+
+
+def _done(pair: dict, name: str) -> bool:
+    return (pair.get("judges") or {}).get(name, {}).get("outcome") is not None
+
+
+async def _rc(j, rows: dict) -> dict:
+    out = {}
+    for sha, row in rows.items():
+        scenes = [
+            strip_markers(s["content"])
+            for s in row.get("scenes") or []
+            if (s.get("content") or "").strip()
+        ]
+        content, trimmed = rc_content(row, scenes)
+        got = (await _judge_rubrics(SimpleNamespace(judge=j), {"RC": content}))["RC"]
+        out[sha] = {"score": got["score"], "trimmed": trimmed}
+    return out
+
+
+def _exclusion(rows: dict, shas: list) -> tuple[str | None, object]:
+    """(excluded reason, forfeit) for a pair: not attempted or a quota failure
+    on either side excludes it on both; a product failure is a forfeit."""
+    missing = [sha for sha in shas if sha not in rows]
+    if missing:
+        return "not_attempted", missing
+    fail = {sha: rows[sha].get("failure") for sha in shas}
+    for sha in shas:  # reports without the field: no text is the product's
+        if fail[sha] is None and not chapter_text(rows[sha]):
+            fail[sha] = "product"
+    quota = [sha for sha in shas if fail[sha] == "quota"]
+    if quota:
+        return "quota", quota
+    product = [sha for sha in shas if fail[sha] == "product"]
+    if len(product) == 2:
+        return None, "both"
+    return None, (product[0] if product else None)
+
+
 @step(STEP, needs_api=True, repeatable=False)
 async def step_chapters_compare(ctx: StepContext) -> dict:
+    import uuid
+
     from app.llm.errors import QuotaExhaustedError
 
     seed = int(os.getenv("CHAPTERS_SEED") or DEFAULT_SEED)
     runs = releases(ctx.book)
     shas = sorted(runs)
-    by_pos = {
-        sha: {(c.get("replicate", 1), c["position"]): c for c in runs[sha]["chapters"]}
-        for sha in shas
-    }
-    positions = sorted(set(by_pos[shas[0]]) & set(by_pos[shas[1]]))
+    by_key = {sha: {_key(c): c for c in runs[sha]["chapters"]} for sha in shas}
+    keys = sorted(set(by_key[shas[0]]) | set(by_key[shas[1]]))
     batch = "+".join(str(runs[sha].get("batch")) for sha in shas)
+    prior = prior_compare(ctx.book, batch)
+    before = {_key(p): p for p in (prior or {}).get("pairs") or []}
     gt = ctx.ground_truth
     canon = f"<canon>\n{gt['synopsis']}\nCast: {', '.join(gt['cast'])}\n</canon>"
     js = judges()
     pairs, stopped = [], None
-    for rep, pos in positions:
-        rows = {sha: by_pos[sha][(rep, pos)] for sha in shas}
-        texts = {sha: chapter_text(rows[sha]) for sha in shas}
+    for rep, pos in keys:
+        rows = {
+            sha: by_key[sha][(rep, pos)] for sha in shas if (rep, pos) in by_key[sha]
+        }
+        old = before.get((rep, pos))
+        if old and all(_done(old, n) for n, j in js.items() if j is not None):
+            pairs.append(old | {"resumed": True})  # verbatim
+            continue
+        texts = {sha: chapter_text(row) for sha, row in rows.items()}
+        excluded, forfeit = _exclusion(rows, shas)
         pair: dict = {
             "position": pos,
             "replicate": rep,
-            "words": {sha: len(texts[sha].split()) for sha in shas},
-            "forfeit": None,
-            "judges": {},
-            "rc": {},
+            "words": {sha: len(t.split()) for sha, t in texts.items()},
+            "failure": {sha: rows[sha].get("failure") for sha in rows},
+            "excluded": excluded,
+            "forfeit": None if excluded else forfeit,
+            "judges": dict((old or {}).get("judges") or {}),
+            "rc": dict((old or {}).get("rc") or {}),
         }
-        empty = [sha for sha in shas if not texts[sha]]
-        if len(empty) == 2:
-            pair["forfeit"] = "both"
-            pairs.append(pair)
-            continue
-        if empty:
-            pair["forfeit"] = empty[0]
+        if excluded == "not_attempted":
+            pair["not_attempted"] = forfeit
+        elif excluded == "quota":
+            pair["quota"] = forfeit
+        if excluded or pair["forfeit"]:
             pairs.append(pair)
             continue
         a, b = random.Random(f"{seed}|{ctx.book}|{batch}|{rep}|{pos}").sample(shas, 2)
         plan = plan_text(rows[a])
+        if plan != plan_text(rows[b]):
+            raise SystemExit(f"{STEP}: the releases' plans differ at {(rep, pos)}")
         try:
             for name, j in js.items():
-                if j is None or stopped or j.exhausted:
+                if j is None or stopped or j.exhausted or _done(pair, name):
                     continue
                 x = await preferred(j, prompt(canon, plan, texts[a], texts[b]))
                 y = await preferred(j, prompt(canon, plan, texts[b], texts[a]))
                 pair["judges"][name] = {
                     "provider": j.provider_id,
-                    "orders": [[a, b, x], [b, a, y]],
-                    "outcome": outcome(x, y, a, b),
+                    "orders": [
+                        [a, b, x["answer"], x["status"], x["provider"]],
+                        [b, a, y["answer"], y["status"], y["provider"]],
+                    ],
+                    "outcome": outcome(x["answer"], y["answer"], a, b),
                 }
-                if name != "sonnet":  # the free chain's quota goes to preference
-                    continue
-                rc = {}
-                for sha in shas:
-                    scenes = [
-                        s["content"]
-                        for s in rows[sha]["scenes"]
-                        if (s.get("content") or "").strip()
-                    ]
-                    content, trimmed = rc_content(rows[sha], scenes)
-                    got = (
-                        await _judge_rubrics(SimpleNamespace(judge=j), {"RC": content})
-                    )["RC"]
-                    rc[sha] = {"score": got["score"], "trimmed": trimmed}
-                pair["rc"][name] = rc
+                if name == "sonnet":  # the free chain's quota goes to preference
+                    pair["rc"]["sonnet"] = await _rc(j, rows)
         except QuotaExhaustedError as e:  # the spend ceiling, or a spent cap
             stopped = f"{type(e).__name__}: {e}"[:300]
         pairs.append(pair)
@@ -205,9 +279,23 @@ async def step_chapters_compare(ctx: StepContext) -> dict:
             "seed": seed,
             "releases": shas,
             "batch": batch,
+            "report_id": uuid.uuid4().hex[:12],
+            "resumed_from": (prior or {}).get("report_id"),
             "outline_digest": runs[shas[0]]["outline_digest"],
             "judges": {n: (j.provider_id if j else None) for n, j in js.items()},
             "stopped": stopped,
+            "counts": {
+                "pairs": len(pairs),
+                "unrated_sonnet": sum(
+                    1
+                    for p in pairs
+                    if not p.get("excluded")
+                    and not p.get("forfeit")
+                    and not _done(p, "sonnet")
+                ),
+                "excluded": sum(1 for p in pairs if p.get("excluded")),
+                "forfeits": sum(1 for p in pairs if p.get("forfeit")),
+            },
             "pairs": pairs,
         },
     }

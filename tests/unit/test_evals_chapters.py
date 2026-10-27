@@ -80,6 +80,7 @@ class _Client:
     def __init__(self, fail_at=None, left=500):
         self.puts, self.generated, self.fail_at = [], [], fail_at
         self.calls, self.left, self.deleted = 0, left, []
+        self.live: dict = {}  # chapter id -> live scene ids, as the app has them
 
     async def usage(self):
         from evals.harness.config import generator
@@ -91,6 +92,9 @@ class _Client:
 
     async def delete_scene(self, sid):
         self.deleted.append(sid)
+        for ids in self.live.values():
+            if sid in ids:
+                ids.remove(sid)
 
     async def put_outline(self, book_id, content):
         self.puts.append(content)
@@ -102,6 +106,7 @@ class _Client:
 
     async def get_chapter(self, cid):
         return {
+            "scenes": [{"id": i} for i in self.live.get(cid, [])],
             "title": f"T{cid}",
             "summary": "s",
             "pov_character_id": "id-ann",
@@ -117,6 +122,7 @@ class _Client:
         self.calls += 17
         self.left -= 17
         sid = f"s-{cid}-{len(self.generated)}"
+        self.live.setdefault(cid, []).append(sid)
         return {"queued": 1, "deferred": 0, "total": 1, "scenes": [{"id": sid}]}
 
 
@@ -440,18 +446,43 @@ def test_rc_difference_and_release_checks():
         analyze.analyze(pairs, "c" * 7, OLD)
 
 
-def test_collect_refuses_a_pair_judged_twice(tmp_path):
-    c = {"book": "dracula", "releases": [OLD, NEW], "pairs": [{"position": 1}]}
-    for n in (1, 2):
-        _report(
-            tmp_path / f"{n}/eval-report-dracula.json",
-            "dracula",
-            NEW,
-            "chapters_compare",
-            {"compare": c},
-        )
-    with pytest.raises(SystemExit, match="more than one report"):
+def _compare_report(tmp_path, n, pairs, rid, resumed_from=None, batch="b1"):
+    c = {
+        "book": "dracula",
+        "batch": batch,
+        "releases": [OLD, NEW],
+        "report_id": rid,
+        "resumed_from": resumed_from,
+        "pairs": pairs,
+    }
+    _report(
+        tmp_path / f"{n}/eval-report-dracula.json",
+        "dracula",
+        NEW,
+        "chapters_compare",
+        {"compare": c},
+    )
+
+
+def test_collect_reads_the_last_report_of_a_resume_chain(tmp_path):
+    first = [_pair("dracula", 1, NEW, NEW), _pair("dracula", 2, None, None)]
+    _compare_report(tmp_path, 1, first, "r1")
+    second = [_pair("dracula", 1, NEW, NEW), _pair("dracula", 2, OLD, OLD)]
+    _compare_report(tmp_path, 2, second, "r2", resumed_from="r1")
+    pairs = analyze.collect([tmp_path])
+    assert [p["judges"]["sonnet"]["outcome"] for p in pairs] == [NEW, OLD]
+
+
+def test_collect_refuses_a_changed_outcome_or_two_unchained_reports(tmp_path):
+    _compare_report(tmp_path, 1, [_pair("dracula", 1, NEW, NEW)], "r1")
+    _compare_report(tmp_path, 2, [_pair("dracula", 1, OLD, NEW)], "r2", "r1")
+    with pytest.raises(SystemExit, match="changed on resume"):
         analyze.collect([tmp_path])
+    other = tmp_path / "other"
+    _compare_report(other, 1, [_pair("dracula", 1, NEW, NEW)], "r1")
+    _compare_report(other, 2, [_pair("dracula", 1, NEW, NEW)], "r9")
+    with pytest.raises(SystemExit, match="not one resume chain"):
+        analyze.collect([other])
 
 
 def test_power_rises_with_the_effect():
@@ -624,3 +655,225 @@ def test_chapter_inputs_reach_the_step_through_env():
     assert (
         env["EVAL_CHAPTER_REPLICATES"] == "${{ github.event.inputs.replicates || '1' }}"
     )
+
+
+# --- review fixes (principal, 2026-10-27) -----------------------------------
+
+
+@pytest.mark.parametrize(
+    "error, scenes, deferred, want",
+    [
+        ("generate-planned failed (429): quota", [], None, "quota"),
+        (
+            "poll timed out: /chapters/x — last state: [{'status': 'paused'}]",
+            [],
+            None,
+            "quota",
+        ),
+        ("DailyRequestLimitError: limit", [], None, "quota"),
+        ("ProviderUnavailableError: breaker open", [], None, "quota"),
+        ("generate-planned failed (422): no planned beats", [], None, "product"),
+        (None, [{"status": "failed", "content": ""}], None, "product"),
+        (None, [{"status": "completed", "content": ""}], None, "product"),
+        (None, [{"status": "completed", "content": "text"}], None, None),
+        (None, [{"status": "completed", "content": "text"}], 2, "quota"),
+    ],
+)
+def test_failure_class_separates_quota_from_the_product(error, scenes, deferred, want):
+    assert generate.failure(error, scenes, deferred) == want
+
+
+async def test_an_errored_chapter_records_its_failure_class(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVAL_PRIOR_REPORTS", str(tmp_path))
+    monkeypatch.setenv("EVAL_CHAPTERS", "2")
+    client = _Client(fail_at="c1")  # raises EvalClientError("422")
+    res = await generate.step_chapters(_fake_pipeline(monkeypatch, client))
+    assert [r["failure"] for r in res["chapters"]] == [None, "product"]
+
+
+async def test_a_paused_leftover_is_trashed_before_the_next_replicate(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("EVAL_PRIOR_REPORTS", str(tmp_path))
+    monkeypatch.setenv("EVAL_CHAPTERS", "1")
+    monkeypatch.setenv("EVAL_CHAPTER_REPLICATES", "2")
+    client = _Client(fail_at="c0")
+    client.live["c0"] = ["paused-leftover"]  # an errored chapter's paused scene
+    await generate.step_chapters(_fake_pipeline(monkeypatch, client))
+    assert "paused-leftover" in client.deleted
+
+
+def _fail_row(pos, text, failure, rep=1):
+    return _row(pos, text) | {"failure": failure, "replicate": rep}
+
+
+async def test_quota_excludes_both_sides_and_one_sided_is_not_attempted(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("EVAL_PRIOR_REPORTS", str(tmp_path))
+    old = [
+        _fail_row(1, "o1", None),
+        _fail_row(2, "", "quota"),  # old ran second and hit the day's cap
+        _fail_row(3, "", "product"),  # old's product wrote nothing
+        _fail_row(4, "o4", None),
+    ]
+    new = [
+        _fail_row(1, "n1", None),
+        _fail_row(2, "n2", None),
+        _fail_row(3, "n3", None),
+        # position 4: new's run stopped at its reserve: not attempted
+    ]
+    _two_releases(tmp_path, old, new)
+    sonnet = _Judge("anthropic", favour="n")
+    monkeypatch.setattr(compare, "judges", lambda: {"sonnet": sonnet, "free": None})
+    gt = {"synopsis": "S", "cast": ["Ann"]}
+    res = await compare.step_chapters_compare(
+        SimpleNamespace(book="dracula", ground_truth=gt)
+    )
+    by = {p["position"]: p for p in res["compare"]["pairs"]}
+    assert by[2]["excluded"] == "quota" and by[2]["quota"] == [OLD]
+    assert by[2]["forfeit"] is None and not by[2]["judges"]
+    assert by[3]["forfeit"] == OLD and by[3]["excluded"] is None
+    assert by[4]["excluded"] == "not_attempted" and by[4]["not_attempted"] == [NEW]
+    assert len(sonnet.prompts) == 2  # only position 1 was judged
+    pairs = [p | {"book": "dracula", "releases": [OLD, NEW]} for p in by.values()]
+    s = analyze.analyze(pairs, NEW, OLD)["P(new>old) sonnet"]
+    assert s["pairs"] == 2 and s["p"] == 1.0  # the quota pair is no loss for old
+    assert s["excluded"]["quota"] == {"pairs": 1, "new": 0, "old": 1}
+    assert s["excluded"]["not_attempted"] == {"pairs": 1, "new": 1, "old": 0}
+
+
+class _Refusing(_Judge):
+    async def ask_json(self, prompt):
+        from app.llm.errors import ProviderRefusalError
+
+        if "refuse-me" in prompt:
+            raise ProviderRefusalError("refused", spent=("", 10, 0, 0.0))
+        return await super().ask_json(prompt)
+
+
+async def test_a_refusal_leaves_the_pair_unrated_and_a_resume_judges_only_it(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("EVAL_PRIOR_REPORTS", str(tmp_path / "in"))
+    old = [_fail_row(1, "o1", None), _fail_row(2, "o2 refuse-me", None)]
+    new = [_fail_row(1, "n1", None), _fail_row(2, "n2", None)]
+    _two_releases(tmp_path / "in", old, new)
+    sonnet = _Refusing("anthropic", favour="n")
+    monkeypatch.setattr(compare, "judges", lambda: {"sonnet": sonnet, "free": None})
+    gt = {"synopsis": "S", "cast": ["Ann"]}
+    ctx = SimpleNamespace(book="dracula", ground_truth=gt)
+    res = await compare.step_chapters_compare(ctx)  # no crash
+    c = res["compare"]
+    by = {p["position"]: p for p in c["pairs"]}
+    assert by[2]["judges"]["sonnet"]["outcome"] is None
+    assert {o[3] for o in by[2]["judges"]["sonnet"]["orders"]} == {"refused"}
+    assert c["counts"]["unrated_sonnet"] == 1
+    # the resume: the prior compare report joins from_runs; only pair 2 is asked
+    _report(
+        tmp_path / "in/3/a/eval-report-dracula.json",
+        "dracula",
+        NEW,
+        "chapters_compare",
+        {"compare": c},
+    )
+    sonnet2 = _Judge("anthropic", favour="n")
+    monkeypatch.setattr(compare, "judges", lambda: {"sonnet": sonnet2, "free": None})
+    res2 = await compare.step_chapters_compare(ctx)
+    c2 = res2["compare"]
+    assert c2["resumed_from"] == c["report_id"]
+    assert len(sonnet2.prompts) == 2 and all("o2" in p for p in sonnet2.prompts)
+    by2 = {p["position"]: p for p in c2["pairs"]}
+    assert by2[1] == by[1] | {"resumed": True}  # copied verbatim
+    assert by2[2]["judges"]["sonnet"]["outcome"] == NEW
+
+
+async def test_rc_reads_stripped_text_and_plans_must_match(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVAL_PRIOR_REPORTS", str(tmp_path))
+    _two_releases(
+        tmp_path, [_fail_row(1, "o1 [[eval-x]]", None)], [_fail_row(1, "n1", None)]
+    )
+    seen = []
+
+    class Rc(_Judge):
+        async def score(self, rubric, content):
+            seen.append(content)
+            return await super().score(rubric, content)
+
+    judge = Rc("anthropic", favour="n")
+    monkeypatch.setattr(compare, "judges", lambda: {"sonnet": judge, "free": None})
+    gt = {"synopsis": "S", "cast": ["Ann"]}
+    await compare.step_chapters_compare(
+        SimpleNamespace(book="dracula", ground_truth=gt)
+    )
+    assert seen and not any("[[eval" in c for c in seen)
+    other = tmp_path / "plan"
+    monkeypatch.setenv("EVAL_PRIOR_REPORTS", str(other))
+    _two_releases(
+        other, [_fail_row(1, "o1", None)], [_fail_row(1, "n1", None) | {"title": "X"}]
+    )
+    with pytest.raises(SystemExit, match="plans differ"):
+        await compare.step_chapters_compare(
+            SimpleNamespace(book="dracula", ground_truth=gt)
+        )
+
+
+async def test_the_free_chains_provider_is_recorded_per_order(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVAL_PRIOR_REPORTS", str(tmp_path))
+    _two_releases(tmp_path, [_fail_row(1, "o1", None)], [_fail_row(1, "n1", None)])
+
+    class FailsOver(_Judge):  # Groq's 413 on the first order, then OpenRouter
+        async def ask_json(self, prompt):
+            got = await super().ask_json(prompt)
+            self.provider_id = "openrouter"
+            return got
+
+    free = FailsOver("groq")
+    monkeypatch.setattr(compare, "judges", lambda: {"sonnet": None, "free": free})
+    gt = {"synopsis": "S", "cast": ["Ann"]}
+    res = await compare.step_chapters_compare(
+        SimpleNamespace(book="dracula", ground_truth=gt)
+    )
+    orders = res["compare"]["pairs"][0]["judges"]["free"]["orders"]
+    assert [o[4] for o in orders] == ["openrouter", "openrouter"]
+    pairs = [
+        p | {"book": "dracula", "releases": [OLD, NEW]} for p in res["compare"]["pairs"]
+    ]
+    assert analyze.analyze(pairs, NEW, OLD)["free_providers"] == ["openrouter"]
+
+
+def test_decision_order_driven_disagreeing_and_null_with_its_detectable_rate(
+    monkeypatch,
+):
+    flips = [_pair("dracula", k, "tie", NEW) for k in range(1, 4)]
+    flips.append(_pair("dracula", 4, NEW, NEW))
+    res = analyze.analyze(flips, NEW, OLD)
+    assert res["decision"].startswith("undetermined: Sonnet is order-driven")
+    assert res["sonnet_flips"] == [3, 4]
+    # Sonnet favours new everywhere; the free chain favours old everywhere
+    agree = [
+        _pair("dracula", k, NEW, OLD)
+        | {
+            "judges": {
+                "sonnet": {"outcome": NEW},
+                "free": {"outcome": OLD, "orders": [[0, 0, 0, "ok", "openrouter"]]},
+            }
+        }
+        for k in range(1, 9)
+    ]
+    res = analyze.analyze(agree, NEW, OLD)
+    assert "free chain disagrees" in res["decision"] and "openrouter" in res["decision"]
+    assert res["n"] == "8 pairs (Sonnet-rated plus forfeits) over 8 outline chapters"
+    # a null: the smallest p on the grid with power >= 0.80, from power()
+    asked = []
+
+    def fake_power(n, p, ties, reps, **kw):
+        asked.append((n, ties, reps, kw["sims"], kw["seed"], kw["spread"]))
+        return 1.0 if p >= 0.7 else 0.0
+
+    monkeypatch.setattr(analyze, "power", fake_power)
+    null = [_pair("dracula", 1, NEW, NEW), _pair("dracula", 2, OLD, OLD)]
+    res = analyze.analyze(null, NEW, OLD, mde_kw={})
+    assert res["decision"].startswith("no difference detectable at n = 2")
+    assert "p >= 0.7" in res["decision"]
+    assert asked[0] == (2, 0.0, 1, 400, 0, 0.0)
