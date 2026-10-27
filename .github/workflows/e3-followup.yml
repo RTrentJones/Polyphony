@@ -9,6 +9,7 @@ on:
       retest: {description: 'rate: a second Sonnet pass over every prompt, under its own cache (test-retest)', type: choice, options: ['yes', 'no'], default: 'yes'}
       prior_run: {description: "rate: an earlier e3 rate run whose e3-rate-state this one resumes (blank = start from W12-9's)", default: ''}
       rate_run: {description: 'score: the e3 rate run whose e3-ratings are scored', default: ''}
+      sonnet_fallback: {description: "score: the pre-registered fallback, only after a Sonnet prompt stayed unrated after 3 tries on two rate runs", type: choice, options: ['no', 'yes'], default: 'no'}
 permissions: {contents: read, actions: read}
 concurrency: {group: e3-followup, cancel-in-progress: false}
 env:
@@ -30,7 +31,7 @@ jobs:
       EVAL_CACHE_DIR: rate-state/cache
       PGURL: postgresql://postgres:ci_password_12345@localhost:5432/polyphony_eval
     steps:
-      - {uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5} # v4.3.1
+      - {uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5, with: {persist-credentials: false}} # v4.3.1
       - {uses: ./.github/actions/boot-app, with: {serve: 'false'}}
       - name: The run's Claude ceiling
         env: {CAP: '${{ inputs.usd_cap }}'}
@@ -77,7 +78,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - {uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5} # v4.3.1
+      - {uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5, with: {persist-credentials: false}} # v4.3.1
       - {uses: ./.github/actions/boot-app, with: {serve: 'false'}}
       - name: Ratings and keys
         env: {GH_TOKEN: '${{ github.token }}', RATE_RUN: '${{ inputs.rate_run }}'}
@@ -86,7 +87,8 @@ jobs:
           gh run download "$RATE_RUN" -n e3-ratings -D ratings -R "$GITHUB_REPOSITORY"
           for r in ${W12_9_BUNDLES//,/ }; do gh run download "$r" -p 'baseline-key-*' -D "keys/$r" -R "$GITHUB_REPOSITORY"; done
       - name: Score
+        env: {FALLBACK: '${{ inputs.sonnet_fallback }}'}
         run: |
-          python -m evals.followup.e3 score ratings $(find keys -name key.json | sort) > e3-score.json
+          python -m evals.followup.e3 score ratings $(find keys -name key.json | sort) $([ "$FALLBACK" = yes ] && echo --sonnet-fallback) > e3-score.json
           { echo '```'; cat e3-score.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - {if: always(), uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02, with: {name: e3-score, path: e3-score.json, retention-days: 90}} # v4.6.2

@@ -126,6 +126,7 @@ async def test_a_prompt_w12_9_never_asked_fails_instead_of_calling(
     changed = _bundle(tmp_path / "now", text="X, changed.")
     with pytest.raises(e3.CacheMiss, match="not byte-identical"):
         await e3.rate(changed, tmp_path / "out", retest=False)
+    assert _Live.calls == 1  # the replays ran first: no Sonnet call was paid for
     assert panel.LLMClient is not _Live and "LLMClient" in dir(panel)  # restored
 
 
@@ -149,7 +150,10 @@ def _ratings(tmp_path, sonnet, retest=None) -> Path:
     r.mkdir()
     _sheet(r / "sheet-sonnet.csv", sonnet)
     _sheet(r / "sheet-groq.csv", lambda k, x, y: "tie")
-    _sheet(r / "sheet-nemotron.csv", lambda k, x, y: f"{y}{k}" if k % 2 else "tie")
+    _sheet(
+        r / "sheet-nemotron.csv",
+        lambda k, x, y: f"{y}{k}" if k % 2 and k < 16 else "tie",
+    )
     _sheet(r / "sheet-panel-sonnet-nemotron.csv", lambda k, x, y: "tie")
     if retest:
         _sheet(r / "sheet-sonnet-retest.csv", retest)
@@ -172,6 +176,41 @@ def test_score_primary_at_95_with_975_beside_and_kappas(tmp_path):
     )
     assert out["panel sonnet+nemotron, descriptive"]["fleiss_kappa"]["AB"] is not None
     assert out["sonnet_cost_usd"] == 1.23
+    assert out[
+        "replay integrity (AB order consistency, W12-9: groq 0/18, nemotron 8/18)"
+    ]["intact"]
+    assert "Sonnet at default sampling" in out["label"]
+    retest = out["retest (sonnet pass 1 vs 2), descriptive"]
+    assert retest["unrated"] == 0
+    assert e3.OVERALL in retest["fleiss_kappa"] and "0.411" in e3.OVERALL
+
+
+def test_score_is_void_unless_the_replays_reproduce_w12_9(tmp_path):
+    b_wins = lambda k, x, y: f"{y}{k}" if (x, y) == ("A", "B") else "tie"  # noqa: E731
+    r = _ratings(tmp_path, b_wins)
+    _sheet(r / "sheet-nemotron.csv", lambda k, x, y: f"{y}{k}")  # 18/18, not 8/18
+    out = e3.score(r, _key())
+    assert out["decision"].startswith("void: the replayed members do not reproduce")
+
+
+def test_the_sonnet_fallback_scores_unrated_pairs_half_and_counts_them(tmp_path):
+    b_wins = lambda k, x, y: f"{y}{k}" if (x, y) == ("A", "B") else "tie"  # noqa: E731
+    r = _ratings(tmp_path, b_wins)
+    rows = (r / "sheet-sonnet.csv").read_text().splitlines()
+    dropped = [ln for ln in rows if ",A0,B0," in ln]  # Sonnet's unrated AB pair
+    assert len(dropped) == 1
+    (r / "sheet-sonnet.csv").write_text(
+        "\n".join(ln for ln in rows if ln not in dropped) + "\n"
+    )
+    meta = json.loads((r / "e3.json").read_text())
+    meta["unrated"][e3.SONNET] = 2
+    (r / "e3.json").write_text(json.dumps(meta))
+    with pytest.raises(SystemExit, match="--sonnet-fallback"):
+        e3.score(r, _key())
+    out = e3.score(r, _key(), fallback=True)
+    assert out["sonnet fallback (unrated pairs scored ½)"] == {"pairs": 1, "prompts": 2}
+    assert out["P(B>A) sonnet 95%"]["p"] == pytest.approx(17.5 / 18)
+    assert out["AB order flips (sonnet)"] == "0/18"  # a fallback ½ is no flip
 
 
 def test_score_order_driven_sonnet_is_undetermined(tmp_path):
@@ -200,6 +239,8 @@ def test_the_workflow_rates_bundles_only_with_one_key_and_a_cap(tmp_path):
     assert WF["env"]["W12_9_RATE_RUN"] == "40248080586"
     assert "baseline-key-*" in "\n".join(s.get("run", "") for s in score["steps"])
     for job in (rate, score):
+        checkout = next(s for s in job["steps"] if "checkout@" in s.get("uses", ""))
+        assert checkout["with"]["persist-credentials"] is False
         for s in job["steps"]:
             assert "${{" not in s.get("run", "")  # inputs via env only
             uses = s.get("uses", "")

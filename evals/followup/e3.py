@@ -17,7 +17,7 @@ each member gets differs, swapped in at run time:
   pass 1's answers are never replayed into it), recorded as its own sheet.
 
     python -m evals.followup.e3 rate <bundles dir> --out <ratings> [--retest]
-    python -m evals.followup.e3 score <ratings> <key.json files...>
+    python -m evals.followup.e3 score <ratings> <key.json files...> [--sonnet-fallback]
 
 `score` reads the keys by script and prints aggregates only.
 """
@@ -53,6 +53,9 @@ SHEETS = {
 }
 TYPES = (("A", "B"), ("A", "C"), ("B", "C"))
 AB_FLIP_LIMIT = 9  # pre-registered: more AB flips than this = order-driven
+OVERALL = "overall (arm-sorted; not comparable to W12-9's 0.411)"
+# Pre-registered replay integrity: the replayed members reproduce W12-9.
+W12_9_AB_CONSISTENT = {GROQ: "0/18", NEMOTRON: "8/18"}
 
 
 class CacheMiss(RuntimeError):
@@ -132,10 +135,12 @@ async def rate(bundle_root: Path, out: Path, retest: bool) -> dict:
             return _ReplayOnly(provider)
         return _Metered(LLMClient(provider), usage[which["pass"]])
 
+    # The replays first: they prove the prompts byte-identical to W12-9's (or
+    # fail on CacheMiss) before any Sonnet call is paid for.
     runs = [
-        (SONNET, "panel", "pass1"),
         (GROQ, "panel", None),
         (NEMOTRON, "panel", None),
+        (SONNET, "panel", "pass1"),
     ]
     if retest:
         runs.append((SONNET, "panel-retest", "retest"))
@@ -204,14 +209,16 @@ def _kappas(x: dict, y: dict) -> dict:
     out = {"".join(t): _kappa(x, y, t) for t in TYPES}
     from evals.baseline.panel import fleiss
 
-    table = []  # overall: categories first / second arm of each pair, or tie
+    # overall: categories = the arm sorted first / second in each pair, or a
+    # tie; not W12-9's bundle-order categories, so not comparable to its 0.411
+    table = []
     for k in x:
         if k in y:
             first, second = sorted(k[1])
             table.append(
                 [sum(g == c for g in (x[k], y[k])) for c in (first, second, None)]
             )
-    out["overall"] = round(fleiss(table), 4) if table else None
+    out[OVERALL] = round(fleiss(table), 4) if table else None
     return out
 
 
@@ -241,30 +248,55 @@ def _slot_diff(cont: dict, x: str, y: str, seed: int = 0) -> dict:
     }
 
 
-def score(ratings: Path, key: dict) -> dict:
+def score(ratings: Path, key: dict, fallback: bool = False) -> dict:
+    """`fallback` (pre-registered, only after a Sonnet prompt stayed unrated
+    after 3 tries on two rate runs): each pair Sonnet left unrated scores ½,
+    flagged and counted; an unrated continuity item is left out."""
     from evals.baseline import score as frozen
 
     check_frozen()
     meta = json.loads((ratings / "e3.json").read_text())
-    if meta["unrated"].get(SONNET):
-        raise SystemExit("Sonnet left prompts unrated: resume the rate dispatch")
+    unrated = meta["unrated"].get(SONNET)
+    if unrated and not fallback:
+        raise SystemExit(
+            f"Sonnet left {unrated} prompts unrated: resume the rate dispatch "
+            "(after two rate runs, the pre-registered fallback: --sonnet-fallback)"
+        )
     sheets = {}
     for member, name in SHEETS.items():
         if (ratings / name).exists():
             sheets[member] = frozen.rated(ratings / name, key)
     j, cont = sheets[SONNET]
     slots = {v[0] for v in key["items"].values()}
-    if len([1 for _s, a, b, _w in j if {a, b} == {"A", "B"}]) != len(slots):
-        raise SystemExit("Sonnet's ratings do not cover every slot's AB pair")
+    # A flip: an AB pair whose two orders both parsed and named different arms.
+    flips = sum(1 for _s, a, b, won in j if {a, b} == {"A", "B"} and won is None)
+    have = {(sl, frozenset((a, b))) for sl, a, b, _w in j}
+    filled = [
+        (sl, x, y, None)
+        for sl in sorted(slots)
+        for x, y in TYPES
+        if (sl, frozenset((x, y))) not in have
+    ]
+    if filled and not fallback:
+        raise SystemExit("Sonnet's ratings do not cover every slot's pairs")
+    j = j + filled
 
     def rate_at(judgments, x, y, level):
         with _patched(frozen, "LEVEL", level):
             return frozen.win_rate(judgments, x, y)
 
     primary = rate_at(j, "B", "A", 0.95)
-    flips = sum(1 for _s, a, b, won in j if {a, b} == {"A", "B"} and won is None)
     lo, hi = primary["ci"]
-    if flips > AB_FLIP_LIMIT:
+    replay = {
+        m: _consistent(sheets[m][0])["AB"] if m in sheets else None
+        for m in W12_9_AB_CONSISTENT
+    }
+    intact = replay == W12_9_AB_CONSISTENT and not any(
+        meta["unrated"].get(m) for m in W12_9_AB_CONSISTENT
+    )
+    if not intact:
+        decision = "void: the replayed members do not reproduce W12-9"
+    elif flips > AB_FLIP_LIMIT:
         decision = "undetermined: Sonnet is order-driven on A vs B"
     elif lo > 0.5:
         decision = "Sonnet prefers B to A on W12-9's 18 slots"
@@ -274,8 +306,16 @@ def score(ratings: Path, key: dict) -> dict:
         decision = "Sonnet does not separate B from A at n = 18 (not equivalence)"
     out = {
         "label": "free (gemini-3.5-flash-lite, not prod's prose model), Claude Sonnet "
-        "judge, not human; development corpora; C is the paid-tier ensemble; "
-        "exploratory: W12-9's recorded decision (simplify toward A) stands",
+        "judge, Sonnet at default sampling, not human; development corpora; C is the "
+        "paid-tier ensemble; exploratory: W12-9's recorded decision (simplify "
+        "toward A) stands",
+        "replay integrity (AB order consistency, W12-9: groq 0/18, nemotron 8/18)": {
+            "got": replay,
+            "intact": intact,
+        },
+        "sonnet fallback (unrated pairs scored ½)": (
+            {"pairs": len(filled), "prompts": unrated} if fallback else None
+        ),
         "P(B>A) sonnet 95%": primary,
         "P(B>A) sonnet 97.5% (beside W12-9's)": rate_at(j, "B", "A", 0.975),
         "AB order flips (sonnet)": f"{flips}/{len(slots)}",
@@ -298,7 +338,7 @@ def score(ratings: Path, key: dict) -> dict:
         "fleiss_kappa": kappa_panel,
         "reading": (
             "no decision (panel κ < 0.2)"
-            if (kappa_panel["overall"] is not None and kappa_panel["overall"] < 0.2)
+            if (k := kappa_panel[OVERALL]) is not None and k < 0.2
             else "κ ≥ 0.2"
         ),
     }
@@ -314,6 +354,7 @@ def score(ratings: Path, key: dict) -> dict:
             "same pair outcome": f"{sum(sk[k] == rk[k] for k in same)}/{len(same)}",
             "fleiss_kappa": _kappas(sk, rk),
             "P(B>A) 95%": rate_at(retest[0], "B", "A", 0.95),
+            "unrated": meta["unrated"].get(f"{SONNET}#retest"),
         }
     out["sonnet_cost_usd"] = meta.get("sonnet_cost_usd")
     return out
@@ -328,10 +369,12 @@ def main(argv: list[str]) -> int:
         )
         return 0
     if argv[:1] == ["score"]:
-        ratings, *files = map(Path, argv[1:])
+        fallback = "--sonnet-fallback" in argv
+        ratings, *files = [Path(a) for a in argv[1:] if a != "--sonnet-fallback"]
         keys = [json.loads(p.read_text()) for p in files]
         key = {"items": {i: v for k in keys for i, v in k["items"].items()}}
-        print(json.dumps(score(ratings, key), indent=1, ensure_ascii=False))
+        out = score(ratings, key, fallback)
+        print(json.dumps(out, indent=1, ensure_ascii=False))
         return 0
     raise SystemExit(__doc__)
 
