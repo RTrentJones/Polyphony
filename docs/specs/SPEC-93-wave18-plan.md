@@ -31,3 +31,20 @@ only generically; it was frozen since wave 13 (the seam gate).
   the last one's, like SPEC-84's panel) is the next step after RN/RC exist; proposed for wave 19, not built now.
 - **D18-3 Limits.** Only the monthly eval total ($40); line counts are reported, not gated (the user, 2026-10-25). W18-4's
   draws likely run in November.
+
+## W18-4 after-draw (run 40453584712, main `a2f3039`, 2026-10-27; Claude-written; judged Groq then Sonnet after Groq's limit)
+| book | R2 | applicable | lines | RN mean (scored/eligible) | RC |
+|---|---|---|---|---|---|
+| dracula | 0.35 | 4/4 | 19 | 0.33 (4/4) | 0.72 (trimmed) |
+| frankenstein | 0.56 | 2/4 | 9 | 0.44 (4/4) | 0.68 (trimmed) |
+- **Against wave 17** (draw 1: Frankenstein 0.42, Dracula 0.24; draw 2: Dracula 1.0 on one scene, RN 0.27, RC 1.0): R2 reads
+  higher on both books, but this draw's judges were mixed (Groq, then Sonnet), it crosses the opaque-titles change (SPEC-94
+  D19-10), and no test-retest spread exists yet (SPEC-95 E1). Not read as a gain until E1's noise floor and E4 say so.
+- **W18-5 did not take effect on person.** Every RN explanation says the scenes are third-person past while the source narrator
+  is first person (Aldous Kerr's journal; Rowan Merrow's letters). The eval books set no POV, so `_style_section` tells the
+  writer to take person from the excerpts, but the beat prompt also prints `pov_instruction`'s default "Point of view: third
+  person limited", and the model follows the explicit line. Product fix carried to the next wave: when `person_from_narration`
+  holds, the POV line must not name a default person (state the person the excerpts use, or none).
+- **RC** names real defects in both chapters: a repeated beat across scenes (both books) and a first-person slip in
+  Frankenstein ("I feared, Rowan thought").
+- **Spend:** $4.67 (Dracula $1.54, Frankenstein $3.13), counted in SPEC-95's ledger.
