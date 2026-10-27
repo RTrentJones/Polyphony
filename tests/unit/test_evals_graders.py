@@ -43,6 +43,8 @@ class TestStepRegistry:
             "rnrc_validation",  # W19 S7, asked for by name only
             "rn2_validation",  # SPEC-95 E2, asked for by name only
             "calibration_answers",  # SPEC-95 E5, asked for by name only
+            "chapters",  # E4, asked for by name only
+            "chapters_compare",  # E4, asked for by name only
         ]
         # embedding-only steps must not require the API (so they run keyless)
         assert get_step("retrieval").needs_api is False

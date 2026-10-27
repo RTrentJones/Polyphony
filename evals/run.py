@@ -35,10 +35,19 @@ from evals.steps import pipeline  # noqa: F401 — registers the steps
 from evals.validation import step as validation  # noqa: F401 — W19 S7, opt-in
 from evals.validation import rn2  # noqa: F401 — SPEC-95 E2, opt-in
 from evals.calibration import answer as calibration  # noqa: F401 — E5, opt-in
+from evals.chapters import compare as chapters_compare  # noqa: F401 — E4, opt-in
+from evals.chapters import generate as chapters  # noqa: F401 — E4, opt-in
 from evals.steps.base import StepContext, all_steps, get_step
 
 # Never part of `--steps all`.
-OPT_IN = ("baseline", validation.STEP, rn2.STEP, calibration.STEP)
+OPT_IN = (
+    "baseline",
+    validation.STEP,
+    rn2.STEP,
+    calibration.STEP,
+    chapters.STEP,
+    chapters_compare.STEP,
+)
 
 
 def _record_judge_failover(result: dict, judge) -> None:
@@ -435,8 +444,8 @@ def main() -> None:
     splits.require(args.book)  # a holdout book without --holdout stops here
 
     step_names = (
-        # baseline is its own run (SPEC-84); the validation and calibration
-        # steps are asked for by name
+        # baseline is its own run (SPEC-84); the validation, calibration and
+        # E4 chapter steps are asked for by name
         [s for s in all_steps() if s not in OPT_IN]
         if args.steps == "all"
         else [s.strip() for s in args.steps.split(",")]
