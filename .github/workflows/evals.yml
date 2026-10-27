@@ -66,6 +66,19 @@ on:
       claude_usd_cap:
         description: with claude=yes, an optional tighter per-run ceiling in USD (blank = the month's remainder)
         default: ''
+      app_sha:
+        description: >-
+          E4 (SPEC-95): boot the app (app/, alembic/, alembic.ini, requirements.txt) from this full commit
+          sha, a release, instead of this ref's; the harness stays at this ref. Blank = this ref's app.
+        default: ''
+      from_runs:
+        description: >-
+          E4: comma-separated evals run ids whose eval-report artifacts the chapter steps read (the
+          outline to reuse; the two releases to compare). Blank = none.
+        default: ''
+      chapters:
+        description: "E4's `chapters` step: how many outline chapters to write, in order (1..12)"
+        default: '3'
   # On-demand trigger for when workflow_dispatch isn't available (e.g. an
   # integration token can't press "Run workflow"): bump evals/.run-eval and push.
   # Path-scoped so ordinary commits don't fire it (this run spends Gemini quota).
@@ -136,8 +149,59 @@ jobs:
       CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      EVAL_CHAPTERS: ${{ github.event.inputs.chapters || '3' }}
     steps:
       - uses: actions/checkout@v4
+      # D19-4: holdout-v1 fixes the holdout corpora, the release under test fixes the code; a holdout
+      # run from a later tag (E4's harness) must carry holdout-v1's corpora byte for byte.
+      - name: Holdout corpora are holdout-v1's (holdout=yes)
+        if: ${{ github.event.inputs.holdout == 'yes' }}
+        run: |
+          git fetch --depth=1 origin "refs/tags/holdout-v1:refs/tags/holdout-v1"
+          if ! git diff --quiet holdout-v1 HEAD -- evals/corpora/holdout-a evals/corpora/holdout-b evals/tools/rename.py; then
+            echo "::error title=Holdout run::the holdout corpora or their builder differ from holdout-v1's"
+            exit 1
+          fi
+      # E4: a release's app under this ref's harness. The app's tree is replaced exactly (files the
+      # release lacks are removed), and GREENLIGHT_SHA makes /__version, so the report's app_sha and
+      # the generation cache, name the release. The harness imports app.llm from that tree too.
+      - name: App under test (app_sha)
+        if: ${{ github.event.inputs.app_sha != '' }}
+        env:
+          APP_SHA: ${{ github.event.inputs.app_sha }}
+        run: |
+          if ! printf '%s' "$APP_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::app_sha must be a full 40-character commit sha (got '$APP_SHA')"
+            exit 1
+          fi
+          PATHS="app alembic alembic.ini requirements.txt"
+          git fetch --depth=1 origin "$APP_SHA"
+          git rm -r -q -- $PATHS
+          git checkout "$APP_SHA" -- $PATHS
+          if ! git diff --quiet --cached "$APP_SHA" -- $PATHS || ! git diff --quiet -- $PATHS; then
+            echo "::error::the app tree is not $APP_SHA's"
+            exit 1
+          fi
+          echo "GREENLIGHT_SHA=$APP_SHA" >> "$GITHUB_ENV"
+          {
+            echo "### App under test"
+            echo "app $APP_SHA (app tree $(git rev-parse "$APP_SHA:app")); harness $(git rev-parse HEAD)"
+            git diff --cached --stat HEAD -- $PATHS | tail -1
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Earlier runs' reports (from_runs)
+        if: ${{ github.event.inputs.from_runs != '' }}
+        env:
+          FROM_RUNS: ${{ github.event.inputs.from_runs }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for id in ${FROM_RUNS//,/ }; do
+            if ! printf '%s' "$id" | grep -Eq '^[0-9]+$'; then
+              echo "::error::from_runs takes run ids (got '$id')"
+              exit 1
+            fi
+            gh run download "$id" -R "$GITHUB_REPOSITORY" -p "eval-report-$id*" -D "prior-reports/$id"
+          done
+          echo "EVAL_PRIOR_REPORTS=$PWD/prior-reports" >> "$GITHUB_ENV"
       - name: Preflight — Gemini key present (boot mode only)
         if: ${{ github.event.inputs.base_url == '' }}
         run: |

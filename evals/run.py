@@ -32,7 +32,11 @@ from evals.preflight import RUNS, preflight
 from evals.baseline import arms  # noqa: F401 — registers `baseline` (W12-5)
 from evals.steps import pipeline  # noqa: F401 — registers the steps
 from evals.validation import step as validation  # noqa: F401 — W19 S7, opt-in
+from evals.chapters import compare as chapters_compare  # noqa: F401 — E4, opt-in
+from evals.chapters import generate as chapters  # noqa: F401 — E4, opt-in
 from evals.steps.base import StepContext, all_steps, get_step
+
+OPT_IN = (chapters.STEP, chapters_compare.STEP)
 
 
 def _record_judge_failover(result: dict, judge) -> None:
@@ -419,8 +423,9 @@ def main() -> None:
     splits.require(args.book)  # a holdout book without --holdout stops here
 
     step_names = (
-        # baseline is its own run (SPEC-84); rnrc_validation is asked for by name
-        [s for s in all_steps() if s not in ("baseline", validation.STEP)]
+        # baseline is its own run (SPEC-84); rnrc_validation and E4's chapter
+        # steps are asked for by name
+        [s for s in all_steps() if s not in ("baseline", validation.STEP, *OPT_IN)]
         if args.steps == "all"
         else [s.strip() for s in args.steps.split(",")]
     )

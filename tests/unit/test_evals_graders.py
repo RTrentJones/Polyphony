@@ -41,6 +41,8 @@ class TestStepRegistry:
             "attribution",  # last of the pipeline's (S-3)
             "baseline",  # W12-5, never in a gated run
             "rnrc_validation",  # W19 S7, asked for by name only
+            "chapters",  # E4, asked for by name only
+            "chapters_compare",  # E4, asked for by name only
         ]
         # embedding-only steps must not require the API (so they run keyless)
         assert get_step("retrieval").needs_api is False
