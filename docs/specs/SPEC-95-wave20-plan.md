@@ -33,6 +33,162 @@ one comparison that says whether a release writes better books.
 - **D20-4 Holdout.** E4's holdout chapters need the `holdout-v1` tag on `bdb5567` (the user creates it; the session cannot) and
   run once, from the tag, per SPEC-94 D19-4. Without the tag by Nov 7, E4 runs on the development corpora alone and says so.
 
+## E3 feasibility (2026-10-27, read from code; no LLM call)
+- **P⁵ and `baseline.yml` cannot run a Claude member.** (1) `PROVIDERS` at `f57f026` has no `anthropic` row, so `panel.rate`
+  raises `KeyError` on `anthropic:<id>`; (2) the rate job's env passes only the Gemini, Groq, OpenRouter, Cerebras and Mistral
+  keys, never `ANTHROPIC_API_KEY`; (3) it sets `MONTHLY_COST_CEILING_USD: '1'` under `LLM_TIER: paid`, and P⁵'s price table has
+  no Sonnet row, so a Sonnet call would be refused as unpriced; (4) `panel.main` unpacks exactly two members. Each fix
+  changes a frozen file.
+- **The route that leaves them frozen.** `evals/baseline/` on main is byte-identical to P⁵ (the gate's p-freeze row; blobs
+  `panel.py` 94433f1, `score.py` 186ae26, `blind.py` a7015ff), and main's `app.llm` has the Anthropic provider (R7.9) with
+  Sonnet priced ($2 / $10 per M tokens). A new workflow (`e3-followup.yml`: `rate` | `score`) checks out main, passes only
+  `ANTHROPIC_API_KEY`, sets `MONTHLY_COST_CEILING_USD` to the dispatch's cap under `LLM_TIER: paid` (with a Postgres service
+  for the spend ledger), and runs a new module (`evals/followup/e3.py`, about 80 lines) that asserts those blob ids and then
+  calls the frozen `panel.load`, `panel.rate`, `panel.write`, `panel.fleiss` and `score.win_rate` unchanged. Sonnet is the
+  only live member. Groq and Nemotron replay their W12-9 answers from W12-9's final rate-state (run 40248080586) and cannot
+  call out, so their answers are exactly W12-9's, and a cache miss (a prompt not byte-identical to W12-9's) fails the run.
+  Scoring reads the keys only in the `score` job, as W12-9 did. Checked locally with the SDK call intercepted (no network):
+  the frozen `rate("anthropic:claude-sonnet-5-5", …)` runs on main's `app.llm`. Each call sends `model=claude-sonnet-5-5` and
+  `max_tokens` 8,832 (P⁵'s 640 plus main's 8,192 Claude headroom, billed by use). It sends no temperature, because the
+  Messages path drops it, so Sonnet samples at its default. P⁵'s JSON `response_format` is ignored.
+- **What differs from W12-9:** the client layer for the Sonnet member (main's, not P⁵'s); Sonnet's temperature is not 0; its
+  `max_tokens` condition. Not built yet. D20-3 allows the code before any data, so it can be built on sign-off or now if the
+  principal prefers.
+- **Cost.** SPEC-88's load is 427,296 o200k input tokens per member over 162 requests (108 preference, 54 continuity).
+  Claude's tokenizer reads English about 10–30% longer, so input is at most ≈ 555k tokens ($0.85–1.11). Output is at most
+  ≈ 400 tokens per reply (≤ $0.65). One Sonnet pass over everything costs ≈ $1.5–2 with re-asks. The optional retest pass
+  (108 preference prompts) costs ≈ $1.2. Both fit E3's ≈ $5.
+- **Deadline.** The bundles and keys are 30-day artifacts and expire 2026-11-19/20; the rate-state expires 11-25. E3 must rate
+  and score by about 11-18.
+
+## E3 pre-registration (draft, unsigned)
+- **Question.** On W12-9's 18 slots, does a stronger judge prefer B (retrieval-assisted prose) or A? This is an exploratory
+  follow-up. **It cannot change W12-9's recorded decision (simplify toward A).**
+- **Population.** All 54 pairs are rated in both orders, plus the 54 continuity items, from the unchanged bundles of runs
+  39475808924, 39480425231 and 39561988660 (SPEC-88's provenance). **The primary statistic uses only the 18 AB pairs.** All 54
+  are rated for three reasons. Picking out the AB pairs needs the key at rating time, which SPEC-84 keeps out of the rate
+  job. Rating all 54 costs only about $1 more. The AC and BC pairs check Sonnet against the free panel where the panel agreed
+  with itself (κ BC 0.542, AC 0.329).
+- **Panel.** Only Sonnet (`anthropic:claude-sonnet-5-5`, the evals' judge model) counts for the primary, in both orders.
+  Inconsistency is scored as follows:
+  - A pair that Sonnet answers differently in the two orders scores ½ (SPEC-84's inconsistent-member rule).
+  - An unparseable reply is re-asked up to 3 times and otherwise left unrated.
+  - `score` refuses to run until no pair is unrated.
+
+  Sonnet stands alone for the primary because of how W12-9's members behaved. Groq flipped with the order on all 18 AB pairs,
+  so any panel that includes Groq makes every AB pair a tie by construction. Nemotron flipped on 10 of 18, so a Sonnet +
+  Nemotron panel can produce a non-tie on at most 8 AB pairs. **Descriptive only:** Sonnet + Nemotron (replayed) under
+  SPEC-84's panel rule, with its own κ < 0.2 "no decision" reading.
+- **Statistic and CI.** P(B>A), computed by P⁵'s `score.win_rate` unchanged (slot-cluster bootstrap, 2,000 resamples, seed 0,
+  ties ½, n = 18 slots), with a **95%** two-sided interval. There is one primary, so no Bonferroni correction is needed. W12-9's
+  97.5% split α over two primaries; that interval is printed beside the primary for comparability with W12-9. Descriptive:
+  P(C>A) and P(C>B); Sonnet's continuity errors per scene for each arm, and the A − B difference with a 95% slot-cluster
+  interval.
+- **Validity condition (fixed before data).** If Sonnet's two orders disagree on more than 9 of the 18 AB pairs, the result
+  is recorded as "undetermined: Sonnet is order-driven on A vs B", whatever the CI shows.
+- **Decision wording.**
+  - CI above 0.5: "Sonnet prefers B to A on W12-9's 18 slots (exploratory; W12-9's decision unchanged)".
+  - CI below 0.5: the same wording, with A and B swapped.
+  - Otherwise: "Sonnet does not separate B from A at n = 18 (not equivalence)".
+
+  Every line also carries the label `free (gemini-3.5-flash-lite, not prod's prose model), Claude Sonnet judge, not human;
+  development corpora; C is the paid-tier ensemble`.
+- **κ.** Fleiss κ from P⁵'s `fleiss`, reported per pair type (AB, AC, BC) and overall, for three comparisons: Sonnet vs Groq,
+  Sonnet vs Nemotron, and within the Sonnet + Nemotron panel. Beside it, Sonnet's order consistency per pair type against
+  W12-9's members (Groq 0/18 on AB, Nemotron 8/18). **Optional retest, the principal's choice:** a second Sonnet pass over the
+  108 preference prompts under a separate cache, reporting how often the two passes agree on the same order. It separates
+  position bias from sampling noise and carries no decision weight.
+- **Ledger.** E3 runs outside `evals.yml`, so `evals.spend` does not see it. Its cost goes into this ledger by hand, from the
+  run's `api_usage` sum. Dispatch cap: $5.
+
+## E4 design (built on w20-b; dispatches nothing)
+- **Releases.** Wave 17 is the app at `5bb2df25f2a62973f362c31d7cf2ee34bd6a833b` (main before PR #67). Wave 18 is
+  `7dbb8c24f675ba542d5db74b0bcd74b536f7a18f` (PR #67's merge); main's app tree is identical to it (checked). Between the two,
+  only `app/` changed: `orchestration/prose.py`, `characters/context.py`, `orchestration/revise.py` and `jobs/revise.py`.
+  `alembic/`, `requirements.txt` and `app/llm` are identical.
+- **How a run picks its app today.** `evals.yml` boots the app from the same checkout as the harness, which is the dispatched
+  ref. `base_url` grades an external URL instead, which cannot pin a release. **Built: a new `app_sha` input.** It replaces
+  `app/`, `alembic/`, `alembic.ini` and `requirements.txt` with that commit's tree exactly (files the release lacks are
+  removed, then checked by `git diff` against the sha). It also sets `GREENLIGHT_SHA`, so `/__version`, the report's `app_sha`
+  and the generation cache all name the release. The harness stays at the dispatched ref. One limit: the harness's judge
+  imports `app.llm` from the overlaid tree. That layer is identical across these two releases.
+- **Fixed inputs.** Each book gets one outline. The first release's run generates it and stores it back in its portable
+  form (cast as names). The second release's run reads that form through the new `from_runs` input (the earlier runs'
+  `eval-report` artifacts). Promotion is deterministic, so both releases get identical chapters and planned beats; the
+  outline's digest is recorded, and compare refuses a pair whose digests differ. Each release writes chapters 1..K in order
+  through generate-planned, the product path the prose step uses, as its own continuous book. Generation is not seeded (LLM
+  sampling); the seed fixes the judging order only.
+- **Steps (opt-in, never in `all`).**
+  - `chapters`: generation only, no judging.
+  - `chapters_compare`: reads the two releases' reports. Two judges (Sonnet, and the free chain `groq,openrouter`) each
+    answer "which chapter is better" in both orders. The judge sees the canon, the plan and `<chapter_1>`/`<chapter_2>`,
+    with no sha and markers stripped. An answer that flips with the order is ½; a chapter one release did not write counts
+    as a loss for that release; the step also records RC per chapter per judge.
+  - `python -m evals.chapters.analyze … --old <sha> --new <sha>`: the aggregates.
+- **Dispatch sequence per book.**
+  1. `steps=chapters`, `claude=yes`, `app_sha=<W18>`, `chapters=K`, `claude_usd_cap`.
+  2. The same with `app_sha=<W17>` and `from_runs=<run 1>`.
+  3. `steps=chapters_compare`, `claude=yes`, `from_runs=<1>,<2>`.
+
+  The holdout books run the same way with `holdout=yes`, from a tag on a commit that carries this harness. The user creates
+  that tag. A new evals.yml step requires the tag's `holdout-a`, `holdout-b` and `rename.py` to equal `holdout-v1`'s (D19-4:
+  the tag fixes the corpora, the release under test fixes the code). The development part needs no tag.
+- **Cost per chapter.** The W17 draws cost $1.24–2.49 per book-run of 3–4 Opus-written scenes, and each book-run included
+  the voice extraction and the outline. Estimates:
+  - a written chapter ≈ $0.9–1.8;
+  - a run's setup (voice indexing, plus the outline for the first release only) ≈ $0.35–0.7;
+  - Sonnet judging ≈ $0.07 per chapter pair: two orders of about 10k tokens each (two chapters plus canon and plan), plus
+    RC on both chapters;
+  - the free chain costs $0.
+
+  A book at K = 3 costs ≈ $9 ($6–12). A good fit for ≈ $30–35: Frankenstein and Dracula at K = 3 (6 pairs, ≈ $18) plus the two
+  holdout books at K = 2 (4 pairs, ≈ $13), which is 10 pairs. Without the tag: the two development books at K = 3, with a
+  third book only if the measured cost allows. **Dracula, both releases, is dispatched first, and its report's `usage`
+  replaces these estimates before any other book.** It is part of the sample, because the pre-registration is signed before
+  it runs.
+- **Power (provisional, until E1's noise exists).** Simulated with the same percentile bootstrap (2,000 resamples, 95%):
+  P(the interval excludes 0.5 upward) for a true win rate p, with 0% / 30% of pairs order-flipped (ties):
+
+  | n pairs | p = 0.65 | p = 0.75 | p = 0.85 |
+  |---|---|---|---|
+  | 8 | 0.16 / 0.22 | 0.38 / 0.54 | 0.65 / 0.98 |
+  | 12 | 0.14 / 0.26 | 0.38 / 0.64 | 0.74 / 1.00 |
+  | 24 | 0.26 / 0.42 | 0.69 / 0.90 | 0.97 / 1.00 |
+  | 40 | 0.44 / 0.63 | 0.92 / 0.99 | 1.00 |
+  | 60 | 0.64 / 0.81 | 0.98 / 1.00 | 1.00 |
+
+  At 80% power, a 0.65 win rate needs ≈ 60 pairs (30% ties) to ≈ 90 (no ties). **At ≈ 10 pairs, E4 detects only a large
+  difference (≳ 0.8); a null there says little.** Once E1 measures Sonnet's test-retest flip rate on chapters, re-run
+  `evals.chapters.analyze.power(n, p, ties)` with it.
+
+## E4 pre-registration (draft, unsigned)
+- **Question.** On the same outline and plan, does wave 18's product write chapters that a judge prefers to wave 17's?
+- **Unit.** A chapter pair: (book, outline chapter k), k = 1..K. Books: Frankenstein and Dracula at K = 3; holdout-a and
+  holdout-b at K = 2 if the tag exists by Nov 7 (D20-4). Writer: Claude Opus (`claude=yes`), as in W17's and W18's draws.
+  The outline is made once per book by W18's run.
+- **Primary.** Sonnet's P(W18 > W17), asked in both orders. An answer that flips with the order is ½;
+  a chapter one release did not write is a loss for that release; a chapter neither release wrote is left out and counted.
+  Interval: bootstrap resampling chapter pairs (the pair is the cluster), 2,000 resamples, seed 0, **95%** two-sided, over
+  every pair written (development and holdout pooled). The development and holdout parts are also reported separately,
+  descriptive.
+- **Secondaries (descriptive).**
+  - the free chain's rate, which provider judged, and the panel (the two judges' outcome when they agree, else a tie);
+  - Fleiss κ between Sonnet and the free chain (the panel line reads "no decision" when κ < 0.2), and each judge's order
+    consistency;
+  - RC per release and the paired difference W18 − W17 with the same interval, with the count of trimmed chapters beside it
+    (S7: RC sees transitions, duplication and drift, not a missing planned change or a trimmed middle);
+  - **RN only if E2 validates RN-v2 before any E4 data**; otherwise no RN.
+- **Decision wording.** This is exploratory and starts no automatic action.
+  - Interval above 0.5: "Sonnet prefers wave 18's chapters to wave 17's (n = N)".
+  - Interval below 0.5: the same with the releases swapped.
+  - Otherwise: "no difference detectable at n = N (the win rate detectable at 80% power at this n, from `power`, stated beside it), not equivalence".
+
+  Every line carries the label: Opus-written; Sonnet-judged, the same family as the writer, a bias both releases share; not
+  human; development corpora (plus holdout, once run).
+- **Conduct.** Every dispatch passes `claude_usd_cap`. A pair that a quota stop left unrated is judged again in a new
+  compare dispatch; no chapter is regenerated after any judgment has been read. The analysis runs once, after the last pair.
+  The holdout's chapters and judgments are read only by script (D19-4).
+
 ## Ledger
 | run | item | Claude cost | running total |
 |---|---|---|---|
