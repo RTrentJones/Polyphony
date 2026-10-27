@@ -295,3 +295,13 @@ def test_agreement_takes_several_named_answer_files(tmp_path, capsys):
     assert "raters" not in json.loads(capsys.readouterr().out)
     with pytest.raises(SystemExit, match="two answer files"):
         ag.main(args[:2] + [f"x={args[-1].split('=')[1]}"] * 2)
+
+
+@pytest.mark.parametrize(
+    "reply", [{"preferred": ["A"]}, {"preferred": {"x": 1}}, {"preferred": True}]
+)
+def test_a_non_scalar_pair_answer_is_unparseable_not_a_crash(reply):
+    """Codex P2 on #72: a list or object answer must be None, not a TypeError."""
+    from evals.calibration import answer
+
+    assert answer.parse({"kind": "pair"}, reply) is None

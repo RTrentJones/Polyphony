@@ -203,10 +203,10 @@ def prompt(item: dict) -> str:
 def parse(reply) -> int | None:
     """1 or 2 from the judge's JSON; None when it names neither (D19-2)."""
     v = reply.get("narrator") if isinstance(reply, dict) else None
-    if isinstance(v, bool):
-        return None
     if isinstance(v, str):
         v = v.strip()
+    if isinstance(v, bool) or not isinstance(v, (int, str)):
+        return None  # a list or object answer is unparseable, never a crash
     return {1: 1, 2: 2, "1": 1, "2": 2}.get(v)
 
 

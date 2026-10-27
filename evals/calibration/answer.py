@@ -115,6 +115,8 @@ def parse(it: dict, reply) -> object | None:
     if it["kind"] == "pair":
         v = reply.get("preferred")
         v = v.strip().upper() if isinstance(v, str) else v
+        if isinstance(v, bool) or not isinstance(v, (int, str)):
+            return None  # a list or object answer is unparseable, never a crash
         return {"A": "A", "B": "B", 1: "A", 2: "B", "1": "A", "2": "B"}.get(v)
     if it["kind"] == "chapter":
         v = reply.get("score")
