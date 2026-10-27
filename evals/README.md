@@ -386,6 +386,19 @@ averaged within the chapter, so each chapter weighs once. `export` writes a `cha
 sample for S4's human calibration page; `evals.calibration.agreement` compares the
 human's RC scores on it with the judge's.
 
+**RN-v2, the narrator forced choice (SPEC-95 E2, `evals/validation/rn2.py`).** S7
+showed RN cannot tell two narrators of one book apart. RN-v2 asks it directly: for
+each S7 chapter, voice samples of its real narrator and its drift donor (labelled 1
+and 2 in a seeded order per item), then one passage (the intact RN scene, or the
+drifted one), and "which narrator wrote it" (`{"narrator": 1|2}`). 12 items, 12 calls
+a run, about $0.06 if all go to Sonnet. A separate opt-in step, so S7's items and
+numbers are untouched: dispatch evals.yml with `steps=rn2_validation`,
+`book=frankenstein dracula wuthering` (and `judge=claude claude=yes` for Sonnet);
+then `python -m evals.validation.rn2 analyze <artifact dirs>...` prints accuracy per
+judge against chance (0.5), with a chapter-cluster bootstrap interval, the
+unparseable count and the share answering "1" (position bias). RN-v2 replaces
+nothing until it is above chance for both judges on this set.
+
 ## Relay runs: an agent plays the model
 
 `evals/relay_llm.py` is an OpenAI-compatible endpoint answered by whoever watches a

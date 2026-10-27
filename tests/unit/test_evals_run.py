@@ -87,6 +87,7 @@ def test_main_exits_1_on_a_step_error_and_0_on_skips(monkeypatch, a):
         r.main()
     assert "baseline" not in r.run.await_args[0][1]
     assert "rnrc_validation" not in r.run.await_args[0][1]
+    assert "rn2_validation" not in r.run.await_args[0][1]
 
 
 async def test_a_baseline_run_resumes_as_its_one_user_and_skips_the_contract(
