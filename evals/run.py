@@ -24,6 +24,7 @@ from evals import splits
 from evals.harness import report
 from evals.harness.cache import Cache
 from evals.harness.client import PolyphonyClient
+from evals.harness.config import generator
 from evals.harness.config import load as load_config
 from evals.harness.judge import Judge
 from evals.harness.unscored import run_unscored  # noqa: F401 — re-exported
@@ -242,6 +243,13 @@ async def run(
         "model": os.getenv("EVAL_MODEL_LABEL")
         or os.getenv("LLM_MODEL")
         or active_provider().default_model,
+        # SPEC-95: what actually wrote the prose (claude_generate splits writing
+        # from judging), from this run's config; an external app's is unknown.
+        "generator": (
+            generator()
+            if _is_local(cfg.base_url)
+            else {"provider": None, "model": None, "source": "external app"}
+        ),
         # Effective judge (post fail-soft fallback), not merely the requested
         # one — so a run whose judge key was missing is honestly labelled as
         # self-graded in the report/Tracer.

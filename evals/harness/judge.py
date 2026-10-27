@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import re
 from dataclasses import dataclass
 
@@ -183,9 +182,12 @@ class Judge:
         """True when the EFFECTIVE judge is the model under test's provider."""
         if self.endpoint:
             return self._cfg.judge_is_self
-        # ANTHROPIC_USERS routes the eval's generation to Claude (claude=yes).
-        claude_gen = self.provider_id == "anthropic" and os.getenv("ANTHROPIC_USERS")
-        return self.provider_id == self._cfg.app_provider or bool(claude_gen)
+        # SPEC-95: self means the judge is the provider that actually writes
+        # this run's prose: Anthropic when ANTHROPIC_USERS routes the eval's
+        # users to it (claude=yes with claude_generate=yes), else the app's own.
+        from evals.harness.config import generator_provider
+
+        return self.provider_id == generator_provider()
 
     def _endpoint_provider(self):
         """An OpenAI-compatible provider row for EVAL_JUDGE_BASE_URL. A relay

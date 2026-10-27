@@ -510,3 +510,69 @@ def test_extract_spans_heads_each_span_and_drops_the_source_heading():
         rename.extract_spans(body, [{**spans[0], "start": "Walter"}], {}, {})
     with pytest.raises(SystemExit, match="distinct HEADING"):
         rename.extract_spans(body, [spans[0], spans[0]], {}, {})
+
+
+# --- claude_generate: judging apart from writing (SPEC-95) ---------------------
+
+
+def _claude_step(tmp_path, generate: str) -> tuple:
+    """Run evals.yml's claude=yes step as written, `gh` and the spend module
+    stubbed: (exit code, stdout, {name: value} it wrote to GITHUB_ENV)."""
+    import subprocess
+
+    step = _wf_step("Claude for the eval users (claude=yes)")
+    assert "${{" not in step["run"]
+    want = "${{ github.event.inputs.claude_generate || 'yes' }}"
+    assert step["env"]["GENERATE"] == want
+    env_file, summary = tmp_path / "github_env", tmp_path / "summary"
+    env_file.write_text("")
+    stub = "gh() { :; }\npython3() { echo 4.50; }\n"
+    out = subprocess.run(
+        ["bash", "-e", "-c", stub + step["run"]],
+        cwd=tmp_path,
+        env={
+            "PATH": "/usr/bin:/bin",
+            "KEY": "sk-test",
+            "BUDGET": "100",
+            "CAP": "",
+            "GENERATE": generate,
+            "GITHUB_REPOSITORY": "o/r",
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_ENV": str(env_file),
+            "GITHUB_STEP_SUMMARY": str(summary),
+        },
+        capture_output=True,
+        text=True,
+    )
+    written = dict(
+        ln.split("=", 1) for ln in env_file.read_text().splitlines() if "=" in ln
+    )
+    return out.returncode, out.stdout, written
+
+
+def test_claude_generate_yes_keeps_claude_yes_meaning(tmp_path):
+    """The default: Claude writes (waves 17 and 18 were drawn so)."""
+    code, _, env = _claude_step(tmp_path, "yes")
+    assert code == 0
+    assert env == {
+        "ANTHROPIC_API_KEY": "sk-test",
+        "MONTHLY_COST_CEILING_USD": "4.50",
+        "ANTHROPIC_USERS": "@polyphony.eval",
+        "EVAL_MODEL_LABEL": "claude-opus-5-5",
+    }
+
+
+def test_claude_generate_no_wires_the_judge_but_not_the_writer(tmp_path):
+    code, _, env = _claude_step(tmp_path, "no")
+    assert code == 0
+    assert env == {"ANTHROPIC_API_KEY": "sk-test", "MONTHLY_COST_CEILING_USD": "4.50"}
+    code, out, env = _claude_step(tmp_path, "maybe")
+    assert code == 1 and not env and "::error::claude_generate" in out
+
+
+def test_claude_generate_is_a_choice_defaulting_to_yes():
+    import yaml
+
+    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "evals.yml").read_text())
+    inp = wf[True]["workflow_dispatch"]["inputs"]["claude_generate"]
+    assert inp["options"] == ["yes", "no"] and inp["default"] == "yes"

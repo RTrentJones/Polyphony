@@ -325,7 +325,11 @@ take over only if it gives out. `judge=claude` needs `claude=yes` and a booted a
 since the Anthropic key, the month's spend guard and the run's ceiling are wired
 only then; otherwise the job stops with an error before anything runs. The report's
 `judge` block records the request (`requested_mode`, `requested` = the chain) beside
-who actually graded (`provider`, `graded_by`).
+who actually graded (`provider`, `graded_by`). `claude=yes` also makes Claude
+write unless `claude_generate=no` (default `yes`, as before): with `no`, the key and
+ceiling are wired for the judge only and the app's default provider writes. The
+report's `generator` records what wrote (from the run's config), and `judge.self` is
+true only when the judge is that provider.
 
 **Unscored, never zero (SPEC-94 S2a).** A judge reply with no readable score
 (no JSON, or JSON without a numeric `score`) is `score: None` with the reason

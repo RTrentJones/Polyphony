@@ -684,3 +684,32 @@ def test_a_claude_first_chain_judges_with_sonnet_then_the_free_judges(monkeypatc
     monkeypatch.delenv("ANTHROPIC_API_KEY")
     j = Judge(_cfg(monkeypatch, "anthropic,groq,openrouter"))
     assert j.provider_id == "groq" and j.model_override is None
+
+
+@pytest.mark.parametrize(
+    "users, judge, self_",
+    [
+        # claude=yes, claude_generate=no, judge=claude: Claude judges Gemini's prose
+        ("", "anthropic,groq", False),
+        # claude_generate=yes: Claude judges Claude's prose
+        ("@polyphony.eval", "anthropic,groq", True),
+        # Claude writes, Gemini judges (fallback): not self, since Gemini did not write
+        ("@polyphony.eval", "gemini", False),
+        # an unrelated ANTHROPIC_USERS entry does not move the eval's users
+        ("someone@else.org", "gemini", True),
+    ],
+)
+def test_self_means_the_judge_is_the_provider_that_generated(
+    monkeypatch, users, judge, self_
+):
+    """SPEC-95: judge.self is true only when the judge's provider wrote this
+    run's prose (ANTHROPIC_USERS routes the eval users to Claude)."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk_test")
+    monkeypatch.setenv("GEMINI_API_KEY", "g_test")
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
+    if users:
+        monkeypatch.setenv("ANTHROPIC_USERS", users)
+    else:
+        monkeypatch.delenv("ANTHROPIC_USERS", raising=False)
+    j = Judge(_cfg(monkeypatch, judge))
+    assert j.is_self is self_
