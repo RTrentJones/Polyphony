@@ -60,27 +60,36 @@ one comparison that says whether a release writes better books.
   - Sonnet (`anthropic:claude-sonnet-5-5`) is live through main's `app.llm` (the R7.9 provider, priced $2 / $10 per M tokens).
     A reply Claude refuses or truncates comes back empty, so the frozen code re-asks it and, after 3, leaves it unrated.
   - Groq and Nemotron are replay-only from W12-9's final rate-state (run 40248080586), under the frozen key `member|prompt`.
-    A prompt not byte-identical to W12-9's misses the cache and fails the run (`CacheMiss`); no free member is called.
+    A prompt not byte-identical to W12-9's misses the cache and fails the run (`CacheMiss`); no free member is called. The
+    replays run first, so a mismatch fails before any Sonnet call is paid for.
   - **The retest pass** asks Sonnet every prompt again under its own cache, so pass 1's answers are never replayed into it,
     and is written to its own sheet.
 
   The workflow's `rate` job gets only `ANTHROPIC_API_KEY`, a required `usd_cap` (the run's `MONTHLY_COST_CEILING_USD` on a
   fresh database, refused when blank or 0), the bundles and the rate-state, never a key. Its summary and the `e3-ratings`
   artifact (`e3.json`, `db-usage.json`) carry Sonnet's calls, tokens and USD per pass, for this ledger. The `score` job
-  downloads the keys and prints aggregates only. A quota or ceiling stop resumes with `prior_run`. Checked locally with the
+  downloads the keys and prints aggregates only (`sonnet_fallback=yes` applies the pre-registered fallback below). Both
+  checkouts set `persist-credentials: false`. A quota or ceiling stop resumes with `prior_run`. The overall κ it prints uses
+  arm-sorted categories, not W12-9's bundle-order ones, so it is not comparable to W12-9's 0.411 (labelled so). Checked locally with the
   SDK call intercepted: each Sonnet call sends `max_tokens` 8,832 (P⁵'s 640 plus main's 8,192 Claude headroom, billed by use)
   and no temperature (the Messages path drops it, so Sonnet samples at its default); P⁵'s JSON `response_format` is ignored.
 - **What differs from W12-9:** the client layer for the Sonnet member (main's, not P⁵'s), Sonnet's temperature (not 0) and its
   `max_tokens` condition.
 - **Cost.** SPEC-88's load is 427,296 o200k input tokens per member over 162 requests (108 preference, 54 continuity). Claude's
   tokenizer reads English about 10–30% longer: at most ≈ 555k input tokens ($0.85–1.11) and ≤ 400 output tokens a reply
-  (≤ $0.65) a pass, ≈ $1.5–2 with re-asks. **With the retest pass (all 162 prompts again): ≈ $3–4.** Dispatch cap: $5.
+  (≤ $0.65) a pass, ≈ $1.5–2 with re-asks. **With the retest pass (all 162 prompts again): ≈ $3–4.** Dispatch cap: $5. The
+  output estimate assumes Sonnet does not think at length; `max_tokens` is 8,832, so the first dispatch's measured output
+  tokens per call replace it (Conduct), and the $5 cap is per dispatch (a fresh database), so the ledger caps the total.
 - **Deadline.** The bundles and keys are 30-day artifacts and expire 2026-11-19/20; the rate-state expires 11-25. E3 must rate
   and score by about 11-18. Nothing is dispatched before the principal signs the pre-registration below.
 
 ## E3 pre-registration (draft, unsigned)
 - **Question.** On W12-9's 18 slots, does a stronger judge prefer B (retrieval-assisted prose) or A? This is an exploratory
   follow-up. **It cannot change W12-9's recorded decision (simplify toward A).**
+- **Post-hoc design, disclosed:** the judge (Sonnet alone) and this pre-registration were chosen after W12-9's AB result (Groq
+  flips 18/18, Nemotron 10/18, κ_AB −0.205) was known. These 18 slots have now been read by three judges. A B-favoured result
+  is grounds for a new, separately pre-registered comparison on fresh scenes, never for reversing or reopening W12-9's
+  simplification.
 - **Population.** All 54 pairs are rated in both orders, plus the 54 continuity items, from the unchanged bundles of runs
   39475808924, 39480425231 and 39561988660 (SPEC-88's provenance). **The primary statistic uses only the 18 AB pairs.** All 54
   are rated because picking out the AB pairs needs the key at rating time, which SPEC-84 keeps out of the rate job; rating
@@ -91,12 +100,20 @@ one comparison that says whether a release writes better books.
   `score` refuses while any Sonnet prompt is unrated. Sonnet stands alone because Groq flipped on all 18 AB pairs (any panel
   with it makes every AB pair a tie by construction) and Nemotron on 10 of 18 (a Sonnet + Nemotron panel can be non-tie on at
   most 8). **Descriptive only:** Sonnet + Nemotron (replayed) under SPEC-84's panel rule, with its κ < 0.2 "no decision".
+  A Sonnet prompt still unrated after 3 tries on two rate runs scores Sonnet ½ on that pair (a continuity item is left out).
+  It is flagged and counted in the result, and `score` is then run with that count stated. No other fallback.
 - **Statistic and CI.** P(B>A) by P⁵'s `score.win_rate` unchanged (slot-cluster bootstrap, 2,000 resamples, seed 0, ties ½,
   n = 18 slots), **95%** two-sided: one primary, so no Bonferroni (W12-9's 97.5% split α over two primaries). The 97.5%
   interval is printed beside it for comparability. Descriptive: P(C>A), P(C>B); continuity errors per scene per arm and the
   A − B difference with a 95% slot bootstrap.
-- **Validity condition (fixed before data).** If Sonnet's first pass flips with the order on more than 9 of the 18 AB pairs,
-  the result is "undetermined: Sonnet is order-driven on A vs B", whatever the CI.
+- **Validity condition (fixed before data).** A flip is an AB pair whose two first-pass orders both parsed and named different
+  arms. An order-independent judge, at any preference rate q, flips with probability 2q(1−q) ≤ ½, so at most 9 of 18 in
+  expectation. If Sonnet's first pass flips on more than 9 of the 18 AB pairs, the result is 'undetermined: Sonnet is
+  order-driven on A vs B', whatever the CI. SPEC-84's κ < 0.2 gate does not apply to the one-judge primary. This condition
+  replaces it.
+- **Replay integrity.** The score is valid only if the replayed members reproduce W12-9: AB order consistency Groq 0/18 and
+  Nemotron 8/18 (`order consistency` in the score output), and `unrated` is 0 for both. Otherwise the run is void and is
+  recorded.
 - **Decision wording.** CI above 0.5: "Sonnet prefers B to A on W12-9's 18 slots (exploratory; W12-9's decision unchanged)";
   below: the same with A and B swapped; otherwise "Sonnet does not separate B from A at n = 18 (not equivalence)". Every line
   carries `free (gemini-3.5-flash-lite, not prod's prose model), Claude Sonnet judge, not human; development corpora; C is the
@@ -105,10 +122,14 @@ one comparison that says whether a release writes better books.
   descriptive panel's). Each member's order consistency per pair type (W12-9: Groq 0/18 on AB, Nemotron 8/18).
 - **Retest (descriptive, no decision weight).** Sonnet's second pass over all 162 prompts: the share of the 54 pairs whose
   outcome (winner or order-flip tie) is the same in both passes, Fleiss κ between the passes per pair type, and the second
-  pass's own P(B>A). It separates sampling noise (Sonnet at its default temperature) from position bias.
-- **Conduct.** `e3-followup.yml` `stage=rate`, `usd_cap=5`, `retest=yes`; resumed with `prior_run` after a stop; then
-  `stage=score` with `rate_run`. E3 spends outside `evals.yml`, so `evals.spend` does not see it: its cost goes into this
-  ledger by hand from the run's summary.
+  pass's own P(B>A) and its unrated count. It separates sampling noise (Sonnet at its default temperature) from position bias.
+  Sonnet runs at its API default temperature with adaptive thinking (8,832 `max_tokens`). Every line states 'Sonnet at default
+  sampling'. Pass 1 alone is the primary. The retest is never pooled into it.
+- **Conduct.** `usd_cap=5` per dispatch. E3's ledger total (all rate dispatches) is capped at $8. Pass 1 completes first. If
+  the ledger total would exceed $8 before the retest completes, the retest stops, is reported as partial, and is not resumed.
+  The first dispatch's measured output tokens per call replace the cost estimate in the ledger. (Procedure: `e3-followup.yml`
+  `stage=rate`, resumed with `prior_run` after a stop, then `stage=score` with `rate_run`; E3 spends outside `evals.yml`, so
+  `evals.spend` does not see it, and its cost goes into this ledger by hand from the run's summary.)
 
 ## E4 design (built on w20-b; dispatches nothing)
 - **Releases.** Wave 17 is the app at `5bb2df25f2a62973f362c31d7cf2ee34bd6a833b` (main before PR #67); wave 18 is
@@ -128,11 +149,21 @@ one comparison that says whether a release writes better books.
   `from_runs`, which stores its portable form; promotion is deterministic, so both releases get identical chapters and
   planned beats (the digest is recorded; compare refuses a mismatch). The outline has 6 chapters (`chapters_target` = the
   corpus's 6 canonical beats). A run writes chapters 1..K in order through generate-planned (the product path), and with
-  `replicates=R` writes them afresh R times, trashing each replicate before the next.
+  `replicates=R` writes them afresh R times, trashing every live scene of the replicate's chapters (a paused leftover of an
+  errored chapter included) before the next.
 - **Steps (opt-in, never in `all`).** `chapters` (generation; records setup and per-chapter request counts from `/usage`, and
   stops cleanly before a chapter when fewer than 40 generator requests are left today); `chapters_compare` (one day's two
   runs, a batch: replicate r of each release paired; Sonnet and the free chain answer "which chapter is better" in both
   orders, blind; RC by Sonnet only, the free chain's quota going to preference); `python -m evals.chapters.analyze`.
+- **Failure classes (principal review).** Each chapter records `failure`: `quota` (a 429 at enqueue, a daily limit, a job
+  left paused until the poll timed out, an unavailable provider, beats deferred by the day's budget) or `product` (a job
+  failed otherwise, or completed with no text). The reserve guard reads the run's own fresh database, blind to the other
+  release's requests that day and to any other use of the key, so a quota failure must never read as a product loss:
+  compare forfeits only on `product`; `quota` on either side, or a chapter only one release attempted (`not_attempted`),
+  leaves the pair out on both sides, counted per release. A refused, unparseable or unavailable answer leaves the pair
+  unrated (status and provider per order) without stopping the step; a resume dispatch passes the batch's last compare
+  report in `from_runs`, copies its rated pairs verbatim and judges only the rest (`resumed_from`), and `analyze` reads the
+  chain's last report, refusing one whose earlier rated outcomes changed. Compare refuses a pair whose two plans differ.
 - **Requests (estimated, not yet measured; no report was opened).** A chapter of ≈ 3.5 planned scenes at ≈ 4.1 requests a
   scene (W12-9's B arm on Flash-Lite, the product's prose path: 20.3 / 4.9) ≈ 15, taken as 15–20 for W18's added context.
   A book's outline run (voice indexing, outline, promote) ≈ 200 (SPEC-88's R_m 201–215 for the same preparation); a
@@ -141,9 +172,11 @@ one comparison that says whether a release writes better books.
 - **Day budget.** Flash-Lite's measured quota is 500 requests a Pacific day; E4 plans ≤ 400 (⌊0.8 × 500⌋, SPEC-84's rule). A
   book-day is the W18 run and the W17 run of one book, the same day (same provider conditions), each `chapters=6
   replicates=1` from the outline run: ≈ 2 × (S + 6 × 15–20) = 240–400 requests, 6 chapter pairs. When the first book-day
-  measures S + 12c ≤ 200, later book-days use `replicates=2` (12 pairs). Both generation dispatches go in together: claude=yes
-  runs share the `evals-claude` concurrency group, which queues and never cancels, so they run back to back; the release that
-  goes first alternates by day. The day's `chapters_compare` runs after both (from_runs = the two runs).
+  measures S + 12c ≤ 200, later book-days use `replicates=2` (12 pairs). claude=yes runs share the `evals-claude` concurrency
+  group, and GitHub keeps only one pending run per group: a third claude=yes dispatch cancels a pending one. So the
+  generation and compare dispatches of one book-day are dispatched one at a time, never with another claude=yes run pending
+  (E1, E2 and E5 dispatches included). The first release alternates by day, starting with W17. The day's `chapters_compare`
+  runs after both (from_runs = the two runs).
 - **Schedule (target n = 72 = 4 books × 6 chapters × 3 replicates, by Nov 10).** From the day after the signature (≈ Oct 29
   Pacific): day 1 outline runs for Frankenstein and Dracula (≈ 400); days 2–7 book-days alternating Frankenstein, Dracula (36
   pairs); the holdout outline day as soon as the tag exists (≤ Nov 7); then holdout-a and holdout-b book-days (36 pairs) to Nov
@@ -168,31 +201,53 @@ one comparison that says whether a release writes better books.
 
 ## E4 pre-registration (draft, unsigned)
 - **Question.** On the same outline and plan, does wave 18's product write chapters that a judge prefers to wave 17's?
+- **Fixed inputs.** Each book's outline is made once by an outline-only run (`chapters=0`) at `app_sha=7dbb8c24…` (wave 18;
+  outline code is identical across the releases). Its digest is written into this spec before that book's first book-day. An
+  outline is regenerated only if the run produced none. An outline with fewer than 6 chapters is used as is (n shrinks,
+  recorded).
 - **Unit and n.** A chapter pair: replicate r of outline chapter k of a book, written by each release on the same day.
   Target **n = 72 pairs** = Frankenstein, Dracula, holdout-a, holdout-b × 6 chapters × 3 replicates (24 outline chapters);
-  writer `gemini-3.5-flash-lite` (the app's default, `claude_generate=no`). **Stopping is by date and quota only:** generation
-  ends at the earlier of 72 pairs or the end of Nov 10 (Pacific), and n is whatever both releases wrote by then. No pair is
-  regenerated after any judgment has been read. Without the tag by Nov 7, the development books take the holdout's days.
-- **Primary.** Sonnet's P(W18 > W17), each pair asked in both orders. An answer that flips with the order is ½; a chapter one
-  release did not write is a loss for that release; a chapter neither wrote is left out and counted. Interval: bootstrap
+  writer `gemini-3.5-flash-lite` (the app's default, `claude_generate=no`). Stopping is by date and quota only. Generation
+  ends at the earlier of 72 pairs or the end of Nov 10 (Pacific). `replicates` and day allocation are set only from the
+  reports' request counts. No E4 judgment, per-pair outcome or analysis output is opened by anyone (agent or user) until
+  generation has ended. Only the compare step's counts (pairs, unrated, stopped) are read. A book-day whose two releases did
+  not both finish on the same Pacific day is discarded whole, before any judgment, and recorded. The first release alternates
+  by day, starting with W17. Without the tag by Nov 7, the development books take the holdout's days.
+- **Primary.** Sonnet's P(W18 > W17), each pair asked in both orders. An answer that flips with the order is ½. A chapter one
+  release attempted and that failed for a product reason (its job failed for a reason other than quota or provider
+  availability, or completed with no text) is a loss for that release. A chapter not attempted, or failed on quota or provider
+  availability (429, daily limit, paused, provider unavailable) on either side, leaves the pair out on both sides. Such pairs
+  are counted per release. A chapter neither release wrote is left out and counted. Interval: bootstrap
   resampling outline chapters (book, k), every replicate of a chapter moving with it, 2,000 resamples, seed 0, **95%**
   two-sided, over all pairs (development and holdout pooled); each part also reported alone, descriptive.
+  Validity: if Sonnet's answer flips with the order on more than half the pairs it rated, the result is 'undetermined: Sonnet
+  is order-driven on these chapters', whatever the interval. A Sonnet order left unanswered after re-judging (refusal,
+  unparseable after 3) leaves the pair unrated, counted per release. N is the number of Sonnet-rated pairs plus forfeits,
+  stated with the number of outline chapters.
 - **Secondaries (descriptive).** The free chain's rate (and which provider judged), the panel (the two judges' outcome when
   they agree, else ½), Fleiss κ between Sonnet and the free chain (the panel reads "no decision" when κ < 0.2), each judge's
   order consistency; RC per release (Sonnet) and the paired difference W18 − W17 with the same interval and the count of
   trimmed chapters (S7: RC sees transitions, duplication and drift, not a missing planned change or a trimmed middle);
-  requests per chapter per release.
+  requests per chapter per release. The free chain and the panel never change the primary. If the free chain's 95% interval
+  lies wholly on the other side of 0.5 from Sonnet's, the decision line adds 'the free chain disagrees (P = …, provider …)'
+  and the result is reported as judge-dependent. The panel's κ < 0.2 'no decision' applies to the panel line only.
+  Descriptive sensitivity: the same Sonnet win rate with the cluster bootstrap over book-day runs (book, batch) and words per
+  chapter per release. RC was validated (S7) with Groq, not Sonnet. Sonnet's RC is unvalidated unless E1 shows it, and RC
+  cannot see a removed planned change or a trimmed middle. RN (v1) is not reported.
 - **Decision wording.** Exploratory; no automatic action. Interval above 0.5: "Sonnet prefers wave 18's chapters to wave 17's
-  (n = N)"; below: the same with the releases swapped; otherwise "no difference detectable at n = N (the win rate detectable
-  at 80% power at this n, from `power`, stated beside it), not equivalence". Every line carries: Flash-Lite-written, the app's
+  (n = N)"; below: the same with the releases swapped; otherwise 'no difference detectable at n = N (not equivalence)', with
+  the smallest win rate p on a 0.01 grid for which `analyze.power(n_clusters, p, ties = Sonnet's observed flip share, reps =
+  round(pairs / n_clusters), spread = 0, sims = 400, seed = 0)` ≥ 0.80, stated beside it. Every line carries: Flash-Lite-written, the app's
   default; Sonnet-judged; not human; development corpora (and holdout, once run).
 - **Answered (the coordinator, 2026-10-27).** The judges no longer share a family with the writer (Gemini writes; Sonnet, Groq
   and Nemotron judge), so the earlier self-preference caveat does not apply. **RN-v2 enters E4 only if E2 validates it before
   any E4 data;** it is not wired into `chapters_compare` now, and adding it would be an amendment written before that data.
-- **Conduct.** Every dispatch passes `claude_usd_cap`. A pair a quota stop left unrated is judged again in a new compare
-  dispatch of the same batch. The analysis runs once, after the last pair. The holdout's chapters and judgments are read only
-  by script (D19-4), and its runs go from a tag on a commit carrying this harness (the user creates it), whose holdout corpora
-  the workflow checks against `holdout-v1`.
+- **Conduct.** Every dispatch passes `claude_usd_cap`. A pair a stop left unrated is judged again only by a compare dispatch
+  that resumes that batch's report (judging only its unrated pairs). The analysis reads the last report of each batch.
+  Generation and compare dispatches of one book-day are made one at a time, never with another claude=yes run pending. The
+  holdout's E4 runs are its single use for this release pair (D19-4). Its outlines, chapters and judgments are read only by
+  script, from a tag on a commit carrying this harness, checked against `holdout-v1`. Each holdout dispatch names `book=`
+  explicitly. The analysis runs once, after the last pair.
 
 ## Ledger
 | run | item | Claude cost | running total |
