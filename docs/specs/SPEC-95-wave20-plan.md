@@ -258,7 +258,26 @@ compare, analyze chain-tail).
 - **Generator quota (the user, 2026-10-27).** The eval workflow's Gemini key is separate from production's, so E4's ≈ 400
   Flash-Lite requests a day do not draw on the live site's quota.
 
+## Results so far (Sonnet passes; the free-judge passes are queued)
+- **E1, judge strength.** On the S7 set Sonnet's RC ranks the damaged chapter below its intact twin for every visible damage
+  type: transitions 6/6, duplication 6/6, narrator drift 6/6, removed planned change 5/5 (Groq's RC in S7: 6/6, 4/6, 4/6,
+  2/5). Damage inside RC's trimmed middle is still not seen, by construction. Sonnet's RN drops on narrator drift 9/9 (mean
+  drop 0.17) and stays flat on the other damage types, so RN's S7 failure was the judge's, not the rubric's.
+- **E1, noise.** Sonnet's two passes over the same 36 chapters differ by a mean |Δ| of 0.039 on RC (17/36 identical) and
+  0.046 on RN. A later Sonnet draw cannot claim an RC or RN difference smaller than that from one pass.
+- **E2, RN-v2.** Sonnet picks the real narrator 24/24 over both passes, choosing the first sample half the time (0.50), so the
+  answer is not positional. The set may be too easy to separate judges (the donor narrators are recognizably different
+  books' voices), and the free judges' pass is still queued, so RN-v2 is not yet validated in the sense D20-2 requires.
+- **E4 harness after signature.** The Codex fixes at 20e0846 (a refused RC answer is `refused`, a truncated chapter is
+  `product`, an arm with no rated continuity items reports none) changed no statistic, unit or decision wording.
+
 ## Ledger
 | run | item | Claude cost | running total |
 |---|---|---|---|
 | 40453584712 (W18-4 after-draw: Dracula $1.54, Frankenstein $3.13; Claude-written, Groq then Sonnet judging) | E4 forerunner | $4.67 | $4.67 |
+| 40468344558 (RN-v2 validation, Sonnet, pass 1) | E2 | $0.08 | $4.75 |
+| 40468570617 (RN/RC on the S7 set, Sonnet, pass 1) | E1 | $0.83 | $5.58 |
+| 40469313912 (calibration answers, Sonnet: cel, dracula, frankenstein; wuthering stopped at the register limit) | E5 | $0.31 | $5.89 |
+| 40469753340 (RN/RC on the S7 set, Sonnet, pass 2) | E1 | $0.85 | $6.74 |
+| 40470509603 (RN-v2 validation, Sonnet, pass 2) | E2 | $0.09 | $6.83 |
+| 40470971826 (calibration answers, Sonnet: wuthering) | E5 | $0.04 | $6.87 |
