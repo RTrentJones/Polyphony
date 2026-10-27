@@ -125,6 +125,23 @@ validity claims stated at their true strength, a human calibration of the judges
   item set from the reports' seed, keeps their digest in the key, and refuses (as `analyze` does) a
   set whose digest differs, since `judge_rc` joins by item id and an id survives a changed chapter.
 
+- **S7 result (2026-10-27; runs 40303087945 and 40425791780, Groq-judged, free).** All 36 items judged for RC and RN (11
+  Wuthering items twice, averaged per item); shares are of damaged chapters scored below their intact chapter, means over
+  chapters with 95% chapter-cluster bootstrap CIs. Where RC could see the damage:
+  | damage | RC below (chapters) | RC mean drop | RN below | RN mean drop |
+  |---|---|---|---|---|
+  | broken transitions (scenes reordered) | 6/6 | +0.33 [+0.14, +0.54] | 3/6 | +0.11 [+0.03, +0.20] |
+  | duplicated event | 4/6 | +0.24 [+0.08, +0.42] | 2/6 | +0.05 [0.00, +0.12] |
+  | narrator drift | 4/6 | +0.34 [+0.08, +0.65] | 1/6 | −0.06 [−0.21, +0.08] |
+  | planned change removed | 2/5 | +0.08 [−0.08, +0.24] | 1/5 | +0.01 [−0.03, +0.06] |
+  Inside RC's trimmed middle it caught nothing (duplicated event 0/3, narrator drift 0/3). Reading: RC detects broken
+  transitions reliably and duplicated events and narrator drift usually, when it can see them; it does not reliably detect a
+  missing planned change, and trimmed RC is blind to its middle, as D19-9 said. RN does not separate one narrator from another
+  narrator of the same book (drift 1/6, mean drop ≈ 0): as built it scores period and register, not a particular narrator's
+  voice, so an RN gain is not evidence of narrator fidelity. Caveats: six famous development chapters, a judge that may
+  recognise them (an upper bound on RC's sensitivity), one judge family, and n too small for per-cell claims. Consequences:
+  report RC with its trimmed share beside it; treat RN as a register check only until a narrator-discriminating version is
+  validated the same way; S4's human chapter ratings test the same items.
 ## Sequence
 1. 10-26 00:07Z — W12-9 day 6 (S1). 05:00Z — W17 draw 2; then the wave-18 product PR.
 2. In parallel now, on branches: S2 (code + tests), S3 (docs), S5 (corpus build), S4's export (items + key, no LLM where
