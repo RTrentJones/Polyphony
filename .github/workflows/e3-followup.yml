@@ -1,0 +1,92 @@
+name: e3-followup # SPEC-95 E3: W12-9's bundles re-rated with Claude Sonnet on P⁵'s frozen panel code
+run-name: e3 ${{ inputs.stage }} ${{ inputs.label }}
+on:
+  workflow_dispatch:
+    inputs:
+      stage: {type: choice, options: [rate, score], default: rate}
+      label: {description: 'the run label, e.g. E3', required: true}
+      usd_cap: {description: "rate: this run's Claude ceiling in USD (MONTHLY_COST_CEILING_USD on a fresh database), e.g. 5", default: ''}
+      retest: {description: 'rate: a second Sonnet pass over every prompt, under its own cache (test-retest)', type: choice, options: ['yes', 'no'], default: 'yes'}
+      prior_run: {description: "rate: an earlier e3 rate run whose e3-rate-state this one resumes (blank = start from W12-9's)", default: ''}
+      rate_run: {description: 'score: the e3 rate run whose e3-ratings are scored', default: ''}
+permissions: {contents: read, actions: read}
+concurrency: {group: e3-followup, cancel-in-progress: false}
+env:
+  # SPEC-88's provenance: the rated bundles' generate runs (their keys too) and W12-9's last rate run.
+  W12_9_BUNDLES: '39475808924,39480425231,39561988660'
+  W12_9_RATE_RUN: '40248080586'
+  LLM_TIER: paid
+  USER_DAILY_TOKEN_LIMIT: '20000000'
+jobs:
+  rate: # bundles and W12-9's rate-state only: never a key or a record
+    if: inputs.stage == 'rate'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    services:
+      postgres: {image: pgvector/pgvector:pg16, env: {POSTGRES_PASSWORD: ci_password_12345, POSTGRES_DB: polyphony_eval}, ports: ['5432:5432'],
+        options: '--health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10'}
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }} # the only key: Groq and Nemotron are replayed
+      EVAL_CACHE_DIR: rate-state/cache
+      PGURL: postgresql://postgres:ci_password_12345@localhost:5432/polyphony_eval
+    steps:
+      - {uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5} # v4.3.1
+      - {uses: ./.github/actions/boot-app, with: {serve: 'false'}}
+      - name: The run's Claude ceiling
+        env: {CAP: '${{ inputs.usd_cap }}'}
+        run: |
+          [ -n "$ANTHROPIC_API_KEY" ] || { echo "::error::ANTHROPIC_API_KEY is not set"; exit 1; }
+          # A zero or blank ceiling reads as "no ceiling" to the app (app/llm/spend.py): refuse it.
+          if ! printf '%s' "$CAP" | grep -Eq '^[0-9]+(\.[0-9]+)?$' || ! awk -v c="$CAP" 'BEGIN { exit !(c > 0) }'; then
+            echo "::error::usd_cap must be a positive number of dollars (got '$CAP')"
+            exit 1
+          fi
+          echo "MONTHLY_COST_CEILING_USD=$CAP" >> "$GITHUB_ENV"
+      - name: Bundles and the rate-state (never a key)
+        env: {GH_TOKEN: '${{ github.token }}', PRIOR: '${{ inputs.prior_run }}'}
+        run: |
+          for r in ${W12_9_BUNDLES//,/ }; do gh run download "$r" -p 'baseline-bundle-*' -D "bundles/$r" -R "$GITHUB_REPOSITORY"; done
+          if ls -d bundles/*/* | grep -v '/baseline-bundle-[^/]*$'; then echo "::error::not a bundle artifact"; exit 1; fi
+          if [ -n "$PRIOR" ]; then
+            printf '%s' "$PRIOR" | grep -Eq '^[0-9]+$' || { echo "::error::prior_run must be a run id"; exit 1; }
+            gh run download "$PRIOR" -n e3-rate-state -D rate-state -R "$GITHUB_REPOSITORY"
+          else
+            gh run download "$W12_9_RATE_RUN" -n baseline-rate-state -D rate-state -R "$GITHUB_REPOSITORY"
+          fi
+      - name: Rate
+        timeout-minutes: 280
+        env: {RETEST: '${{ inputs.retest }}'}
+        run: |
+          python -m evals.followup.e3 rate bundles --out ratings $([ "$RETEST" = yes ] && echo --retest)
+      - name: Sonnet's cost
+        if: always()
+        run: |
+          {
+            echo "### E3 Sonnet usage (ledger it in SPEC-95)"
+            echo '```'
+            [ -f ratings/e3.json ] && python -c "import json; r = json.load(open('ratings/e3.json')); print(json.dumps({k: r[k] for k in ('sonnet_cost_usd', 'usage_usd', 'unrated')}, indent=1))"
+            psql "$PGURL" -c "SELECT model, count(*) AS calls, sum(tokens_used) AS tokens, round(sum(cost_usd)::numeric, 4) AS usd FROM api_usage GROUP BY model"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          psql "$PGURL" -At -c "SELECT json_build_object('calls', count(*), 'usd', coalesce(sum(cost_usd), 0)) FROM api_usage" > rate-state/db-usage.json || true
+          cp rate-state/db-usage.json ratings/ 2>/dev/null || true
+      - {if: always(), uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02, with: {name: e3-ratings, path: ratings, retention-days: 90}} # v4.6.2
+      - {if: always(), uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02, with: {name: e3-rate-state, path: rate-state, retention-days: 30}} # v4.6.2
+  score: # the keys are read by the script; only aggregates are printed
+    if: inputs.stage == 'score'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - {uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5} # v4.3.1
+      - {uses: ./.github/actions/boot-app, with: {serve: 'false'}}
+      - name: Ratings and keys
+        env: {GH_TOKEN: '${{ github.token }}', RATE_RUN: '${{ inputs.rate_run }}'}
+        run: |
+          printf '%s' "$RATE_RUN" | grep -Eq '^[0-9]+$' || { echo "::error::score needs rate_run, an e3 rate run id"; exit 1; }
+          gh run download "$RATE_RUN" -n e3-ratings -D ratings -R "$GITHUB_REPOSITORY"
+          for r in ${W12_9_BUNDLES//,/ }; do gh run download "$r" -p 'baseline-key-*' -D "keys/$r" -R "$GITHUB_REPOSITORY"; done
+      - name: Score
+        run: |
+          python -m evals.followup.e3 score ratings $(find keys -name key.json | sort) > e3-score.json
+          { echo '```'; cat e3-score.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - {if: always(), uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02, with: {name: e3-score, path: e3-score.json, retention-days: 90}} # v4.6.2
