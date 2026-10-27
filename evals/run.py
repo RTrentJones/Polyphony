@@ -24,6 +24,7 @@ from evals import splits
 from evals.harness import report
 from evals.harness.cache import Cache
 from evals.harness.client import PolyphonyClient
+from evals.harness.config import generator
 from evals.harness.config import load as load_config
 from evals.harness.judge import Judge
 from evals.harness.unscored import run_unscored  # noqa: F401 — re-exported
@@ -32,7 +33,12 @@ from evals.preflight import RUNS, preflight
 from evals.baseline import arms  # noqa: F401 — registers `baseline` (W12-5)
 from evals.steps import pipeline  # noqa: F401 — registers the steps
 from evals.validation import step as validation  # noqa: F401 — W19 S7, opt-in
+from evals.validation import rn2  # noqa: F401 — SPEC-95 E2, opt-in
+from evals.calibration import answer as calibration  # noqa: F401 — E5, opt-in
 from evals.steps.base import StepContext, all_steps, get_step
+
+# Never part of `--steps all`.
+OPT_IN = ("baseline", validation.STEP, rn2.STEP, calibration.STEP)
 
 
 def _record_judge_failover(result: dict, judge) -> None:
@@ -237,6 +243,13 @@ async def run(
         "model": os.getenv("EVAL_MODEL_LABEL")
         or os.getenv("LLM_MODEL")
         or active_provider().default_model,
+        # SPEC-95: what actually wrote the prose (claude_generate splits writing
+        # from judging), from this run's config; an external app's is unknown.
+        "generator": (
+            generator()
+            if _is_local(cfg.base_url)
+            else {"provider": None, "model": None, "source": "external app"}
+        ),
         # Effective judge (post fail-soft fallback), not merely the requested
         # one — so a run whose judge key was missing is honestly labelled as
         # self-graded in the report/Tracer.
@@ -245,6 +258,9 @@ async def run(
             "model": ctx.judge.model_override,
             "self": ctx.judge.is_self,
             "requested": cfg.judge_provider,
+            # SPEC-95 E0: evals.yml's `judge` input, "claude" (Sonnet first,
+            # the free chain behind it) or "chain"; None outside that workflow.
+            "requested_mode": os.getenv("EVAL_JUDGE_MODE") or None,
             "fell_back": ctx.judge.fell_back,
             # A judge at its own URL (a separate relay queue), or None.
             "endpoint": ctx.judge.endpoint,
@@ -419,8 +435,9 @@ def main() -> None:
     splits.require(args.book)  # a holdout book without --holdout stops here
 
     step_names = (
-        # baseline is its own run (SPEC-84); rnrc_validation is asked for by name
-        [s for s in all_steps() if s not in ("baseline", validation.STEP)]
+        # baseline is its own run (SPEC-84); the validation and calibration
+        # steps are asked for by name
+        [s for s in all_steps() if s not in OPT_IN]
         if args.steps == "all"
         else [s.strip() for s in args.steps.split(",")]
     )

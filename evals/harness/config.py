@@ -44,6 +44,39 @@ class EvalConfig:
         return self.judge_provider == self.app_provider
 
 
+# The eval registers its users under this domain (evals/harness/client.py).
+EVAL_USER_DOMAIN = "@polyphony.eval"
+
+
+def generator_provider() -> str:
+    """The provider that writes the eval's prose in this run, as the app's
+    provider_for routes it: Anthropic when ANTHROPIC_USERS covers the eval's
+    users and its key is set (evals.yml claude=yes, claude_generate=yes), else
+    the app's LLM_PROVIDER (SPEC-95: claude_generate=no keeps it there)."""
+    raw = os.getenv("ANTHROPIC_USERS", "")
+    users = {e.strip().lower() for e in raw.split(",") if e.strip()}
+    covered = any(u == EVAL_USER_DOMAIN or u.endswith(EVAL_USER_DOMAIN) for u in users)
+    if covered and os.getenv("ANTHROPIC_API_KEY"):
+        return "anthropic"
+    return os.getenv("LLM_PROVIDER", "gemini")
+
+
+def generator() -> dict:
+    """{provider, model} that generate in a booted run, from its config: the
+    app provider's LLM_MODEL (else its default), or Anthropic's default."""
+    from app.llm.providers import PROVIDERS
+
+    pid = generator_provider()
+    app = os.getenv("LLM_PROVIDER", "gemini")
+    model = os.getenv("LLM_MODEL") if pid == app else None
+    row = PROVIDERS.get(pid)
+    return {
+        "provider": pid,
+        "model": model or (row.default_model if row else None),
+        "source": "config",
+    }
+
+
 def load() -> EvalConfig:
     return EvalConfig(
         base_url=os.getenv("EVAL_BASE_URL", "http://localhost:8000").rstrip("/"),
