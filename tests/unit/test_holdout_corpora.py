@@ -243,6 +243,135 @@ def test_the_repeat_input_reaches_the_runner_through_env(tmp_path):
     assert "--repeat 2" in runs[0]
 
 
+# --- the judge input (SPEC-95 E0) ---------------------------------------------
+
+
+def _wf_step(name: str) -> dict:
+    import yaml
+
+    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "evals.yml").read_text())
+    return next(s for s in wf["jobs"]["eval"]["steps"] if s.get("name") == name)
+
+
+def _judge_step(tmp_path, judge: str, claude: str, base_url: str = "") -> tuple:
+    """Run evals.yml's judge-chain step as written: (exit code, stdout,
+    {name: value} it wrote to GITHUB_ENV)."""
+    import subprocess
+
+    step = _wf_step("Judge chain")
+    # every input reaches the shell through `env`, never interpolated
+    assert "${{" not in step["run"]
+    assert step["env"]["JUDGE"] == "${{ github.event.inputs.judge || 'chain' }}"
+    env_file = tmp_path / "github_env"
+    env_file.write_text("")
+    out = subprocess.run(
+        ["bash", "-e", "-c", step["run"]],
+        cwd=tmp_path,
+        env={
+            "PATH": "/usr/bin:/bin",
+            "JUDGE": judge,
+            "CLAUDE": claude,
+            "BASE_URL": base_url,
+            "FREE_CHAIN": "groq,openrouter",
+            "GITHUB_ENV": str(env_file),
+        },
+        capture_output=True,
+        text=True,
+    )
+    written = dict(
+        ln.split("=", 1) for ln in env_file.read_text().splitlines() if "=" in ln
+    )
+    return out.returncode, out.stdout, written
+
+
+@pytest.mark.parametrize(
+    "judge, claude, chain",
+    [
+        ("chain", "no", "groq,openrouter"),  # the default: the free chain
+        ("chain", "yes", "groq,openrouter,anthropic"),  # Claude last (SPEC-90 D14)
+        ("claude", "yes", "anthropic,groq,openrouter"),  # Claude first (E0)
+    ],
+)
+def test_the_judge_input_orders_the_chain(tmp_path, judge, claude, chain):
+    code, _, env = _judge_step(tmp_path, judge, claude)
+    assert code == 0
+    assert env == {"EVAL_JUDGE_PROVIDER": chain, "EVAL_JUDGE_MODE": judge}
+
+
+def test_judge_claude_without_claude_yes_or_a_booted_app_is_refused(tmp_path):
+    code, out, env = _judge_step(tmp_path, "claude", "no")
+    assert code == 1 and not env
+    assert "::error title=Judge::judge=claude needs claude=yes" in out
+    code, out, env = _judge_step(tmp_path, "claude", "yes", "https://x.example")
+    assert code == 1 and not env and "::error title=Judge::" in out
+    code, out, env = _judge_step(tmp_path, "sonnet", "yes")
+    assert code == 1 and not env and "::error title=Judge::" in out
+
+
+def test_the_judge_chain_is_set_only_by_the_judge_step():
+    """The job env no longer computes the chain, and the judge step runs before
+    anything that grades; its input is a choice defaulting to the free chain."""
+    import yaml
+
+    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "evals.yml").read_text())
+    job = wf["jobs"]["eval"]
+    assert "EVAL_JUDGE_PROVIDER" not in job["env"]
+    names = [s.get("name") for s in job["steps"]]
+    assert names.index("Judge chain") < names.index("Run evals + ingest to Tracer")
+    judge = wf[True]["workflow_dispatch"]["inputs"]["judge"]
+    assert judge["options"] == ["chain", "claude"] and judge["default"] == "chain"
+
+
+def _calibration_items_step(tmp_path, steps: str, run_id: str, artifact: dict):
+    """Run the calibration-items step with `gh` stubbed to write `artifact`."""
+    import subprocess
+
+    step = _wf_step("Calibration items (steps=calibration_answers)")
+    assert "${{" not in step["run"]
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    env_file = tmp_path / "github_env"
+    env_file.write_text("")
+    files = " ".join(f"{name}" for name in artifact)
+    stub = (
+        'gh() { echo "GH $*"; d="${@: -1}"; mkdir -p "$d"; '
+        f'for f in {files}; do echo "{{}}" > "$d/$f"; done; }}\n'
+    )
+    out = subprocess.run(
+        ["bash", "-e", "-c", stub + step["run"]],
+        cwd=tmp_path,
+        env={
+            "PATH": "/usr/bin:/bin",
+            "STEPS": steps,
+            "CAL_RUN": run_id,
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_REPOSITORY": "o/r",
+            "GITHUB_ENV": str(env_file),
+        },
+        capture_output=True,
+        text=True,
+    )
+    return out.returncode, out.stdout, env_file.read_text()
+
+
+def test_the_calibration_items_step_downloads_items_only(tmp_path):
+    code, out, env = _calibration_items_step(tmp_path, "prose", "", {})
+    assert code == 0 and "GH" not in out and not env  # not asked for
+    code, out, env = _calibration_items_step(
+        tmp_path, "calibration_answers", "", {"items.json": 1}
+    )
+    assert code == 1 and "::error title=Calibration::" in out and not env
+    code, out, env = _calibration_items_step(
+        tmp_path, "calibration_answers", "123", {"items.json": 1}
+    )
+    want = f"GH run download 123 -R o/r -n calibration-items -D {tmp_path}/"
+    assert code == 0 and want + "calibration-items\n" in out  # the items only
+    assert env.strip().endswith("calibration-items/items.json")
+    code, out, env = _calibration_items_step(
+        tmp_path / "k", "calibration_answers", "123", {"items.json": 1, "key.json": 1}
+    )
+    assert code == 1 and "holds a key" in out
+
+
 # --- the renaming --------------------------------------------------------------
 
 
@@ -381,3 +510,69 @@ def test_extract_spans_heads_each_span_and_drops_the_source_heading():
         rename.extract_spans(body, [{**spans[0], "start": "Walter"}], {}, {})
     with pytest.raises(SystemExit, match="distinct HEADING"):
         rename.extract_spans(body, [spans[0], spans[0]], {}, {})
+
+
+# --- claude_generate: judging apart from writing (SPEC-95) ---------------------
+
+
+def _claude_step(tmp_path, generate: str) -> tuple:
+    """Run evals.yml's claude=yes step as written, `gh` and the spend module
+    stubbed: (exit code, stdout, {name: value} it wrote to GITHUB_ENV)."""
+    import subprocess
+
+    step = _wf_step("Claude for the eval users (claude=yes)")
+    assert "${{" not in step["run"]
+    want = "${{ github.event.inputs.claude_generate || 'yes' }}"
+    assert step["env"]["GENERATE"] == want
+    env_file, summary = tmp_path / "github_env", tmp_path / "summary"
+    env_file.write_text("")
+    stub = "gh() { :; }\npython3() { echo 4.50; }\n"
+    out = subprocess.run(
+        ["bash", "-e", "-c", stub + step["run"]],
+        cwd=tmp_path,
+        env={
+            "PATH": "/usr/bin:/bin",
+            "KEY": "sk-test",
+            "BUDGET": "100",
+            "CAP": "",
+            "GENERATE": generate,
+            "GITHUB_REPOSITORY": "o/r",
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_ENV": str(env_file),
+            "GITHUB_STEP_SUMMARY": str(summary),
+        },
+        capture_output=True,
+        text=True,
+    )
+    written = dict(
+        ln.split("=", 1) for ln in env_file.read_text().splitlines() if "=" in ln
+    )
+    return out.returncode, out.stdout, written
+
+
+def test_claude_generate_yes_keeps_claude_yes_meaning(tmp_path):
+    """The default: Claude writes (waves 17 and 18 were drawn so)."""
+    code, _, env = _claude_step(tmp_path, "yes")
+    assert code == 0
+    assert env == {
+        "ANTHROPIC_API_KEY": "sk-test",
+        "MONTHLY_COST_CEILING_USD": "4.50",
+        "ANTHROPIC_USERS": "@polyphony.eval",
+        "EVAL_MODEL_LABEL": "claude-opus-5-5",
+    }
+
+
+def test_claude_generate_no_wires_the_judge_but_not_the_writer(tmp_path):
+    code, _, env = _claude_step(tmp_path, "no")
+    assert code == 0
+    assert env == {"ANTHROPIC_API_KEY": "sk-test", "MONTHLY_COST_CEILING_USD": "4.50"}
+    code, out, env = _claude_step(tmp_path, "maybe")
+    assert code == 1 and not env and "::error::claude_generate" in out
+
+
+def test_claude_generate_is_a_choice_defaulting_to_yes():
+    import yaml
+
+    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "evals.yml").read_text())
+    inp = wf[True]["workflow_dispatch"]["inputs"]["claude_generate"]
+    assert inp["options"] == ["yes", "no"] and inp["default"] == "yes"

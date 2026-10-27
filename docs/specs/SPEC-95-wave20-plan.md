@@ -32,6 +32,20 @@ one comparison that says whether a release writes better books.
   into this spec and signed by the principal before any of their data is generated or rated.
 - **D20-4 Holdout.** E4's holdout chapters need the `holdout-v1` tag on `bdb5567` (the user creates it; the session cannot) and
   run once, from the tag, per SPEC-94 D19-4. Without the tag by Nov 7, E4 runs on the development corpora alone and says so.
+- **D20-5 E0 as built.** `evals.yml` input `judge` (`chain` default | `claude`), resolved in a tested "Judge chain" step:
+  `claude` = `anthropic,<free chain>` (Sonnet via `_fast_if_claude`), refused with an `::error` unless `claude=yes` on a
+  booted app; reports add `judge.requested_mode` beside `requested` (the chain) and `provider`/`graded_by` (who graded).
+  Judging is split from writing by `claude_generate` (`yes` default = claude=yes's meaning, waves 17/18; `no` wires the key and
+  ceiling for the judge but no `ANTHROPIC_USERS`, so the app's default provider writes); reports add `generator`, and
+  `judge.self` is true only when the judge's provider is the one that generated.
+- **D20-6 E2 as built.** A sibling opt-in step `rn2_validation` (`evals/validation/rn2.py`), not a flag on S7's, so S7's
+  items and digest (`d8cc3434…`, pinned by a test) are untouched: 12 items (6 chapters × intact/drift), samples from
+  `narrator_samples` minus any paragraph a passage quotes (two donors), labels seeded per item; 12 calls a run, ≤ $0.06
+  ($0.18 worst) on Sonnet. Accuracy per judge vs 0.5, chapter-cluster CI, unparseable counted (D19-2).
+- **D20-7 E5 as built.** An opt-in step `calibration_answers` in `evals.yml` (`calibration_run` = the calibration.yml run;
+  only its `calibration-items` artifact is downloaded), not a new workflow: the spend guard needs the run's database and
+  `evals.spend` counts only `evals.yml`'s reports, so a separate workflow would spend outside the month's ledger.
+  `collect` writes `calibration-answers.json`; `agreement` takes `name=answers.json` files and adds pairwise agreement.
 
 ## E3 feasibility (2026-10-27, read from code; no LLM call)
 - **P⁵ and `baseline.yml` cannot run a Claude member.** (1) `PROVIDERS` at `f57f026` has no `anthropic` row, so `panel.rate`

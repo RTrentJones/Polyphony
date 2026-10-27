@@ -316,6 +316,21 @@ self-graded run is always labelled, never silent. Judge calls are temperature 0.
 Note: switching judge families shifts absolute scores; compare trends within one
 judge (the report's `judge.provider` records which one graded each run).
 
+**A Claude-first judge (SPEC-95 E0).** evals.yml's `judge` input picks the chain:
+`chain` (default) is the free chain (`EVAL_JUDGE_PROVIDER` repo variable, else
+`groq,openrouter`), with `anthropic` appended as the last resort when `claude=yes`;
+`claude` puts `anthropic` first (`anthropic,<free chain>`), so Sonnet grades on
+purpose (the judge always picks Claude's fast model, never Opus) and the free judges
+take over only if it gives out. `judge=claude` needs `claude=yes` and a booted app,
+since the Anthropic key, the month's spend guard and the run's ceiling are wired
+only then; otherwise the job stops with an error before anything runs. The report's
+`judge` block records the request (`requested_mode`, `requested` = the chain) beside
+who actually graded (`provider`, `graded_by`). `claude=yes` also makes Claude
+write unless `claude_generate=no` (default `yes`, as before): with `no`, the key and
+ceiling are wired for the judge only and the app's default provider writes. The
+report's `generator` records what wrote (from the run's config), and `judge.self` is
+true only when the judge is that provider.
+
 **Unscored, never zero (SPEC-94 S2a).** A judge reply with no readable score
 (no JSON, or JSON without a numeric `score`) is `score: None` with the reason
 "unparseable judge reply" and `judge_unparseable: true` — not 0.0. The rule for
@@ -374,6 +389,30 @@ chapters, not variants: a trimmed chapter's two variants of a damage (in / out) 
 averaged within the chapter, so each chapter weighs once. `export` writes a `chapter`
 sample for S4's human calibration page; `evals.calibration.agreement` compares the
 human's RC scores on it with the judge's.
+
+**RN-v2, the narrator forced choice (SPEC-95 E2, `evals/validation/rn2.py`).** S7
+showed RN cannot tell two narrators of one book apart. RN-v2 asks it directly: for
+each S7 chapter, voice samples of its real narrator and its drift donor (labelled 1
+and 2 in a seeded order per item), then one passage (the intact RN scene, or the
+drifted one), and "which narrator wrote it" (`{"narrator": 1|2}`). 12 items, 12 calls
+a run, about $0.06 if all go to Sonnet. A separate opt-in step, so S7's items and
+numbers are untouched: dispatch evals.yml with `steps=rn2_validation`,
+`book=frankenstein dracula wuthering` (and `judge=claude claude=yes` for Sonnet);
+then `python -m evals.validation.rn2 analyze <artifact dirs>...` prints accuracy per
+judge against chance (0.5), with a chapter-cluster bootstrap interval, the
+unparseable count and the share answering "1" (position bias). RN-v2 replaces
+nothing until it is above chance for both judges on this set.
+
+**A judge on the human calibration set (SPEC-95 E5).** The opt-in step
+`calibration_answers` puts each item of the calibration page's `items.json` to the
+run's judge chain exactly as the page asks it (r2: a candidate per line; pair: A or
+B; chapter: an RC score) and never reads the key. Dispatch evals.yml with
+`steps=calibration_answers`, `calibration_run=<calibration.yml run id>` and `book`
+= the items' books; the job downloads only that run's `calibration-items` artifact
+and uploads `calibration-answers.json` ({item_id: answer}) with the reports.
+`python -m evals.calibration.agreement items.json key.json human=h.json
+free=f.json sonnet=s.json` scores each against the key and every two against each
+other, aggregates only.
 
 ## Relay runs: an agent plays the model
 

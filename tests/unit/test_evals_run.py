@@ -87,6 +87,8 @@ def test_main_exits_1_on_a_step_error_and_0_on_skips(monkeypatch, a):
         r.main()
     assert "baseline" not in r.run.await_args[0][1]
     assert "rnrc_validation" not in r.run.await_args[0][1]
+    assert "rn2_validation" not in r.run.await_args[0][1]
+    assert "calibration_answers" not in r.run.await_args[0][1]
 
 
 async def test_a_baseline_run_resumes_as_its_one_user_and_skips_the_contract(
@@ -269,3 +271,60 @@ def test_the_book_tally_covers_every_pass_not_only_the_scored_ones():
     # no scored pass: the last pass is reported, with every pass's tally
     steps = _aggregate([{"prose": unscored}, {"prose": unscored}])
     assert steps["prose"]["book"]["unscored"]["unparseable"] == 2
+
+
+@pytest.mark.parametrize("mode", ["claude", "chain", None])
+async def test_a_report_records_the_requested_judge_mode(tmp_path, monkeypatch, mode):
+    """SPEC-95 E0: the judge block says what was asked for (evals.yml's `judge`
+    input) beside the chain it was given and who actually graded."""
+    import evals.run as r
+    from tests.unit.test_evals_preflight import _cfg
+
+    if mode:
+        monkeypatch.setenv("EVAL_JUDGE_MODE", mode)
+    else:
+        monkeypatch.delenv("EVAL_JUDGE_MODE", raising=False)
+    cfg = _cfg(tmp_path)
+    judge = SimpleNamespace(provider_id="anthropic", is_self=False, graded_by=[])
+    judge.model_override = judge.fell_back = judge.endpoint = None
+    monkeypatch.setattr(r, "load_config", lambda: cfg)
+    monkeypatch.setattr(r, "Judge", lambda _cfg: judge)
+    monkeypatch.setattr(r.get_step("retrieval"), "run", AsyncMock(return_value={}))
+    out = await r.run("cel", ["retrieval"], str(tmp_path / "r.json"), 1, None)
+    assert out["judge"]["requested_mode"] == mode
+    assert out["judge"]["requested"] == cfg.judge_provider
+
+
+@pytest.mark.parametrize(
+    "users, want",
+    [
+        ("@polyphony.eval", {"provider": "anthropic", "model": "claude-opus-5-5"}),
+        ("", {"provider": "gemini", "model": "gemini-x"}),  # claude_generate=no
+    ],
+)
+async def test_a_report_records_what_generated(tmp_path, monkeypatch, users, want):
+    """SPEC-95: the report's `generator` names the provider and model that
+    wrote this run's prose, so a judge-only Claude run shows Gemini wrote."""
+    import evals.run as r
+    from tests.unit.test_evals_preflight import _cfg
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk_test")
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("LLM_MODEL", "gemini-x")
+    if users:
+        monkeypatch.setenv("ANTHROPIC_USERS", users)
+    else:
+        monkeypatch.delenv("ANTHROPIC_USERS", raising=False)
+    cfg = _cfg(tmp_path)
+    cfg.base_url = "http://localhost:8000"  # a booted app
+    judge = SimpleNamespace(provider_id="anthropic", is_self=False, graded_by=[])
+    judge.model_override = judge.fell_back = judge.endpoint = None
+    monkeypatch.setattr(r, "load_config", lambda: cfg)
+    monkeypatch.setattr(r, "Judge", lambda _cfg: judge)
+    monkeypatch.setattr(r, "_app_sha", AsyncMock(return_value="sha"))
+    monkeypatch.setattr(r.get_step("retrieval"), "run", AsyncMock(return_value={}))
+    out = await r.run("cel", ["retrieval"], str(tmp_path / "r.json"), 1, None)
+    assert out["generator"] == want | {"source": "config"}
+    cfg.base_url = "https://polyphony.example"  # an external app: not known
+    out = await r.run("cel", ["retrieval"], str(tmp_path / "r.json"), 1, None)
+    assert out["generator"]["provider"] is None

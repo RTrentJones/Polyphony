@@ -58,6 +58,15 @@ on:
         type: choice
         options: ['no', 'yes']
         default: 'no'
+      claude_generate:
+        description: >-
+          with claude=yes, whether Claude also WRITES (yes, the default and claude=yes's meaning since
+          SPEC-90: the eval users are listed in ANTHROPIC_USERS) or only judges (no: the key and the spend
+          ceiling are wired for the judge, generation stays on the app's default provider). The report's
+          `generator` records which wrote.
+        type: choice
+        options: ['yes', 'no']
+        default: 'yes'
       claude_monthly_usd:
         description: >-
           with claude=yes, the month's Claude eval budget in USD (SPEC-90 D1); earlier runs' spend this
@@ -79,6 +88,19 @@ on:
       chapters:
         description: "E4's `chapters` step: how many outline chapters to write, in order (1..12)"
         default: '3'
+      judge:
+        description: >-
+          who judges (SPEC-95 E0): chain = the free judges (with claude=yes, Claude Sonnet only as the last
+          resort); claude = Claude Sonnet first, the free judges behind it. claude needs claude=yes (its key
+          and spend ceiling) and a booted app. Recorded in each report's judge block (requested_mode).
+        type: choice
+        options: ['chain', 'claude']
+        default: 'chain'
+      calibration_run:
+        description: >-
+          with steps=calibration_answers (SPEC-95 E5): the calibration.yml run id whose calibration-items
+          artifact the judge answers (its key is never downloaded)
+        default: ''
   # On-demand trigger for when workflow_dispatch isn't available (e.g. an
   # integration token can't press "Run workflow"): bump evals/.run-eval and push.
   # Path-scoped so ordinary commits don't fire it (this run spends Gemini quota).
@@ -138,13 +160,8 @@ jobs:
       EVAL_EXPERIMENT: ${{ github.event.inputs.experiment || '' }}
       EVAL_TRACER_URL: https://tracer.rtrentjones.dev
       TRACER_INGEST_TOKEN: ${{ secrets.TRACER_INGEST_TOKEN }}
-      # Judge on a DIFFERENT free vendor than the model under test: removes
-      # self-preference bias and takes judge calls off the shared Gemini daily
-      # budget. Fail-soft — until GROQ_API_KEY is set the judge falls back to
-      # the app provider and the report labels the run self-graded. With claude=yes
-      # (its key exported) Claude Sonnet is the last resort once the free judges'
-      # daily caps are spent (SPEC-90 D14): self-graded, labelled, its cost counted.
-      EVAL_JUDGE_PROVIDER: ${{ github.event.inputs.claude == 'yes' && format('{0},anthropic', vars.EVAL_JUDGE_PROVIDER || 'groq,openrouter') || vars.EVAL_JUDGE_PROVIDER || 'groq,openrouter' }}
+      # EVAL_JUDGE_PROVIDER (the judge chain) is set by the "Judge chain" step
+      # from the `judge` input.
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -202,6 +219,74 @@ jobs:
             gh run download "$id" -R "$GITHUB_REPOSITORY" -p "eval-report-$id*" -D "prior-reports/$id"
           done
           echo "EVAL_PRIOR_REPORTS=$PWD/prior-reports" >> "$GITHUB_ENV"
+      # Judge on a DIFFERENT free vendor than the model under test: removes
+      # self-preference bias and takes judge calls off the shared Gemini daily
+      # budget. Fail-soft — until GROQ_API_KEY is set the judge falls back to
+      # the app provider and the report labels the run self-graded. With claude=yes
+      # (its key exported) Claude Sonnet is the last resort once the free judges'
+      # daily caps are spent (SPEC-90 D14): self-graded, labelled, its cost counted.
+      # judge=claude (SPEC-95 E0) puts Claude first instead (the judge picks Sonnet,
+      # never Opus: harness/judge.py _fast_if_claude), the free chain behind it. It
+      # needs claude=yes, since the key, the month's spend guard and the run's
+      # ceiling are wired only by the claude=yes step, and a booted app (that step
+      # is skipped for an external base_url): otherwise it is refused, not run on
+      # the free chain under a "claude" label.
+      - name: Judge chain
+        env:
+          JUDGE: ${{ github.event.inputs.judge || 'chain' }}
+          CLAUDE: ${{ github.event.inputs.claude || 'no' }}
+          BASE_URL: ${{ github.event.inputs.base_url || '' }}
+          FREE_CHAIN: ${{ vars.EVAL_JUDGE_PROVIDER || 'groq,openrouter' }}
+        run: |
+          case "$JUDGE" in
+            chain)
+              CHAIN="$FREE_CHAIN"
+              if [ "$CLAUDE" = "yes" ]; then CHAIN="$FREE_CHAIN,anthropic"; fi
+              ;;
+            claude)
+              if [ "$CLAUDE" != "yes" ]; then
+                echo "::error title=Judge::judge=claude needs claude=yes (the Anthropic key, the spend guard and the run's ceiling are wired only then)"
+                exit 1
+              fi
+              if [ -n "$BASE_URL" ]; then
+                echo "::error title=Judge::judge=claude needs a booted app (base_url is set: no Anthropic key or ceiling is wired in external mode)"
+                exit 1
+              fi
+              CHAIN="anthropic,$FREE_CHAIN"
+              ;;
+            *)
+              echo "::error title=Judge::judge must be chain or claude (got '$JUDGE')"
+              exit 1
+              ;;
+          esac
+          echo "judge chain: $CHAIN (judge=$JUDGE)"
+          {
+            echo "EVAL_JUDGE_PROVIDER=$CHAIN"
+            echo "EVAL_JUDGE_MODE=$JUDGE"
+          } >> "$GITHUB_ENV"
+      # SPEC-95 E5: the human calibration page's items (never its key) for the
+      # opt-in calibration_answers step, which the judge chain answers as the page asks.
+      - name: Calibration items (steps=calibration_answers)
+        env:
+          STEPS: ${{ github.event.inputs.steps || 'all' }}
+          CAL_RUN: ${{ github.event.inputs.calibration_run || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case ",$STEPS," in
+            *,calibration_answers,*) ;;
+            *) exit 0 ;;
+          esac
+          if ! printf '%s' "$CAL_RUN" | grep -Eq '^[0-9]+$'; then
+            echo "::error title=Calibration::steps=calibration_answers needs calibration_run, a calibration.yml run id (got '$CAL_RUN')"
+            exit 1
+          fi
+          DIR="$RUNNER_TEMP/calibration-items"
+          gh run download "$CAL_RUN" -R "$GITHUB_REPOSITORY" -n calibration-items -D "$DIR"
+          if [ ! -f "$DIR/items.json" ] || [ -n "$(find "$DIR" -name 'key*.json')" ]; then
+            echo "::error title=Calibration::the calibration-items artifact of run $CAL_RUN holds no items.json, or holds a key"
+            exit 1
+          fi
+          echo "EVAL_CALIBRATION_ITEMS=$DIR/items.json" >> "$GITHUB_ENV"
       - name: Preflight — Gemini key present (boot mode only)
         if: ${{ github.event.inputs.base_url == '' }}
         run: |
@@ -227,8 +312,13 @@ jobs:
           KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           BUDGET: ${{ github.event.inputs.claude_monthly_usd || vars.EVAL_CLAUDE_MONTHLY_USD || '100' }}
           CAP: ${{ github.event.inputs.claude_usd_cap || '' }}
+          GENERATE: ${{ github.event.inputs.claude_generate || 'yes' }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          case "$GENERATE" in
+            yes|no) ;;
+            *) echo "::error::claude_generate must be yes or no (got '$GENERATE')."; exit 1 ;;
+          esac
           if [ -z "$KEY" ]; then
             echo "::error::ANTHROPIC_API_KEY is not set on this repo — add it in repo Actions secrets."
             exit 1
@@ -263,11 +353,16 @@ jobs:
           printf '{"ceiling": %s}\n' "$CEILING" > eval-ceiling.json
           {
             echo "ANTHROPIC_API_KEY=$KEY"
-            # The eval writes as users it registers under @polyphony.eval (evals/harness/client.py)
-            echo "ANTHROPIC_USERS=@polyphony.eval"
             echo "MONTHLY_COST_CEILING_USD=$CEILING"
-            echo "EVAL_MODEL_LABEL=claude-opus-5-5"
+            # claude_generate=yes (the default): the eval writes with Claude, as users it registers
+            # under @polyphony.eval (evals/harness/client.py). With no, Claude only judges: no eval
+            # user is routed to it, so generation stays on the app's default provider.
+            if [ "$GENERATE" = "yes" ]; then
+              echo "ANTHROPIC_USERS=@polyphony.eval"
+              echo "EVAL_MODEL_LABEL=claude-opus-5-5"
+            fi
           } >> "$GITHUB_ENV"
+          echo "Claude writes: $GENERATE" | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: ./.github/actions/boot-app
         with:
           serve: ${{ github.event.inputs.base_url == '' }}
@@ -346,6 +441,20 @@ jobs:
           # spend. Without this marker (killed mid-book) the budget charges the ceiling.
           echo '{}' > eval-done.json
           exit $rc
+      # The calibration_answers reports merged into the {item_id: answer} file
+      # evals.calibration.agreement reads (counts printed, never an answer).
+      - name: Calibration answers (steps=calibration_answers)
+        if: always()
+        env:
+          STEPS: ${{ github.event.inputs.steps || 'all' }}
+        run: |
+          case ",$STEPS," in
+            *,calibration_answers,*) ;;
+            *) exit 0 ;;
+          esac
+          ls eval-report-*.json >/dev/null 2>&1 || exit 0
+          python -m evals.calibration.answer collect eval-report-*.json --out calibration-answers.json \
+            | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Stop app
         if: ${{ always() && github.event.inputs.base_url == '' }}
         run: kill "$(cat /tmp/app.pid)" 2>/dev/null || true
@@ -361,5 +470,6 @@ jobs:
             eval-ceiling.json
             eval-done.json
             gl-export-*.json
+            calibration-answers.json
             app.log
           if-no-files-found: warn
