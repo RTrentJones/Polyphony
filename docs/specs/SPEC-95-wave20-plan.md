@@ -268,6 +268,16 @@ compare, analyze chain-tail).
 - **E2, RN-v2.** Sonnet picks the real narrator 24/24 over both passes, choosing the first sample half the time (0.50), so the
   answer is not positional. The set may be too easy to separate judges (the donor narrators are recognizably different
   books' voices), and the free judges' pass is still queued, so RN-v2 is not yet validated in the sense D20-2 requires.
+- **E3 result (score run 40480744604, rate run 40473458504; scored once, as pre-registered).** Valid: the replays reproduce
+  W12-9 (Groq AB order consistency 0/18, Nemotron 8/18) and Sonnet flips 6/18 AB pairs (under the 9/18 that would make it
+  undetermined). **P(B>A), Sonnet, 95%: 0.56 [0.36, 0.75], n = 18: Sonnet does not separate B from A (not equivalence);
+  W12-9's decision (simplify toward A) stands.** At 97.5%, beside W12-9's: 0.56 [0.33, 0.75]. Descriptive: Sonnet prefers
+  both A and B to C in every slot (P(C>A) = P(C>B) = 0, AC and BC order-consistent 18/18 on both passes), the same direction as
+  W12-9's free panel (P(C>A) = 0.25) and stronger; Sonnet's per-scene continuity measure A 0.44, B 0.17, C 1.06 (A−B 0.28
+  [−0.06, 0.61]).
+  Sonnet's retest repeats 46/54 pair outcomes (κ AB 0.32, AC and BC 1.0; P(B>A) 0.61 [0.42, 0.78]), so its AB calls are
+  the noisy ones. Sonnet agrees with Nemotron (overall κ 0.55) and not with Groq (0.11). Reading: the B-vs-A question is a
+  near-tie that n = 18 cannot settle with any judge used so far, and C (the paid ensemble) is the arm Sonnet ranks last.
 - **E4 harness after signature.** The Codex fixes at 20e0846 (a refused RC answer is `refused`, a truncated chapter is
   `product`, an arm with no rated continuity items reports none) changed no statistic, unit or decision wording.
 
