@@ -83,7 +83,7 @@ one comparison that says whether a release writes better books.
 - **Deadline.** The bundles and keys are 30-day artifacts and expire 2026-11-19/20; the rate-state expires 11-25. E3 must rate
   and score by about 11-18. Nothing is dispatched before the principal signs the pre-registration below.
 
-## E3 pre-registration (draft, unsigned)
+## E3 pre-registration (signed 2026-10-27)
 - **Question.** On W12-9's 18 slots, does a stronger judge prefer B (retrieval-assisted prose) or A? This is an exploratory
   follow-up. **It cannot change W12-9's recorded decision (simplify toward A).**
 - **Post-hoc design, disclosed:** the judge (Sonnet alone) and this pre-registration were chosen after W12-9's AB result (Groq
@@ -130,6 +130,10 @@ one comparison that says whether a release writes better books.
   The first dispatch's measured output tokens per call replace the cost estimate in the ledger. (Procedure: `e3-followup.yml`
   `stage=rate`, resumed with `prior_run` after a stop, then `stage=score` with `rate_run`; E3 spends outside `evals.yml`, so
   `evals.spend` does not see it, and its cost goes into this ledger by hand from the run's summary.)
+  `score` is run once, on the rate run that completes pass 1 (or, under the fallback, on the second rate run). Its first
+  output is the result. After a `score` dispatch, no further pass-1 rate dispatch is made.
+
+Signed: principal, 2026-10-27. E3 pre-registration as written above, runner at e5ca4d5 (frozen blobs 94433f1/186ae26/a7015ff).
 
 ## E4 design (built on w20-b; dispatches nothing)
 - **Releases.** Wave 17 is the app at `5bb2df25f2a62973f362c31d7cf2ee34bd6a833b` (main before PR #67); wave 18 is
@@ -199,7 +203,7 @@ one comparison that says whether a release writes better books.
   At n = 72 over 24 chapters, a 0.65 win rate is detected with power ≈ 0.66–0.87. E1's measured test-retest flip rate replaces
   the assumed tie share.
 
-## E4 pre-registration (draft, unsigned)
+## E4 pre-registration (signed 2026-10-27)
 - **Question.** On the same outline and plan, does wave 18's product write chapters that a judge prefers to wave 17's?
 - **Fixed inputs.** Each book's outline is made once by an outline-only run (`chapters=0`) at `app_sha=7dbb8c24…` (wave 18;
   outline code is identical across the releases). Its digest is written into this spec before that book's first book-day. An
@@ -249,6 +253,12 @@ one comparison that says whether a release writes better books.
   script, from a tag on a commit carrying this harness, checked against `holdout-v1`. Each holdout dispatch names `book=`
   explicitly. The analysis runs once, after the last pair.
 
+Signed: principal, 2026-10-27. E4 pre-registration as written above, harness at 3eb34ad (generate failure classes, resumable
+compare, analyze chain-tail).
+- **Generator quota (the user, 2026-10-27).** The eval workflow's Gemini key is separate from production's, so E4's ≈ 400
+  Flash-Lite requests a day do not draw on the live site's quota.
+
 ## Ledger
 | run | item | Claude cost | running total |
 |---|---|---|---|
+| 40453584712 (W18-4 after-draw: Dracula $1.54, Frankenstein $3.13; Claude-written, Groq then Sonnet judging) | E4 forerunner | $4.67 | $4.67 |
