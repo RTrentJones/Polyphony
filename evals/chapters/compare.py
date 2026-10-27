@@ -170,6 +170,12 @@ def _done(pair: dict, name: str) -> bool:
 
 
 async def _rc(j, rows: dict) -> dict:
+    """Sonnet's RC per chapter. A refused or truncated reply leaves that
+    chapter's RC unscored (`refused`) and the step carries on; RC is
+    descriptive and is not resumed (a resume re-asks only unrated preference
+    judgments, and copies a pair's RC as it was)."""
+    from app.llm.errors import UnusableReplyError
+
     out = {}
     for sha, row in rows.items():
         scenes = [
@@ -178,7 +184,13 @@ async def _rc(j, rows: dict) -> dict:
             if (s.get("content") or "").strip()
         ]
         content, trimmed = rc_content(row, scenes)
-        got = (await _judge_rubrics(SimpleNamespace(judge=j), {"RC": content}))["RC"]
+        try:
+            got = (await _judge_rubrics(SimpleNamespace(judge=j), {"RC": content}))[
+                "RC"
+            ]
+        except UnusableReplyError:
+            out[sha] = {"score": None, "trimmed": trimmed, "status": "refused"}
+            continue
         out[sha] = {"score": got["score"], "trimmed": trimmed}
     return out
 

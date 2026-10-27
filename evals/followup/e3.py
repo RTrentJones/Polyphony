@@ -248,6 +248,16 @@ def _slot_diff(cont: dict, x: str, y: str, seed: int = 0) -> dict:
     }
 
 
+def _continuity(cont: dict) -> dict:
+    """Mean errors per scene for each arm, with the items it rests on; an arm
+    with none rated (the fallback leaves unrated items out) is None."""
+    out = {}
+    for arm in "ABC":
+        got = [n for (_s, a), n in cont.items() if a == arm]
+        out[arm] = {"mean": round(mean(got), 4) if got else None, "items": len(got)}
+    return out
+
+
 def score(ratings: Path, key: dict, fallback: bool = False) -> dict:
     """`fallback` (pre-registered, only after a Sonnet prompt stayed unrated
     after 3 tries on two rate runs): each pair Sonnet left unrated scores ½,
@@ -323,10 +333,7 @@ def score(ratings: Path, key: dict, fallback: bool = False) -> dict:
         "P(C>A) sonnet, descriptive": rate_at(j, "C", "A", 0.95),
         "P(C>B) sonnet, descriptive": rate_at(j, "C", "B", 0.95),
         "order consistency": {m: _consistent(s[0]) for m, s in sheets.items()},
-        "continuity per scene (sonnet)": {
-            arm: round(mean(n for (_s, a), n in cont.items() if a == arm), 4)
-            for arm in "ABC"
-        },
+        "continuity per scene (sonnet)": _continuity(cont),
         "continuity A-B (sonnet)": _slot_diff(cont, "A", "B"),
     }
     pj = frozen.rated(ratings / "sheet-panel-sonnet-nemotron.csv", key)[0]

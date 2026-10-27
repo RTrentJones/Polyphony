@@ -56,18 +56,35 @@ _QUOTA = re.compile(
 )
 
 
-def failure(error: str | None, scenes: list[dict], deferred=None) -> str | None:
-    """`quota`, `product` or None (the chapter has text and nothing deferred)."""
+def failure(
+    error: str | None, scenes: list[dict], deferred=None, total=None
+) -> str | None:
+    """`quota`, `product` or None, from every scene's status, never from text
+    presence alone (generate_planned settles as soon as a scene fails, so a
+    chapter can carry an earlier scene's text and still be truncated).
+
+    Quota wins: an error, a deferred beat, a paused scene or a quota-marked
+    scene error is `quota`. Otherwise any scene not completed with text, or
+    fewer completed scenes than the chapter's planned beats (`total`: the
+    chain writes scene k+1 only after scene k completes), is `product`.
+    None only when every planned scene completed with text."""
     if error is not None:
         return "quota" if _QUOTA.search(error) else "product"
     if deferred:  # the day's token budget held beats back (SPEC-34)
         return "quota"
-    if any((s.get("content") or "").strip() for s in scenes):
-        return None
     errs = " ".join(str(s.get("error") or "") for s in scenes)
     if any(s.get("status") == "paused" for s in scenes) or _QUOTA.search(errs):
         return "quota"
-    return "product"
+    done = [
+        s
+        for s in scenes
+        if s.get("status") == "completed" and (s.get("content") or "").strip()
+    ]
+    if not scenes or len(done) < len(scenes):
+        return "product"
+    if isinstance(total, int) and len(done) < total:
+        return "product"
+    return None
 
 
 def digest(outline: list) -> str:
@@ -168,7 +185,7 @@ async def _write_chapter(ctx: StepContext, ch: dict, names: dict) -> dict:
         }
     scenes = [await _collect_scene(ctx, s["id"]) for s in started["scenes"]]
     return row | {
-        "failure": failure(None, scenes, started.get("deferred")),
+        "failure": failure(None, scenes, started.get("deferred"), started.get("total")),
         "queued": started.get("queued"),
         "deferred": started.get("deferred"),
         "reason": started.get("reason"),

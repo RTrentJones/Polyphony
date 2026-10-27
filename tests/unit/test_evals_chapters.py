@@ -877,3 +877,106 @@ def test_decision_order_driven_disagreeing_and_null_with_its_detectable_rate(
     assert res["decision"].startswith("no difference detectable at n = 2")
     assert "p >= 0.7" in res["decision"]
     assert asked[0] == (2, 0.0, 1, 400, 0, 0.0)
+
+
+# --- Codex review on PR #73 -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "scenes, total, want",
+    [
+        # a later scene failed after an earlier one wrote text: truncated
+        ([{"status": "completed", "content": "a"}, {"status": "failed"}], 3, "product"),
+        # the chain stopped short of the plan with no failed scene recorded
+        ([{"status": "completed", "content": "a"}], 3, "product"),
+        (
+            [{"status": "completed", "content": "a"}, {"status": "cancelled"}],
+            2,
+            "product",
+        ),
+        # quota wins over a product failure in the same chapter
+        (
+            [{"status": "failed"}, {"status": "paused", "content": ""}],
+            2,
+            "quota",
+        ),
+        (
+            [
+                {"status": "completed", "content": "a"},
+                {"status": "failed", "error": "429"},
+            ],
+            2,
+            "quota",
+        ),
+        (
+            [
+                {"status": "completed", "content": "a"},
+                {"status": "completed", "content": "b"},
+            ],
+            2,
+            None,
+        ),
+    ],
+)
+def test_failure_reads_every_scenes_status_not_text_presence(scenes, total, want):
+    assert generate.failure(None, scenes, None, total) == want
+
+
+async def test_a_truncated_chapter_is_a_product_forfeit(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVAL_PRIOR_REPORTS", str(tmp_path))
+    monkeypatch.setenv("EVAL_CHAPTERS", "1")
+    client = _Client()
+
+    async def generate_planned(cid, body):
+        return {
+            "queued": 2,
+            "deferred": 0,
+            "total": 2,
+            "scenes": [{"id": "s1"}, {"id": "s2"}],
+        }
+
+    client.generate_planned = generate_planned
+    ctx = _fake_pipeline(monkeypatch, client)
+
+    async def collect(ctx, sid):
+        if sid == "s1":
+            return {"id": sid, "status": "completed", "content": "the first scene"}
+        return {"id": sid, "status": "failed", "content": ""}
+
+    monkeypatch.setattr(generate, "_collect_scene", collect)
+    res = await generate.step_chapters(ctx)
+    assert res["chapters"][0]["failure"] == "product"
+
+
+async def test_an_rc_refusal_keeps_the_preference_and_the_step(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVAL_PRIOR_REPORTS", str(tmp_path))
+    _two_releases(
+        tmp_path,
+        [_fail_row(1, "o1", None), _fail_row(2, "o2", None)],
+        [_fail_row(1, "n1", None), _fail_row(2, "n2", None)],
+    )
+
+    class RcRefuses(_Judge):
+        async def score(self, rubric, content):
+            from app.llm.errors import ProviderRefusalError
+
+            if "o1" in content:
+                raise ProviderRefusalError("refused", spent=("", 10, 0, 0.0))
+            return await super().score(rubric, content)
+
+    sonnet = RcRefuses("anthropic", favour="n")
+    monkeypatch.setattr(compare, "judges", lambda: {"sonnet": sonnet, "free": None})
+    gt = {"synopsis": "S", "cast": ["Ann"]}
+    res = await compare.step_chapters_compare(
+        SimpleNamespace(book="dracula", ground_truth=gt)
+    )
+    by = {p["position"]: p for p in res["compare"]["pairs"]}
+    assert res["compare"]["stopped"] is None
+    assert by[1]["judges"]["sonnet"]["outcome"] == NEW  # the preference stands
+    assert by[1]["rc"]["sonnet"][OLD] == {
+        "score": None,
+        "trimmed": False,
+        "status": "refused",
+    }
+    assert by[1]["rc"]["sonnet"][NEW]["score"] == 0.7
+    assert by[2]["rc"]["sonnet"][OLD]["score"] == 0.7  # the next pair still judged

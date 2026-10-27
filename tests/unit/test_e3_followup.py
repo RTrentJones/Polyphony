@@ -267,3 +267,20 @@ def test_the_workflow_rates_bundles_only_with_one_key_and_a_cap(tmp_path):
         assert out.returncode == code, (value, out.stdout)
         if code == 0:
             assert genv.read_text() == "MONTHLY_COST_CEILING_USD=5\n"
+
+
+def test_the_fallback_reports_an_arm_without_continuity_as_absent(tmp_path):
+    b_wins = lambda k, x, y: f"{y}{k}" if (x, y) == ("A", "B") else "tie"  # noqa: E731
+    r = _ratings(tmp_path, b_wins)
+    rows = (r / "sheet-sonnet.csv").read_text().splitlines()
+    # every continuity item of arm C left unrated
+    kept = [ln for ln in rows if not (ln.startswith("continuity") and ",C" in ln)]
+    assert len(rows) - len(kept) == 18
+    (r / "sheet-sonnet.csv").write_text("\n".join(kept) + "\n")
+    meta = json.loads((r / "e3.json").read_text())
+    meta["unrated"][e3.SONNET] = 18
+    (r / "e3.json").write_text(json.dumps(meta))
+    out = e3.score(r, _key(), fallback=True)
+    assert out["continuity per scene (sonnet)"]["C"] == {"mean": None, "items": 0}
+    assert out["continuity per scene (sonnet)"]["A"] == {"mean": 1.0, "items": 18}
+    assert out["P(B>A) sonnet 95%"]["p"] == 1.0  # the primary still prints
