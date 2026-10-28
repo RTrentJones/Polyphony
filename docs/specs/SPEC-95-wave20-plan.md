@@ -278,7 +278,23 @@ is pre-registered: the statistic, the unit, the per-day ≤ 400 budget and the f
   0.046 on RN. A later Sonnet draw cannot claim an RC or RN difference smaller than that from one pass.
 - **E2, RN-v2.** Sonnet picks the real narrator 24/24 over both passes, choosing the first sample half the time (0.50), so the
   answer is not positional. The set may be too easy to separate judges (the donor narrators are recognizably different
-  books' voices), and the free judges' pass is still queued, so RN-v2 is not yet validated in the sense D20-2 requires.
+  books' voices).
+- **E2, the free pass (2026-10-28, runs 40687864352, 40688171515, 40688490742).** Groq answers all 12: accuracy 0.75 [0.58,
+  0.92], first sample chosen 0.58 (intact 0.83, drift 0.67). With Sonnet's 1.00, both judges sit above chance, so RN-v2 is
+  validated as a narrator test. It arrived after E4's first data (Frankenstein's book-day, 2026-10-28 08:10Z), so under the
+  signed rule **RN-v2 does not enter E4**; it is available to later studies.
+- **E1, the free pass.** Groq's two passes over Frankenstein's 10 items (S7's run 40303087945 and run 40691210105) differ by
+  a mean |Δ| of 0.09 on RC (7/10 identical) and 0.04 on RN, against Sonnet's 0.03 and 0.03 on the same items. The Dracula
+  and Wuthering free passes ran out of free quota again (0/7 and 1/19 judged), so Groq's spread rests on one book.
+- **E5.** Both judges answered the 33 items the calibration set asks a judge (Sonnet: runs 40469313912 and 40470971826;
+  Groq: runs 40688945268, 40689827604, 40690142216 and 40690894882). The comparison with human answers waits on the
+  user's ratings.
+- **E4, book-day 1 (Frankenstein, W17 first; runs 40655893912, 40656894660, compare 40657916195).** Only counts are read:
+  6 pairs, 0 unrated by Sonnet, none excluded, none stopped. Outline chapter 3 fails on both releases alike
+  (generate-planned 422, 'Pick at least one character from the cast': its planned beats name no character), so it is a
+  both-failed pair, left out, and Frankenstein contributes 5 chapters a replicate (the outline is used as is). A book-day
+  measured about 110 generator requests (setup 4–5, chapters 8–13 each), under 200, so later book-days use `replicates=2`.
+  The outline's character-less beats are a product defect for a later wave.
 - **E3 result (score run 40480744604, rate run 40473458504; scored once, as pre-registered).** Valid: the replays reproduce
   W12-9 (Groq AB order consistency 0/18, Nemotron 8/18) and Sonnet flips 6/18 AB pairs (under the 9/18 that would make it
   undetermined). **P(B>A), Sonnet, 95%: 0.56 [0.36, 0.75], n = 18: Sonnet does not separate B from A (not equivalence);
@@ -303,3 +319,4 @@ is pre-registered: the statistic, the unit, the per-day ≤ 400 budget and the f
 | 40470509603 (RN-v2 validation, Sonnet, pass 2) | E2 | $0.09 | $6.83 |
 | 40470971826 (calibration answers, Sonnet: wuthering) | E5 | $0.04 | $6.87 |
 | 40473458504 (e3 rate: Sonnet pass and retest, 162 calls each, nothing unrated; cap $5) | E3 | $4.25 | $11.12 |
+| 40657916195 (E4 compare, Frankenstein book-day 1, 6 pairs) | E4 | $0.26 | $11.38 |
