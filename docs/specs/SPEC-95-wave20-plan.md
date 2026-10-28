@@ -258,6 +258,17 @@ compare, analyze chain-tail).
 - **Generator quota (the user, 2026-10-27).** The eval workflow's Gemini key is separate from production's, so E4's ≈ 400
   Flash-Lite requests a day do not draw on the live site's quota.
 
+## E4 outlines (fixed inputs, recorded before each book's first book-day)
+| book | outline run | app_sha | chapters | outline digest (sha256) | generator requests |
+|---|---|---|---|---|---|
+| frankenstein | 40651268575 | 7dbb8c24… | 6 | `5b417a71a988066c0a4825ce937b195f4e089026fec7bd8b0a14b4113d8fb066` | 11 |
+| dracula | 40651541095 | 7dbb8c24… | 6 | `9ff4f200919075af5aaf56b9e2f3dcf622f5c9f26eb8ee8a05f545a02ff6d66a` | 12 |
+
+Both were generated on 2026-10-28 with voice indexed and no Claude spend. Measured against the estimate: an outline run took
+11–12 Flash-Lite requests, not ≈ 200 (W12-9's preparation counted work these runs no longer do). Day 1 therefore leaves
+room for Frankenstein's first book-day the same Pacific day. Doing that moves the schedule earlier and changes nothing that
+is pre-registered: the statistic, the unit, the per-day ≤ 400 budget and the first release (W17) all stay as signed.
+
 ## Results so far (Sonnet passes; the free-judge passes are queued)
 - **E1, judge strength.** On the S7 set Sonnet's RC ranks the damaged chapter below its intact twin for every visible damage
   type: transitions 6/6, duplication 6/6, narrator drift 6/6, removed planned change 5/5 (Groq's RC in S7: 6/6, 4/6, 4/6,
