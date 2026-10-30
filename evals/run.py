@@ -37,6 +37,7 @@ from evals.validation import rn2  # noqa: F401 — SPEC-95 E2, opt-in
 from evals.calibration import answer as calibration  # noqa: F401 — E5, opt-in
 from evals.chapters import compare as chapters_compare  # noqa: F401 — E4, opt-in
 from evals.chapters import generate as chapters  # noqa: F401 — E4, opt-in
+from evals.narration import judges as narration  # noqa: F401 — SPEC-96, opt-in
 from evals.steps.base import StepContext, all_steps, get_step
 
 # Never part of `--steps all`.
@@ -47,6 +48,8 @@ OPT_IN = (
     calibration.STEP,
     chapters.STEP,
     chapters_compare.STEP,
+    narration.STEP,
+    narration.VALIDATION_STEP,
 )
 
 
@@ -103,6 +106,23 @@ async def _app_sha(base_url: str) -> str:
     if sha and sha != "unknown":
         return sha
     return _git_sha() or "unknown"
+
+
+def _ablation() -> str:
+    """The app's prose ablation (SPEC-96), as evals.yml's `ablation` input
+    exported it to PROSE_ABLATION for the booted app: its names sorted and
+    comma-joined, "" for none. Read from the environment, not app settings,
+    so a run on an older app tree (`app_sha`) still records it."""
+    raw = os.getenv("PROSE_ABLATION") or ""
+    return ",".join(sorted({f.strip() for f in raw.split(",") if f.strip()}))
+
+
+def _cache_salt(pass_index: int, repeat: int) -> str:
+    """The generation cache's salt: the pass index under --repeat, plus the
+    ablation when one is set, so an ablated arm never reads a product run's
+    cached generation (the app sha is the same). Empty by default."""
+    parts = [str(pass_index) if repeat > 1 else "", _ablation()]
+    return "|".join(parts) if parts[1] else parts[0]
 
 
 def _is_quota_error(msg: str) -> bool:
@@ -234,7 +254,7 @@ async def run(
         book=book,
         corpus_text=text,
         ground_truth=gt,
-        cache=Cache(cfg.cache_dir, app_sha),
+        cache=Cache(cfg.cache_dir, app_sha, salt=_cache_salt(0, 1)),
         judge=Judge(cfg),
     )
     # When the run began: the prompt contract grades only exchanges the relay
@@ -245,6 +265,9 @@ async def run(
         "book": book,
         "app_sha": app_sha,
         "harness_sha": _git_sha(),
+        # SPEC-96: the eval-only prose ablation the booted app ran with (an
+        # experiment arm), or None for the product as shipped.
+        "ablation": _ablation() or None,
         # W15-0 (N1): an external app's spend is not this run's to count.
         "mode": "boot" if _is_local(cfg.base_url) else "external",
         # Label of the model under test — what Tracer trends. The app's own
@@ -292,7 +315,7 @@ async def run(
         for i in range(max(1, repeat)):
             # Salt the cache per pass so repeats actually re-generate (variance),
             # while a single pass keeps the shared, byte-identical cache keys.
-            ctx.cache = Cache(cfg.cache_dir, app_sha, salt=str(i) if repeat > 1 else "")
+            ctx.cache = Cache(cfg.cache_dir, app_sha, salt=_cache_salt(i, repeat))
             one: dict = {}
             quota_exhausted = False
             for s in steps:

@@ -313,6 +313,12 @@ is pre-registered: the statistic, the unit, the per-day ≤ 400 budget and the f
 - **E4 harness after signature.** The Codex fixes at 20e0846 (a refused RC answer is `refused`, a truncated chapter is
   `product`, an arm with no rated continuity items reports none) changed no statistic, unit or decision wording.
 
+- **E4 deviation (recorded 2026-10-30).** While wave 21 was engineered, its narration-contract script (SPEC-96 M1) was
+  run on the 12 chapters of E4 run 40837155387 (Dracula, wave 18). That scored E4 chapters outside E4's
+  pre-registration, which allows only counts before the analysis. M1 is not E4's measure and its values were not read by
+  the coordinator; E4's primary (Sonnet's pairwise preference) and its compare outcomes are untouched. No further
+  measure is computed on E4's chapters before E4's analysis.
+
 ## Ledger
 | run | item | Claude cost | running total |
 |---|---|---|---|

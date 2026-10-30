@@ -19,6 +19,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 
 from app.characters.context import SceneScope, build_cast_context, voice_clause
+from app.core.config import prose_ablation
 from app.core.database import get_async_session
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.logging_config import log_business_event, log_error, setup_logging
@@ -159,14 +160,21 @@ async def scene_setup(
     speech = {sid: speech_paragraphs(text) for sid, text in sources}
     scope = SceneScope.of(canon, cast, names, plot, later_from, [brief], speech)
     block = render_secondaries(scene_secondaries(names, canon, sources, later_from))
-    narration = narration_excerpts(
-        sources,
-        later_from,
-        untold_lines(brief, plan, position),
-        position=position,
-        own=pov_narration(sources, pov, canon),
-        names=[n for c in canon.characters for n in (c.name, *(c.aliases or []))],
+    ablation = prose_ablation()  # SPEC-96, eval-only; empty in the product
+    narration = (
+        ()
+        if "no_excerpts" in ablation  # W18-5 off: as for a book before it
+        else narration_excerpts(
+            sources,
+            later_from,
+            untold_lines(brief, plan, position),
+            position=position,
+            own=pov_narration(sources, pov, canon),
+            names=[n for c in canon.characters for n in (c.name, *(c.aliases or []))],
+        )
     )
+    if "pov_fix" in ablation:
+        pov = pov._replace(from_narration=narrated_person(canon, narration))
     return SceneSetup(
         canon, cast, scope, pov, block, plan, earlier, summary, position, narration
     )
@@ -498,6 +506,22 @@ def beats_block(all_beats: list[dict], beat_index: int) -> str:
     return as_quoted_block("\n".join(lines), BEATS_FENCE)
 
 
+def narrated_person(canon, narration: tuple) -> str:
+    """What the book's narration decides when its style guide names no POV
+    mode and the scene shows excerpts (SPEC-96 pov_fix): "person and tense",
+    or "person" when the style guide sets a tense; "" otherwise (the POV line
+    then names its mode as before). Sample prose outranks the excerpts in the
+    style section, which then never shows them, so it also keeps the mode."""
+    style = getattr(canon, "style", None)
+    if not narration or pov_mode(getattr(style, "pov", None)):
+        return ""
+    if clean_for_llm(getattr(style, "sample_prose", None)):
+        return ""
+    if clean_for_llm(getattr(style, "tense", None)):
+        return "person"
+    return "person and tense"
+
+
 def person_from_narration(setup: SceneSetup) -> bool:
     """True when the writer took person (and tense) from the book's own
     narration: there are excerpts and the style guide names no POV mode. The
@@ -506,7 +530,7 @@ def person_from_narration(setup: SceneSetup) -> bool:
     return bool(setup.narration) and not pov_mode(getattr(style, "pov", None))
 
 
-def _style_section(style, narration: tuple = ()) -> str:
+def _style_section(style, narration: tuple = (), mode_named: bool = True) -> str:
     """Style guidance, the author's first (SPEC-18, B5).
 
     Sample prose is the primary reference whenever it exists. Without it, the
@@ -515,7 +539,9 @@ def _style_section(style, narration: tuple = ()) -> str:
     follows it, or alone replaces the house style; the generic craft text
     appears only when the book gives none of these. The sample and the tone
     themselves are in the canon block's style guide (`render_style`), so they
-    are referred to here, never repeated (W1-S3)."""
+    are referred to here, never repeated (W1-S3). `mode_named` is False when
+    the POV line names no mode (`Pov.from_narration`, SPEC-96 pov_fix): then
+    no mode "named above" is referred to."""
     if style is not None and clean_for_llm(getattr(style, "sample_prose", None)):
         return (
             "STYLE — the author's sample prose (the canon's style guide, above) "
@@ -533,21 +559,23 @@ def _style_section(style, narration: tuple = ()) -> str:
         # configured tense holds even when the point of view is unset.
         has_pov = bool(pov_mode(getattr(style, "pov", None)))
         has_tense = bool(clean_for_llm(getattr(style, "tense", None)))
+        unset = (
+            "the book sets no point of view, so the mode named above is only "
+            "a default"
+            if mode_named
+            else "the book sets no point of view"
+        )
         if has_pov and has_tense:
             person = "person and tense as the style guide above says"
         elif has_pov:
             person = "person as the point of view above says, tense from these passages"
         elif has_tense:
             person = (
-                "tense as the style guide above says, person from these passages "
-                "(the book sets no point of view, so the mode named above is only "
-                "a default)"
+                f"tense as the style guide above says, person from these passages "
+                f"({unset})"
             )
         else:
-            person = (
-                "person and tense from these passages (the book sets no point "
-                "of view, so the mode named above is only a default)"
-            )
+            person = f"person and tense from these passages ({unset})"
         return (
             "STYLE — the book's own narration. These passages are from the "
             "author's source, outside any quotation: they are your primary style "
@@ -565,7 +593,10 @@ def speaker_rule(speakers: list[str], cast_context: str) -> str:
     """Name each beat speaker and tie their lines to their own block (W18-1):
     one generic "distinct voices" ask let every speaker drift into the
     narration's register. Only names whose block shows samples (speech or own
-    narration), so the rule never points at an empty block."""
+    narration), so the rule never points at an empty block. The eval-only
+    `no_voices` ablation (SPEC-96) prints no rule."""
+    if "no_voices" in prose_ablation():
+        return ""
     blocks = {
         block.split("\n", 1)[0]: block
         for block in f"\n{cast_context}".split(f"\n{NAME_HEADING}")[1:]
@@ -684,7 +715,7 @@ faithful to the canon above: its people, places, terms, and its style guide
 
 {BEAT_TO_WRITE_LABEL}: {clean_for_llm(beat["description"])}{stop_line}
 
-{speaker_rule(speakers, cast_context)}{_style_section(style, narration)}
+{speaker_rule(speakers, cast_context)}{_style_section(style, narration, not pov.from_narration)}
 
 Write approximately {target_words} words of polished NARRATIVE PROSE. When a
 character does speak, give each a DISTINCT voice — diction, cadence, and syntax
@@ -907,7 +938,8 @@ def _canon_hash(setup: SceneSetup, summary: str, position, prior_tail="") -> str
     its old fingerprint. So do the book's own narration excerpts (W18-5): a
     source edit leaves the approved canon as it was but can change them, and
     beats written against one narration reference must not be finished
-    against another."""
+    against another. An eval-only ablation (SPEC-96) counts when one is set,
+    so an ablated run never finishes a product checkpoint or the reverse."""
     import hashlib
     import json
 
@@ -922,6 +954,9 @@ def _canon_hash(setup: SceneSetup, summary: str, position, prior_tail="") -> str
         parts += (json.dumps([setup.plan, setup.earlier], sort_keys=True),)
     if setup.narration:
         parts += ("\x01".join(setup.narration),)
+    ablation = prose_ablation()
+    if ablation:
+        parts += ("ablation:" + ",".join(sorted(ablation)),)
     return hashlib.sha256("\x00".join(parts).encode("utf-8")).hexdigest()[:16]
 
 

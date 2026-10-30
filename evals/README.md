@@ -331,6 +331,16 @@ ceiling are wired for the judge only and the app's default provider writes. The
 report's `generator` records what wrote (from the run's config), and `judge.self` is
 true only when the judge is that provider.
 
+**Prose ablations (SPEC-96).** evals.yml's `ablation` input (default blank) sets the booted
+app's eval-only `PROSE_ABLATION`, a comma list of `pov_fix` (a book whose style guide names no
+POV mode is told none: person and tense come from its narration excerpts), `no_excerpts` (no
+book-narration excerpts, W18-5 off) and `no_voices` (no VOICES rule, W18-1 off). Anything else
+fails the job's validation step, and the app's settings refuse it too. It is refused for an
+external `base_url` and for an `app_sha` tree without the switch (W17's `5bb2df2`). Blank leaves
+every prompt byte-identical. The report's `ablation` names the arm (`null` for none); an ablated
+run salts the generation cache and the scene checkpoint fingerprint, so it never reuses a
+product generation.
+
 **Unscored, never zero (SPEC-94 S2a).** A judge reply with no readable score
 (no JSON, or JSON without a numeric `score`) is `score: None` with the reason
 "unparseable judge reply" and `judge_unparseable: true` — not 0.0. The rule for

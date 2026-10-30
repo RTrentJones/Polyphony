@@ -104,6 +104,12 @@ on:
           with steps=calibration_answers (SPEC-95 E5): the calibration.yml run id whose calibration-items
           artifact the judge answers (its key is never downloaded)
         default: ''
+      ablation:
+        description: >-
+          SPEC-96 (wave 21): the eval-only prose ablation the booted app runs with, a comma list of
+          pov_fix, no_excerpts, no_voices (PROSE_ABLATION); blank = the product as shipped. Recorded
+          in each report. Refused for an external base_url and for an app tree (app_sha) without the switch.
+        default: ''
   # On-demand trigger for when workflow_dispatch isn't available (e.g. an
   # integration token can't press "Run workflow"): bump evals/.run-eval and push.
   # Path-scoped so ordinary commits don't fire it (this run spends Gemini quota).
@@ -209,6 +215,31 @@ jobs:
             echo "app $APP_SHA (app tree $(git rev-parse "$APP_SHA:app")); harness $(git rev-parse HEAD)"
             git diff --cached --stat HEAD -- $PATHS | tail -1
           } >> "$GITHUB_STEP_SUMMARY"
+      # SPEC-96: an experiment arm's ablation, checked against the allow-list (the whole value,
+      # so nothing else reaches GITHUB_ENV) and against the app tree under test, after the
+      # app_sha overlay: an app without the switch would ignore it and mislabel the arm.
+      - name: Prose ablation (ablation)
+        env:
+          ABLATION: ${{ github.event.inputs.ablation || '' }}
+          APP_SHA: ${{ github.event.inputs.app_sha || '' }}
+          BASE_URL: ${{ github.event.inputs.base_url || '' }}
+        run: |
+          if [ -z "$ABLATION" ]; then exit 0; fi
+          FLAG='(pov_fix|no_excerpts|no_voices)'
+          if ! [[ "$ABLATION" =~ ^$FLAG(,$FLAG)*$ ]]; then
+            echo "::error title=Ablation::ablation must be blank or a comma list of pov_fix, no_excerpts, no_voices with no spaces (got '$ABLATION')"
+            exit 1
+          fi
+          if [ -n "$BASE_URL" ]; then
+            echo "::error title=Ablation::ablation needs a booted app (base_url is set: the external app's settings are not this run's)"
+            exit 1
+          fi
+          if ! grep -q 'PROSE_ABLATION' app/core/config.py 2>/dev/null; then
+            echo "::error title=Ablation::the app under test (${APP_SHA:-this ref}) has no PROSE_ABLATION switch: run ablation=$ABLATION on an app that has it, or leave ablation blank"
+            exit 1
+          fi
+          echo "PROSE_ABLATION=$ABLATION" >> "$GITHUB_ENV"
+          echo "prose ablation: $ABLATION" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
       - name: Earlier runs' reports (from_runs)
         if: ${{ github.event.inputs.from_runs != '' }}
         env:

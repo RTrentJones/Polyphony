@@ -4,6 +4,25 @@ from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional, List
 
+# SPEC-96 (wave 21): the eval-only prose ablations. Each turns one lever off
+# (no_excerpts: W18-5's book-narration excerpts; no_voices: W18-1's VOICES
+# rule) or applies the POV fix (pov_fix: a book whose style guide names no POV
+# mode is told none, and takes person and tense from its narration).
+PROSE_ABLATIONS = frozenset({"pov_fix", "no_excerpts", "no_voices"})
+
+
+def parse_prose_ablation(value) -> frozenset:
+    """The set a comma-separated PROSE_ABLATION names (blank items and
+    surrounding spaces ignored); any name outside PROSE_ABLATIONS raises."""
+    flags = frozenset(f.strip() for f in str(value or "").split(",") if f.strip())
+    unknown = sorted(flags - PROSE_ABLATIONS)
+    if unknown:
+        raise ValueError(
+            f"PROSE_ABLATION: unknown {', '.join(unknown)} "
+            f"(allowed: {', '.join(sorted(PROSE_ABLATIONS))})"
+        )
+    return flags
+
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
@@ -36,6 +55,11 @@ class Settings(BaseSettings):
     # reflect prompt/architecture changes, not sampling jitter. None = off
     # (production sampling unchanged).
     LLM_TEMPERATURE_OVERRIDE: Optional[float] = None
+    # Eval-only (SPEC-96): a comma-separated subset of PROSE_ABLATIONS that
+    # evals.yml's `ablation` input sets for an experiment arm. Empty (the
+    # default) is the product: every prompt byte-identical. Read per call
+    # through prose_ablation(), never cached at import.
+    PROSE_ABLATION: str = ""
 
     # Embeddings (fastembed / ONNX; 384 dims matches all-MiniLM-L6-v2)
     EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
@@ -108,6 +132,13 @@ class Settings(BaseSettings):
         if v == "your-secret-key-change-this-in-production-min-32-chars":
             raise ValueError("SECRET_KEY must be changed from default value")
         return v
+
+    @field_validator("PROSE_ABLATION")
+    @classmethod
+    def validate_prose_ablation(cls, v: str) -> str:
+        """Fail fast at settings load on an unknown ablation; store the set
+        sorted and comma-joined."""
+        return ",".join(sorted(parse_prose_ablation(v)))
 
     @field_validator("POSTGRES_PASSWORD")
     @classmethod
@@ -186,3 +217,9 @@ class Settings(BaseSettings):
 
 # Create global settings instance
 settings = Settings()
+
+
+def prose_ablation() -> frozenset:
+    """The active prose ablations (SPEC-96), read from settings at call time
+    so a test or an eval arm can set them; empty in the product."""
+    return parse_prose_ablation(settings.PROSE_ABLATION)
