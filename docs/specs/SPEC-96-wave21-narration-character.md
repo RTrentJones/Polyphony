@@ -45,6 +45,19 @@ Every arm is today's main app (identical to wave 18's, `7dbb8c24`), with one eva
   beside it. Below the bar, M3 is descriptive only and H3 is not tested.
 - **M2** carries E2's validation; it is re-checked here on the source chapters (accuracy reported, no bar).
 
+## M1 validation (2026-10-30, script only, no LLM; before any arm data)
+On the 17 source chapters (Dracula, Frankenstein, Wuthering Heights; all profile as first person, past tense, double
+quotes):
+
+| measure | false positives (bar ≤ 0.05) | detection (bar ≥ 0.90) | status |
+|---|---|---|---|
+| `person_mismatch` (per sentence) | mean 0.145, max 0.33 | 17/17 | fails: first-person narrators tell others' actions ("He turned…") |
+| `person_mismatch_window` (runs of 5 classifiable sentences; a run is first person if any sentence is) | 0.00 on every chapter | 17/17 | **validated** |
+| `tense_mismatch` | mean 0.25, max 1.0 | 15/17 | fails: Frankenstein's letters and Dracula ch. V are genuinely present tense |
+
+M4 on the outlines: Dracula 0/12 character-less beats; Frankenstein 2/14 (chapter 3, which also has no POV); Wuthering
+Heights 0/12. Both "invented" names the product's check flags are sentence-initial capitalised words (false positives).
+
 ## Design
 - **Books and outlines.** Dracula (outline run 40651541095, digest 9ff4f200…) and Frankenstein (40651268575, 5b417a71…;
   its chapter 3 fails on every arm alike and is left out) from E4, and Wuthering Heights (outline-only run 41125885372,
@@ -63,13 +76,16 @@ Every arm is today's main app (identical to wave 18's, `7dbb8c24`), with one eva
   judge dispatch passes `claude_usd_cap`; the wave's cap is $15 of the $64.
 
 ## Pre-registration (to be signed by the principal before any arm data is generated)
-- **Hypotheses and primary measures.** H1: P lowers `person_mismatch` against A. H2: N lowers M2 accuracy against A (the
+- **Hypotheses and primary measures.** H1: P lowers `person_mismatch_window` against A (amended 2026-10-30 after the
+  M1 validation above, before any arm data; sentence-level `person_mismatch` and `tense_mismatch` are descriptive only). H2: N lowers M2 accuracy against A (the
   excerpts carry the narrator's voice). H3: V lowers M3 accuracy against A (the VOICES rule makes speakers
   recognisable).
 - **Statistic.** For each contrast, the mean paired difference (treatment − A) over chapter pairs, with a 95% percentile
   bootstrap (10,000 resamples, seed 0) resampling outline chapters with all their pairs (clusters); Holm's correction
-  across the three primary tests at family-wise 0.05, applied to bootstrap p-values (the share of resamples on the far
-  side of 0, doubled). Judge measures use Sonnet; Groq's result is reported beside it and never changes a decision.
+  across the primary tests at family-wise 0.05, applied to bootstrap p-values (the share of resamples on the far
+  side of 0, doubled). The family is the primary tests whose measure passed validation; a measure that fails is removed
+  from it before arm data and reported descriptively. H3 is tested only if A and V each have ≥ 60 eligible M3 lines
+  across their paired chapters; otherwise M3 is descriptive and the family shrinks accordingly. Judge measures use Sonnet; Groq's result is reported beside it and never changes a decision.
 - **Exclusions.** A pair is left out when either side's chapter has a quota failure or no scenes; a chapter with no
   dialogue line with a recoverable speaker is left out of M3 only. Counts per arm are reported.
 - **Decision wording.** Exploratory; no automatic product change. H1 holds (difference below 0 after Holm): "dropping the
