@@ -71,8 +71,10 @@ calibrated M1 on partial drift (source paragraphs rewritten to third person): ha
 (against about 0.8 per sentence). The window measure is lenient but not blind.
 
 **Disclosure.** During engineering, M1 (including `person_mismatch_window`) was computed by script on the 12 chapters of
-E4 run 40837155387 (wave 18, whose prompts are byte-identical to arm A) before H1's measure was amended. The coordinator
-did not open those values. The amendment rests on the source-text validation alone (sentence-level false positives 0.145
+E4 run 40837155387 (wave 18, whose prompts are byte-identical to arm A) before H1's measure was amended. The engineer who
+built M1 saw each chapter's sentence-level person, tense and quote mismatch, and chapter 1's windowed value and counts,
+plus two scenes' text and the M3 extraction yield on that run; the coordinator did not open the values. No compare
+outcome was seen. Nothing more is computed on E4's chapters before E4's analysis. The amendment rests on the source-text validation alone (sentence-level false positives 0.145
 against a 0.05 bar), and sentence-level `person_mismatch` is kept as a pre-registered sensitivity. SPEC-95 records the
 same deviation for E4: E4's chapters were scored outside its pre-registration; its primary is untouched.
 
@@ -131,7 +133,10 @@ same deviation for E4: E4's chapters were scored outside its pre-registration; i
   exact sign-flip randomization test on the cluster means (all 2^k sign patterns), two-sided, with the direction
   required for a holding result; a t-interval over cluster means (df = k − 1) is the reported interval, and the
   percentile bootstrap is reported as a descriptive line. Holm's correction over the family {H1, H2} at family-wise
-  0.05; a primary whose measure failed validation leaves the family before arm data. Judge measures use Sonnet; Groq is
+  0.05; a primary whose measure failed validation leaves the family before arm data. An exact sign-flip test on k
+  clusters cannot give p below 2/2^k, so a contrast with fewer than 7 clusters at the stop reads "undetermined: too few
+  clusters". Power (sd 0.3, 1,000 simulations, α 0.025, Holm's first step): 17 clusters × 2 pairs detects an effect of
+  0.2 with 0.90 and 0.1 with 0.34; 11 × 2: 0.66 and 0.20. Judge measures use Sonnet; Groq is
   reported beside it and never changes a decision.
 - **Instrument floor (read at analysis).** If A's M2 t-interval includes 0.5, H2 reads "undetermined: the instrument is
   at its floor on generated text", and no removal wording follows. The same holds for M3's descriptive line when A's M3
