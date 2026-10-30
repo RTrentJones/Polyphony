@@ -295,6 +295,11 @@ is pre-registered: the statistic, the unit, the per-day ≤ 400 budget and the f
   both-failed pair, left out, and Frankenstein contributes 5 chapters a replicate (the outline is used as is). A book-day
   measured about 110 generator requests (setup 4–5, chapters 8–13 each), under 200, so later book-days use `replicates=2`.
   The outline's character-less beats are a product defect for a later wave.
+- **E4, book-days 2–3 (counts only).** Day 2, Dracula, W18 first, `replicates=2` (runs 40837155387, 40838809177, compare
+  40840467118): 12/12 chapters on each release, 12 pairs, 0 unrated, 0 excluded, 0 forfeits; about 115 requests a run.
+  Day 3, Frankenstein, W17 first (runs 41021724435, 41023196552, compare 41024885672): 10/12 chapters on each release,
+  chapter 3 both-failed in both replicates (the same 422), 12 pairs with 2 both-failed, 0 unrated, 0 excluded. Usable
+  pairs after three book-days: 27.
 - **E3 result (score run 40480744604, rate run 40473458504; scored once, as pre-registered).** Valid: the replays reproduce
   W12-9 (Groq AB order consistency 0/18, Nemotron 8/18) and Sonnet flips 6/18 AB pairs (under the 9/18 that would make it
   undetermined). **P(B>A), Sonnet, 95%: 0.56 [0.36, 0.75], n = 18: Sonnet does not separate B from A (not equivalence);
@@ -320,3 +325,5 @@ is pre-registered: the statistic, the unit, the per-day ≤ 400 budget and the f
 | 40470971826 (calibration answers, Sonnet: wuthering) | E5 | $0.04 | $6.87 |
 | 40473458504 (e3 rate: Sonnet pass and retest, 162 calls each, nothing unrated; cap $5) | E3 | $4.25 | $11.12 |
 | 40657916195 (E4 compare, Frankenstein book-day 1, 6 pairs) | E4 | $0.26 | $11.38 |
+| 40840467118 (E4 compare, Dracula book-day 2, 12 pairs) | E4 | $0.55 | $11.93 |
+| 41024885672 (E4 compare, Frankenstein book-day 3, 12 pairs) | E4 | $0.53 | $12.46 |
