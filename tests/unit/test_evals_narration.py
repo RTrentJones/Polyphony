@@ -3,6 +3,7 @@ steps and the pre-registered analysis. No LLM call: synthetic text, synthetic
 reports and fake judges."""
 
 import json
+import random
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -137,12 +138,17 @@ def test_score_reports_keys_by_run_ablation_and_chapter(tmp_path):
         tmp_path / "222/x/eval-report-dracula.json",
         "dracula",
         {"chapters": ch | {"chapters": [_row(1, [contract.to_third(FIRST_PAST)])]}},
+        ablation=None,  # the shipped product, arm A
     )
     rows = {r["run"]: r for r in contract.score_reports([tmp_path])}
     assert rows["111"]["ablation"] == "pov_fix" and rows["222"]["ablation"] == ""
     assert rows["111"]["person_mismatch"] == 0.0
     assert rows["222"]["person_mismatch"] == 1.0
     assert rows["111"]["position"] == 1 and rows["111"]["replicate"] == 1
+    # a report with no `ablation` key (E4's) is refused, never read as A
+    _report(tmp_path / "333/x/eval-report-dracula.json", "dracula", {"chapters": ch})
+    with pytest.raises(SystemExit, match="no `ablation` key"):
+        contract.score_reports([tmp_path])
 
 
 # --- M4: outline lint -----------------------------------------------------------
@@ -299,12 +305,13 @@ class FakeJudge:
         return {"narrator": 1}
 
 
-def _chapters_run(tmp_path, run_id, rows, ablation=""):
+def _chapters_run(tmp_path, run_id, rows, ablation=None, sha="a" * 40):
     res = {"outline_digest": "dig", "batch": "b", "chapters": rows}
     _report(
         tmp_path / f"{run_id}/eval-report-{run_id}/eval-report-dracula.json",
         "dracula",
         {"chapters": res},
+        sha=sha,
         ablation=ablation,
     )
 
@@ -434,137 +441,6 @@ def test_the_steps_are_opt_in():
     assert judges.STEP in run.OPT_IN and judges.VALIDATION_STEP in run.OPT_IN
 
 
-# --- analysis -----------------------------------------------------------------------
-
-
-def test_pacific_day_and_dates():
-    # 06:30 UTC on Nov 1 is 23:30 PDT on Oct 31
-    assert analyze.pacific_day("2026-11-01T06:30:00Z") == "2026-10-31"
-    assert analyze.pacific_day("2026-11-01T09:30:00+00:00") == "2026-11-01"
-    assert analyze.pacific_day(None) is None
-    got = analyze.dates(["1", "2"], "o/r", gh=lambda rid: f"2026-11-0{rid}T20:00:00Z")
-    assert got == {"1": "2026-11-01", "2": "2026-11-02"}
-
-
-def test_holm_step_down():
-    got = analyze.holm({"P": 0.01, "N": 0.04, "V": 0.03})
-    assert got["P"] == {"p_holm": 0.03, "reject": True}
-    assert got["V"] == {"p_holm": 0.06, "reject": False}
-    assert got["N"] == {"p_holm": 0.06, "reject": False}  # stops after V
-    assert analyze.holm({"P": None, "N": 0.001, "V": 0.2})["P"]["reject"] is False
-
-
-def test_bootstrap_p_is_two_sided_and_capped():
-    clusters = {k: [-0.3, -0.2] for k in range(10)}
-    b = analyze.bootstrap(clusters, resamples=500)
-    assert b["d"] == -0.25 and b["p"] == 0.0 and b["ci"] == [-0.25, -0.25]
-    mixed = {0: [1.0], 1: [-1.0], 2: [0.5], 3: [-0.5]}
-    assert analyze.bootstrap(mixed, resamples=500)["p"] == 1.0  # d == 0
-    noisy = {0: [0.2], 1: [-0.1], 2: [0.1], 3: [0.0]}
-    b = analyze.bootstrap(noisy, resamples=2000)
-    assert 0 < b["p"] <= 1 and b["n_pairs"] == 4
-    assert analyze.bootstrap({})["d"] is None
-
-
-def _arm(
-    run, arm, pos, day, person=0.0, m2=None, m3=None, failure=None, scenes=2, rep=1
-):
-    row = {
-        "run": run,
-        "arm": arm,
-        "book": "dracula",
-        "position": pos,
-        "replicate": rep,
-        "day": day,
-        "outline_digest": "dig",
-        "app_sha": "s",
-        "failure": failure,
-        "scenes": scenes,
-        "judged": True,
-        "person_mismatch": person,
-        "person_mismatch_window": person,
-        "tense_mismatch": 0.0,
-        "quote_mismatch": 0.0,
-        "m3_lines": 2,
-    }
-    for j in analyze.JUDGES:
-        row[f"m2 {j}"], row[f"m3 {j}"] = m2, m3
-    return row
-
-
-def test_pairs_by_book_position_replicate_and_day():
-    rows = [
-        _arm("a1", "A", 1, "d1"),
-        _arm("a1", "A", 2, "d1", failure="quota"),
-        _arm("p1", "P", 1, "d1"),
-        _arm("p1", "P", 2, "d1"),  # A's side failed for quota
-        _arm("p1", "P", 3, "d1"),  # A never wrote it
-        _arm("p2", "P", 1, "d2"),  # no A that day
-        _arm("p3", "P", 1, None),
-    ]
-    prs, counts = analyze.pairs(rows, "P")
-    assert [(t["run"], c["run"]) for t, c in prs] == [("p1", "a1")]
-    assert counts["unpaired"] == 2 and counts["no_day"] == 1
-    assert counts["excluded"] == {"treatment": {}, "A": {"quota": 1}}
-    with pytest.raises(SystemExit, match="A runs"):
-        analyze.pairs(rows + [_arm("a9", "A", 1, "d1")], "P")
-
-
-def test_analyze_decides_h1_and_reports_untested_measures_descriptively():
-    rows = []
-    for day in ("d1", "d2", "d3"):
-        for pos in range(1, 7):
-            rows.append(_arm(f"A{day}", "A", pos, day, person=0.5, m2=0.8, m3=0.6))
-            rows.append(_arm(f"P{day}", "P", pos, day, person=0.1 + pos / 100, m2=0.8))
-            rows.append(_arm(f"N{day}", "N", pos, day, person=0.5, m2=0.8, m3=0.6))
-            rows.append(_arm(f"V{day}", "V", pos, day, person=0.5, m3=0.6))
-    res = analyze.analyze(rows, {"V": False}, resamples=1000)
-    p = res["primary"]["P"]
-    assert p["d"] < 0 and p["reject"] and p["n_pairs"] == 18 and p["n_clusters"] == 6
-    assert res["decisions"][0].startswith("P: dropping the default POV mode lowers")
-    assert "Flash-Lite-written" in res["decisions"][0]
-    assert res["primary"]["N"]["d"] == 0 and not res["primary"]["N"]["reject"]
-    assert "no effect of the excerpts detectable at n = 18" in res["decisions"][1]
-    assert "Sonnet-judged" in res["decisions"][1]
-    assert "descriptive only" in res["decisions"][2]
-    assert res["contrasts"]["P"]["m3 sonnet"]["left_out"] == 18  # P has no M3
-    assert "decisions:" in analyze.render(res)
-    with pytest.raises(SystemExit):
-        analyze.analyze(rows, p_measure="m2")
-
-
-def test_chapters_join_m1_with_the_judges_records(tmp_path):
-    _chapters_run(tmp_path, "801", [_row(1, [FIRST_PAST])])
-    _chapters_run(
-        tmp_path, "802", [_row(1, [contract.to_third(FIRST_PAST)])], "pov_fix"
-    )
-    rec = {
-        "run": "801",
-        "position": 1,
-        "replicate": 1,
-        "m2_judges": {"sonnet": {"correct": 1, "rated": 2}},
-        "m3": {"sonnet": {"correct": 0, "rated": 0}},
-    }
-    _report(
-        tmp_path / "900/eval-report-900/eval-report-dracula.json",
-        "dracula",
-        {judges.STEP: {"narration": {"chapters": [rec]}}},
-    )
-    rows = analyze.chapters([tmp_path], {"801": "d1", 802: "d1"})
-    by = {r["run"]: r for r in rows}
-    assert by["801"]["arm"] == "A" and by["802"]["arm"] == "P"
-    assert by["801"]["m2 sonnet"] == 0.5 and by["801"]["m3 sonnet"] is None
-    assert by["802"]["judged"] is False and by["802"]["day"] == "d1"
-    prs, _ = analyze.pairs(rows, "P")
-    assert len(prs) == 1
-
-
-def test_power_rises_with_the_effect():
-    small = analyze.power(12, -0.05, 0.3, sims=60, resamples=200)
-    large = analyze.power(12, -0.4, 0.3, sims=60, resamples=200)
-    assert large > small and large >= 0.8
-
-
 # --- M3 widened (SPEC-96 decisions, 2026-10-30) -------------------------------
 
 
@@ -656,27 +532,231 @@ def test_the_narrator_is_the_pov_of_a_first_person_chapter_only():
     }
 
 
-def test_eligible_lines_gate_h3_and_untested_tests_leave_the_family():
-    rows = []
-    for day in ("d1", "d2"):
-        for pos in range(1, 7):
-            a = _arm(f"A{day}", "A", pos, day, person=0.5, m2=0.8, m3=0.6)
-            v = _arm(f"V{day}", "V", pos, day, person=0.5, m3=0.2)
-            p = _arm(f"P{day}", "P", pos, day, person=0.1, m2=0.8)
-            rows += [a, v, p]
-    prs, _ = analyze.pairs(rows, "V")
-    assert analyze.eligible_lines(prs) == {"treatment": 24, "A": 24}
-    res = analyze.analyze(rows, resamples=500)
-    assert res["family"] == ["P", "N"]  # 24 < 60 lines: H3 not tested
-    assert (
-        res["primary"]["V"]["tested"] is False and res["primary"]["V"]["p_holm"] is None
+def test_narrator_credited_lines_and_chance_are_recorded():
+    members, titles = _dracula()
+    text = "“Who is there?” I asked.\n\n“It is the mark,” said the Professor."
+    item = judges.m3_item(
+        text, ["Verhoeven"], members, random.Random(0), "Aldous Kerr", titles
     )
-    assert "each needs >= 60" in res["decisions"][2]
-    assert res["primary"]["P"]["measure"] == "person_mismatch_window"
-    for r in rows:
-        r["m3_lines"] = 6
-    res = analyze.analyze(rows, {"P": False}, resamples=500)
-    assert res["family"] == ["N", "V"] and res["primary"]["V"]["reject"]
-    assert "failed validation" in res["decisions"][0]
-    # Holm over the two tested: V's p (0) times 2 stays 0
-    assert res["primary"]["V"]["p_holm"] == 0.0
+    assert item["answers"] == ["Aldous Kerr", "Verhoeven"]
+    assert item["narrator_lines"] == [True, False]
+    assert item["chance_sum"] == 2 / 2  # two lines, a cast of two
+
+
+# --- analysis (principal review, 2026-10-30) ----------------------------------------
+
+
+def test_sign_flip_exact_enumeration_matches_brute_force():
+    import itertools
+
+    means = [0.3, -0.1, 0.25, 0.05, 0.4, -0.2, 0.15]
+    obs = abs(sum(means))
+    brute = sum(
+        abs(sum(s * m for s, m in zip(signs, means))) >= obs - 1e-12
+        for signs in itertools.product((1, -1), repeat=len(means))
+    ) / 2 ** len(means)
+    assert analyze.sign_flip_p(means) == pytest.approx(brute)
+    assert analyze.sign_flip_p([0.1] * 6) == pytest.approx(2 / 64)  # the two extremes
+    assert analyze.sign_flip_p([0.2, -0.2]) == 1.0
+    assert analyze.sign_flip_p([]) is None
+    # beyond EXACT_MAX: seeded draws
+    p = analyze.sign_flip_p([0.1] * 22, draws=2000)
+    assert p == pytest.approx(1 / 2001)
+
+
+def test_t_interval_uses_k_minus_one_df():
+    assert analyze.t_crit(10) == 2.228 and analyze.t_crit(1000) < 1.97
+    assert 2.000 < analyze.t_crit(45) < 2.021
+    ci = analyze.t_interval([0.1, 0.2, 0.3])
+    assert ci == [
+        round(0.2 - 4.303 * 0.1 / 3**0.5, 4),
+        round(0.2 + 4.303 * 0.1 / 3**0.5, 4),
+    ]
+    assert analyze.t_interval([0.1]) is None
+
+
+def test_the_sign_flip_tests_null_rate_is_at_most_alpha():
+    # 11 clusters x 3 pairs under the null, 300 simulated studies
+    assert analyze.power(11, 0.0, 0.3, reps=3, alpha=0.05, sims=300) <= 0.05
+    rng, rejected = random.Random(1), 0
+    for _ in range(300):
+        means = [sum(rng.gauss(0, 0.3) for _ in range(3)) / 3 for _ in range(11)]
+        rejected += analyze.sign_flip_p(means) <= 0.05
+    assert rejected / 300 <= 0.05
+
+
+def test_power_rises_with_the_effect():
+    small = analyze.power(11, -0.05, 0.3, reps=2, sims=100)
+    large = analyze.power(11, -0.4, 0.3, reps=2, sims=100)
+    assert large > small and large >= 0.8
+
+
+def test_holm_step_down():
+    got = analyze.holm({"P": 0.01, "N": 0.04, "V": 0.03})
+    assert got["P"] == {"p_holm": 0.03, "reject": True}
+    assert got["V"] == {"p_holm": 0.06, "reject": False}
+    assert got["N"] == {"p_holm": 0.06, "reject": False}
+    assert analyze.holm({"P": None, "N": 0.001})["P"]["reject"] is False
+
+
+def test_dates_only_prints_created_at():
+    got = analyze.dates(["1"], "o/r", gh=lambda rid: "2026-11-01T06:30:00Z")
+    assert got == {"1": "2026-11-01T06:30:00Z"}
+
+
+def _arm(
+    run,
+    arm,
+    pos,
+    day,
+    person=0.0,
+    m2=None,
+    m3=None,
+    failure=None,
+    scenes=2,
+    rep=1,
+    book="dracula",
+):
+    row = {
+        "run": run,
+        "arm": arm,
+        "book": book,
+        "position": pos,
+        "replicate": rep,
+        "day": day,
+        "outline_digest": "dig",
+        "failure": failure,
+        "scenes": scenes,
+        "judged": True,
+        "first_person": True,
+        "sample_overlap": 0.0,
+        "person_mismatch": person,
+        "person_mismatch_window": person,
+        "tense_mismatch": 0.0,
+        "quote_mismatch": 0.0,
+        "m3_lines": 2,
+        "m3_narrator_lines": 1,
+        "m3_chance_sum": 2 / 3,
+    }
+    for j in analyze.JUDGES:
+        row[f"m2 {j}"], row[f"m3 {j}"], row[f"m3_own {j}"] = m2, m3, m3
+    return row
+
+
+def test_pairs_within_a_ledger_day_and_book():
+    rows = [
+        _arm("a1", "A", 1, "W21 day 1"),
+        _arm("a1", "A", 2, "W21 day 1", failure="quota"),
+        _arm("p1", "P", 1, "W21 day 1"),
+        _arm("p1", "P", 2, "W21 day 1"),  # A's side failed for quota
+        _arm("p1", "P", 3, "W21 day 1"),  # A never wrote it
+        _arm("p2", "P", 1, "W21 day 2"),  # no A that day
+    ]
+    prs, counts = analyze.pairs(rows, "P")
+    assert [(t["run"], c["run"]) for t, c in prs] == [("p1", "a1")]
+    assert counts["unpaired"] == 2
+    assert counts["excluded"] == {"treatment": {}, "A": {"quota": 1}}
+    with pytest.raises(SystemExit, match="A runs"):
+        analyze.pairs(rows + [_arm("a9", "A", 1, "W21 day 1")], "P")
+
+
+def _study(p_person=0.1, n_m2=0.8, a_m2=0.8, a_m3=0.9, days=3):
+    rows = []
+    books = ("dracula", "wuthering", "frankenstein")
+    for d in range(1, days + 1):
+        day, b = f"W21 day {d}", {"book": books[(d - 1) % 3]}
+        for pos in range(1, 7):
+            rows.append(_arm(f"A{d}", "A", pos, day, 0.5, m2=a_m2, m3=a_m3, **b))
+            rows.append(
+                _arm(f"P{d}", "P", pos, day, p_person + pos / 100, m2=a_m2, **b)
+            )
+            rows.append(
+                _arm(f"N{d}", "N", pos, day, 0.5, m2=n_m2 - pos / 100, m3=a_m3, **b)
+            )
+            rows.append(_arm(f"V{d}", "V", pos, day, 0.5, m3=a_m3 - 0.3, **b))
+    return rows
+
+
+def test_family_is_p_and_n_and_h3_is_descriptive():
+    # six clusters: the smallest sign-flip p is 2/64 > Holm's 0.025
+    six = analyze.analyze(_study(days=1), resamples=300)
+    assert six["primary"]["P"]["p"] == pytest.approx(2 / 64)
+    assert not six["primary"]["P"]["reject"]
+    res = analyze.analyze(_study(), resamples=300)
+    assert res["family"] == ["P", "N"]
+    p = res["primary"]["P"]
+    assert p["measure"] == "person_mismatch_window" and p["n_clusters"] == 18
+    assert p["p"] == pytest.approx(2 / 2**18) and p["reject"]  # every sign negative
+    assert p["t_ci"][1] < 0 and "bootstrap (descriptive)" in p
+    assert res["decisions"][0].startswith("P: dropping the default POV mode lowers")
+    assert res["primary"]["V"]["tested"] is False
+    assert res["decisions"][2].startswith("V: descriptive only")
+    assert res["contrasts"]["V"]["counts"]["m3_eligible_lines"] == {
+        "treatment": 36,
+        "A": 36,
+    }
+    # a measure that failed validation leaves the family
+    res = analyze.analyze(_study(), {"P": False}, resamples=300)
+    assert res["family"] == ["N"] and "failed validation" in res["decisions"][0]
+    assert "decisions:" in analyze.render(res)
+
+
+def test_sensitivities_are_reported_beside_the_primaries():
+    res = analyze.analyze(_study(), resamples=300)
+    s = res["sensitivities"]
+    assert s["a: H1 on sentence-level person_mismatch"]["direction_agrees"] is True
+    assert s["b: N vs A on person_mismatch_window"]["d"] == 0
+    assert s["c: H2 on pairs both first person"]["pairs_first_person"] == 18
+    assert s["d: M3 without narrator-credited lines"]["d"] == pytest.approx(-0.3)
+
+
+def test_instrument_floor_makes_h2_and_m3_undetermined():
+    res = analyze.analyze(_study(a_m2=0.5, n_m2=0.5, a_m3=0.5), resamples=300)
+    assert res["floors"]["N"]["at_floor"] and res["floors"]["V"]["at_floor"]
+    assert "undetermined: instrument at floor on generated text" in res["decisions"][1]
+    assert "candidate for removal" not in res["decisions"][1]
+    assert "undetermined" in res["decisions"][2]
+    ok = analyze.analyze(_study(a_m3=0.95), resamples=300)  # chance 1/3 + 0.2 < 0.95
+    assert not ok["floors"]["V"]["at_floor"] and not ok["floors"]["N"]["at_floor"]
+
+
+def test_per_arm_reports_outcomes_and_sample_overlap():
+    rows = _study(days=1) + [
+        _arm("P1", "P", 9, "W21 day 1", failure="product", scenes=0)
+    ]
+    out = analyze.per_arm(rows)
+    assert out["P"]["failure"] == {"none": 6, "product": 1}
+    assert out["P"]["no_scenes"] == 1
+    assert out["A"]["sample_overlap_8gram"]["chapters"] == 6
+
+
+def test_chapters_refuse_other_apps_and_runs_without_a_day(tmp_path):
+    _chapters_run(tmp_path, "801", [_row(1, [FIRST_PAST])])
+    _chapters_run(
+        tmp_path, "802", [_row(1, [contract.to_third(FIRST_PAST)])], "pov_fix"
+    )
+    rec = {
+        "run": "801",
+        "position": 1,
+        "replicate": 1,
+        "m2_judges": {"sonnet": {"correct": 1, "rated": 2}},
+        "m3": {"sonnet": {"correct": 1, "rated": 2, "correct_own": 0, "rated_own": 1}},
+        "m3_lines": 2,
+    }
+    _report(
+        tmp_path / "900/eval-report-900/eval-report-dracula.json",
+        "dracula",
+        {judges.STEP: {"narration": {"chapters": [rec]}}},
+    )
+    days = {"801": "W21 day 1", 802: "W21 day 1"}
+    rows = analyze.chapters([tmp_path], days, "a" * 40)
+    by = {r["run"]: r for r in rows}
+    assert by["801"]["arm"] == "A" and by["802"]["arm"] == "P"
+    assert by["801"]["m2 sonnet"] == 0.5 and by["801"]["m3_own sonnet"] == 0.0
+    assert by["801"]["first_person"] and not by["802"]["first_person"]
+    assert by["802"]["judged"] is False
+    assert len(analyze.pairs(rows, "P")[0]) == 1
+    with pytest.raises(SystemExit, match="not " + "b" * 40):
+        analyze.chapters([tmp_path], days, "b" * 40)
+    with pytest.raises(SystemExit, match="no ledger day"):
+        analyze.chapters([tmp_path], {"801": "W21 day 1"}, "a" * 40)
