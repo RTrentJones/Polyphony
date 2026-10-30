@@ -31,6 +31,7 @@ import json
 import os
 import re
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from evals.steps.base import StepContext, step
@@ -213,6 +214,7 @@ async def _trash_replicate(ctx: StepContext, chapters: list[dict]) -> None:
 
 @step(STEP, needs_api=True, repeatable=False)
 async def step_chapters(ctx: StepContext) -> dict:
+    started = datetime.now(timezone.utc).isoformat(timespec="seconds")
     k, reps = chapter_count(), replicate_count()
     reserve = _bounded("EVAL_CHAPTER_RESERVE", DEFAULT_RESERVE, 0, 500)
     calls0 = await _calls(ctx)
@@ -262,6 +264,8 @@ async def step_chapters(ctx: StepContext) -> dict:
         "outline_source": source,
         # Names this run's chapters: compare pairs one day's two runs as a batch.
         "batch": uuid.uuid4().hex[:12],
+        # SPEC-96: the run's day, for pairing arms dispatched the same day.
+        "started_at": started,
         "voice_indexed": bool(voice and voice.get("indexed")),
         "chapters_asked": k,
         "replicates_asked": reps,

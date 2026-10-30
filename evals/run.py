@@ -37,6 +37,7 @@ from evals.validation import rn2  # noqa: F401 — SPEC-95 E2, opt-in
 from evals.calibration import answer as calibration  # noqa: F401 — E5, opt-in
 from evals.chapters import compare as chapters_compare  # noqa: F401 — E4, opt-in
 from evals.chapters import generate as chapters  # noqa: F401 — E4, opt-in
+from evals.narration import judges as narration  # noqa: F401 — SPEC-96, opt-in
 from evals.steps.base import StepContext, all_steps, get_step
 
 # Never part of `--steps all`.
@@ -47,6 +48,8 @@ OPT_IN = (
     calibration.STEP,
     chapters.STEP,
     chapters_compare.STEP,
+    narration.STEP,
+    narration.VALIDATION_STEP,
 )
 
 
