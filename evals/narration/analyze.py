@@ -24,14 +24,18 @@ bootstrap interval, RESAMPLES = 10,000 resamples with seed 0, resampling
 outline chapters (book, position) with all their pairs (every replicate and
 day of that chapter moves with it); the bootstrap p = 2 x the share of
 resamples on the far side of 0 (at or beyond 0, away from the observed mean;
-1 when the mean is 0), capped at 1. Holm's correction across the three primary
-tests (P: M1 `person_mismatch`; N: M2 by Sonnet; V: M3 by Sonnet) at
-family-wise 0.05. A hypothesis holds when its Holm-adjusted p is <= 0.05 and
-its difference is below 0 (H1: P lowers person mismatch; H2: N lowers M2
-accuracy; H3: V lowers M3 accuracy). A primary measure that failed its
-validation (`--m1-validation`, `--m3-validation`) is reported descriptively,
-never as a decision; it stays in the Holm family (three tests). The free
-judge's (Groq's) results are printed beside Sonnet's and change no decision.
+1 when the mean is 0), capped at 1. Holm's correction at family-wise 0.05
+across the primary tests that are tested (P: M1 `person_mismatch_window`;
+N: M2 by Sonnet; V: M3 by Sonnet). The family is fixed before arm data: a
+primary test whose measure failed its validation (`--m1-validation`,
+`--m3-validation`) is removed from it and reported descriptively, and H3 is
+removed (descriptive) unless A and V each have >= 60 eligible M3 lines
+across their paired chapters (`eligible_lines`). A hypothesis holds when its
+Holm-adjusted p is <= 0.05 and its difference is below 0 (H1: P lowers
+person mismatch; H2: N lowers M2 accuracy; H3: V lowers M3 accuracy).
+`tense_mismatch`, sentence-level `person_mismatch` and `quote_mismatch` are
+descriptive only. The free judge's (Groq's) results are printed beside
+Sonnet's and change no decision.
 
 M2 per chapter: correct / rated passages; M3 per chapter: correct / rated
 lines; M1: the chapter's mismatch shares (None when nothing classifiable).
@@ -62,7 +66,7 @@ ARMS = {"": "A", "pov_fix": "P", "no_excerpts": "N", "no_voices": "V"}
 CONTRASTS = ("P", "N", "V")
 # contrast -> (measure, judge) of its primary test (None: a script measure)
 PRIMARY = {
-    "P": ("person_mismatch", None),
+    "P": ("person_mismatch_window", None),
     "N": ("m2", "sonnet"),
     "V": ("m3", "sonnet"),
 }
@@ -263,6 +267,19 @@ def bootstrap(
     }
 
 
+H3_MIN_LINES = 60  # H3 is tested only when A and V each have this many
+
+
+def eligible_lines(prs: list[tuple]) -> dict:
+    """M3's eligible (tag-fixed) dialogue lines summed over the paired
+    chapters of a contrast, per side: {"treatment": n, "A": n}. The
+    pre-registration tests H3 only when both are >= H3_MIN_LINES."""
+    return {
+        "treatment": sum(t.get("m3_lines") or 0 for t, _ in prs),
+        "A": sum(c.get("m3_lines") or 0 for _, c in prs),
+    }
+
+
 def holm(ps: dict[str, float | None], alpha: float = ALPHA) -> dict:
     """{name: {"p_holm", "reject"}}: Holm's step-down adjustment over the
     family's p-values (a missing p counts as 1, staying in the family)."""
@@ -356,16 +373,20 @@ def _primary_key(contrast: str, primary: dict = PRIMARY) -> str:
 
 
 def decision(
-    contrast: str, res: dict, test: dict, validated: bool, primary: dict = PRIMARY
+    contrast: str,
+    res: dict,
+    test: dict,
+    untested: str | None,
+    primary: dict = PRIMARY,
 ) -> str:
     key = _primary_key(contrast, primary)
     s = res[key]
     judge = primary[contrast][1]
     caveat = CAVEAT.format(judged="Sonnet-judged, " if judge else "")
-    if not validated:
+    if untested:
         return (
-            f"{contrast}: {key} failed its validation: "
-            f"descriptive only (d = {s['d']}, n = {s['n_pairs']}); {caveat}"
+            f"{contrast}: {key} is not tested ({untested}): descriptive only "
+            f"(d = {s['d']}, n = {s['n_pairs']}); {caveat}"
         )
     holds = test["reject"] and s["d"] is not None and s["d"] < 0
     yes, no = _WORDING[contrast]
@@ -386,8 +407,13 @@ def analyze(
     p_measure: str = PRIMARY["P"][0],
 ) -> dict:
     """Every contrast's measures, the Holm family and the decisions.
-    `p_measure` is H1's M1 measure (SPEC-96: `person_mismatch`; the
-    pre-registration may name `person_mismatch_window` instead)."""
+
+    The Holm family is the primary tests that are tested: a primary measure
+    that failed its validation (`validated`, from the validation flags) is
+    removed from the family and reported descriptively, and so is H3 when A
+    or V has fewer than H3_MIN_LINES eligible M3 lines across the paired
+    chapters (`eligible_lines`). `p_measure` is H1's M1 measure
+    (`person_mismatch_window`, the pre-registration's choice)."""
     if p_measure not in M1:
         raise SystemExit(f"H1's measure must be one of {M1}, not {p_measure!r}")
     primary = PRIMARY | {"P": (p_measure, None)}
@@ -405,6 +431,7 @@ def analyze(
         },
         "contrasts": {},
     }
+    untested: dict = {}
     for contrast in CONTRASTS:
         prs, counts = pairs(rows, contrast)
         res: dict = {"counts": counts}
@@ -413,17 +440,33 @@ def analyze(
             res[m] = bootstrap(clusters, resamples) | {"left_out": missing}
         res["counts"]["m3_no_line"] = res["m3 sonnet"]["left_out"]
         res["counts"]["m2_not_judged"] = res["m2 sonnet"]["left_out"]
+        res["counts"]["m3_eligible_lines"] = lines = eligible_lines(prs)
         out["contrasts"][contrast] = res
+        if not validated[contrast]:
+            untested[contrast] = "its measure failed validation"
+        elif contrast == "V" and min(lines.values()) < H3_MIN_LINES:
+            untested[contrast] = (
+                f"eligible M3 lines A {lines['A']}, V {lines['treatment']}; "
+                f"each needs >= {H3_MIN_LINES}"
+            )
     keys = {c: _primary_key(c, primary) for c in CONTRASTS}
-    tests = holm({c: out["contrasts"][c][keys[c]]["p"] for c in CONTRASTS})
+    family = [c for c in CONTRASTS if c not in untested]
+    tests = holm({c: out["contrasts"][c][keys[c]]["p"] for c in family})
+    none = {"p_holm": None, "reject": False}
+    out["family"] = family
     out["primary"] = {
-        c: {"measure": keys[c], "validated": validated[c]}
+        c: {
+            "measure": keys[c],
+            "validated": validated[c],
+            "tested": c in family,
+            "untested_because": untested.get(c),
+        }
         | out["contrasts"][c][keys[c]]
-        | tests[c]
+        | tests.get(c, none)
         for c in CONTRASTS
     }
     out["decisions"] = [
-        decision(c, out["contrasts"][c], tests[c], validated[c], primary)
+        decision(c, out["contrasts"][c], tests.get(c, none), untested.get(c), primary)
         for c in CONTRASTS
     ]
     return out
@@ -450,7 +493,8 @@ def render(res: dict) -> str:
     for c, p in res["primary"].items():
         lines.append(
             f"  {c}: {p['measure']} d = {p['d']} p = {p['p']} Holm p = "
-            f"{p['p_holm']} reject = {p['reject']} validated = {p['validated']}"
+            f"{p['p_holm']} reject = {p['reject']} tested = {p['tested']}"
+            + (f" ({p['untested_because']})" if p["untested_because"] else "")
         )
     lines.append("decisions:")
     lines += [f"  {d}" for d in res["decisions"]]

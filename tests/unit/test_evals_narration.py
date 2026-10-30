@@ -346,7 +346,8 @@ async def test_narration_judges_records_both_measures_blind(tmp_path, monkeypatc
     assert m2["total"] == 2 and m2["rated"] == 2
     assert m2["correct"] == sum(k["answer"] == 1 for k in one["m2_key"])
     m3 = one["m3"]["sonnet"]
-    assert m3["eligible"] == 2 and one["m3_excluded"] == 3
+    # "said the doctor": the one doctor of the scene (Verhoeven)
+    assert m3["eligible"] == 3 and one["m3_excluded"] == 2
     assert "m2_judges" in by[2] and by[2]["m2_judges"] == {}
     assert by[2]["m2"]["skipped"].startswith("no voice source")
     assert by[3]["judged"] is False and by[3]["m3"] == {}
@@ -562,3 +563,120 @@ def test_power_rises_with_the_effect():
     small = analyze.power(12, -0.05, 0.3, sims=60, resamples=200)
     large = analyze.power(12, -0.4, 0.3, sims=60, resamples=200)
     assert large > small and large >= 0.8
+
+
+# --- M3 widened (SPEC-96 decisions, 2026-10-30) -------------------------------
+
+
+def _dracula():
+    gt = json.loads(Path("evals/corpora/dracula/ground_truth.json").read_text("utf-8"))
+    return judges.book_members("dracula", gt), judges.book_titles("dracula", gt)
+
+
+def test_corpus_aliases_and_titles_come_from_the_corpus():
+    members, titles = _dracula()
+    aliases = {m["name"]: m["aliases"] for m in members}
+    assert aliases["Elias Ward"] == ["Eli"] and aliases["Nora Vance"] == ["Winifred"]
+    assert titles["professor"] == ["Verhoeven"]
+    assert titles["doctor"] == ["Elias Ward", "Verhoeven"]
+    assert "mrs" not in titles and "miss" not in titles  # courtesy titles
+    gt = json.loads(
+        Path("evals/corpora/wuthering/ground_truth.json").read_text("utf-8")
+    )
+    wm = {m["name"]: m["aliases"] for m in judges.book_members("wuthering", gt)}
+    assert wm["Martha Bryce"] == ["Mattie"]  # "Martha Bryce (Mattie)"
+
+
+def test_a_first_person_tag_is_the_narrator_only_when_one_is_given():
+    members, titles = _dracula()
+    text = "“Who is there?” I asked.\n\n“Open,” said I, and we waited."
+    with_pov = judges.tagged_lines(
+        text, members, ["Aldous Kerr"], "Aldous Kerr", titles
+    )
+    assert [ln["speaker"] for ln in with_pov["lines"]] == ["Aldous Kerr"] * 2
+    without = judges.tagged_lines(text, members, ["Aldous Kerr"], None, titles)
+    assert without["lines"] == [] and without["excluded"] == 2
+    we = judges.tagged_lines("“Go,” we said.", members, ["Aldous Kerr"], "Aldous Kerr")
+    assert we["lines"] == [] and we["excluded"] == 1
+
+
+def test_titles_resolve_only_to_one_member_of_the_scene():
+    members, titles = _dracula()
+    text = "“It is the mark,” said the Professor.\n\n“Rest now,” the doctor said."
+    one = judges.tagged_lines(text, members, ["Verhoeven", "Cora Ellis"], None, titles)
+    assert [ln["speaker"] for ln in one["lines"]] == ["Verhoeven", "Verhoeven"]
+    both = judges.tagged_lines(
+        text, members, ["Verhoeven", "Elias Ward"], None, titles
+    )  # "the doctor" is both of them
+    assert [ln["speaker"] for ln in both["lines"]] == ["Verhoeven"]
+    assert both["excluded"] == 1
+    nobody = judges.tagged_lines(text, members, ["Cora Ellis"], None, titles)
+    assert nobody["lines"] == []
+    # an alias the corpus attests
+    eli = judges.tagged_lines(
+        "“Come,” said Eli.", members, ["Elias Ward"], None, titles
+    )
+    assert [ln["speaker"] for ln in eli["lines"]] == ["Elias Ward"]
+
+
+def test_a_shared_name_resolves_within_the_scene_but_not_with_a_courtesy_title():
+    members = judges._members(["Varrick", "Penhale Varrick", "Aubrey Penhale"])
+    text = "“Get out,” Varrick said."
+    assert judges.resolve_tag("Varrick", members) is None  # two members
+    one = judges.tagged_lines(text, members, ["Penhale Varrick", "Aubrey Penhale"])
+    assert [ln["speaker"] for ln in one["lines"]] == ["Penhale Varrick"]
+    mrs = judges.tagged_lines(
+        "“Sit,” said Mrs. Varrick.", members, ["Varrick", "Aubrey Penhale"]
+    )
+    assert mrs["lines"] == [] and mrs["excluded"] == 1
+    assert judges.resolve_tag("the Mrs", members, ["Varrick"], titles={}) is None
+
+
+def test_pronoun_tags_stay_left_out():
+    members, titles = _dracula()
+    got = judges.tagged_lines(
+        "“Hush,” she said.", members, ["Cora Ellis"], "Aldous Kerr", titles
+    )
+    assert got["lines"] == [] and got["excluded"] == 1
+
+
+def test_the_narrator_is_the_pov_of_a_first_person_chapter_only():
+    members, _ = _dracula()
+    first = [FIRST_PAST]
+    third = [contract.to_third(FIRST_PAST)]
+    row = {"pov": "Aldous Kerr"}
+    assert judges.chapter_narrator(row, first, members) == "Aldous Kerr"
+    assert judges.chapter_narrator(row, third, members) is None
+    assert judges.chapter_narrator({"pov": "Stranger"}, first, members) is None
+    spec = json.loads(Path("evals/corpora/dracula/spec.json").read_text("utf-8"))
+    assert judges.source_narrators("dracula", spec, members) == {
+        "CHAPTER II": "Aldous Kerr",
+        "CHAPTER VIII": "Nora Vance",
+        "CHAPTER X": "Elias Ward",
+    }
+
+
+def test_eligible_lines_gate_h3_and_untested_tests_leave_the_family():
+    rows = []
+    for day in ("d1", "d2"):
+        for pos in range(1, 7):
+            a = _arm(f"A{day}", "A", pos, day, person=0.5, m2=0.8, m3=0.6)
+            v = _arm(f"V{day}", "V", pos, day, person=0.5, m3=0.2)
+            p = _arm(f"P{day}", "P", pos, day, person=0.1, m2=0.8)
+            rows += [a, v, p]
+    prs, _ = analyze.pairs(rows, "V")
+    assert analyze.eligible_lines(prs) == {"treatment": 24, "A": 24}
+    res = analyze.analyze(rows, resamples=500)
+    assert res["family"] == ["P", "N"]  # 24 < 60 lines: H3 not tested
+    assert (
+        res["primary"]["V"]["tested"] is False and res["primary"]["V"]["p_holm"] is None
+    )
+    assert "each needs >= 60" in res["decisions"][2]
+    assert res["primary"]["P"]["measure"] == "person_mismatch_window"
+    for r in rows:
+        r["m3_lines"] = 6
+    res = analyze.analyze(rows, {"P": False}, resamples=500)
+    assert res["family"] == ["N", "V"] and res["primary"]["V"]["reject"]
+    assert "failed validation" in res["decisions"][0]
+    # Holm over the two tested: V's p (0) times 2 stays 0
+    assert res["primary"]["V"]["p_holm"] == 0.0

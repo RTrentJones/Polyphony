@@ -44,8 +44,9 @@ turned to the window."), so the sentence unit counts those as third person:
 `person_mismatch_window` is the same share over runs of WINDOW (5)
 consecutive classifiable sentences, a run being first person when any of its
 sentences is (a shorter tail joins the run before it). Both are reported, with
-the counts; which one H1 reads is the pre-registration's to say (validation
-below).
+the counts. H1 reads `person_mismatch_window` (the pre-registration's choice,
+after this validation); `person_mismatch`, `tense_mismatch` and
+`quote_mismatch` are descriptive only.
 
 Validation (SPEC-96, `validate`): on each source chapter (an excerpt section;
 a `quoted` teller's frame quotes removed, as narrator_samples does) the

@@ -15,14 +15,23 @@ each, keyed by run id, ablation, app sha, position and replicate:
   planned narrator. A chapter whose POV has no voice source (its own
   narration in spec.json's `voice_sources`) is not judged on M2, counted.
 - M3, speaker attribution: a scene's quoted lines whose speaker its own speech
-  tags fix (`tagged_lines`: an explicit tag beside the span, "said Mina",
-  "Verhoeven said", resolving by the app's `speaker_matches` to exactly one
-  cast member; a split quote of the same paragraph credited by the app's rule
-  to that tagged speaker joins the line). A pronoun tag ("he said", "I said"),
-  an action beat, an untagged line or a tag naming no single cast member
-  leaves the line out, counted (`excluded`). The judge sees the scene with
-  every speech tag removed and each kept line numbered in place, and the
-  scene's cast (the planned beat's characters plus the lines' speakers) in a
+  tags fix (`tagged_lines`, `resolve_tag`): an explicit tag beside the span
+  ("said Mina", "Verhoeven said", "said I") naming exactly one cast member.
+  A name or alias resolves by the app's `speaker_matches` over the book's
+  cast with the aliases the corpus attests (`book_members`, from
+  aliases.json); a first-person tag ("I said", "said I", "I asked") is the
+  chapter's planned POV when that POV is a cast member and the chapter's
+  narration is first person (M1's runs, `first_person`); a bare title ("the
+  Professor", "the doctor") is the one cast member of the scene the corpus
+  gives that title (`book_titles`); a name several members share is the one
+  of them in the scene, unless it carries a courtesy title ("Mrs. Varrick").
+  A split quote of the same paragraph credited by the app's rule to that
+  tagged speaker joins the line. A pronoun tag ("he said": the corpora
+  record no gender), "we said", an action beat, an untagged line or a tag
+  naming no single member leaves the line out, counted (`excluded`). The
+  scene's cast is the planned beat's characters plus that narrator. The
+  judge sees the scene with every speech tag removed and each kept line
+  numbered in place, and the scene's cast (plus the lines' speakers) in a
   seeded order; it names each line's speaker, one call per scene, JSON
   {"speakers": [...]}. A reply of the wrong length leaves the scene's lines
   unrated (a merged or split line would shift every later answer, W16-1).
@@ -43,7 +52,10 @@ analysis leaves their pairs out). No resume: a stopped step is re-dispatched.
 - M3's ceiling on source scenes with dialogue (each source chapter of the
   corpus excerpts cut at paragraph boundaries into scenes of about
   SCENE_WORDS words; up to VALIDATION_SCENES spread over those with a tagged
-  line; the cast: members the scene names plus the lines' speakers). The bar
+  line; the cast: members the scene names (name, first name or alias) plus
+  the lines' speakers; "I said" is the chapter's voice-source narrator when
+  that narrator is a cast member and the chapter is first person,
+  `source_narrators`; the same extraction rules as generated chapters). The bar
   (`summarize_validation`): Sonnet's mean per-scene accuracy >= the mean
   per-scene chance (mean of 1/options per line) + 0.20; Groq's beside it.
 - M2 re-checked on the source chapters each voice source names (two passages
@@ -75,7 +87,7 @@ DEFAULT_SEED = 21
 MAX_PASSAGES = 2
 MIN_PASSAGE_WORDS = 60
 SCENE_WORDS = 700
-VALIDATION_SCENES = 12
+VALIDATION_SCENES = 30
 CHANCE_MARGIN = 0.20
 _OUT_MAX = 1024  # the judge's max_tokens (harness/judge.py)
 _SYSTEM_CHARS = len("Reply ONLY with JSON.")
@@ -186,10 +198,157 @@ def resolve(who: str | None, members: list[dict]) -> str | None:
     return got[0] if len(got) == 1 else None
 
 
-def tagged_lines(text: str, members: list[dict]) -> dict:
+# Titles that say who someone is ("the Professor", "the doctor"), as against
+# courtesy titles (Mr, Mrs, Miss), which a family shares ("Mrs. Varrick" is
+# not Varrick): a bare courtesy title never resolves, and a named tag carrying
+# one never takes the scene-restricted fallback.
+_COURTESY = {"mr", "mister", "mrs", "ms", "miss", "madam", "madame"}
+_SAME_TITLE = {"dr": "doctor", "prof": "professor", "mister": "mr"}
+_FIRST_PERSON_TAG = {"i"}  # "we said" names no one
+
+
+def _title(word: str) -> str:
+    w = word.lower().rstrip(".")
+    return _SAME_TITLE.get(w, w)
+
+
+def _corpus_text(book: str, gt: dict) -> str:
+    from evals.steps.pipeline import load_excerpts
+
+    return f"{gt.get('synopsis') or ''}\n\n{load_excerpts(book)}"
+
+
+def book_members(book: str, gt: dict) -> list[dict]:
+    """The cast as speaker_matches members, each with the aliases the corpus
+    attests: a single-word name of the book's rename map (aliases.json, its
+    `aliases` and `section_aliases` values) that the synopsis or the
+    excerpts write right before a cast name's word ("Anton Verhoeven") or in
+    brackets right after a cast name ("Martha Bryce (Mattie)"), when that
+    word names exactly one cast member."""
+    from app.parsing.names import tokens
+    from evals.steps.pipeline import CORPORA
+
+    cast = list(gt.get("cast") or [])
+    path = CORPORA / book / "aliases.json"
+    data = json.loads(path.read_text("utf-8")) if path.exists() else {}
+    names = set((data.get("aliases") or {}).values())
+    for sec in (data.get("section_aliases") or {}).values():
+        names |= set(sec.values())
+    words = {n for n in names if re.fullmatch(r"[A-Z][a-z]+", n)}
+    owners: dict[str, set] = {}
+    for c in cast:
+        for t in tokens(c):
+            owners.setdefault(t, set()).add(c)
+    found: dict[str, set] = {c: set() for c in cast}
+    text = _corpus_text(book, gt)
+    for w in sorted(words):
+        if any(w.lower() in tokens(c) for c in cast):
+            continue  # already a cast name's word
+        for m in re.finditer(rf"\b{w}\s+([A-Z][\w'-]+)", text):
+            got = owners.get(m.group(1).lower(), set())
+            if len(got) == 1:
+                found[next(iter(got))].add(w)
+        for c in cast:
+            if re.search(rf"\b{re.escape(c)}\s*\(\s*{w}\s*\)", text):
+                found[c].add(w)
+    return [{"name": c, "aliases": sorted(found[c])} for c in cast]
+
+
+def book_titles(book: str, gt: dict) -> dict[str, list[str]]:
+    """{title: [cast members]} for the non-courtesy titles the corpus writes
+    before one cast member's name word ("Dr. Ward", "Professor Verhoeven");
+    a cast name holding the title ("Count Vasska") counts too."""
+    from app.parsing.names import HONORIFICS, tokens
+
+    cast = list(gt.get("cast") or [])
+    owners: dict[str, set] = {}
+    for c in cast:
+        for t in tokens(c):
+            owners.setdefault(t, set()).add(c)
+    out: dict[str, set] = {}
+    for c in cast:
+        for t in tokens(c) & HONORIFICS:
+            out.setdefault(_title(t), set()).add(c)
+    pat = "|".join(sorted(HONORIFICS, key=len, reverse=True))
+    rx = re.compile(rf"\b({pat})\.?\s+([A-Z][\w'-]+)", re.I)
+    for m in rx.finditer(_corpus_text(book, gt)):
+        title = _title(m.group(1))
+        if title in _COURTESY or not m.group(1)[0].isupper():
+            continue
+        got = owners.get(m.group(2).lower(), set())
+        if len(got) == 1:
+            out.setdefault(title, set()).update(got)
+    return {k: sorted(v) for k, v in sorted(out.items())}
+
+
+def resolve_tag(
+    who: str | None,
+    members: list[dict],
+    scene: list[str] | None = None,
+    narrator: str | None = None,
+    titles: dict | None = None,
+) -> str | None:
+    """The one cast member a speech tag's subject names, else None:
+    - "I" (a first-person tag): the scene's `narrator` (the chapter's POV,
+      given only when the chapter is first-person narration by that POV);
+    - a pronoun ("he", "she", "they"): nobody (the corpora record no
+      gender, so "the one woman present" cannot be read reliably);
+    - a name or alias the book's cast resolves to one member (`resolve`);
+    - a bare title ("the Professor", "the doctor"): the one member of the
+      `scene` cast the corpus gives that title (`book_titles`);
+    - a name several members share ("Penhale said"), with no courtesy
+      title: the one of them in the `scene` cast."""
+    from app.parsing.character_extractor import _DETERMINERS, _PRONOUNS
+    from app.parsing.names import HONORIFICS, tokens
+
+    if not who:
+        return None
+    if who in _FIRST_PERSON_TAG:
+        return narrator
+    if who in _PRONOUNS:
+        return None
+    got = resolve(who, members)
+    if got or not scene:
+        return got
+    words = tokens(who) - _DETERMINERS
+    if words and words <= HONORIFICS:
+        if any(_title(w) in _COURTESY for w in words):
+            return None
+        cands = {c for w in words for c in (titles or {}).get(_title(w), [])}
+        cands &= set(scene)
+        return next(iter(cands)) if len(cands) == 1 else None
+    if any(_title(w) in _COURTESY for w in words):
+        return None
+    from app.parsing.character_extractor import speaker_matches
+
+    cands = [
+        m["name"]
+        for m in members
+        if m["name"] in scene and speaker_matches(who, m["name"], m["aliases"], [m])
+    ]
+    return cands[0] if len(cands) == 1 else None
+
+
+def first_person(text: str) -> bool:
+    """Is this first-person narration? M1's runs of five classifiable
+    sentences: more first-person runs than third (contract.windows)."""
+    from evals.narration.contract import counts
+
+    c = counts(text)["person_window"]
+    return c["first"] > c["third"]
+
+
+def tagged_lines(
+    text: str,
+    members: list[dict],
+    scene: list[str] | None = None,
+    narrator: str | None = None,
+    titles: dict | None = None,
+) -> dict:
     """{"paragraphs": [[span, ...]], "lines": [{speaker, line}], "excluded"}:
     per normalized paragraph, its quoted spans as (start, end, line number or
-    None); the lines the scene's own tags fix (module docstring); the
+    None); the lines the scene's own tags fix (`resolve_tag`, with the
+    scene's cast, its first-person narrator and the book's titles); the
     speech spans left out."""
     from app.parsing.character_extractor import (
         _attribute_paragraph,
@@ -211,7 +370,7 @@ def tagged_lines(text: str, members: list[dict]) -> dict:
                 b_tag and _canon_speaker(b_tag[2])
             )
             if who:
-                explicit[i] = resolve(who, members)
+                explicit[i] = resolve_tag(who, members, scene, narrator, titles)
         named = set(explicit.values())
         only = next(iter(named)) if len(named) == 1 and None not in named else None
         row, prev, left = [], None, None
@@ -219,7 +378,11 @@ def tagged_lines(text: str, members: list[dict]) -> dict:
             zip((t[0] for t in tagged), spans)
         ):
             name = explicit.get(i)
-            if i not in explicit and only and resolve(s["speaker"], members) == only:
+            if (
+                i not in explicit
+                and only
+                and resolve_tag(s["speaker"], members, scene, narrator, titles) == only
+            ):
                 name = only  # a split quote the app credits to the tagged speaker
             if name and s["text"]:
                 if prev == name and row and row[-1][2] is not None:
@@ -305,10 +468,19 @@ def scene_cast(beat_cast: list[str], lines: list[dict], rng) -> list[str]:
     return cast
 
 
-def m3_item(text: str, beat_cast: list[str], members: list[dict], rng) -> dict:
+def m3_item(
+    text: str,
+    beat_cast: list[str],
+    members: list[dict],
+    rng,
+    narrator: str | None = None,
+    titles: dict | None = None,
+) -> dict:
     """{prompt, cast, answers, excluded, outside_beat} for one scene (prompt
-    None when it has no tagged line)."""
-    found = tagged_lines(text, members)
+    None when it has no tagged line). The scene's cast for resolving tags is
+    the beat's characters plus the narrator."""
+    scene = list(dict.fromkeys([*beat_cast, *([narrator] if narrator else [])]))
+    found = tagged_lines(text, members, scene, narrator, titles)
     lines = found["lines"]
     if not lines:
         return {"prompt": None, "answers": [], "excluded": found["excluded"]}
@@ -466,9 +638,18 @@ def scene_texts(row: dict) -> list[tuple[str, list[str]]]:
     return out
 
 
+def chapter_narrator(row: dict, texts: list[str], members: list[dict]) -> str | None:
+    """The chapter's planned POV when it is a cast member and the chapter's
+    narration is first person (`first_person`): who "I said" names."""
+    pov = row.get("pov")
+    if pov not in {m["name"] for m in members}:
+        return None
+    return pov if first_person("\n\n".join(texts)) else None
+
+
 def plan(book: str, gt: dict, seed: int) -> list[dict]:
     """Every chapter's M2 items and M3 scenes, deterministically."""
-    members = _members(gt.get("cast") or [])
+    members, titles = book_members(book, gt), book_titles(book, gt)
     out = []
     for run in chapters_runs(book):
         m = run["meta"]
@@ -488,7 +669,10 @@ def plan(book: str, gt: dict, seed: int) -> list[dict]:
                 out.append(rec | {"judged": False, "m2_items": [], "m3_scenes": []})
                 continue
             items, who = m2_items(book, row.get("pov"), [t for t, _ in scenes], rng)
-            m3 = [m3_item(t, cast, members, rng) for t, cast in scenes]
+            narrator = chapter_narrator(row, [t for t, _ in scenes], members)
+            m3 = [
+                m3_item(t, cast, members, rng, narrator, titles) for t, cast in scenes
+            ]
             out.append(
                 rec | {"judged": True, "m2": who, "m2_items": items, "m3_scenes": m3}
             )
@@ -594,24 +778,57 @@ def _spread(xs: list, k: int) -> list:
     return [xs[i * (m - 1) // (k - 1)] for i in range(k)]
 
 
+def source_narrators(book: str, spec: dict, members: list[dict]) -> dict:
+    """{heading: narrator} for the source chapters a cast member's voice
+    source names and whose narration is first person (who "I said" names
+    there, as `chapter_narrator` for a generated chapter)."""
+    from evals.narration.contract import source_chapters
+
+    cast = {m["name"] for m in members}
+    texts = {c["heading"]: c for c in source_chapters(book)}
+    out = {}
+    for narrator, src in (spec.get("voice_sources") or {}).items():
+        if narrator not in cast:
+            continue
+        for h in src.get("chapters") or []:
+            c = texts.get(h)
+            if c and first_person(c["text"]):
+                out[h] = narrator
+    return out
+
+
 def validation_plan(book: str, gt: dict, seed: int) -> dict:
     """M3 on up to VALIDATION_SCENES source scenes with a tagged line, M2 on
     two passages of each voice-source chapter."""
     from evals.steps.pipeline import CORPORA, named_in
 
     cast = list(gt.get("cast") or [])
-    members = _members(cast)
+    members, titles = book_members(book, gt), book_titles(book, gt)
+    spec = json.loads((CORPORA / book / "spec.json").read_text("utf-8"))
+    narrators = source_narrators(book, spec, members)
     scenes = source_scenes(book)
-    with_lines = [s for s in scenes if tagged_lines(s["text"], members)["lines"]]
+
+    def present(s: dict) -> list[str]:
+        forms = {
+            m["name"]: [m["name"], m["name"].split()[0], *m["aliases"]] for m in members
+        }
+        return [c for c in cast if named_in(s["text"], forms[c])]
+
+    def found(s: dict) -> dict:
+        n = narrators.get(s["heading"])
+        scene = present(s) + ([n] if n else [])
+        return tagged_lines(s["text"], members, scene, n, titles)
+
+    with_lines = [s for s in scenes if found(s)["lines"]]
     m3 = []
     for s in _spread(with_lines, VALIDATION_SCENES):
         rng = random.Random(f"{seed}|{book}|m3|{s['heading']}|{s['index']}")
-        present = [c for c in cast if named_in(s["text"], [c, c.split()[0]])]
         m3.append(
             {"heading": s["heading"], "index": s["index"]}
-            | m3_item(s["text"], present, members, rng)
+            | m3_item(
+                s["text"], present(s), members, rng, narrators.get(s["heading"]), titles
+            )
         )
-    spec = json.loads((CORPORA / book / "spec.json").read_text("utf-8"))
     m2 = []
     for narrator, src in (spec.get("voice_sources") or {}).items():
         for heading in src.get("chapters") or []:
@@ -747,8 +964,20 @@ def extract_yield(paths: list[Path]) -> list[dict]:
         gt = json.loads(
             (CORPORA / meta["book"] / "ground_truth.json").read_text("utf-8")
         )
-        members = _members(gt.get("cast") or [])
-        found = [tagged_lines(t, members) for t, _ in scene_texts(row)]
+        members = book_members(meta["book"], gt)
+        titles = book_titles(meta["book"], gt)
+        scenes = scene_texts(row)
+        narrator = chapter_narrator(row, [t for t, _ in scenes], members)
+        found = [
+            tagged_lines(
+                t,
+                members,
+                list(dict.fromkeys([*c, *([narrator] if narrator else [])])),
+                narrator,
+                titles,
+            )
+            for t, c in scenes
+        ]
         out.append(
             {
                 "run": meta["run"],
@@ -758,6 +987,7 @@ def extract_yield(paths: list[Path]) -> list[dict]:
                 "lines": sum(len(f["lines"]) for f in found),
                 "excluded": sum(f["excluded"] for f in found),
                 "per_scene": [len(f["lines"]) for f in found],
+                "narrator": narrator,
                 "speakers": dict(
                     Counter(ln["speaker"] for f in found for ln in f["lines"])
                 ),
