@@ -42,7 +42,8 @@ Every arm is today's main app (identical to wave 18's, `7dbb8c24`), with one eva
   positives); on the same chapters with narration rewritten from first to third person and past to present by rule:
   detection ≥ 0.90. Below either bar, the failing measure is reported descriptively only.
 - **M3** on source scenes with dialogue (ceiling): Sonnet accuracy ≥ chance + 0.20 across scenes, and Groq's reported
-  beside it. Below the bar, M3 is descriptive only and H3 is not tested.
+  beside it. Below the bar, M3's descriptive line is marked unvalidated (H3 is descriptive in any case; see the
+  pre-registration).
 - **M2** carries E2's validation; it is re-checked here on the source chapters (accuracy reported, no bar).
 
 ## M1 validation (2026-10-30, script only, no LLM; before any arm data)
@@ -58,43 +59,97 @@ quotes):
 M4 on the outlines: Dracula 0/12 character-less beats; Frankenstein 2/14 (chapter 3, which also has no POV); Wuthering
 Heights 0/12. Both "invented" names the product's check flags are sentence-initial capitalised words (false positives).
 
+## Principal review 1 (2026-10-30): DO NOT SIGN; changes adopted below
+The arm switches were confirmed correct (default byte-identical, fingerprint unchanged, no cross-arm cache or checkpoint
+reuse, app_sha and base_url refusals). Nine blocking items concerned the design and the statistic; each is answered in
+the sections below: a balanced book × treatment × order table (1, 2); every arm pinned to one app sha and E4's runs never
+arm A (3); a sign-flip cluster test in place of the percentile bootstrap, whose null rejection rate the review measured at
+0.08–0.135 for nominal 0.05 at these cluster counts (4); the disclosure below (5); an instrument floor (6); H2 reworded with
+its confound measured (7); H3 descriptive from the start (8); a budget contingency and a fixed stop (9). The review also
+calibrated M1 on partial drift (source paragraphs rewritten to third person): half a chapter in third person scores
+0.44–0.58 on `person_mismatch_window`; third person with every fourth paragraph left in first person scores about 0.5
+(against about 0.8 per sentence). The window measure is lenient but not blind.
+
+**Disclosure.** During engineering, M1 (including `person_mismatch_window`) was computed by script on the 12 chapters of
+E4 run 40837155387 (wave 18, whose prompts are byte-identical to arm A) before H1's measure was amended. The coordinator
+did not open those values. The amendment rests on the source-text validation alone (sentence-level false positives 0.145
+against a 0.05 bar), and sentence-level `person_mismatch` is kept as a pre-registered sensitivity. SPEC-95 records the
+same deviation for E4: E4's chapters were scored outside its pre-registration; its primary is untouched.
+
 ## Design
 - **Books and outlines.** Dracula (outline run 40651541095, digest 9ff4f200…) and Frankenstein (40651268575, 5b417a71…;
-  its chapter 3 fails on every arm alike and is left out) from E4, and Wuthering Heights (outline-only run 41125885372,
-  2026-10-30, app 9310e578, 6 chapters of 2 beats, every beat with a character, digest
-  `0b15bd10cbe29317fdea0b49fabac24aaad9304832f046d135c0474e47eecde9`, 13 generator requests). Each run writes the outline's chapters with E4's `chapters` step
-  (`replicates=1`) on the same fixed outline, so arms differ only in the switch.
-- **Days.** E4 keeps its morning book-day. Each later Pacific day runs A plus two treatments in a rotating order (day 1:
-  A, P, N; day 2: A, N, V; day 3: A, V, P; …), one book per day in the order Dracula, Wuthering, Frankenstein, so every
-  treatment meets A on the same day and book. Generation runs are `claude=no` and dispatched one at a time after E4's
-  day; the judge runs follow (`claude=yes judge=claude`, each with `claude_usd_cap`). Total generator requests per day
-  stay ≤ 400 with E4's included.
-- **Unit and n.** A paired chapter: the same outline chapter written by A and by a treatment on the same day. Target ≥ 30
-  pairs per contrast by Nov 12 (day rotation gives each treatment 2 of every 3 days; after E4 ends on Nov 10 the free
-  quota allows more runs a day).
-- **Cost.** Generation $0. M2 and M3 by Sonnet ≈ $0.04 a chapter, ≈ 200 chapters ≈ $8, plus validation ≈ $1. Each
-  judge dispatch passes `claude_usd_cap`; the wave's cap is $15 of the $64.
+  its chapter 3 fails before prose on every arm alike and drops out as `no_scenes`) from E4, and Wuthering Heights
+  (outline-only run 41125885372, 2026-10-30, app 9310e578, 6 chapters of 2 beats, every beat with a character, digest
+  `0b15bd10cbe29317fdea0b49fabac24aaad9304832f046d135c0474e47eecde9`, 13 generator requests). Each run writes the
+  outline's chapters with E4's `chapters` step (`replicates=1`) on the same fixed outline, so arms differ only in the
+  switch.
+- **App.** Every arm, A included, dispatches with `app_sha` = the signed harness sha (main's merge of this wave), so A
+  and the treatments run identical code. E4's runs (W17 or W18) are never arm A; the analysis refuses any report whose
+  `app_sha` differs or that carries no explicit `ablation` key.
+- **Day table.** One table day per Pacific day, after E4's book-day; day 1 is the first Pacific day after the signature.
+  Books rotate D(racula), W(uthering), F(rankenstein); treatment pairs rotate so each pair meets each book once in nine
+  days, and A runs first, second and third equally often:
+
+  | day | book | runs, in dispatch order |
+  |---|---|---|
+  | 1 | D | A, P, N |
+  | 2 | W | N, A, V |
+  | 3 | F | V, P, A |
+  | 4 | D | A, V, N |
+  | 5 | W | P, A, V |
+  | 6 | F | N, P, A |
+  | 7 | D | A, P, V |
+  | 8 | W | N, A, P |
+  | 9 | F | V, N, A |
+
+  Each treatment meets each book twice in nine days. The table repeats from day 1. After E4's last book-day (Nov 10), up
+  to two table days run per Pacific day, in table order.
+- **Dispatch.** Generation runs are `claude=no` and share one concurrency group that cancels a run in progress, so the
+  next run is dispatched only after the previous one has completed. Judge runs (`steps=narration_judges`,
+  `claude=yes judge=claude`, `claude_usd_cap` each) follow once the day's three runs exist, one at a time.
+- **Pairing.** By the ledger's day label ("W21 day d", naming its runs), never by clock date. A treatment chapter pairs
+  with A's chapter of the same day, book and outline position.
+- **Budget contingency.** Before a day's runs, the remaining generator budget is read (≤ 400 a Pacific day including E4's
+  ≈ 230). If it cannot cover three runs (≈ 55 each) plus a 40-request reserve, the day runs A plus the first treatment of
+  its row; the skipped arm is recorded and the next day that has room runs it with a new A on the same book. A is never
+  dropped.
+- **Stop.** Generation ends at the end of Nov 12 Pacific, whatever n has been reached; judging finishes by Nov 13; the
+  analysis runs once, before Nov 14 (the Claude credit's end). The stop is decided by date and counts, never by outcomes.
+- **Unit and n.** A paired chapter. Each nine-day cycle gives each treatment 6 days × ≈ 6 chapters ≈ 34 pairs over 17
+  clusters (book, outline position).
+- **Cost.** Generation $0. M2 and M3 by Sonnet ≈ $0.04 a chapter, ≈ 200 chapters ≈ $8, plus validation ≈ $1. The wave's
+  cap is $15 of the $64.
 
 ## Pre-registration (to be signed by the principal before any arm data is generated)
-- **Hypotheses and primary measures.** H1: P lowers `person_mismatch_window` against A (amended 2026-10-30 after the
-  M1 validation above, before any arm data; sentence-level `person_mismatch` and `tense_mismatch` are descriptive only). H2: N lowers M2 accuracy against A (the
-  excerpts carry the narrator's voice). H3: V lowers M3 accuracy against A (the VOICES rule makes speakers
-  recognisable).
-- **Statistic.** For each contrast, the mean paired difference (treatment − A) over chapter pairs, with a 95% percentile
-  bootstrap (10,000 resamples, seed 0) resampling outline chapters with all their pairs (clusters); Holm's correction
-  across the primary tests at family-wise 0.05, applied to bootstrap p-values (the share of resamples on the far
-  side of 0, doubled). The family is the primary tests whose measure passed validation; a measure that fails is removed
-  from it before arm data and reported descriptively. H3 is tested only if A and V each have ≥ 60 eligible M3 lines
-  across their paired chapters; otherwise M3 is descriptive and the family shrinks accordingly. Judge measures use Sonnet; Groq's result is reported beside it and never changes a decision.
-- **Exclusions.** A pair is left out when either side's chapter has a quota failure or no scenes; a chapter with no
-  dialogue line with a recoverable speaker is left out of M3 only. Counts per arm are reported.
-- **Decision wording.** Exploratory; no automatic product change. H1 holds (difference below 0 after Holm): "dropping the
-  default POV mode lowers person mismatch by d" and the fix is proposed for the next product wave. H2 or H3 fails to
-  hold: "no effect of the excerpts (VOICES rule) detectable at n = N (not equivalence)", and the lever becomes a
-  candidate for removal, decided with E4's result. Every line names: Flash-Lite-written, Sonnet-judged where it is a
-  judge measure, not human, development corpora.
-- **Conduct.** The analysis runs once, after the last pair, reading every run named in the ledger. Outcomes are not read
-  before then; only counts (chapters written, failures, requests, judge coverage) are, to steer the schedule.
+- **Hypotheses and primary measures.** H1: P changes `person_mismatch_window` against A, with the direction required to be
+  lower (amended 2026-10-30 after the M1 validation above, before any arm data; see the disclosure). H2: N changes M2
+  (narrator attribution) against A, with the direction required to be lower. Under the default mode the excerpts are the
+  book's narration up to the scene's position, not necessarily the planned narrator's own, and they are the prompt's
+  only first-person cue; so H2 is a test of attribution, not of "the excerpts carry the narrator's voice". H3 (V against
+  A on M3) is descriptive only: M3 yields about one eligible line a chapter on generated text, too few for a test.
+- **Statistic.** Per contrast, the mean paired difference (treatment − A) per cluster (book, outline position), then an
+  exact sign-flip randomization test on the cluster means (all 2^k sign patterns), two-sided, with the direction
+  required for a holding result; a t-interval over cluster means (df = k − 1) is the reported interval, and the
+  percentile bootstrap is reported as a descriptive line. Holm's correction over the family {H1, H2} at family-wise
+  0.05; a primary whose measure failed validation leaves the family before arm data. Judge measures use Sonnet; Groq is
+  reported beside it and never changes a decision.
+- **Instrument floor (read at analysis).** If A's M2 t-interval includes 0.5, H2 reads "undetermined: the instrument is
+  at its floor on generated text", and no removal wording follows. The same holds for M3's descriptive line when A's M3
+  is not above chance + 0.20.
+- **Sensitivities (descriptive, pre-registered).** H1 with sentence-level `person_mismatch` (its direction should agree);
+  N against A on `person_mismatch_window` (whether N moves person); H2 restricted to pairs where both chapters are first
+  person by M1; M3 without narrator-credited ("I said") lines; per-arm product failures (`no_scenes`, failure classes)
+  as an outcome; per-arm 8-gram overlap between a chapter and M2's voice samples.
+- **Exclusions.** A pair is left out when either side's chapter has a quota failure or no scenes; counted per arm.
+- **Decision wording.** Exploratory; no automatic product change. H1 holds (lower after Holm): "dropping the default POV
+  mode lowers windowed person mismatch by d", and the fix is proposed for the next product wave. H2 holds (lower):
+  "without the book-narration excerpts, the judge attributes the narration to the planned narrator less often by d".
+  H2 not holding: "no effect of the excerpts on narrator attribution detectable at n = N (not equivalence)", and the
+  lever becomes a candidate for removal, decided with E4's result, unless the instrument floor applies. H2 with d > 0
+  (N attributes better): "the excerpts mislead attribution", and the excerpt selection is revisited in the next product
+  wave. Every line names: Flash-Lite-written, Sonnet-judged where it is a judge measure, not human, development corpora.
+- **Conduct.** The analysis runs once, after the stop, reading every run named in the ledger's day labels. Outcomes are
+  not read before then; only counts (chapters written, failures, requests, judge coverage) are, to steer the schedule.
 
 ## Ledger
 Rows are kept in SPEC-95's ledger, labelled W21.
