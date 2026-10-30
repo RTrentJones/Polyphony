@@ -59,6 +59,13 @@ quotes):
 M4 on the outlines: Dracula 0/12 character-less beats; Frankenstein 2/14 (chapter 3, which also has no POV); Wuthering
 Heights 0/12. Both "invented" names the product's check flags are sentence-initial capitalised words (false positives).
 
+## M2 and M3 validation on source texts (run 41145514872, 2026-10-30, after the signature, before any arm data)
+- **M3** (speaker attribution, 39 source scenes): Sonnet 0.954 against chance 0.238, Groq 0.459 against 0.236. Both
+  clear the bar (chance + 0.20); M3 is validated. Its line on generated text stays descriptive, as pre-registered.
+- **M2** (narrator attribution re-check, 29 items over 15 source chapters): Sonnet 29/29, Groq 21/29 (0.72), in line
+  with E2.
+- Cost $0.38 (SPEC-95 ledger, W21).
+
 ## Principal review 1 (2026-10-30): DO NOT SIGN; changes adopted below
 The arm switches were confirmed correct (default byte-identical, fingerprint unchanged, no cross-arm cache or checkpoint
 reuse, app_sha and base_url refusals). Nine blocking items concerned the design and the statistic; each is answered in

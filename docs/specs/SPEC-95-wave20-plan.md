@@ -333,3 +333,4 @@ is pre-registered: the statistic, the unit, the per-day ≤ 400 budget and the f
 | 40657916195 (E4 compare, Frankenstein book-day 1, 6 pairs) | E4 | $0.26 | $11.38 |
 | 40840467118 (E4 compare, Dracula book-day 2, 12 pairs) | E4 | $0.55 | $11.93 |
 | 41024885672 (E4 compare, Frankenstein book-day 3, 12 pairs) | E4 | $0.53 | $12.46 |
+| 41145514872 (W21 narration validation on source texts, M2 and M3) | W21 | $0.38 | $12.84 |
