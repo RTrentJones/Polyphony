@@ -220,7 +220,7 @@ def chapters(paths: list[Path], days: dict, app_sha: str) -> list[dict]:
             "scenes": sum(
                 1 for s in r.get("scenes") or [] if (s.get("content") or "").strip()
             ),
-            "judged": bool(rec),
+            "judged": bool(rec.get("judged")),
             "first_person": bool(text.strip()) and first_person(text),
             "sample_overlap": sample_overlap(book, r) if text.strip() else None,
         }

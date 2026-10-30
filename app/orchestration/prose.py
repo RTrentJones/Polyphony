@@ -510,9 +510,12 @@ def narrated_person(canon, narration: tuple) -> str:
     """What the book's narration decides when its style guide names no POV
     mode and the scene shows excerpts (SPEC-96 pov_fix): "person and tense",
     or "person" when the style guide sets a tense; "" otherwise (the POV line
-    then names its mode as before)."""
+    then names its mode as before). Sample prose outranks the excerpts in the
+    style section, which then never shows them, so it also keeps the mode."""
     style = getattr(canon, "style", None)
     if not narration or pov_mode(getattr(style, "pov", None)):
+        return ""
+    if clean_for_llm(getattr(style, "sample_prose", None)):
         return ""
     if clean_for_llm(getattr(style, "tense", None)):
         return "person"

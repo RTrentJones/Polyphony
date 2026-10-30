@@ -719,6 +719,9 @@ async def judge_planned(planned: list[dict], js: dict) -> tuple[list[dict], str 
         rec["m3_chance_sum"] = sum(s.get("chance_sum", 0) for s in c["m3_scenes"])
         rec["m2"], rec["m3"] = rec.get("m2") or {}, {}
         rec["m2_judges"] = {}
+        # Eligibility is the plan's; "judged" is set only once every judge has
+        # returned for this chapter, so a spend stop never counts as coverage.
+        rec["eligible"], rec["judged"] = c["judged"], False
         if c["judged"] and not stopped:
             try:
                 for name, j in js.items():
@@ -727,6 +730,7 @@ async def judge_planned(planned: list[dict], js: dict) -> tuple[list[dict], str 
                     if c["m2_items"]:
                         rec["m2_judges"][name] = await judge_m2(j, c["m2_items"])
                     rec["m3"][name] = await judge_m3(j, c["m3_scenes"])
+                rec["judged"] = True
             except Stop as e:
                 stopped = str(e)
         records.append(rec)

@@ -393,6 +393,9 @@ async def test_a_refusal_leaves_items_unrated_and_a_spend_pause_stops(
     )["narration"]
     assert "SpendPausedError" in n["stopped"]
     assert n["chapters"][1]["m2_judges"] == {}  # nothing asked after the stop
+    # Coverage counts completed judgments, never the plan's eligibility.
+    assert n["chapters"][1]["eligible"] and not n["chapters"][1]["judged"]
+    assert sum(c["judged"] for c in n["chapters"]) < len(n["chapters"])
 
 
 async def test_the_worst_case_over_the_ceiling_asks_nothing(tmp_path, monkeypatch):

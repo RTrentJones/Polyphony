@@ -481,3 +481,19 @@ async def test_a_report_records_its_ablation(tmp_path, monkeypatch, value, want)
     out = await r.run("cel", ["retrieval"], str(tmp_path / "r.json"), 1, None)
     assert out["ablation"] == want
     assert json.loads((tmp_path / "r.json").read_text())["ablation"] == want
+
+
+def test_pov_fix_keeps_the_mode_when_sample_prose_outranks_the_excerpts():
+    from types import SimpleNamespace
+
+    from app.orchestration.prose import narrated_person
+
+    narration = ("I walked to the window.",)
+    plain = SimpleNamespace(
+        style=SimpleNamespace(pov=None, tense=None, sample_prose=None)
+    )
+    assert narrated_person(plain, narration) == "person and tense"
+    sampled = SimpleNamespace(
+        style=SimpleNamespace(pov=None, tense=None, sample_prose="She ran.")
+    )
+    assert narrated_person(sampled, narration) == ""
