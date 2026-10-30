@@ -47,8 +47,9 @@ Every arm is today's main app (identical to wave 18's, `7dbb8c24`), with one eva
 
 ## Design
 - **Books and outlines.** Dracula (outline run 40651541095, digest 9ff4f200…) and Frankenstein (40651268575, 5b417a71…;
-  its chapter 3 fails on every arm alike and is left out) from E4, and Wuthering Heights (one new outline-only run,
-  digest recorded here before its first arm run). Each run writes the outline's chapters with E4's `chapters` step
+  its chapter 3 fails on every arm alike and is left out) from E4, and Wuthering Heights (outline-only run 41125885372,
+  2026-10-30, app 9310e578, 6 chapters of 2 beats, every beat with a character, digest
+  `0b15bd10cbe29317fdea0b49fabac24aaad9304832f046d135c0474e47eecde9`, 13 generator requests). Each run writes the outline's chapters with E4's `chapters` step
   (`replicates=1`) on the same fixed outline, so arms differ only in the switch.
 - **Days.** E4 keeps its morning book-day. Each later Pacific day runs A plus two treatments in a rotating order (day 1:
   A, P, N; day 2: A, N, V; day 3: A, V, P; …), one book per day in the order Dracula, Wuthering, Frankenstein, so every
