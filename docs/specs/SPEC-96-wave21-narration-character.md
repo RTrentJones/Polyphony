@@ -158,5 +158,15 @@ same deviation for E4: E4's chapters were scored outside its pre-registration; i
 - **Conduct.** The analysis runs once, after the stop, reading every run named in the ledger's day labels. Outcomes are
   not read before then; only counts (chapters written, failures, requests, judge coverage) are, to steer the schedule.
 
+
+Signed: principal, 2026-10-30. SPEC-96 pre-registration as written above, harness at cc34b82 (cc34b82381af3852eaa245d425d15e20107474d4: exact sign-flip test on cluster means with a t-interval, the fewer-than-7-clusters 'undetermined' rule, H2's decision wording as pre-registered, the balanced day table with day 2 dispatched V, A, N, app-sha and ablation-key refusals, ledger-day pairing; pov_fix keeps the mode when sample prose outranks the excerpts, which changes no W21 arm's prompt; judge coverage counts only completed judgments; judgments keyed by run, book, position and replicate), merged to main as ebed0aa (ebed0aa1a0c5b1e28da30b927ac294f88aa70cd8). Every arm, A included, dispatches on ref ebed0aa with `app_sha=ebed0aa1a0c5b1e28da30b927ac294f88aa70cd8`, and the analysis runs with `--app-sha ebed0aa1a0c5b1e28da30b927ac294f88aa70cd8`. Before day 1's first dispatch, the ledger records that `git diff cc34b82 ebed0aa -- app alembic alembic.ini requirements.txt evals .github/workflows/evals.yml` is empty; if it is not, this signature lapses and the pre-registration returns for review. Primary: Holm over {H1, H2} at family-wise 0.05 on the two-sided sign-flip p, with the direction required to be lower; a contrast with fewer than 7 clusters, and an H2 at its instrument floor, read undetermined and stay in the family; H3 is descriptive; the instrument floor uses the lower bound of A's t-interval. Disclosed before signature: M1 was computed on the 12 chapters of E4 run 40837155387 (W18, A-equivalent) before H1's measure was amended (see the disclosure); the amendment rests on the source-text validation alone.
+
+- **Dispatch ref (coordinator's note).** GitHub dispatches a workflow on a branch, not on a commit, so "on ref
+  ebed0aa" is carried out as: each dispatch is on `main`, and immediately before it the runner checks that `git diff
+  ebed0aa origin/main -- app alembic alembic.ini requirements.txt evals .github/workflows/evals.yml` is empty, stopping the
+  day if it is not. `app_sha=ebed0aa1a0c5b1e28da30b927ac294f88aa70cd8` pins the app under test regardless.
+
 ## Ledger
 Rows are kept in SPEC-95's ledger, labelled W21.
+- 2026-10-30: `git diff cc34b82 ebed0aa -- app alembic alembic.ini requirements.txt evals .github/workflows/evals.yml` is
+  empty (0 bytes), recorded before day 1's first dispatch.
