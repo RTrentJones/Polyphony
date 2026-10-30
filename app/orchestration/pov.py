@@ -45,10 +45,17 @@ def pov_mode(text) -> Optional[str]:
 
 class Pov(NamedTuple):
     """A scene's point of view: the narrative mode, and whose head the scene
-    stays in (a cast member's name), if anyone's."""
+    stays in (a cast member's name), if anyone's.
+
+    `from_narration` is set only by the eval-only `pov_fix` ablation (SPEC-96)
+    for a book whose style guide names no mode but whose narration excerpts the
+    prompt shows: what the excerpts decide ("person and tense", or "person" when
+    the style guide sets a tense). The POV line then states no mode; `mode`
+    keeps the default, which still decides the one-head rule."""
 
     mode: str
     who: Optional[str] = None
+    from_narration: str = ""
 
     @property
     def one_head(self) -> bool:
@@ -108,12 +115,26 @@ NAMING_RULE = (
 _NO_FORESHADOWING = "no foreshadowing — never 'would later learn'"
 
 
-def pov_instruction(pov: Pov) -> str:
+# Where a `Pov.from_narration` POV line sends the writer for person and tense,
+# per prompt: the beat prompt shows the excerpts in its STYLE section below the
+# line; the planner shows none; revise keeps the draft's own (SPEC-96 pov_fix).
+NARRATION_BELOW = "the book's narration passages below"
+BOOK_NARRATION = "the book's own narration"
+DRAFT_NARRATION = "the draft's own narration"
+
+
+def pov_instruction(pov: Pov, narration: str = NARRATION_BELOW) -> str:
     """The POV paragraph of the beat prompt and the revise prompt (SPEC-24):
     mode and character on one line, then what the mode allows. A one-head mode
     names no one before the POV character learns their name; a wide mode may
-    leave one head, but neither tells what has not happened yet."""
-    head = f"{POV_LABEL}: {pov.label}."
+    leave one head, but neither tells what has not happened yet. A
+    `from_narration` POV (SPEC-96 pov_fix) names no mode on that line: the
+    character, if any, and that person (and tense) come from `narration`."""
+    if pov.from_narration:
+        lead = f"{pov.who}; " if pov.who else ""
+        head = f"{POV_LABEL}: {lead}{pov.from_narration} from {narration}."
+    else:
+        head = f"{POV_LABEL}: {pov.label}."
     if not pov.one_head:
         allowed = _WIDE[pov.mode.rsplit(" ", 1)[-1]]
         return f"{head} {POV_WIDE_OPEN} {allowed} no aftermath, {_NO_FORESHADOWING}."
@@ -131,11 +152,12 @@ def pov_instruction(pov: Pov) -> str:
 def plan_pov_instruction(pov: Pov) -> str:
     """`pov_instruction`, plus (one head) a plan that stays in that head and
     lets the POV character learn a name before the prose uses it (W3-3)."""
+    line = pov_instruction(pov, BOOK_NARRATION)
     if not pov.one_head:
-        return pov_instruction(pov)
+        return line
     who = pov.who or "the point-of-view character"
     return (
-        f"{pov_instruction(pov)} Plan only what {who} perceives. If a beat needs a "
+        f"{line} Plan only what {who} perceives. If a beat needs a "
         f"person named, plan the moment {who} learns the name (an introduction, a "
         "nameplate, a form)."
     )
