@@ -760,3 +760,39 @@ def test_chapters_refuse_other_apps_and_runs_without_a_day(tmp_path):
         analyze.chapters([tmp_path], days, "b" * 40)
     with pytest.raises(SystemExit, match="no ledger day"):
         analyze.chapters([tmp_path], {"801": "W21 day 1"}, "a" * 40)
+
+
+def _decide(contrast, d, reject, k=17, p_holm=0.01):
+    s = {"d": d, "t_ci": [d - 0.1, d + 0.1], "n_pairs": 2 * k, "n_clusters": k}
+    return analyze.decision(contrast, s, {"reject": reject, "p_holm": p_holm}, None, None)
+
+
+def test_h2_decision_wording_matches_the_pre_registration():
+    held = _decide("N", -0.2, True)
+    assert "without the book-narration excerpts, the judge attributes the narration " \
+        "to the planned narrator less often by 0.2" in held
+    assert "candidate for removal" not in held
+    null = _decide("N", -0.05, False)
+    assert "no effect of the excerpts on narrator attribution detectable at n = 34" in null
+    assert "the lever becomes a candidate for removal, decided with E4's result" in null
+    rev = _decide("N", 0.2, True)
+    assert "the excerpts mislead attribution (d = 0.2)" in rev
+    assert "excerpt selection is revisited in the next product wave" in rev
+    assert "candidate for removal" not in rev
+    floored = analyze.decision(
+        "N", {"d": -0.2, "n_pairs": 34, "n_clusters": 17}, {"reject": True},
+        None, {"at_floor": True, "a_mean": 0.5, "t_ci": [0.4, 0.6]},
+    )
+    assert "undetermined: instrument at floor on generated text" in floored
+
+
+def test_fewer_than_seven_clusters_is_undetermined():
+    for c in ("P", "N"):
+        line = _decide(c, -0.3, True, k=6)
+        assert line.startswith(f"{c}: undetermined: too few clusters (k = 6 < 7")
+    assert "lowers person mismatch" in _decide("P", -0.3, True, k=7)
+
+
+def test_pairs_report_counts_per_book():
+    _, counts = analyze.pairs(_study(days=1), "P")
+    assert sum(counts["pairs_by_book"].values()) == counts["pairs"]

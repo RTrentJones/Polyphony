@@ -95,7 +95,7 @@ same deviation for E4: E4's chapters were scored outside its pre-registration; i
   | day | book | runs, in dispatch order |
   |---|---|---|
   | 1 | D | A, P, N |
-  | 2 | W | N, A, V |
+  | 2 | W | V, A, N |
   | 3 | F | V, P, A |
   | 4 | D | A, V, N |
   | 5 | W | P, A, V |
@@ -113,8 +113,9 @@ same deviation for E4: E4's chapters were scored outside its pre-registration; i
   with A's chapter of the same day, book and outline position.
 - **Budget contingency.** Before a day's runs, the remaining generator budget is read (≤ 400 a Pacific day including E4's
   ≈ 230). If it cannot cover three runs (≈ 55 each) plus a 40-request reserve, the day runs A plus the first treatment of
-  its row; the skipped arm is recorded and the next day that has room runs it with a new A on the same book. A is never
-  dropped.
+  its row; the skipped arm is recorded and the next day that has room runs it with a new A on the same book, under its
+  own ledger label (e.g. "W21 day 4b") naming its own A. A is never dropped. The analysis reports pair counts per book ×
+  treatment, so an incomplete cycle's imbalance is visible.
 - **Stop.** Generation ends at the end of Nov 12 Pacific, whatever n has been reached; judging finishes by Nov 13; the
   analysis runs once, before Nov 14 (the Claude credit's end). The stop is decided by date and counts, never by outcomes.
 - **Unit and n.** A paired chapter. Each nine-day cycle gives each treatment 6 days × ≈ 6 chapters ≈ 34 pairs over 17
@@ -135,7 +136,8 @@ same deviation for E4: E4's chapters were scored outside its pre-registration; i
   percentile bootstrap is reported as a descriptive line. Holm's correction over the family {H1, H2} at family-wise
   0.05; a primary whose measure failed validation leaves the family before arm data. An exact sign-flip test on k
   clusters cannot give p below 2/2^k, so a contrast with fewer than 7 clusters at the stop reads "undetermined: too few
-  clusters". Power (sd 0.3, 1,000 simulations, α 0.025, Holm's first step): 17 clusters × 2 pairs detects an effect of
+  clusters"; such a contrast stays in the Holm family with its p as computed (k is set by the schedule, not by
+  outcomes), as does an H2 at its instrument floor. Power (sd 0.3, 1,000 simulations, α 0.025, Holm's first step): 17 clusters × 2 pairs detects an effect of
   0.2 with 0.90 and 0.1 with 0.34; 11 × 2: 0.66 and 0.20. Judge measures use Sonnet; Groq is
   reported beside it and never changes a decision.
 - **Instrument floor (read at analysis).** If A's M2 t-interval includes 0.5, H2 reads "undetermined: the instrument is

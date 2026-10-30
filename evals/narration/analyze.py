@@ -285,6 +285,8 @@ def pairs(rows: list[dict], contrast: str) -> tuple[list[tuple], dict]:
         out.append((t, c))
     counts["pairs"] = len(out)
     counts["excluded"] = {k: dict(v) for k, v in counts["excluded"].items()}
+    # An incomplete day-table cycle leaves books unevenly paired: show it.
+    counts["pairs_by_book"] = dict(sorted(Counter(t["book"] for t, _ in out).items()))
     return out, counts
 
 
@@ -457,18 +459,29 @@ _WORDING = {
         "(not equivalence)",
     ),
     "N": (
-        "the book's narration excerpts carry the narrator's voice: without "
-        "them M2 accuracy is lower by {d}",
-        "no effect of the excerpts detectable at n = {n} (not equivalence)",
+        "without the book-narration excerpts, the judge attributes the narration "
+        "to the planned narrator less often by {d}",
+        "no effect of the excerpts on narrator attribution detectable at n = {n} "
+        "(not equivalence)",
     ),
 }
 _FOLLOW = {
     "P": ("the fix is proposed for the next product wave", None),
     "N": (
         None,
-        "the excerpts become a candidate for removal, decided with E4's result",
+        "the lever becomes a candidate for removal, decided with E4's result",
     ),
 }
+# H2 the other way round (N attributes better than A), as pre-registered.
+_REVERSED = {
+    "N": "the excerpts mislead attribution (d = {d}); the excerpt selection is "
+    "revisited in the next product wave",
+}
+# An exact sign-flip test on k clusters cannot give p below 2/2^k, which must
+# reach Holm's first step (0.025): fewer clusters cannot hold (SPEC-96). The
+# contrast stays in the Holm family with its p as computed (k is fixed by the
+# schedule, not by outcomes).
+MIN_CLUSTERS = 7
 
 
 def _key(measure: tuple) -> str:
@@ -521,15 +534,23 @@ def decision(
             f"{contrast}: not tested ({untested}): descriptive only (d = {s['d']}, "
             f"n = {s['n_pairs']}) ({caveat})"
         )
+    if (s.get("n_clusters") or 0) < MIN_CLUSTERS:
+        return (
+            f"{contrast}: undetermined: too few clusters (k = {s.get('n_clusters') or 0}"
+            f" < {MIN_CLUSTERS}; d = {s['d']}, n = {s['n_pairs']}) ({caveat})"
+        )
     holds = test_["reject"] and s["d"] is not None and s["d"] < 0
     yes, no = _WORDING[contrast]
     follow = _FOLLOW[contrast][0 if holds else 1]
     line = (yes if holds else no).format(d=abs(s["d"] or 0), n=s["n_pairs"])
     if not holds and test_["reject"]:
-        line = (
-            f"the difference is the other way (d = {s['d']}, Holm p = "
-            f"{test_['p_holm']}): the hypothesis does not hold"
-        )
+        if contrast in _REVERSED:
+            line = _REVERSED[contrast].format(d=s["d"])
+        else:
+            line = (
+                f"the difference is the other way (d = {s['d']}, Holm p = "
+                f"{test_['p_holm']}): the hypothesis does not hold"
+            )
         follow = None
     return f"{contrast}: {line}" + (f"; {follow}" if follow else "") + f" ({caveat})"
 
