@@ -35,6 +35,10 @@ each, keyed by run id, ablation, app sha, position and replicate:
   seeded order; it names each line's speaker, one call per scene, JSON
   {"speakers": [...]}. A reply of the wrong length leaves the scene's lines
   unrated (a merged or split line would shift every later answer, W16-1).
+  Each chapter record also counts the lines a first-person tag credited to
+  the narrator (`m3_narrator_lines`; the judges' `rated_own`/`correct_own`
+  leave them out) and the lines' chance (`m3_chance_sum`: 1 / the listed
+  cast's size, summed), for the analysis' sensitivity and floor.
 
 Two judges, as chapters_compare: Sonnet and the free chain (`compare.judges`).
 The answers are recorded beside each item (the key); the prompt never shows
@@ -364,13 +368,15 @@ def tagged_lines(
         para = normalize_quotes(" ".join(raw.split()))
         tagged = list(_tagged(para))
         spans, _ = _attribute_paragraph(para)
-        explicit = {}
+        explicit, own = {}, set()
         for i, (*_x, a_tag, b_tag) in enumerate(tagged):
             who = (a_tag and _canon_speaker(a_tag[2])) or (
                 b_tag and _canon_speaker(b_tag[2])
             )
             if who:
                 explicit[i] = resolve_tag(who, members, scene, narrator, titles)
+                if who in _FIRST_PERSON_TAG and explicit[i]:
+                    own.add(explicit[i])  # credited as the narrator ("I said")
         named = set(explicit.values())
         only = next(iter(named)) if len(named) == 1 and None not in named else None
         row, prev, left = [], None, None
@@ -388,7 +394,9 @@ def tagged_lines(
                 if prev == name and row and row[-1][2] is not None:
                     lines[-1]["line"] += " " + s["text"]
                 else:
-                    lines.append({"speaker": name, "line": s["text"]})
+                    lines.append(
+                        {"speaker": name, "line": s["text"], "narrator": name in own}
+                    )
                 row.append((start, end, len(lines)))
                 left = None
             else:
@@ -491,6 +499,10 @@ def m3_item(
         "answers": [ln["speaker"] for ln in lines],
         "excluded": found["excluded"],
         "outside_beat": sum(1 for ln in lines if ln["speaker"] not in beat_cast),
+        # which lines a first-person tag credited (SPEC-96 sensitivity d)
+        "narrator_lines": [ln["narrator"] for ln in lines],
+        # chance for these lines: 1 / the listed cast's size, summed
+        "chance_sum": len(lines) / len(cast),
     }
 
 
@@ -543,6 +555,7 @@ async def judge_m2(judge, items: list) -> dict:
 async def judge_m3(judge, scenes: list[dict]) -> dict:
     """Per chapter: correct among rated lines, eligible lines, unrated ones."""
     t = _tally() | {"eligible": 0, "provider": judge.provider_id, "named": []}
+    t |= {"rated_own": 0, "correct_own": 0}  # lines not credited as narrator
     for sc in scenes:
         if not sc["prompt"]:
             continue
@@ -560,6 +573,11 @@ async def judge_m3(judge, scenes: list[dict]) -> dict:
             t["unparseable"] += sum(g is None for g in got)
             t["rated"] += sum(g is not None for g in got)
             t["correct"] += sum(g == a for g, a in zip(got, sc["answers"]))
+            mine = sc.get("narrator_lines") or [False] * n
+            for g, a, by_i in zip(got, sc["answers"], mine):
+                if g is not None and not by_i:
+                    t["rated_own"] += 1
+                    t["correct_own"] += g == a
         t["named"].append(got)
     return t
 
@@ -695,6 +713,10 @@ async def judge_planned(planned: list[dict], js: dict) -> tuple[list[dict], str 
         rec["m3_lines"] = sum(len(s["answers"]) for s in c["m3_scenes"])
         rec["m3_excluded"] = sum(s["excluded"] for s in c["m3_scenes"])
         rec["m3_outside_beat"] = sum(s.get("outside_beat", 0) for s in c["m3_scenes"])
+        rec["m3_narrator_lines"] = sum(
+            sum(s.get("narrator_lines") or []) for s in c["m3_scenes"]
+        )
+        rec["m3_chance_sum"] = sum(s.get("chance_sum", 0) for s in c["m3_scenes"])
         rec["m2"], rec["m3"] = rec.get("m2") or {}, {}
         rec["m2_judges"] = {}
         if c["judged"] and not stopped:

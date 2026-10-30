@@ -1,48 +1,71 @@
 """SPEC-96: the pre-registered analysis of wave 21's arms. Run once, after the
 last pair (SPEC-96 Conduct); before then only counts are read.
 
-Inputs: the `chapters` reports of every arm run named in the ledger (M1 is
-computed from their text by evals.narration.contract) and the
-`narration_judges` reports judging them (M2, M3). A run's arm is its report's
-`ablation` ("" A, `pov_fix` P, `no_excerpts` N, `no_voices` V). A run's day is
-the Pacific date of its creation: from `--dates` (JSON {run id: "YYYY-MM-DD"},
-written by the `dates` command from each run's GitHub `created_at`), else the
-Pacific date of the `chapters` step's `started_at`.
+Inputs (all required, refused rather than guessed):
+- the `chapters` reports of every arm run named in the ledger (M1 is
+  computed from their text by evals.narration.contract) and the
+  `narration_judges` reports judging them (M2, M3);
+- `--app-sha`: the app every arm ran; a chapter whose report names another
+  app sha is refused;
+- `--days`: JSON {run id: ledger day label, e.g. "W21 day 3"}; a run
+  without a label is refused.
+A run's arm is its report's top-level `ablation` (None/"" A, `pov_fix` P,
+`no_excerpts` N, `no_voices` V); a report without the key (E4's) is refused
+(`contract.ablation`).
 
 Pairs. For each contrast (P, N, V vs A), each treatment chapter is paired with
-A's chapter of the same book, outline position, replicate and day (A's run of
-that book on that day; two such A runs are refused). A pair is left out when
-either side's chapter has a quota failure or no scenes (counted per arm), when
-no A chapter matches (unpaired, counted), or when the two runs' outline
-digests differ (counted). A chapter with no tagged dialogue line is left out
-of M3 only, a chapter with no judged narrator passage (its POV has no voice
-source) out of M2 only, both counted.
+A's chapter of the same book, outline position and replicate on the same
+ledger day (A's run of that book that day; two such A runs are refused). A
+pair is left out when either side's chapter has a quota failure or no scenes
+(counted per arm), when no A chapter matches (unpaired), or when the two
+runs' outline digests differ. A chapter with no tagged dialogue line is left
+out of M3 only, one with no judged narrator passage out of M2 only, counted.
 
-Statistic (pre-registered). Per contrast and measure: the mean paired
-difference (treatment - A) over the chapter pairs; its 95% percentile
-bootstrap interval, RESAMPLES = 10,000 resamples with seed 0, resampling
-outline chapters (book, position) with all their pairs (every replicate and
-day of that chapter moves with it); the bootstrap p = 2 x the share of
-resamples on the far side of 0 (at or beyond 0, away from the observed mean;
-1 when the mean is 0), capped at 1. Holm's correction at family-wise 0.05
-across the primary tests that are tested (P: M1 `person_mismatch_window`;
-N: M2 by Sonnet; V: M3 by Sonnet). The family is fixed before arm data: a
-primary test whose measure failed its validation (`--m1-validation`,
-`--m3-validation`) is removed from it and reported descriptively, and H3 is
-removed (descriptive) unless A and V each have >= 60 eligible M3 lines
-across their paired chapters (`eligible_lines`). A hypothesis holds when its
-Holm-adjusted p is <= 0.05 and its difference is below 0 (H1: P lowers
-person mismatch; H2: N lowers M2 accuracy; H3: V lowers M3 accuracy).
-`tense_mismatch`, sentence-level `person_mismatch` and `quote_mismatch` are
-descriptive only. The free judge's (Groq's) results are printed beside
-Sonnet's and change no decision.
+Primary statistic (`test`). Per contrast and measure, the pairs' differences
+(treatment - A) are averaged within each cluster, an outline chapter (book,
+position) with all its pairs, and the k cluster means are the units:
+- d = the mean of the cluster means;
+- p = an exact two-sided sign-flip randomization test on the cluster means:
+  the share of the 2^k sign patterns whose |mean| is at least the observed
+  |d| (enumerated exactly for k <= 20, by meet in the middle; else
+  SIGN_DRAWS = 100,000 seeded draws, seed 0, p = (hits + 1) / (draws + 1));
+- a 95% t-interval on the cluster means (df = k - 1).
+The cluster percentile bootstrap (10,000 resamples, seed 0) is kept as a
+descriptive line only: at these cluster counts its null rejection rate at a
+nominal 0.05 was measured at 0.08-0.135.
 
-M2 per chapter: correct / rated passages; M3 per chapter: correct / rated
-lines; M1: the chapter's mismatch shares (None when nothing classifiable).
+Family. Holm at family-wise 0.05 on the sign-flip p over H1 (P: M1
+`person_mismatch_window`) and H2 (N: M2 by Sonnet), minus any whose measure
+failed its validation (`--m1-validation`; `--m2-...` has no bar). H3 (V: M3
+by Sonnet) is descriptive only. A hypothesis holds when its Holm-adjusted p
+is <= 0.05 and its difference is below 0.
 
-python -m evals.narration.analyze dates RUN_ID... --repo OWNER/REPO --out F
-python -m evals.narration.analyze run REPORT_OR_DIR... [--dates F]
-    [--m1-validation F] [--m3-validation F] [--p-measure M] [--json OUT]
+Instrument floor (read at analysis, from A's chapters in the contrast's
+pairs, per cluster): when the t-interval of A's M2 accuracy includes 0.5, H2
+reads "undetermined: instrument at floor on generated text" (no removal
+wording); when the t-interval's lower bound of A's M3 accuracy is not above
+chance + 0.20 (chance: 1 / the listed cast's size, averaged over the eligible
+lines), M3 reads the same.
+
+Sensitivities (descriptive, beside the primaries): (a) H1 on sentence-level
+`person_mismatch`, and whether its direction agrees; (b) N vs A on
+`person_mismatch_window`; (c) H2 on the pairs whose chapters are both first
+person (`judges.first_person`); (d) M3 without the lines a first-person tag
+credited to the narrator.
+
+Per arm: chapter outcomes (failure class: none, product, quota; chapters
+with no scenes) as an outcome, not only an exclusion; M3 eligible lines; and
+a descriptive 8-gram overlap between each chapter's text and the voice
+samples M2's judge sees for it (the share of the chapter's word 8-grams that
+occur in the samples).
+
+The free judge's (Groq's) results are printed beside Sonnet's and change no
+decision. `tense_mismatch`, `quote_mismatch` and sentence-level
+`person_mismatch` are descriptive only.
+
+python -m evals.narration.analyze dates RUN_ID... --repo OWNER/REPO
+python -m evals.narration.analyze run REPORT_OR_DIR... --app-sha SHA
+    --days DAYS.json [--m1-validation F] [--json OUT]
 """
 
 from __future__ import annotations
@@ -50,44 +73,46 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import re
 import subprocess
-from collections import defaultdict
-from datetime import datetime
+from bisect import bisect_left, bisect_right
+from collections import Counter, defaultdict
 from pathlib import Path
-from statistics import mean
-from zoneinfo import ZoneInfo
+from statistics import mean, stdev
 
 from evals.narration import contract
 from evals.narration.judges import STEP as JUDGES_STEP
 
 RESAMPLES, LEVEL, SEED, ALPHA = 10_000, 0.95, 0, 0.05
-PACIFIC = ZoneInfo("America/Los_Angeles")
+EXACT_MAX, SIGN_DRAWS = 20, 100_000
+NGRAM = 8
 ARMS = {"": "A", "pov_fix": "P", "no_excerpts": "N", "no_voices": "V"}
 CONTRASTS = ("P", "N", "V")
-# contrast -> (measure, judge) of its primary test (None: a script measure)
-PRIMARY = {
-    "P": ("person_mismatch_window", None),
-    "N": ("m2", "sonnet"),
-    "V": ("m3", "sonnet"),
-}
+# contrast -> (measure, judge): the tested primaries, and H3's (descriptive)
+PRIMARY = {"P": ("person_mismatch_window", None), "N": ("m2", "sonnet")}
+DESCRIPTIVE = {"V": ("m3", "sonnet")}
 M1 = ("person_mismatch", "person_mismatch_window", "tense_mismatch", "quote_mismatch")
 JUDGES = ("sonnet", "free")
+CHANCE_MARGIN = 0.20
+FLOOR = "undetermined: instrument at floor on generated text"
 CAVEAT = "exploratory; Flash-Lite-written, {judged}not human, development corpora"
+# two-sided 95% t critical values; df beyond the table interpolates in 1/df
+_T975 = {
+    1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365,
+    8: 2.306, 9: 2.262, 10: 2.228, 11: 2.201, 12: 2.179, 13: 2.160, 14: 2.145,
+    15: 2.131, 16: 2.120, 17: 2.110, 18: 2.101, 19: 2.093, 20: 2.086,
+    21: 2.080, 22: 2.074, 23: 2.069, 24: 2.064, 25: 2.060, 26: 2.056,
+    27: 2.052, 28: 2.048, 29: 2.045, 30: 2.042, 40: 2.021, 60: 2.000,
+    120: 1.980,
+}  # fmt: skip
 
 
-# --- days ----------------------------------------------------------------------
-
-
-def pacific_day(stamp: str | None) -> str | None:
-    """The Pacific date of an ISO timestamp ("...Z" or with an offset)."""
-    if not stamp:
-        return None
-    t = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-    return t.astimezone(PACIFIC).date().isoformat()
+# --- days -----------------------------------------------------------------------
 
 
 def dates(run_ids: list[str], repo: str, gh=None) -> dict[str, str]:
-    """{run id: Pacific date of its GitHub `created_at`} by `gh api`."""
+    """{run id: its GitHub `created_at`}, a convenience for writing the
+    ledger's day labels (`--days`); the analysis never reads dates."""
 
     def _gh(rid: str) -> str:
         return subprocess.run(
@@ -98,7 +123,7 @@ def dates(run_ids: list[str], repo: str, gh=None) -> dict[str, str]:
         ).stdout.strip()
 
     gh = gh or _gh
-    return {rid: pacific_day(gh(rid)) for rid in run_ids}
+    return {rid: gh(rid) for rid in run_ids}
 
 
 # --- collecting -----------------------------------------------------------------
@@ -129,42 +154,84 @@ def judged(paths: list[Path]) -> dict[tuple, dict]:
     return out
 
 
-def _share(t: dict | None) -> float | None:
-    if not t or not t.get("rated"):
+def _share(t: dict | None, own: bool = False) -> float | None:
+    rated, correct = ("rated_own", "correct_own") if own else ("rated", "correct")
+    if not t or not t.get(rated):
         return None
-    return t["correct"] / t["rated"]
+    return t[correct] / t[rated]
 
 
-def chapters(paths: list[Path], days: dict | None = None) -> list[dict]:
-    """One row per arm chapter: arm, book, position, replicate, day, failure,
-    scenes, M1 shares, and M2/M3 per judge."""
+def _grams(text: str, n: int = NGRAM) -> set:
+    w = re.findall(r"[a-z0-9']+", (text or "").lower().replace("’", "'"))
+    return {tuple(w[i : i + n]) for i in range(len(w) - n + 1)}
+
+
+def sample_overlap(book: str, row: dict) -> float | None:
+    """The share of the chapter's word 8-grams found in the voice samples
+    M2's judge sees for it (both narrators'); None without such samples."""
+    from evals.narration import judges
+    from evals.validation import rn2
+
+    texts = [t for t, _ in judges.scene_texts(row)]
+    pair = judges.narrator_pair(book, row.get("pov"))
+    passages = judges.passages(texts)
+    if pair is None or not passages:
+        return None
+    samples = [s for who in pair for s in rn2.voice_samples(book, who, passages)]
+    mine = _grams("\n".join(texts))
+    if not mine:
+        return None
+    return len(mine & _grams("\n".join(samples))) / len(mine)
+
+
+def chapters(paths: list[Path], days: dict, app_sha: str) -> list[dict]:
+    """One row per arm chapter: arm, book, position, replicate, day label,
+    failure, scenes, M1, first person, sample overlap, M2/M3 per judge."""
+    from evals.narration.judges import first_person
+
     days = {str(k): v for k, v in (days or {}).items()}
     js = judged(paths)
+    profiles: dict = {}
     rows = []
-    for r in contract.score_reports(paths):
-        arm = ARMS.get(r["ablation"])
+    for meta, r in contract.chapter_rows(paths):
+        run = str(meta["run"])
+        if meta["app_sha"] != app_sha:
+            raise SystemExit(f"run {run}: app {meta['app_sha']}, not {app_sha}")
+        if run not in days:
+            raise SystemExit(f"run {run} has no ledger day label in --days")
+        arm = ARMS.get(meta["ablation"])
         if arm is None:
-            raise SystemExit(f"run {r['run']}: unknown ablation {r['ablation']!r}")
-        key = (str(r["run"]), r["position"], r.get("replicate", 1))
-        rec = js.get(key) or {}
+            raise SystemExit(f"run {run}: unknown ablation {meta['ablation']!r}")
+        book = meta["book"]
+        if book not in profiles:
+            profiles[book] = contract.profile(book)
+        text = contract.chapter_text(r)
+        m1 = contract.score_text(text, profiles[book])
+        rec = js.get((run, r.get("position"), r.get("replicate", 1))) or {}
         row = {
-            "run": str(r["run"]),
+            "run": run,
             "arm": arm,
-            "book": r["book"],
-            "position": r["position"],
+            "book": book,
+            "position": r.get("position"),
             "replicate": r.get("replicate", 1),
-            "day": days.get(str(r["run"])) or pacific_day(r.get("started_at")),
-            "outline_digest": r.get("outline_digest"),
-            "app_sha": r.get("app_sha"),
+            "day": days[run],
+            "outline_digest": meta["outline_digest"],
             "failure": r.get("failure"),
-            "scenes": r.get("scenes"),
+            "scenes": sum(
+                1 for s in r.get("scenes") or [] if (s.get("content") or "").strip()
+            ),
             "judged": bool(rec),
+            "first_person": bool(text.strip()) and first_person(text),
+            "sample_overlap": sample_overlap(book, r) if text.strip() else None,
         }
-        row |= {m: r[m] for m in M1}
+        row |= {m: m1[m] for m in M1}
         for j in JUDGES:
             row[f"m2 {j}"] = _share((rec.get("m2_judges") or {}).get(j))
             row[f"m3 {j}"] = _share((rec.get("m3") or {}).get(j))
+            row[f"m3_own {j}"] = _share((rec.get("m3") or {}).get(j), own=True)
         row["m3_lines"] = rec.get("m3_lines")
+        row["m3_narrator_lines"] = rec.get("m3_narrator_lines")
+        row["m3_chance_sum"] = rec.get("m3_chance_sum")
         rows.append(row)
     return rows
 
@@ -178,23 +245,23 @@ def excluded(row: dict) -> str | None:
 
 
 def pairs(rows: list[dict], contrast: str) -> tuple[list[tuple], dict]:
-    """[(treatment row, A row)] for `contrast`, and the counts left out."""
+    """[(treatment row, A row)] for `contrast` by (book, day label, position,
+    replicate), and the counts left out."""
     a_runs: dict = defaultdict(set)
     for r in rows:
         if r["arm"] == "A":
             a_runs[(r["book"], r["day"])].add(r["run"])
     for (book, day), runs in a_runs.items():
-        if len(runs) > 1 and day is not None:
+        if len(runs) > 1:
             raise SystemExit(f"{book} on {day}: {len(runs)} A runs {sorted(runs)}")
     a = {
-        (r["book"], r["position"], r["replicate"], r["day"]): r
+        (r["book"], r["day"], r["position"], r["replicate"]): r
         for r in rows
-        if r["arm"] == "A" and r["day"] is not None
+        if r["arm"] == "A"
     }
     counts = {
         "pairs": 0,
         "unpaired": 0,
-        "no_day": 0,
         "outline_differs": 0,
         "excluded": {"treatment": defaultdict(int), "A": defaultdict(int)},
     }
@@ -202,10 +269,7 @@ def pairs(rows: list[dict], contrast: str) -> tuple[list[tuple], dict]:
     for t in rows:
         if t["arm"] != contrast:
             continue
-        if t["day"] is None:
-            counts["no_day"] += 1
-            continue
-        c = a.get((t["book"], t["position"], t["replicate"], t["day"]))
+        c = a.get((t["book"], t["day"], t["position"], t["replicate"]))
         if c is None:
             counts["unpaired"] += 1
             continue
@@ -236,53 +300,120 @@ def differences(prs: list[tuple], measure: str) -> tuple[dict, int]:
     return dict(clusters), missing
 
 
-# --- the statistic --------------------------------------------------------------
-
-
-def bootstrap(
-    clusters: dict, resamples: int = RESAMPLES, seed: int = SEED, level: float = LEVEL
-) -> dict:
-    """Mean of every pair's difference; a percentile interval and a two-sided
-    p from resampling clusters with all their pairs."""
-    keys = sorted(clusters)
-    if not keys:
-        return {"d": None, "ci": None, "p": None, "n_clusters": 0, "n_pairs": 0}
-    stat = lambda ks: mean(v for k in ks for v in clusters[k])  # noqa: E731
-    d = stat(keys)
-    rng = random.Random(seed)
-    boot = sorted(stat(rng.choices(keys, k=len(keys))) for _ in range(resamples))
-    lo = int(resamples * (1 - level) / 2)
-    if d > 0:
-        far = sum(b <= 0 for b in boot)
-    elif d < 0:
-        far = sum(b >= 0 for b in boot)
-    else:
-        far = resamples / 2
-    return {
-        "d": round(d, 4),
-        "ci": [round(boot[lo], 4), round(boot[-lo - 1], 4)],
-        "p": min(1.0, round(2 * far / resamples, 6)),
-        "n_clusters": len(keys),
-        "n_pairs": sum(len(clusters[k]) for k in keys),
-    }
-
-
-H3_MIN_LINES = 60  # H3 is tested only when A and V each have this many
-
-
 def eligible_lines(prs: list[tuple]) -> dict:
     """M3's eligible (tag-fixed) dialogue lines summed over the paired
-    chapters of a contrast, per side: {"treatment": n, "A": n}. The
-    pre-registration tests H3 only when both are >= H3_MIN_LINES."""
+    chapters of a contrast, per side: {"treatment": n, "A": n}."""
     return {
         "treatment": sum(t.get("m3_lines") or 0 for t, _ in prs),
         "A": sum(c.get("m3_lines") or 0 for _, c in prs),
     }
 
 
+# --- the statistics ---------------------------------------------------------------
+
+
+def _subset_sums(xs: list[float]) -> list[float]:
+    sums = [0.0]
+    for x in xs:
+        sums = [s + x for s in sums] + [s - x for s in sums]
+    return sums
+
+
+def sign_flip_p(
+    means: list[float], draws: int = SIGN_DRAWS, seed: int = SEED
+) -> float | None:
+    """Two-sided sign-flip randomization p on cluster means: the share of
+    sign patterns whose |sum| reaches the observed |sum|. Exact for k <=
+    EXACT_MAX (meet in the middle: the two halves' 2^(k/2) signed sums,
+    one sorted and bisected); else `draws` seeded patterns, (hits+1)/(draws+1)."""
+    k = len(means)
+    if not k:
+        return None
+    obs = abs(sum(means))
+    eps = 1e-9 * max(1.0, sum(abs(m) for m in means))
+    if obs <= eps:
+        return 1.0
+    if k <= EXACT_MAX:
+        left = _subset_sums(means[: k // 2])
+        right = sorted(_subset_sums(means[k // 2 :]))
+        n, hits = len(right), 0
+        for a in left:
+            hits += n - bisect_left(right, obs - a - eps)
+            hits += bisect_right(right, -obs - a + eps)
+        return min(1.0, hits / 2**k)
+    rng = random.Random(seed)
+    hits = sum(
+        abs(sum(m if rng.random() < 0.5 else -m for m in means)) >= obs - eps
+        for _ in range(draws)
+    )
+    return (hits + 1) / (draws + 1)
+
+
+def t_crit(df: int) -> float:
+    """The two-sided 95% t critical value (table; 1/df interpolation)."""
+    if df in _T975:
+        return _T975[df]
+    keys = sorted(_T975) + [float("inf")]
+    vals = [_T975[k] for k in sorted(_T975)] + [1.960]
+    for lo, hi, vlo, vhi in zip(keys, keys[1:], vals, vals[1:]):
+        if lo < df < hi:
+            x, xl, xh = 1 / df, 1 / lo, (0.0 if hi == float("inf") else 1 / hi)
+            return vhi + (vlo - vhi) * (x - xh) / (xl - xh)
+    return 1.960
+
+
+def t_interval(xs: list[float]) -> list[float] | None:
+    """The 95% t-interval of the mean of `xs` (df = len - 1)."""
+    if len(xs) < 2:
+        return None
+    m, half = mean(xs), t_crit(len(xs) - 1) * stdev(xs) / len(xs) ** 0.5
+    return [round(m - half, 4), round(m + half, 4)]
+
+
+def bootstrap(
+    clusters: dict, resamples: int = RESAMPLES, seed: int = SEED, level: float = LEVEL
+) -> dict:
+    """Descriptive only: the pooled mean of the pairs, its cluster percentile
+    interval and bootstrap p (2 x the far-side share, capped at 1)."""
+    keys = sorted(clusters)
+    if not keys:
+        return {"d": None, "ci": None, "p": None}
+    stat = lambda ks: mean(v for k in ks for v in clusters[k])  # noqa: E731
+    d = stat(keys)
+    rng = random.Random(seed)
+    boot = sorted(stat(rng.choices(keys, k=len(keys))) for _ in range(resamples))
+    lo = int(resamples * (1 - level) / 2)
+    far = (
+        sum(b <= 0 for b in boot)
+        if d > 0
+        else sum(b >= 0 for b in boot) if d < 0 else resamples / 2
+    )
+    return {
+        "d": round(d, 4),
+        "ci": [round(boot[lo], 4), round(boot[-lo - 1], 4)],
+        "p": min(1.0, round(2 * far / resamples, 6)),
+    }
+
+
+def test(clusters: dict, resamples: int = RESAMPLES) -> dict:
+    """The primary statistic on {cluster: [differences]} (module docstring),
+    with the bootstrap beside it, descriptive."""
+    keys = sorted(clusters)
+    means = [mean(clusters[k]) for k in keys]
+    return {
+        "d": round(mean(means), 4) if means else None,
+        "p": sign_flip_p(means),
+        "t_ci": t_interval(means),
+        "exact": len(means) <= EXACT_MAX,
+        "n_clusters": len(keys),
+        "n_pairs": sum(len(clusters[k]) for k in keys),
+        "bootstrap (descriptive)": bootstrap(clusters, resamples),
+    }
+
+
 def holm(ps: dict[str, float | None], alpha: float = ALPHA) -> dict:
     """{name: {"p_holm", "reject"}}: Holm's step-down adjustment over the
-    family's p-values (a missing p counts as 1, staying in the family)."""
+    family's p-values (a missing p counts as 1)."""
     items = sorted(ps.items(), key=lambda kv: (1.0 if kv[1] is None else kv[1], kv[0]))
     m, out, running, stop = len(items), {}, 0.0, False
     for i, (name, p) in enumerate(items):
@@ -294,48 +425,30 @@ def holm(ps: dict[str, float | None], alpha: float = ALPHA) -> dict:
 
 
 def power(
-    n: int,
+    k: int,
     effect: float,
     sd: float,
     reps: int = 1,
-    spread: float = 0.0,
-    alpha: float = ALPHA / 3,
+    alpha: float = ALPHA / 2,
     sims: int = 400,
     seed: int = 0,
-    resamples: int = 500,
 ) -> float:
-    """Share of simulated studies whose bootstrap p (this module's statistic,
-    `resamples` resamples) is <= `alpha` with the observed difference on the
-    effect's side: n outline chapters of `reps` pairs each, each pair's
-    difference ~ Normal(chapter mean, sd), each chapter's mean drawn uniformly
-    within ±`spread` of `effect`. The default alpha is Holm's first step
-    (0.05 / 3), the bar the smallest p meets."""
+    """Share of simulated studies the primary test (sign-flip on cluster
+    means) rejects at `alpha` with the difference on the effect's side: k
+    clusters of `reps` pairs, each pair's difference ~ Normal(effect, sd).
+    The default alpha is Holm's first step over the two tested primaries.
+    With effect 0 it is the test's null rejection rate (either side)."""
     rng = random.Random(seed)
     hits = 0
-    for k in range(sims):
-        clusters = {}
-        for c in range(n):
-            mu = rng.uniform(effect - spread, effect + spread)
-            clusters[c] = [rng.gauss(mu, sd) for _ in range(reps)]
-        b = bootstrap(clusters, resamples=resamples, seed=seed + k)
-        hits += b["p"] <= alpha and (b["d"] or 0) * effect > 0
+    for _ in range(sims):
+        means = [mean(rng.gauss(effect, sd) for _ in range(reps)) for _ in range(k)]
+        p = sign_flip_p(means)
+        side = effect == 0 or mean(means) * effect > 0  # 0: the null's size
+        hits += p is not None and p <= alpha and side
     return hits / sims
 
 
-def detectable(n: int, sd: float, reps: int = 1, **kw) -> float | None:
-    """The smallest |effect| on a 0.01 grid up to 1 with power >= 0.80."""
-    grid = [round(k / 100, 2) for k in range(1, 101)]
-    lo, hi, best = 0, len(grid) - 1, None
-    while lo <= hi:  # power rises with the effect
-        mid = (lo + hi) // 2
-        if power(n, -grid[mid], sd, reps, **kw) >= 0.80:
-            best, hi = grid[mid], mid - 1
-        else:
-            lo = mid + 1
-    return best
-
-
-# --- the analysis ---------------------------------------------------------------
+# --- the analysis -------------------------------------------------------------------
 
 _WORDING = {
     "P": (
@@ -348,11 +461,6 @@ _WORDING = {
         "them M2 accuracy is lower by {d}",
         "no effect of the excerpts detectable at n = {n} (not equivalence)",
     ),
-    "V": (
-        "the VOICES rule makes speakers recognisable: without it M3 accuracy "
-        "is lower by {d}",
-        "no effect of the VOICES rule detectable at n = {n} (not equivalence)",
-    ),
 }
 _FOLLOW = {
     "P": ("the fix is proposed for the next product wave", None),
@@ -360,155 +468,219 @@ _FOLLOW = {
         None,
         "the excerpts become a candidate for removal, decided with E4's result",
     ),
-    "V": (
-        None,
-        "the VOICES rule becomes a candidate for removal, decided with E4's result",
-    ),
 }
 
 
-def _primary_key(contrast: str, primary: dict = PRIMARY) -> str:
-    measure, judge = primary[contrast]
-    return measure if judge is None else f"{measure} {judge}"
+def _key(measure: tuple) -> str:
+    m, judge = measure
+    return m if judge is None else f"{m} {judge}"
+
+
+def floor(prs: list[tuple], measure: str, chance: float | None = None) -> dict:
+    """A's accuracy on `measure` over the contrast's pairs, per cluster, with
+    its t-interval; `at_floor` per the module docstring."""
+    by: dict = defaultdict(list)
+    for _, c in prs:
+        if c[measure] is not None:
+            by[(c["book"], c["position"])].append(c[measure])
+    means = [mean(v) for _, v in sorted(by.items())]
+    ci = t_interval(means)
+    out = {
+        "a_mean": round(mean(means), 4) if means else None,
+        "t_ci": ci,
+        "clusters": len(means),
+    }
+    if chance is None:  # M2: forced choice between two narrators
+        out["at_floor"] = ci is None or ci[0] <= 0.5 <= ci[1]
+    else:
+        out["chance"] = round(chance, 4)
+        out["at_floor"] = ci is None or ci[0] <= chance + CHANCE_MARGIN
+    return out
+
+
+def m3_chance(prs: list[tuple]) -> float | None:
+    lines = sum(c.get("m3_lines") or 0 for _, c in prs)
+    total = sum(c.get("m3_chance_sum") or 0 for _, c in prs)
+    return total / lines if lines else None
 
 
 def decision(
-    contrast: str,
-    res: dict,
-    test: dict,
-    untested: str | None,
-    primary: dict = PRIMARY,
+    contrast: str, s: dict, test_: dict, untested: str | None, floor_: dict | None
 ) -> str:
-    key = _primary_key(contrast, primary)
-    s = res[key]
-    judge = primary[contrast][1]
-    caveat = CAVEAT.format(judged="Sonnet-judged, " if judge else "")
+    judged_ = contrast in ("N", "V")
+    caveat = CAVEAT.format(judged="Sonnet-judged, " if judged_ else "")
+    if floor_ and floor_["at_floor"]:
+        return f"{contrast}: {FLOOR} (A {floor_['a_mean']}, t-interval {floor_['t_ci']}) ({caveat})"
+    if contrast == "V":
+        return (
+            f"V: descriptive only (pre-registration): d = {s['d']}, t-interval "
+            f"{s['t_ci']}, n = {s['n_pairs']} pairs ({caveat})"
+        )
     if untested:
         return (
-            f"{contrast}: {key} is not tested ({untested}): descriptive only "
-            f"(d = {s['d']}, n = {s['n_pairs']}); {caveat}"
+            f"{contrast}: not tested ({untested}): descriptive only (d = {s['d']}, "
+            f"n = {s['n_pairs']}) ({caveat})"
         )
-    holds = test["reject"] and s["d"] is not None and s["d"] < 0
+    holds = test_["reject"] and s["d"] is not None and s["d"] < 0
     yes, no = _WORDING[contrast]
     follow = _FOLLOW[contrast][0 if holds else 1]
     line = (yes if holds else no).format(d=abs(s["d"] or 0), n=s["n_pairs"])
-    if not holds and test["reject"]:
+    if not holds and test_["reject"]:
         line = (
             f"the difference is the other way (d = {s['d']}, Holm p = "
-            f"{test['p_holm']}): the hypothesis does not hold"
+            f"{test_['p_holm']}): the hypothesis does not hold"
         )
+        follow = None
     return f"{contrast}: {line}" + (f"; {follow}" if follow else "") + f" ({caveat})"
 
 
-def analyze(
-    rows: list[dict],
-    validated: dict | None = None,
-    resamples: int = RESAMPLES,
-    p_measure: str = PRIMARY["P"][0],
-) -> dict:
-    """Every contrast's measures, the Holm family and the decisions.
+def per_arm(rows: list[dict]) -> dict:
+    """Outcomes per arm (failure class, chapters with no scenes), M3's
+    eligible lines and the 8-gram sample overlap, over all its chapters."""
+    out = {}
+    for a in ("A", *CONTRASTS):
+        mine = [r for r in rows if r["arm"] == a]
+        fail = Counter(r["failure"] or "none" for r in mine)
+        ov = [r["sample_overlap"] for r in mine if r["sample_overlap"] is not None]
+        out[a] = {
+            "chapters": len(mine),
+            "failure": dict(sorted(fail.items())),
+            "no_scenes": sum(1 for r in mine if not r["scenes"]),
+            "judged": sum(1 for r in mine if r["judged"]),
+            "m3_eligible_lines": sum(r.get("m3_lines") or 0 for r in mine),
+            "m3_narrator_lines": sum(r.get("m3_narrator_lines") or 0 for r in mine),
+            "sample_overlap_8gram": {
+                "chapters": len(ov),
+                "mean": round(mean(ov), 5) if ov else None,
+                "max": round(max(ov), 5) if ov else None,
+                "with_any": sum(1 for v in ov if v > 0),
+            },
+        }
+    return out
 
-    The Holm family is the primary tests that are tested: a primary measure
-    that failed its validation (`validated`, from the validation flags) is
-    removed from the family and reported descriptively, and so is H3 when A
-    or V has fewer than H3_MIN_LINES eligible M3 lines across the paired
-    chapters (`eligible_lines`). `p_measure` is H1's M1 measure
-    (`person_mismatch_window`, the pre-registration's choice)."""
-    if p_measure not in M1:
-        raise SystemExit(f"H1's measure must be one of {M1}, not {p_measure!r}")
-    primary = PRIMARY | {"P": (p_measure, None)}
-    validated = {"P": True, "N": True, "V": True} | (validated or {})
-    measures = list(M1) + [f"{m} {j}" for m in ("m2", "m3") for j in JUDGES]
+
+def analyze(
+    rows: list[dict], validated: dict | None = None, resamples: int = RESAMPLES
+) -> dict:
+    """Every contrast's measures, the family, sensitivities and decisions."""
+    validated = {"P": True, "N": True} | (validated or {})
+    measures = list(M1) + [f"{m} {j}" for m in ("m2", "m3", "m3_own") for j in JUDGES]
     out: dict = {
         "label": "W21, SPEC-96; "
         + CAVEAT.format(judged="judge measures Sonnet-judged, "),
-        "chapters_per_arm": {
-            a: sum(1 for r in rows if r["arm"] == a) for a in ("A", *CONTRASTS)
-        },
-        "judged_per_arm": {
-            a: sum(1 for r in rows if r["arm"] == a and r["judged"])
-            for a in ("A", *CONTRASTS)
-        },
+        "per_arm": per_arm(rows),
         "contrasts": {},
     }
-    untested: dict = {}
+    prs_of = {}
     for contrast in CONTRASTS:
         prs, counts = pairs(rows, contrast)
+        prs_of[contrast] = prs
         res: dict = {"counts": counts}
         for m in measures:
             clusters, missing = differences(prs, m)
-            res[m] = bootstrap(clusters, resamples) | {"left_out": missing}
-        res["counts"]["m3_no_line"] = res["m3 sonnet"]["left_out"]
-        res["counts"]["m2_not_judged"] = res["m2 sonnet"]["left_out"]
-        res["counts"]["m3_eligible_lines"] = lines = eligible_lines(prs)
+            res[m] = test(clusters, resamples) | {"left_out": missing}
+        counts["m3_no_line"] = res["m3 sonnet"]["left_out"]
+        counts["m2_not_judged"] = res["m2 sonnet"]["left_out"]
+        counts["m3_eligible_lines"] = eligible_lines(prs)
         out["contrasts"][contrast] = res
-        if not validated[contrast]:
-            untested[contrast] = "its measure failed validation"
-        elif contrast == "V" and min(lines.values()) < H3_MIN_LINES:
-            untested[contrast] = (
-                f"eligible M3 lines A {lines['A']}, V {lines['treatment']}; "
-                f"each needs >= {H3_MIN_LINES}"
-            )
-    keys = {c: _primary_key(c, primary) for c in CONTRASTS}
-    family = [c for c in CONTRASTS if c not in untested]
+    untested = {c: "its measure failed validation" for c in PRIMARY if not validated[c]}
+    family = [c for c in PRIMARY if c not in untested]
+    keys = {c: _key(m) for c, m in (PRIMARY | DESCRIPTIVE).items()}
     tests = holm({c: out["contrasts"][c][keys[c]]["p"] for c in family})
     none = {"p_holm": None, "reject": False}
+    floors = {
+        "N": floor(prs_of["N"], "m2 sonnet"),
+        "V": floor(prs_of["V"], "m3 sonnet", m3_chance(prs_of["V"]) or 0.0),
+    }
     out["family"] = family
+    out["floors"] = floors
     out["primary"] = {
         c: {
             "measure": keys[c],
-            "validated": validated[c],
             "tested": c in family,
-            "untested_because": untested.get(c),
+            "untested_because": untested.get(c)
+            or ("descriptive (pre-registration)" if c in DESCRIPTIVE else None),
         }
-        | out["contrasts"][c][keys[c]]
+        | {k: v for k, v in out["contrasts"][c][keys[c]].items()}
         | tests.get(c, none)
         for c in CONTRASTS
     }
+    # sensitivities
+    p_sent = out["contrasts"]["P"]["person_mismatch"]
+    p_main = out["contrasts"]["P"][keys["P"]]
+    fp = [(t, c) for t, c in prs_of["N"] if t["first_person"] and c["first_person"]]
+    out["sensitivities"] = {
+        "a: H1 on sentence-level person_mismatch": p_sent
+        | {
+            "direction_agrees": (
+                (p_sent["d"] or 0) * (p_main["d"] or 0) > 0
+                if p_sent["d"] and p_main["d"]
+                else None
+            )
+        },
+        "b: N vs A on person_mismatch_window": out["contrasts"]["N"][
+            "person_mismatch_window"
+        ],
+        "c: H2 on pairs both first person": test(
+            differences(fp, "m2 sonnet")[0], resamples
+        )
+        | {"pairs_first_person": len(fp)},
+        "d: M3 without narrator-credited lines": out["contrasts"]["V"]["m3_own sonnet"],
+    }
     out["decisions"] = [
-        decision(c, out["contrasts"][c], tests.get(c, none), untested.get(c), primary)
+        decision(
+            c,
+            out["contrasts"][c][keys[c]],
+            tests.get(c, none),
+            untested.get(c),
+            floors.get(c),
+        )
         for c in CONTRASTS
     ]
     return out
 
 
 def render(res: dict) -> str:
-    lines = [res["label"], f"chapters per arm {res['chapters_per_arm']}"]
+    lines = [res["label"], "per arm:"]
+    lines += [f"  {a}: {json.dumps(v)}" for a, v in res["per_arm"].items()]
     lines.append(
-        f"  {'contrast':8s} {'measure':24s} {'d (T-A)':>8s} {'95% CI':>18s} "
-        f"{'p':>8s} {'pairs':>5s} {'clusters':>8s}"
+        f"  {'contrast':8s} {'measure':22s} {'d (T-A)':>8s} {'t-interval':>18s} "
+        f"{'sign-flip p':>11s} {'pairs':>5s} {'clusters':>8s}  bootstrap (descriptive)"
     )
     for c, r in res["contrasts"].items():
         for m, s in r.items():
             if m == "counts":
                 continue
-            ci = f"[{s['ci'][0]:.3f}, {s['ci'][1]:.3f}]" if s["ci"] else "n/a"
+            ci = f"[{s['t_ci'][0]:.3f}, {s['t_ci'][1]:.3f}]" if s["t_ci"] else "n/a"
+            b = s["bootstrap (descriptive)"]
             mark = " *" if m == res["primary"][c]["measure"] else ""
             lines.append(
-                f"  {c:8s} {m + mark:24s} {s['d']!s:>8s} {ci:>18s} {s['p']!s:>8s} "
-                f"{s['n_pairs']:5d} {s['n_clusters']:8d}"
+                f"  {c:8s} {m + mark:22s} {s['d']!s:>8s} {ci:>18s} {s['p']!s:>11s} "
+                f"{s['n_pairs']:5d} {s['n_clusters']:8d}  ci {b['ci']} p {b['p']}"
             )
         lines.append(f"  {c:8s} counts {json.dumps(r['counts'])}")
-    lines.append("primary tests (* above), Holm across the three:")
+    lines.append(f"family (Holm on the sign-flip p): {res['family']}")
     for c, p in res["primary"].items():
         lines.append(
             f"  {c}: {p['measure']} d = {p['d']} p = {p['p']} Holm p = "
             f"{p['p_holm']} reject = {p['reject']} tested = {p['tested']}"
             + (f" ({p['untested_because']})" if p["untested_because"] else "")
         )
+    lines.append(f"instrument floors: {json.dumps(res['floors'])}")
+    lines.append("sensitivities (descriptive):")
+    for k, s in res["sensitivities"].items():
+        extra = {x: s[x] for x in ("direction_agrees", "pairs_first_person") if x in s}
+        lines.append(f"  {k}: d = {s['d']} p = {s['p']} t {s['t_ci']} {extra or ''}")
     lines.append("decisions:")
     lines += [f"  {d}" for d in res["decisions"]]
     return "\n".join(lines)
 
 
-def _validated(m1: Path | None, m3: Path | None, p_measure: str) -> dict:
-    out = {}
-    if m1:
-        summary = json.loads(m1.read_text("utf-8"))["summary"]
-        out["P"] = bool(summary.get(f"validated {p_measure}"))
-    if m3:
-        out["V"] = bool(json.loads(m3.read_text("utf-8")).get("m3_validated"))
-    return out
+def _validated(m1: Path | None) -> dict:
+    if not m1:
+        return {}
+    summary = json.loads(m1.read_text("utf-8"))["summary"]
+    return {"P": bool(summary.get(f"validated {PRIMARY['P'][0]}"))}
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -517,25 +689,20 @@ def main(argv: list[str] | None = None) -> None:
     d = sub.add_parser("dates")
     d.add_argument("runs", nargs="+")
     d.add_argument("--repo", required=True)
-    d.add_argument("--out", type=Path, required=True)
     r = sub.add_parser("run")
     r.add_argument("reports", type=Path, nargs="+")
-    r.add_argument("--dates", type=Path)
+    r.add_argument("--app-sha", required=True)
+    r.add_argument("--days", type=Path, required=True)
     r.add_argument("--m1-validation", type=Path)
-    r.add_argument("--m3-validation", type=Path)
     r.add_argument("--resamples", type=int, default=RESAMPLES)
-    r.add_argument("--p-measure", default=PRIMARY["P"][0], help="H1's M1 measure")
     r.add_argument("--json", type=Path)
     a = ap.parse_args(argv)
     if a.cmd == "dates":
-        got = dates(a.runs, a.repo)
-        a.out.write_text(json.dumps(got, indent=1))
-        print(json.dumps(got))
+        print(json.dumps(dates(a.runs, a.repo), indent=1))
         return
-    days = json.loads(a.dates.read_text("utf-8")) if a.dates else None
-    rows = chapters(a.reports, days)
-    ok = _validated(a.m1_validation, a.m3_validation, a.p_measure)
-    res = analyze(rows, ok, a.resamples, a.p_measure)
+    days = json.loads(a.days.read_text("utf-8"))
+    rows = chapters(a.reports, days, a.app_sha)
+    res = analyze(rows, _validated(a.m1_validation), a.resamples)
     print(render(res))
     if a.json:
         a.json.write_text(json.dumps(res, indent=1))

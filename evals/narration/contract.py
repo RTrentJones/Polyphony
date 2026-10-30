@@ -599,13 +599,19 @@ def run_id(path: Path, report: dict) -> str | None:
 
 
 def ablation(report: dict) -> str:
-    """The run's PROSE_ABLATION switch as its report records it ("" = the
-    shipped product, arm A)."""
-    for where in (report, (report.get("steps") or {}).get("chapters") or {}):
-        v = where.get("ablation")
-        if isinstance(v, str):
-            return v.strip()
-    return ""
+    """The run's PROSE_ABLATION switch as its report's top-level `ablation`
+    records it (evals/run.py: the names, or None for the shipped product,
+    arm A, returned as ""). A report without the key is refused: it predates
+    the switch (an E4 report), and reading it as A would let it into an arm."""
+    if "ablation" not in report:
+        raise SystemExit(
+            f"report of {report.get('book')} at {report.get('app_sha')} has no "
+            "`ablation` key: not a wave-21 arm run"
+        )
+    v = report["ablation"]
+    if v is not None and not isinstance(v, str):
+        raise SystemExit(f"report `ablation` must be a string or null, not {v!r}")
+    return (v or "").strip()
 
 
 def report_files(paths: list[Path]) -> list[Path]:
