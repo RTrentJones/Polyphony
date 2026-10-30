@@ -808,3 +808,25 @@ def test_fewer_than_seven_clusters_is_undetermined():
 def test_pairs_report_counts_per_book():
     _, counts = analyze.pairs(_study(days=1), "P")
     assert sum(counts["pairs_by_book"].values()) == counts["pairs"]
+
+
+def test_judgments_are_keyed_by_book_within_one_run(tmp_path):
+    rec = {"run": "950", "position": 1, "replicate": 1}
+    for book, rated in (("dracula", 2), ("wuthering", 4)):
+        _report(
+            tmp_path / f"951/eval-report-951/eval-report-{book}.json",
+            book,
+            {
+                judges.STEP: {
+                    "narration": {
+                        "chapters": [
+                            rec
+                            | {"m2_judges": {"sonnet": {"correct": 1, "rated": rated}}}
+                        ]
+                    }
+                }
+            },
+        )
+    js = analyze.judged([tmp_path])
+    assert js[("950", "dracula", 1, 1)]["m2_judges"]["sonnet"]["rated"] == 2
+    assert js[("950", "wuthering", 1, 1)]["m2_judges"]["sonnet"]["rated"] == 4

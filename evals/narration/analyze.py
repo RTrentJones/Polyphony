@@ -130,7 +130,8 @@ def dates(run_ids: list[str], repo: str, gh=None) -> dict[str, str]:
 
 
 def judged(paths: list[Path]) -> dict[tuple, dict]:
-    """{(run, position, replicate): the chapter's narration_judges record};
+    """{(run, book, position, replicate): the chapter's narration_judges
+    record} (a run may carry several books, so the book is part of the key);
     a chapter judged in two reports keeps the record with more rated items
     (a stopped dispatch judged again), never a mix."""
     out: dict = {}
@@ -143,12 +144,14 @@ def judged(paths: list[Path]) -> dict[tuple, dict]:
         )
 
     for f in contract.report_files(paths):
-        res = (json.loads(f.read_text("utf-8")).get("steps") or {}).get(JUDGES_STEP)
+        report = json.loads(f.read_text("utf-8"))
+        res = (report.get("steps") or {}).get(JUDGES_STEP)
         n = (res or {}).get("narration")
         if not n:
             continue
         for rec in n["chapters"]:
-            key = (str(rec["run"]), rec["position"], rec.get("replicate", 1))
+            book = rec.get("book") or n.get("book") or report.get("book")
+            key = (str(rec["run"]), book, rec["position"], rec.get("replicate", 1))
             if key not in out or rated(rec) > rated(out[key]):
                 out[key] = rec
     return out
@@ -207,7 +210,9 @@ def chapters(paths: list[Path], days: dict, app_sha: str) -> list[dict]:
             profiles[book] = contract.profile(book)
         text = contract.chapter_text(r)
         m1 = contract.score_text(text, profiles[book])
-        rec = js.get((run, r.get("position"), r.get("replicate", 1))) or {}
+        rec = (
+            js.get((run, meta["book"], r.get("position"), r.get("replicate", 1))) or {}
+        )
         row = {
             "run": run,
             "arm": arm,
