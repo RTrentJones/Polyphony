@@ -33,7 +33,12 @@ from app.core.prompt_markers import (
     TIGHTEN_CLAUSE,
 )
 from app.llm.client import get_llm_client
-from app.orchestration.pov import NAMING_RULE, Pov, pov_instruction
+from app.orchestration.pov import (
+    DRAFT_NARRATION,
+    NAMING_RULE,
+    Pov,
+    pov_instruction,
+)
 from app.orchestration.prose import beats_block
 from app.orchestration.workflow import StoryPosition, chapter_context
 from app.planning.fidelity import canon_known_text, unknown_proper_nouns
@@ -355,6 +360,11 @@ def build_revise_prompt(
         if after.strip()
         else "The target ends the scene."
     )
+    # A POV with no mode (SPEC-96 pov_fix) already sends person and tense to
+    # the draft; the clause would refer to a mode "named here" that is not.
+    pov_line = pov_instruction(pov, DRAFT_NARRATION)
+    if person_from_draft and not pov.from_narration:
+        pov_line += DRAFT_PERSON_CLAUSE
     voices = "\n\n".join(p for p in (cast_context, secondary_block) if p)
     cast_block = (
         f"{SCENE_CHARACTERS_SECTION} — keep each one's dialogue in THEIR OWN voice, "
@@ -374,7 +384,7 @@ to you about the TARGET passage. Follow it for the TARGET only.
 
 {cast_block}
 
-{pov_instruction(pov)}{DRAFT_PERSON_CLAUSE if person_from_draft else ""}
+{pov_line}
 {NAMING_RULE}{plan_line}
 
 {prior_block}
