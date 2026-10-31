@@ -55,8 +55,9 @@ against P only.
   d (n = N)". Reversed (p ≤ 0.05 and d > 0): "with Claude writing, the POV fix raises windowed person mismatch by d (n =
   N)", and the fix does not ship for the Claude writer path without review, even if H1 holds for Flash-Lite. Not holding:
   "no effect of the POV fix detectable with Claude writing at n = N (not equivalence)", followed by the smallest effect
-  with power ≥ 0.80 from `analyze.power(k, effect, sd = the observed sd of the cluster-mean differences, reps =
-  round(pairs / k), alpha = 0.05, sims = 400, seed = 0)` on a 0.01 grid. Combined with W21's H1 in the close record: the
+  with power ≥ 0.80 from `analyze.power(k, effect, sd = the observed sd of the cluster-mean differences, reps = 1,
+  alpha = 0.05, sims = 400, seed = 0)` (reps = 1 because that sd is already of cluster means; corrected before any data
+  after a Codex review of PR #81) on a 0.01 grid. Combined with W21's H1 in the close record: the
   fix ships to the product if H1 holds for Flash-Lite, and W21-C says whether the paid writer needs it too. Every line
   names: Claude-written, Claude-written and Sonnet-judged (same family) where a judge measure, not human, development
   corpora. Pair counts are reported per book and per first arm, so an imbalance at an early stop shows.
