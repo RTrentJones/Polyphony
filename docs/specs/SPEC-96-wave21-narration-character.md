@@ -111,8 +111,8 @@ same deviation for E4: E4's chapters were scored outside its pre-registration; i
   | 8 | W | N, A, P |
   | 9 | F | V, N, A |
 
-  Each treatment meets each book twice in nine days. The table repeats from day 1. After E4's last book-day (Nov 10), up
-  to two table days run per Pacific day, in table order.
+  Each treatment meets each book twice in nine days. The table repeats from day 1. After E4's last book-day (its 72nd pair,
+  expected Nov 3), up to two table days run per Pacific day, in table order.
 - **Dispatch.** Generation runs are `claude=no` and share one concurrency group that cancels a run in progress, so the
   next run is dispatched only after the previous one has completed. Judge runs (`steps=narration_judges`,
   `claude=yes judge=claude`, `claude_usd_cap` each) follow once the day's three runs exist, one at a time.
@@ -123,12 +123,14 @@ same deviation for E4: E4's chapters were scored outside its pre-registration; i
   its row; the skipped arm is recorded and the next day that has room runs it with a new A on the same book, under its
   own ledger label (e.g. "W21 day 4b") naming its own A. A is never dropped. The analysis reports pair counts per book ×
   treatment, so an incomplete cycle's imbalance is visible.
-- **Stop.** Generation ends at the end of Nov 12 Pacific, whatever n has been reached; judging finishes by Nov 13; the
-  analysis runs once, before Nov 14 (the Claude credit's end). The stop is decided by date and counts, never by outcomes.
+- **Stop.** Generation ends at the end of Nov 17 Pacific, whatever n has been reached; judging finishes by Nov 18; the
+  analysis runs once, before Nov 19 (the Claude credit's end). The stop is decided by date and counts, never by outcomes.
+  (Amended 2026-10-31 from Nov 12/13/14: the user moved the credit's end to Nov 19; no outcome had been read, only day 1's
+  counts. See "Amendment 1".)
 - **Unit and n.** A paired chapter. Each nine-day cycle gives each treatment 6 days × ≈ 6 chapters ≈ 34 pairs over 17
   clusters (book, outline position).
 - **Cost.** Generation $0. M2 and M3 by Sonnet ≈ $0.04 a chapter, ≈ 200 chapters ≈ $8, plus validation ≈ $1. The wave's
-  cap is $15 of the $64.
+  cap is $20 of the $64 (amended from $15 with the stop).
 
 ## Pre-registration (to be signed by the principal before any arm data is generated)
 - **Hypotheses and primary measures.** H1: P changes `person_mismatch_window` against A, with the direction required to be
@@ -172,6 +174,13 @@ Signed: principal, 2026-10-30. SPEC-96 pre-registration as written above, harnes
   ebed0aa" is carried out as: each dispatch is on `main`, and immediately before it the runner checks that `git diff
   ebed0aa origin/main -- app alembic alembic.ini requirements.txt evals .github/workflows/evals.yml` is empty, stopping the
   day if it is not. `app_sha=ebed0aa1a0c5b1e28da30b927ac294f88aa70cd8` pins the app under test regardless.
+
+## Amendment 1 (2026-10-31, before any outcome is read)
+The user extended the Claude credit to Nov 19 ("We have $50 in credits still remaining to use by Nov 19"). The stop moves
+to the end of Nov 17 Pacific (judging by Nov 18, the analysis by Nov 19) and the wave's Claude cap to $20. Nothing else
+changes: arms, measures, statistic, family, floors, the day table and its contingency. E4 ends at its 72nd pair on
+Nov 3 (its own pre-registered stop), after which W21 days use the full ≤ 400-request budget, up to two table days a
+Pacific day. Read so far: day 1's counts only (A and P on Dracula, 6/6 chapters each, 12/12 judged).
 
 ## Ledger
 Rows are kept in SPEC-95's ledger, labelled W21.
