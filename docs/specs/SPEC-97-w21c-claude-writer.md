@@ -22,9 +22,13 @@ against P only.
   by day starting with A (day 1 D: A, P; day 2 W: P, A; day 3 F: A, P; day 4 D: P, A; …). Dispatches are one at a time,
   each after the previous has completed (claude=yes runs share one concurrency group). Each unit carries the ledger label
   "W21C day d"; pairing is by that label.
-- **Stop.** The earlier of: the next unit would take W21-C's spend past its cap of $32 (≈ $4.7 a unit), or the end of
-  Nov 16 Pacific. Judging finishes by Nov 18; the analysis runs once, with W21's, by Nov 19. Decided by date and spend,
-  never by outcomes. At $4.7 a unit the cap allows six units (two per book: 17 clusters, about 34 pairs).
+- **Stop.** The earliest of: the next unit would take W21-C past its $32 cap (≈ $4.7 a unit); the next unit would take
+  the whole ledger past $58 ($64 less a $6 reserve), with W21's signed work taking priority; or the end of Nov 16 Pacific.
+  Judging finishes by Nov 18; the analysis runs once, with W21's, by Nov 19. Decided by date and spend, never by outcomes.
+  At $4.7 a unit the cap allows six units (two per book: 17 clusters, about 34 pairs). Each generation dispatch passes the
+  same `claude_usd_cap` for A and P ($3.00) and the judge dispatch its own ($1.00); a quota or cap failure on either side
+  excludes the pair, counted. Each dispatch on `main` follows SPEC-96's dispatch-ref check (`git diff ebed0aa origin/main --
+  app alembic alembic.ini requirements.txt evals .github/workflows/evals.yml` empty).
 - **Budget (D20-1's ledger).** Spent so far $15.81 (including the pilot). W21's remaining judging ≈ $8, E4's last three
   compares ≈ $1.7, W21-C ≤ $32, reserve ≈ $6: total ≤ $64.
 
@@ -32,22 +36,33 @@ against P only.
 - **Hypothesis.** H1c: with Claude writing, P changes `person_mismatch_window` against A, with the direction required to
   be lower. One primary test; no multiplicity correction.
 - **Statistic.** SPEC-96's: per-cluster (book, outline position) mean paired difference (P − A), exact two-sided
-  sign-flip test on the cluster means, t-interval reported, percentile bootstrap descriptive. Fewer than 7 clusters at the
-  stop: "undetermined: too few clusters". The analysis runs `python -m evals.narration.analyze` with `--app-sha
-  ebed0aa1a0c5b1e28da30b927ac294f88aa70cd8` and a W21-C-only `--days` file; only the P contrast is read, and its raw
-  sign-flip p is the test (the tool's N and V lines have no pairs and are not part of W21-C).
-- **Room to move (read at analysis).** If A's mean `person_mismatch_window` has a t-interval whose upper bound is below
-  0.05, H1c reads "no room: the Claude writer already holds the book's person under A", with no product inference.
+  sign-flip test on the cluster means, t-interval reported, percentile bootstrap descriptive.
+- **Analysis procedure.** Before the analysis, every W21-C report's `generator` is checked to be the same Claude model and
+  its `ablation` to be blank or `pov_fix`, and every W21 report's `generator` to be Flash-Lite; the result is recorded in
+  the ledger, and a mismatch stops the analysis for review. The analysis runs `python -m evals.narration.analyze run …
+  --app-sha ebed0aa1a0c5b1e28da30b927ac294f88aa70cd8 --days <W21-C-only file>`. W21-C reads only the P line's `d`, raw
+  sign-flip `p`, `t_ci` and `n_clusters`; the tool's Holm values, decision lines and caveat belong to SPEC-96 and are
+  disregarded. The decision is taken in this order: (i) `n_clusters` < 7: "undetermined: too few clusters"; (ii) no
+  room: A's per-cluster means of `person_mismatch_window` over the paired chapters, with `analyze.t_interval` (df = k − 1),
+  have an upper bound below 0.05: "no room: the Claude writer already holds the book's person under A" (d and p reported,
+  descriptive); (iii) otherwise H1c holds when p ≤ 0.05 and d < 0. A's mean `person_mismatch_window` is reported beside
+  the room verdict.
 - **Descriptive.** M2 (narrator attribution, Sonnet and Groq), M3 (speaker attribution), sentence-level person and
   tense mismatch, per-arm failures, and the same measures for W21's Flash-Lite A and P beside them (unpaired across
   writers, descriptive only).
 - **Exclusions.** As SPEC-96. The cost pilot (run 41247908629) is never analysed.
 - **Decision wording.** H1c holds: "with Claude writing, dropping the default POV mode lowers windowed person mismatch by
-  d (n = N)". Not holding: "no effect of the POV fix detectable with Claude writing at n = N (not equivalence)". Combined
-  with W21's H1 in the close record: the fix ships to the product if H1 holds for Flash-Lite, and W21-C says whether the
-  paid writer needs it too. Every line names: Claude-written, Sonnet-judged where a judge measure, not human, development
-  corpora.
+  d (n = N)". Reversed (p ≤ 0.05 and d > 0): "with Claude writing, the POV fix raises windowed person mismatch by d (n =
+  N)", and the fix does not ship for the Claude writer path without review, even if H1 holds for Flash-Lite. Not holding:
+  "no effect of the POV fix detectable with Claude writing at n = N (not equivalence)", followed by the smallest effect
+  with power ≥ 0.80 from `analyze.power(k, effect, sd = the observed sd of the cluster-mean differences, reps =
+  round(pairs / k), alpha = 0.05, sims = 400, seed = 0)` on a 0.01 grid. Combined with W21's H1 in the close record: the
+  fix ships to the product if H1 holds for Flash-Lite, and W21-C says whether the paid writer needs it too. Every line
+  names: Claude-written, Claude-written and Sonnet-judged (same family) where a judge measure, not human, development
+  corpora. Pair counts are reported per book and per first arm, so an imbalance at an early stop shows.
 - **Conduct.** Only counts (chapters written, failures, cost, judge coverage) are read before the analysis.
+
+Signed: principal, 2026-10-31. SPEC-97 (W21-C) pre-registration as written above, with B1–B3 of principal review 1 (analysis procedure and order of the cluster, room and test rules; reversed and null wording with the smallest detectable effect; ledger-wide and per-run caps), harness at cc34b82 merged as ebed0aa (ebed0aa1a0c5b1e28da30b927ac294f88aa70cd8), no harness change. Arms A and P only, `claude=yes claude_generate=yes judge=claude`, `app_sha=ebed0aa1a0c5b1e28da30b927ac294f88aa70cd8`, dispatched on `main` after SPEC-96's dispatch-ref check, one unit a Pacific day, books D, W, F, first arm alternating from A, paired by the ledger label 'W21C day d'. One primary test, H1c: exact two-sided sign-flip on cluster means of `person_mismatch_window` (P − A), holding at p ≤ 0.05 with d < 0; no multiplicity correction; fewer than 7 clusters is undetermined; the no-room rule precedes the test. The analysis reads only the P line's raw statistics from `evals.narration.analyze` with a W21-C-only `--days` file, after the `generator` check; the tool's Holm values and decision lines are disregarded. The cost pilot (run 41247908629) is never analysed. Only counts and cost are read before the analysis.
 
 ## Ledger
 Rows are kept in SPEC-95's ledger, labelled W21C.

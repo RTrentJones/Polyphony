@@ -182,6 +182,8 @@ changes: arms, measures, statistic, family, floors, the day table and its contin
 Nov 3 (its own pre-registered stop), after which W21 days use the full ≤ 400-request budget, up to two table days a
 Pacific day. Read so far: day 1's counts only (A and P on Dracula, 6/6 chapters each, 12/12 judged).
 
+Signed (Amendment 1): principal, 2026-10-31. The stop moves to the end of Nov 17 Pacific (judging by Nov 18, the analysis by Nov 19) and W21's Claude cap to $20, for an external reason (the user moved the Claude credit's end to Nov 19), written before any outcome was read (day 1's counts only). Arms, measures, statistic, family, floors, the day table, its contingency, the harness (cc34b82, merged as ebed0aa; `git diff ebed0aa a0a4ac4 -- app alembic alembic.ini requirements.txt evals .github/workflows/evals.yml` empty) and the dispatch-ref check are unchanged.
+
 ## Ledger
 Rows are kept in SPEC-95's ledger, labelled W21.
 - 2026-10-30: `git diff cc34b82 ebed0aa -- app alembic alembic.ini requirements.txt evals .github/workflows/evals.yml` is
