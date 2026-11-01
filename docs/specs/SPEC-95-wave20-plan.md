@@ -334,3 +334,6 @@ is pre-registered: the statistic, the unit, the per-day ≤ 400 budget and the f
 | 40840467118 (E4 compare, Dracula book-day 2, 12 pairs) | E4 | $0.55 | $11.93 |
 | 41024885672 (E4 compare, Frankenstein book-day 3, 12 pairs) | E4 | $0.53 | $12.46 |
 | 41145514872 (W21 narration validation on source texts, M2 and M3) | W21 | $0.38 | $12.84 |
+| 41183743578 (E4 compare, Dracula book-day 4, 12 pairs) | E4 | $0.55 | $13.39 |
+| 41189202954 (W21 day 1 judges, Dracula A and P, 12/12 chapters) | W21 | $0.17 | $13.56 |
+| 41247908629 (W21-C cost pilot: Claude-written arm A, Dracula, 6/6 chapters; never analysed) | W21C | $2.25 | $15.81 |
