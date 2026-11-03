@@ -319,6 +319,30 @@ is pre-registered: the statistic, the unit, the per-day ≤ 400 budget and the f
   the coordinator; E4's primary (Sonnet's pairwise preference) and its compare outcomes are untouched. No further
   measure is computed on E4's chapters before E4's analysis.
 
+## E4 result (2026-11-03; analysed once, after generation ended at its 72nd pair)
+Seven book-days (Oct 28 – Nov 3), Frankenstein and Dracula only (the `holdout-v1` tag never existed, so E4 runs on the
+development corpora alone, as D20-4 says), 72 compare pairs: 66 Sonnet-rated, 6 both-empty (Frankenstein's outline chapter
+3, whose beats name no character, fails before prose on both releases), 0 unrated, 0 forfeits, 0 excluded; 11 outline
+chapters as clusters. Runs: compares 40657916195, 40840467118, 41024885672, 41183743578, 41287731267, 41411389069,
+41599979194 and their generation runs.
+
+- **Primary (Sonnet).** P(W18 > W17) = **0.31 [0.21, 0.41]** (2,000-resample chapter-cluster bootstrap, 11 clusters,
+  66 pairs); by book Dracula 0.28, Frankenstein 0.35; same answer in both orders 39/66. The book-day-run bootstrap gives
+  [0.23, 0.40]. **Decision as pre-registered: "Sonnet prefers wave 17's chapters to wave 18's (n = 66)."**
+  Flash-Lite-written; Sonnet-judged; not human; development corpora.
+- **Free chain (Groq, beside).** 0.49 [0.48, 0.50], but order-consistent on 1/66 pairs: position-driven, the same failure
+  W12-9 found. Its interval does not lie wholly above 0.5, so the "judge-dependent" clause does not apply. Fleiss κ
+  Sonnet~Groq −0.28.
+- **RC (Sonnet).** W18 0.49, W17 0.49; difference +0.005 [−0.013, 0.023]: no difference in chapter coherence.
+- **Length.** 1,476 against 1,485 words a chapter: not a length effect.
+- **Caveat.** The percentile bootstrap is anticonservative at this cluster count (SPEC-96 principal review measured null
+  rejection 0.08–0.135 for nominal 0.05 at 6–17 clusters). The interval's upper bound, 0.41, is far enough below 0.5 that
+  the direction is unlikely to be an artefact, but the interval's width is understated.
+- **Reading.** Wave 18's prose changes (W18-1 the VOICES rule, W18-5 the book-narration excerpts, and the narration and
+  quotation fixes) made Flash-Lite's chapters that Sonnet prefers less often than wave 17's, about 3 in 10, with coherence
+  unchanged. Wave 21 (SPEC-96) runs the levers one at a time against wave 18: arms N (no excerpts) and V (no VOICES) say
+  which lever, if either, carries the loss. No product change is made on E4 alone; it is decided with wave 21's result.
+
 ## Ledger
 | run | item | Claude cost | running total |
 |---|---|---|---|
@@ -337,3 +361,12 @@ is pre-registered: the statistic, the unit, the per-day ≤ 400 budget and the f
 | 41183743578 (E4 compare, Dracula book-day 4, 12 pairs) | E4 | $0.55 | $13.39 |
 | 41189202954 (W21 day 1 judges, Dracula A and P, 12/12 chapters) | W21 | $0.17 | $13.56 |
 | 41247908629 (W21-C cost pilot: Claude-written arm A, Dracula, 6/6 chapters; never analysed) | W21C | $2.25 | $15.81 |
+| 41287731267 (E4 compare, Frankenstein day 5, 12 pairs) | E4 | $0.54 | $16.35 |
+| 41289903199 (W21 day 1b judges, Dracula A and N) | W21 | $0.16 | $16.51 |
+| W21C day 1 (Dracula: A 41290336068, P 41291164618, judges 41292101304) | W21C | $4.70 | $21.21 |
+| 41411389069 (E4 compare, Dracula day 6, 12 pairs) | E4 | $0.59 | $21.80 |
+| 41415043344 (W21 day 2 judges, Wuthering V and A) | W21 | $0.12 | $21.92 |
+| W21C day 2 (Wuthering: P 41415685760, A 41417583664, judges 41419613718) | W21C | $5.22 | $27.14 |
+| 41599979194 (E4 compare, Frankenstein day 7, 6 pairs; E4 ends at 72) | E4 | $0.27 | $27.41 |
+| 41602922621, 41605784298 (W21 day 2b and day 3 judges) | W21 | $0.25 | $27.66 |
+| W21C day 3 (Frankenstein: A 41606455061, P 41608028486, judges 41609579681) | W21C | $4.04 | $31.70 |
