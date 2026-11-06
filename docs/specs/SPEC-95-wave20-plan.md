@@ -370,3 +370,9 @@ chapters as clusters. Runs: compares 40657916195, 40840467118, 41024885672, 4118
 | 41599979194 (E4 compare, Frankenstein day 7, 6 pairs; E4 ends at 72) | E4 | $0.27 | $27.41 |
 | 41602922621, 41605784298 (W21 day 2b and day 3 judges) | W21 | $0.25 | $27.66 |
 | W21C day 3 (Frankenstein: A 41606455061, P 41608028486, judges 41609579681) | W21C | $4.04 | $31.70 |
+| 41796245671, 41801299399 (W21 Nov 4: day 3b Frankenstein P/A, day 4 Dracula A/V/N) | W21 | $0.40 | $32.10 |
+| W21C day 4 (Dracula: P 41802631260, A 41804543103, judges 41806554239) | W21C | $4.88 | $36.98 |
+| 41994027897, 42002994638 (W21 Nov 5: day 5 Wuthering, A and V failed on Gemini 503s; day 6 Frankenstein N failed, P/A ok) | W21 | $0.19 | $37.17 |
+| W21C day 5 (Wuthering: A 42003886074, P 42006015493, judges 42008306662) | W21C | $5.22 | $42.39 |
+| 42185677172, 42188422192 (W21 Nov 6: make-up units 5r Wuthering P/A/V and 6r Frankenstein N/A) | W21 | $0.30 | $42.69 |
+| W21C day 6 (Frankenstein: P 42189186453, A 42190792568, judges 42192292378; W21-C complete at six units, $28.16) | W21C | $4.10 | $46.79 |

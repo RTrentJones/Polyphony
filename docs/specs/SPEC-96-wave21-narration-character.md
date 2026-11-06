@@ -188,3 +188,8 @@ Signed (Amendment 1): principal, 2026-10-31. The stop moves to the end of Nov 17
 Rows are kept in SPEC-95's ledger, labelled W21.
 - 2026-10-30: `git diff cc34b82 ebed0aa -- app alembic alembic.ini requirements.txt evals .github/workflows/evals.yml` is
   empty (0 bytes), recorded before day 1's first dispatch.
+- 2026-11-05: three generation runs failed in setup on Gemini 503 Service Unavailable (the app's book preparation poll
+  timed out; no chapters): day 5's A (41990946010) and V (41992459691) on Wuthering Heights, day 6's N (41994584300) on
+  Frankenstein. Availability failures, excluded on both sides. Per the contingency, make-up units ran on Nov 6 under their
+  own labels with a new A on the same book: "W21 day 5r" (P, A, V; Wuthering) and "W21 day 6r" (N, A; Frankenstein).
+  Day 5's lone P run (41989261079) has no A in its label and is unpaired.
