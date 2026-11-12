@@ -379,3 +379,6 @@ chapters as clusters. Runs: compares 40657916195, 40840467118, 41024885672, 4118
 | 42354227717, 42356749293 (W21 Nov 7: day 7 Dracula A/P/V, day 8 Wuthering N/A/P) | W21 | $0.45 | $47.24 |
 | 42461422115, 42463807837 (W21 Nov 8: day 9 Frankenstein V/N/A, day 10 Dracula A/P/N; first nine-day cycle complete) | W21 | $0.45 | $47.69 |
 | 42584080564, 42587995232 (W21 Nov 9: day 11 Wuthering V/A/N, day 12 Frankenstein V/P/A) | W21 | $0.35 | $48.04 |
+| 42781355997, 42786523556 (W21 Nov 10: day 13 Dracula A/V/N, day 14 Wuthering P/A/V) | W21 | $0.47 | $48.51 |
+| 42984631380, 42989313015 (W21 Nov 11: day 15 Frankenstein N/P/A, day 16 Dracula A/P/V) | W21 | $0.45 | $48.95 |
+| 43180695077, 43185551237 (W21 Nov 12: day 17 Wuthering N/A/P, day 18 Frankenstein V/N/A; second nine-day cycle complete) | W21 | $0.36 | $49.32 |
