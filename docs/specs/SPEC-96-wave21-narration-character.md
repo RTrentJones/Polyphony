@@ -187,29 +187,40 @@ Signed (Amendment 1): principal, 2026-10-31. The stop moves to the end of Nov 17
 ## Amendment 2 (2026-11-14, before any outcome is read): a strict second judge
 The user asked to "use the Anthropic key to perform more strict evals" and chose, of three options put to them (a
 strict re-judge, a strict pairwise preference, Claude-written N and V arms), the re-judge. It adds a robustness check
-to H2 and H3; nothing it measures can make a hypothesis hold.
+to H2 and descriptive lines to H3; nothing it measures can make a hypothesis hold or change a pre-registered decision.
 - **Judge.** The strict judge is the Anthropic provider's default model (`judge=strict`, `NARRATION_JUDGES=strict`,
-  `evals/narration/judges.py` `strict_judges`), alone: no Sonnet, no free chain. It reads the same chapters with the
-  same plan and the default `NARRATION_SEED`, so it sees the same M2 passages, labels and order, and the same M3 scenes,
-  as Sonnet did. Its parts join each chapter's earlier record in the analysis under the name `strict`
-  (`analyze.judged`); a chapter it judged that has no earlier record stays out.
+  `evals/narration/judges.py` `strict_judges`; the report records the model), alone: no Sonnet, no free chain. It reads
+  the same chapters with the same plan and the default `NARRATION_SEED`, so it is asked the same M2 passages, labels
+  and order, and the same M3 scenes, as Sonnet. A strict record joins a chapter's earlier record (`analyze.judged`,
+  under the name `strict`) only when it judged that chapter completely and its M2 and M3 keys equal the earlier
+  record's; otherwise the chapter is counted as `incomplete` or `plan_mismatch` and stays out of the strict lines, as
+  does a chapter with no earlier record.
 - **Which chapters.** Every A, N and V run of each ledger day label that holds an N or a V run (48 runs through day
   20, and those of days 21 to 24 as they finish). P runs, and the A of a label with P alone, are not re-judged: H1's
   measure is the script's.
-- **Rule (H2).** H2's pre-registered decision stands as computed with Sonnet. It is reported as **robust** only when
-  that decision is a holding result (either direction) and the strict judge's N-against-A contrast on M2 has d of the
-  same sign, an exact sign-flip p below 0.05 (two-sided, unadjusted: it confirms one already-corrected result and is
-  not a member of the Holm family), and A is not at the strict judge's instrument floor (A's M2 t-interval clear of
-  0.5). Otherwise it is reported as **not robust: Sonnet's result is not confirmed by the strict judge**. When H2 does
-  not hold, the strict contrast is descriptive only.
+- **Rule (H2).** Printed in a separate block; it never changes a pre-registered decision line. When H2's decision is
+  a rejection under Holm at k ≥ 7 with A off Sonnet's floor, in either direction (H2 holds, or the pre-registered "the
+  excerpts mislead attribution"), it is reported as **robust** only when the strict judge's N-against-A contrast on M2
+  has d of the same sign, an exact sign-flip p below 0.05 (two-sided, unadjusted: it qualifies one already-corrected
+  result and is not a member of the Holm family), and A is off the strict judge's floor (A's M2 t-interval clear of
+  0.5); otherwise **not robust: Sonnet's result is not confirmed by the strict judge**. In every other case (not
+  tested, undetermined, at the floor, not rejected) the strict contrast is descriptive only.
 - **Descriptive.** H3 (V against A on M3) with the strict judge, and its floor (chance + 0.20); item-level agreement
-  between Sonnet and the strict judge on M2 passages and M3 lines both rated, over A, N and V chapters.
-- **Budget and conduct.** The strict judge's spend is capped at $11 (W21's total stays within its $20, the ledger
-  within $64); each dispatch sets `claude_usd_cap=2`. Dispatches run one at a time, outside the daily W21 window
-  (07:40–09:30Z), from the branch carrying this harness change: `main` keeps the signed harness until the last W21
-  table day has been dispatched, so the daily runner's harness check is untouched, and the change merges after it.
-  Strict judging ends by the end of Nov 18; a chapter the strict judge has not judged by then leaves its pairs out
-  of the strict lines, counted. Until the analysis only counts and costs of these runs are read.
+  between Sonnet and the strict judge on M2 passages and M3 lines both rated, over A, N and V chapters; the strict
+  chapter counts (joined, incomplete, plan mismatch, not judged).
+- **Budget.** The pre-registered Sonnet judging of days 21 to 24 has priority. The strict cap is the lesser of $11 and
+  the ledger's remainder less a reserve for that Sonnet judging at 1.5× its observed per-run cost (on Nov 14: $64 −
+  $49.76 − 4 × 1.5 × $0.23 ≈ $12.86, so $11). Before each dispatch the cumulative strict spend is read (a cost) and the
+  dispatch is made only if $2 more still fits; each dispatch sets `claude_usd_cap=2`, and its `from_runs` is sized so
+  the step's worst-case estimate is at most $2. Ledger rows are labelled "W21 strict".
+- **Conduct.** Strict dispatches use `claude=yes`, `claude_generate=no`, `judge=strict`, `steps=narration_judges`,
+  one at a time, only when no `claude=yes` evals run is in progress or queued, and outside the daily W21 window
+  (07:40–09:30Z), from the branch carrying this harness change. `main` keeps the signed harness until the last
+  pre-registered Sonnet judge run has been dispatched, so the daily runner's harness check is unchanged, and the change
+  merges after that. Strict judging ends by the end of Nov 18. Until the analysis only counts and costs of these runs
+  are read. At the analysis the signed ebed0aa analyzer also runs on the same reports less the strict judge's; its
+  `family`, `primary`, `decisions`, `floors` and `sensitivities` must equal this harness's, and the ledger records the
+  comparison. A mismatch voids the strict block, not the primary.
 - **Read so far.** Counts only: chapters written, failure classes, requests and judge costs per run, through day 20.
 
 ## Ledger

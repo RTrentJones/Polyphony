@@ -897,8 +897,24 @@ def test_strict_parts_join_the_chapters_earlier_record(tmp_path):
     rec = analyze.judged([tmp_path])[("960", "dracula", 1, 1)]
     assert rec["m2_judges"]["sonnet"]["rated"] == 3  # the earlier record kept
     assert rec["m2_judges"]["strict"]["rated"] == 2  # the fuller strict record
-    assert rec["judged_strict"] is True
+    assert rec["strict_status"] == "joined"
     assert analyze.agreement(rec) == {"m2": (2, 1), "m3": (2, 1)}
+
+
+def test_a_strict_record_joins_only_complete_and_on_the_same_plan(tmp_path):
+    keyed = {"m2_key": [{"answer": 1}], "m3_key": [["A"]]}
+    sonnet = keyed | {"m2_judges": {"sonnet": {"rated": 1, "choices": [1]}}}
+    _judged_report(tmp_path, "971", sonnet)
+    part = {"m2_judges": {"strict": {"rated": 1, "choices": [2]}}}
+    _judged_report(tmp_path, "972", keyed | part, judged=False)  # stopped
+    rec = analyze.judged([tmp_path])[("960", "dracula", 1, 1)]
+    assert rec["strict_status"] == "incomplete"
+    assert "strict" not in rec["m2_judges"]
+    other = {"m2_key": [{"answer": 2}], "m3_key": [["A"]]}
+    _judged_report(tmp_path, "973", other | part)  # complete, but another plan
+    rec = analyze.judged([tmp_path])[("960", "dracula", 1, 1)]
+    assert rec["strict_status"] == "plan_mismatch"
+    assert "strict" not in rec["m2_judges"]
 
 
 def test_a_strict_record_without_an_earlier_one_stays_out(tmp_path):
@@ -943,3 +959,35 @@ def test_strict_judge_floor_blocks_confirmation():
     st = analyze.analyze(rows, resamples=300)["strict"]
     assert st["floors"]["N"]["at_floor"] and st["robust"] is False
     assert "floor" in st["decision"]
+
+
+def _no_strict(rows):
+    for r in rows:
+        for m in ("m2", "m3", "m3_own"):
+            r[f"{m} {analyze.STRICT}"] = None
+    return rows
+
+
+def test_the_strict_judge_changes_no_pre_registered_result():
+    with_ = analyze.analyze(_study(), resamples=300)
+    without = analyze.analyze(_no_strict(_study()), resamples=300)
+    for k in ("family", "primary", "decisions", "floors", "sensitivities"):
+        assert with_[k] == without[k], k
+    assert without["strict"]["robust"] is False
+    assert "no strict judgments" in without["strict"]["decision"]
+
+
+def test_a_reversed_h2_is_robust_only_when_the_strict_judge_reverses_too():
+    up = analyze.analyze(_study(n_m2=0.87), resamples=300)
+    assert up["primary"]["N"]["reject"] and up["contrasts"]["N"]["m2 sonnet"]["d"] > 0
+    assert up["decisions"][1].startswith("N: the excerpts mislead attribution")
+    assert up["strict"]["robust"] is True
+    down = analyze.analyze(_strict(_study(n_m2=0.87), 0.7), resamples=300)
+    assert down["strict"]["robust"] is False
+
+
+def test_an_undetermined_h2_has_nothing_to_confirm():
+    few = analyze.analyze(_study(days=1), resamples=300)  # k = 6 < 7
+    assert few["strict"]["robust"] is None
+    floor_ = analyze.analyze(_study(a_m2=0.5, n_m2=0.5), resamples=300)
+    assert floor_["strict"]["robust"] is None

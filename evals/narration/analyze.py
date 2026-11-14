@@ -60,7 +60,10 @@ samples M2's judge sees for it (the share of the chapter's word 8-grams that
 occur in the samples).
 
 The free judge's (Groq's) results are printed beside Sonnet's and change no
-decision. `tense_mismatch`, `quote_mismatch` and sentence-level
+decision; neither does the strict judge's (SPEC-96 Amendment 2, judge=strict),
+which joins a chapter only when it judged it completely on the identical plan
+and is reported in its own block (H2 robust / not robust; H3 and the
+Sonnet-strict agreement descriptive). `tense_mismatch`, `quote_mismatch` and sentence-level
 `person_mismatch` are descriptive only.
 
 python -m evals.narration.analyze dates RUN_ID... --repo OWNER/REPO
@@ -94,9 +97,11 @@ DESCRIPTIVE = {"V": ("m3", "sonnet")}
 M1 = ("person_mismatch", "person_mismatch_window", "tense_mismatch", "quote_mismatch")
 JUDGES = ("sonnet", "free", "strict")
 # SPEC-96 Amendment 2: the strict judge (the Anthropic provider's default model,
-# judge=strict) re-judges the A, N and V chapters. H2 holds as "robust" only when
-# its strict-judge contrast agrees: same sign as Sonnet's d, sign-flip p below
-# STRICT_ALPHA, and A not at the strict judge's floor. It never makes H2 hold.
+# judge=strict) re-judges the A, N and V chapters. A rejection of H2 under Holm
+# (k >= 7, A off Sonnet's floor, either direction) is reported as "robust" in a
+# separate block only when the strict-judge contrast agrees: same sign as
+# Sonnet's d, sign-flip p below STRICT_ALPHA, A off the strict judge's floor. It
+# never changes a pre-registered decision line and never makes H2 hold.
 STRICT = "strict"
 STRICT_ALPHA = 0.05
 CHANCE_MARGIN = 0.20
@@ -164,21 +169,33 @@ def judged(paths: list[Path]) -> dict[tuple, dict]:
             book = rec.get("book") or n.get("book") or report.get("book")
             key = (str(rec["run"]), book, rec["position"], rec.get("replicate", 1))
             if is_strict(rec):
-                if key not in strict or rated(rec, True) > rated(strict[key], True):
+                # a complete judgment before a stopped one, then more rated
+                rank = (bool(rec.get("judged")), rated(rec, True))
+                old = strict.get(key)
+                if old is None or rank > (bool(old.get("judged")), rated(old, True)):
                     strict[key] = rec
             elif key not in out or rated(rec) > rated(out[key]):
                 out[key] = rec
-    # the strict judge's parts join the chapter's earlier record (Amendment 2);
-    # a chapter it judged that has no earlier record stays out, as unpaired
+    # The strict judge's parts join the chapter's earlier record (Amendment 2)
+    # only when it judged the chapter completely on the identical plan (the
+    # same M2 and M3 keys); otherwise the chapter's strict status says why.
+    # A chapter it judged that has no earlier record stays out.
     for key, s in strict.items():
         if key not in out:
             continue
         rec = dict(out[key])
-        for part in ("m2_judges", "m3"):
-            got = (s.get(part) or {}).get(STRICT)
-            if got is not None:
-                rec[part] = dict(rec.get(part) or {}) | {STRICT: got}
-        rec["judged_strict"] = bool(s.get("judged"))
+        if not s.get("judged"):
+            rec["strict_status"] = "incomplete"
+        elif s.get("m2_key") != rec.get("m2_key") or s.get("m3_key") != rec.get(
+            "m3_key"
+        ):
+            rec["strict_status"] = "plan_mismatch"
+        else:
+            for part in ("m2_judges", "m3"):
+                got = (s.get(part) or {}).get(STRICT)
+                if got is not None:
+                    rec[part] = dict(rec.get(part) or {}) | {STRICT: got}
+            rec["strict_status"] = "joined"
         out[key] = rec
     return out
 
@@ -277,7 +294,8 @@ def chapters(paths: list[Path], days: dict, app_sha: str) -> list[dict]:
                 1 for s in r.get("scenes") or [] if (s.get("content") or "").strip()
             ),
             "judged": bool(rec.get("judged")),
-            "judged_strict": bool(rec.get("judged_strict")),
+            "judged_strict": rec.get("strict_status") == "joined",
+            "strict_status": rec.get("strict_status"),
             "agreement": agreement(rec),
             "first_person": bool(text.strip()) and first_person(text),
             "sample_overlap": sample_overlap(book, r) if text.strip() else None,
@@ -746,6 +764,12 @@ def strict_check(out: dict, prs_of: dict, rows: list[dict], holds_n: int) -> dic
         "N": floor(prs_of["N"], f"m2 {STRICT}"),
         "V": floor(prs_of["V"], f"m3 {STRICT}", m3_chance(prs_of["V"]) or 0.0),
     }
+    status = Counter(
+        r.get("strict_status") or "not_judged"
+        for r in rows
+        if r["arm"] in ("A", "N", "V")
+    )
+    none_judged = not n.get("n_clusters")
     agrees = (
         holds_n != 0
         and n["d"] is not None
@@ -781,7 +805,13 @@ def strict_check(out: dict, prs_of: dict, rows: list[dict], holds_n: int) -> dic
         line = (
             "H2 (strict judge): not robust: Sonnet's result is not confirmed by "
             f"the strict judge (d = {n['d']}, p = {n['p']}, k = {n['n_clusters']}"
-            + ("; A at the strict judge's floor" if floors["N"]["at_floor"] else "")
+            + (
+                "; no strict judgments"
+                if none_judged
+                else (
+                    "; A at the strict judge's floor" if floors["N"]["at_floor"] else ""
+                )
+            )
             + ")"
         )
     return {
@@ -789,6 +819,7 @@ def strict_check(out: dict, prs_of: dict, rows: list[dict], holds_n: int) -> dic
         "V m3": v,
         "floors": floors,
         "agreement": agreement_,
+        "chapters": dict(sorted(status.items())),
         "robust": bool(agrees) if holds_n else None,
         "decision": line + " (" + CAVEAT.format(judged="strict-judged, ") + ")",
     }
@@ -834,10 +865,12 @@ def render(res: dict) -> str:
             s = st[k]
             lines.append(
                 f"  {k}: d = {s['d']} p = {s['p']} t {s['t_ci']} "
-                f"pairs {s['n_pairs']} clusters {s['n_clusters']}"
+                f"pairs {s['n_pairs']} clusters {s['n_clusters']} "
+                f"left out {s['left_out']}"
             )
         lines.append(f"  floors: {json.dumps(st['floors'])}")
         lines.append(f"  Sonnet-strict agreement: {json.dumps(st['agreement'])}")
+        lines.append(f"  chapters (A, N, V): {json.dumps(st['chapters'])}")
         lines.append(f"  {st['decision']}")
     return "\n".join(lines)
 

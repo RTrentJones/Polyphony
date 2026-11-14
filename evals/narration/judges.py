@@ -808,6 +808,7 @@ async def step_narration_judges(ctx: StepContext) -> dict:
             "book": ctx.book,
             "seed": seed,
             "judges": {n: (j.provider_id if j else None) for n, j in js.items()},
+            "strict_model": strict_model() if strict else None,
             "estimate": est,
             "stopped": stopped,
             "chapters": records,
