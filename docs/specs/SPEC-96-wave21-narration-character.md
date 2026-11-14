@@ -184,6 +184,34 @@ Pacific day. Read so far: day 1's counts only (A and P on Dracula, 6/6 chapters 
 
 Signed (Amendment 1): principal, 2026-10-31. The stop moves to the end of Nov 17 Pacific (judging by Nov 18, the analysis by Nov 19) and W21's Claude cap to $20, for an external reason (the user moved the Claude credit's end to Nov 19), written before any outcome was read (day 1's counts only). Arms, measures, statistic, family, floors, the day table, its contingency, the harness (cc34b82, merged as ebed0aa; `git diff ebed0aa a0a4ac4 -- app alembic alembic.ini requirements.txt evals .github/workflows/evals.yml` empty) and the dispatch-ref check are unchanged.
 
+## Amendment 2 (2026-11-14, before any outcome is read): a strict second judge
+The user asked to "use the Anthropic key to perform more strict evals" and chose, of three options put to them (a
+strict re-judge, a strict pairwise preference, Claude-written N and V arms), the re-judge. It adds a robustness check
+to H2 and H3; nothing it measures can make a hypothesis hold.
+- **Judge.** The strict judge is the Anthropic provider's default model (`judge=strict`, `NARRATION_JUDGES=strict`,
+  `evals/narration/judges.py` `strict_judges`), alone: no Sonnet, no free chain. It reads the same chapters with the
+  same plan and the default `NARRATION_SEED`, so it sees the same M2 passages, labels and order, and the same M3 scenes,
+  as Sonnet did. Its parts join each chapter's earlier record in the analysis under the name `strict`
+  (`analyze.judged`); a chapter it judged that has no earlier record stays out.
+- **Which chapters.** Every A, N and V run of each ledger day label that holds an N or a V run (48 runs through day
+  20, and those of days 21 to 24 as they finish). P runs, and the A of a label with P alone, are not re-judged: H1's
+  measure is the script's.
+- **Rule (H2).** H2's pre-registered decision stands as computed with Sonnet. It is reported as **robust** only when
+  that decision is a holding result (either direction) and the strict judge's N-against-A contrast on M2 has d of the
+  same sign, an exact sign-flip p below 0.05 (two-sided, unadjusted: it confirms one already-corrected result and is
+  not a member of the Holm family), and A is not at the strict judge's instrument floor (A's M2 t-interval clear of
+  0.5). Otherwise it is reported as **not robust: Sonnet's result is not confirmed by the strict judge**. When H2 does
+  not hold, the strict contrast is descriptive only.
+- **Descriptive.** H3 (V against A on M3) with the strict judge, and its floor (chance + 0.20); item-level agreement
+  between Sonnet and the strict judge on M2 passages and M3 lines both rated, over A, N and V chapters.
+- **Budget and conduct.** The strict judge's spend is capped at $11 (W21's total stays within its $20, the ledger
+  within $64); each dispatch sets `claude_usd_cap=2`. Dispatches run one at a time, outside the daily W21 window
+  (07:40–09:30Z), from the branch carrying this harness change: `main` keeps the signed harness until the last W21
+  table day has been dispatched, so the daily runner's harness check is untouched, and the change merges after it.
+  Strict judging ends by the end of Nov 18; a chapter the strict judge has not judged by then leaves its pairs out
+  of the strict lines, counted. Until the analysis only counts and costs of these runs are read.
+- **Read so far.** Counts only: chapters written, failure classes, requests and judge costs per run, through day 20.
+
 ## Ledger
 Rows are kept in SPEC-95's ledger, labelled W21.
 - 2026-10-30: `git diff cc34b82 ebed0aa -- app alembic alembic.ini requirements.txt evals .github/workflows/evals.yml` is

@@ -830,3 +830,116 @@ def test_judgments_are_keyed_by_book_within_one_run(tmp_path):
     js = analyze.judged([tmp_path])
     assert js[("950", "dracula", 1, 1)]["m2_judges"]["sonnet"]["rated"] == 2
     assert js[("950", "wuthering", 1, 1)]["m2_judges"]["sonnet"]["rated"] == 4
+
+
+# --- SPEC-96 Amendment 2: the strict judge --------------------------------------
+
+
+async def test_judge_strict_asks_only_the_strict_judge(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVAL_PRIOR_REPORTS", str(tmp_path))
+    monkeypatch.setenv("NARRATION_JUDGES", "strict")
+    monkeypatch.delenv("MONTHLY_COST_CEILING_USD", raising=False)
+    scene = NARRATION + "\n\n" + SCENE
+    _chapters_run(
+        tmp_path, "502", [_row(1, [scene], beats=[{"characters": CAST}])], "no_voices"
+    )
+    from evals.chapters import compare
+
+    strict, sonnet = FakeJudge("anthropic"), FakeJudge("anthropic")
+    monkeypatch.setattr(compare, "judges", lambda: {"sonnet": sonnet, "free": None})
+    monkeypatch.setattr(judges, "strict_judges", lambda: {"strict": strict})
+    res = await judges.step_narration_judges(
+        SimpleNamespace(book="dracula", ground_truth=GT)
+    )
+    n = res["narration"]
+    assert n["judges"] == {"strict": "anthropic"} and not sonnet.prompts
+    one = n["chapters"][0]
+    assert set(one["m2_judges"]) == {"strict"} and set(one["m3"]) == {"strict"}
+    assert one["judged"] is True and strict.prompts
+    # priced as the strict judge's model, not Sonnet's
+    plain = judges.estimate(strict.prompts)
+    assert n["estimate"]["usd_worst"] > plain["usd_worst"]
+
+
+async def test_judge_strict_without_its_key_is_skipped(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVAL_PRIOR_REPORTS", str(tmp_path))
+    monkeypatch.setenv("NARRATION_JUDGES", "strict")
+    monkeypatch.delenv("MONTHLY_COST_CEILING_USD", raising=False)
+    _chapters_run(tmp_path, "503", [_row(1, [NARRATION + "\n\n" + SCENE])])
+    monkeypatch.setattr(judges, "strict_judges", lambda: {"strict": None})
+    res = await judges.step_narration_judges(
+        SimpleNamespace(book="dracula", ground_truth=GT)
+    )
+    assert res["skipped"] and "Anthropic key" in res["reason"]
+
+
+def _judged_report(tmp_path, run_dir, parts, judged=True):
+    rec = {"run": "960", "position": 1, "replicate": 1, "judged": judged} | parts
+    _report(
+        tmp_path / f"{run_dir}/eval-report-{run_dir}/eval-report-dracula.json",
+        "dracula",
+        {judges.STEP: {"narration": {"chapters": [rec]}}},
+    )
+
+
+def test_strict_parts_join_the_chapters_earlier_record(tmp_path):
+    sonnet = {
+        "m2_judges": {"sonnet": {"rated": 3, "correct": 2, "choices": [1, 2, 1]}},
+        "m3": {"sonnet": {"rated": 2, "correct": 1, "named": [["A", "B"]]}},
+    }
+    strict = {
+        "m2_judges": {"strict": {"rated": 2, "correct": 1, "choices": [1, None, 2]}},
+        "m3": {"strict": {"rated": 2, "correct": 2, "named": [["A", "C"]]}},
+    }
+    _judged_report(tmp_path, "961", sonnet)
+    _judged_report(tmp_path, "962", strict)
+    _judged_report(tmp_path, "963", {"m2_judges": {"strict": {"rated": 0}}}, False)
+    rec = analyze.judged([tmp_path])[("960", "dracula", 1, 1)]
+    assert rec["m2_judges"]["sonnet"]["rated"] == 3  # the earlier record kept
+    assert rec["m2_judges"]["strict"]["rated"] == 2  # the fuller strict record
+    assert rec["judged_strict"] is True
+    assert analyze.agreement(rec) == {"m2": (2, 1), "m3": (2, 1)}
+
+
+def test_a_strict_record_without_an_earlier_one_stays_out(tmp_path):
+    _judged_report(tmp_path, "964", {"m2_judges": {"strict": {"rated": 1}}})
+    assert analyze.judged([tmp_path]) == {}
+
+
+def _strict(rows, n_m2):
+    for r in rows:
+        if r["arm"] == "N" and r[f"m2 {analyze.STRICT}"] is not None:
+            r[f"m2 {analyze.STRICT}"] = n_m2
+    return rows
+
+
+def test_h2_is_robust_only_when_the_strict_judge_agrees():
+    res = analyze.analyze(_study(), resamples=300)
+    assert res["primary"]["N"]["reject"]
+    st = res["strict"]
+    assert st["robust"] is True and "robust: the strict judge agrees" in st["decision"]
+    # the strict judge sees no difference: Sonnet's result is not confirmed
+    flat = analyze.analyze(_strict(_study(), 0.8), resamples=300)
+    assert flat["primary"]["N"]["reject"] and flat["strict"]["robust"] is False
+    assert "not robust" in flat["strict"]["decision"]
+    # the strict judge the other way round does not confirm either
+    up = analyze.analyze(_strict(_study(), 0.95), resamples=300)
+    assert up["strict"]["robust"] is False
+    # the strict judge never makes H2 hold
+    none = analyze.analyze(_study(n_m2=0.8 + 0.035), resamples=300)
+    assert not none["primary"]["N"]["reject"]
+    assert none["strict"]["robust"] is None
+    assert "descriptive only" in none["strict"]["decision"]
+    assert "Sonnet" not in none["strict"]["decision"].split("(")[0]
+
+
+def test_strict_judge_floor_blocks_confirmation():
+    rows = _study()
+    for r in rows:
+        if r["arm"] == "A":
+            r[f"m2 {analyze.STRICT}"] = 0.5
+        if r["arm"] == "N":
+            r[f"m2 {analyze.STRICT}"] = 0.5 - r["position"] / 100
+    st = analyze.analyze(rows, resamples=300)["strict"]
+    assert st["floors"]["N"]["at_floor"] and st["robust"] is False
+    assert "floor" in st["decision"]

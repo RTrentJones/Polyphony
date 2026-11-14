@@ -96,8 +96,10 @@ on:
           who judges (SPEC-95 E0): chain = the free judges (with claude=yes, Claude Sonnet only as the last
           resort); claude = Claude Sonnet first, the free judges behind it. claude needs claude=yes (its key
           and spend ceiling) and a booted app. Recorded in each report's judge block (requested_mode).
+          strict (SPEC-96 Amendment 2) = steps=narration_judges only, judged by the Anthropic provider's
+          default model alone (no Sonnet, no free chain), under the same needs as claude.
         type: choice
-        options: ['chain', 'claude']
+        options: ['chain', 'claude', 'strict']
         default: 'chain'
       calibration_run:
         description: >-
@@ -269,6 +271,7 @@ jobs:
       - name: Judge chain
         env:
           JUDGE: ${{ github.event.inputs.judge || 'chain' }}
+          STEPS: ${{ github.event.inputs.steps || 'all' }}
           CLAUDE: ${{ github.event.inputs.claude || 'no' }}
           BASE_URL: ${{ github.event.inputs.base_url || '' }}
           FREE_CHAIN: ${{ vars.EVAL_JUDGE_PROVIDER || 'groq,openrouter' }}
@@ -289,8 +292,20 @@ jobs:
               fi
               CHAIN="anthropic,$FREE_CHAIN"
               ;;
+            strict)
+              if [ "$CLAUDE" != "yes" ] || [ -n "$BASE_URL" ]; then
+                echo "::error title=Judge::judge=strict needs claude=yes and a booted app, as judge=claude does"
+                exit 1
+              fi
+              if [ "$STEPS" != "narration_judges" ]; then
+                echo "::error title=Judge::judge=strict is for steps=narration_judges alone (got '$STEPS')"
+                exit 1
+              fi
+              CHAIN="anthropic"
+              echo "NARRATION_JUDGES=strict" >> "$GITHUB_ENV"
+              ;;
             *)
-              echo "::error title=Judge::judge must be chain or claude (got '$JUDGE')"
+              echo "::error title=Judge::judge must be chain, claude or strict (got '$JUDGE')"
               exit 1
               ;;
           esac

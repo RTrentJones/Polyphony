@@ -585,13 +585,16 @@ async def judge_m3(judge, scenes: list[dict]) -> dict:
 # --- cost --------------------------------------------------------------------
 
 
-def estimate(prompts: list[str], judges_on: int = 1) -> dict:
-    """Calls, prompt tokens and USD if every call went to the paid judge."""
+def estimate(
+    prompts: list[str], judges_on: int = 1, priced_as: str | None = None
+) -> dict:
+    """Calls, prompt tokens and USD if every call went to the paid judge
+    (Sonnet unless `priced_as` names the strict judge's model)."""
     from app.llm.prices import PRICES
 
     tokens = sum((len(p) + _SYSTEM_CHARS) // 4 for p in prompts)
     calls = len(prompts)
-    price = PRICES[rn2._PRICED_AS]
+    price = PRICES[priced_as or rn2._PRICED_AS]
     return {
         "judge_calls": calls,
         "prompt_tokens": tokens,
@@ -611,6 +614,44 @@ def _over_ceiling(est: dict) -> str | None:
     if ceiling is not None and est["usd_worst"] > ceiling:
         return f"worst-case ${est['usd_worst']} is over this run's ceiling ${ceiling}"
     return None
+
+
+# --- the strict judge (SPEC-96 Amendment 2) ----------------------------------
+
+# NARRATION_JUDGES=strict (evals.yml judge=strict) judges with the Anthropic
+# provider's default model alone, recorded under this name beside the earlier
+# reports' "sonnet" and "free": the same plan and seed, so the same items.
+STRICT = "strict"
+
+
+def strict_on() -> bool:
+    return os.getenv("NARRATION_JUDGES", "") == STRICT
+
+
+def strict_model() -> str:
+    from app.llm.providers import PROVIDERS
+
+    return PROVIDERS["anthropic"].default_model
+
+
+def strict_judges() -> dict:
+    """{"strict": Judge}, or {"strict": None} when the chain resolved elsewhere."""
+    from dataclasses import replace
+
+    from evals.harness.config import load
+    from evals.harness.judge import Judge
+
+    cfg = load()
+    j = Judge(
+        replace(
+            cfg,
+            judge_provider="anthropic",
+            judge_model=strict_model(),
+            judge_base_url=None,
+        )
+    )
+    ok = not j.fell_back and j.provider_id == "anthropic"
+    return {STRICT: j if ok else None}
 
 
 # --- the chapters to judge ---------------------------------------------------
@@ -749,11 +790,14 @@ async def step_narration_judges(ctx: StepContext) -> dict:
             "skipped": True,
             "reason": f"no `chapters` run of {ctx.book} in from_runs",
         }
-    est = estimate(_prompts(planned))
+    strict = strict_on()
+    est = estimate(_prompts(planned), priced_as=strict_model() if strict else None)
     print(f"{STEP} {ctx.book}: estimate {est}", flush=True)
     if why := _over_ceiling(est):
         return {"skipped": True, "reason": why, "estimate": est}
-    js = judges()
+    js = strict_judges() if strict else judges()
+    if strict and js[STRICT] is None:
+        return {"skipped": True, "reason": "the strict judge has no Anthropic key"}
     records, stopped = await judge_planned(planned, js)
     judged = sum(1 for r in records if r["judged"])
     return {

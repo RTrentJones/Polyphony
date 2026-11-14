@@ -92,7 +92,13 @@ CONTRASTS = ("P", "N", "V")
 PRIMARY = {"P": ("person_mismatch_window", None), "N": ("m2", "sonnet")}
 DESCRIPTIVE = {"V": ("m3", "sonnet")}
 M1 = ("person_mismatch", "person_mismatch_window", "tense_mismatch", "quote_mismatch")
-JUDGES = ("sonnet", "free")
+JUDGES = ("sonnet", "free", "strict")
+# SPEC-96 Amendment 2: the strict judge (the Anthropic provider's default model,
+# judge=strict) re-judges the A, N and V chapters. H2 holds as "robust" only when
+# its strict-judge contrast agrees: same sign as Sonnet's d, sign-flip p below
+# STRICT_ALPHA, and A not at the strict judge's floor. It never makes H2 hold.
+STRICT = "strict"
+STRICT_ALPHA = 0.05
 CHANCE_MARGIN = 0.20
 FLOOR = "undetermined: instrument at floor on generated text"
 CAVEAT = "exploratory; Flash-Lite-written, {judged}not human, development corpora"
@@ -135,13 +141,18 @@ def judged(paths: list[Path]) -> dict[tuple, dict]:
     a chapter judged in two reports keeps the record with more rated items
     (a stopped dispatch judged again), never a mix."""
     out: dict = {}
+    strict: dict = {}
 
-    def rated(rec: dict) -> int:
+    def rated(rec: dict, of_strict: bool = False) -> int:
         return sum(
             t.get("rated", 0)
             for part in ("m2_judges", "m3")
-            for t in (rec.get(part) or {}).values()
+            for name, t in (rec.get(part) or {}).items()
+            if (name == STRICT) == of_strict
         )
+
+    def is_strict(rec: dict) -> bool:
+        return any(STRICT in (rec.get(p) or {}) for p in ("m2_judges", "m3"))
 
     for f in contract.report_files(paths):
         report = json.loads(f.read_text("utf-8"))
@@ -152,8 +163,48 @@ def judged(paths: list[Path]) -> dict[tuple, dict]:
         for rec in n["chapters"]:
             book = rec.get("book") or n.get("book") or report.get("book")
             key = (str(rec["run"]), book, rec["position"], rec.get("replicate", 1))
-            if key not in out or rated(rec) > rated(out[key]):
+            if is_strict(rec):
+                if key not in strict or rated(rec, True) > rated(strict[key], True):
+                    strict[key] = rec
+            elif key not in out or rated(rec) > rated(out[key]):
                 out[key] = rec
+    # the strict judge's parts join the chapter's earlier record (Amendment 2);
+    # a chapter it judged that has no earlier record stays out, as unpaired
+    for key, s in strict.items():
+        if key not in out:
+            continue
+        rec = dict(out[key])
+        for part in ("m2_judges", "m3"):
+            got = (s.get(part) or {}).get(STRICT)
+            if got is not None:
+                rec[part] = dict(rec.get(part) or {}) | {STRICT: got}
+        rec["judged_strict"] = bool(s.get("judged"))
+        out[key] = rec
+    return out
+
+
+def agreement(rec: dict) -> dict:
+    """Per chapter, Sonnet and the strict judge on the same items (same plan and
+    seed): M2 passages and M3 lines both rated, and how many they agree on."""
+    out = {}
+    m2 = rec.get("m2_judges") or {}
+    a, b = (m2.get("sonnet") or {}).get("choices"), (m2.get(STRICT) or {}).get(
+        "choices"
+    )
+    if a is not None and b is not None and len(a) == len(b):
+        both = [(x, y) for x, y in zip(a, b) if x is not None and y is not None]
+        out["m2"] = (len(both), sum(x == y for x, y in both))
+    m3 = rec.get("m3") or {}
+    a, b = (m3.get("sonnet") or {}).get("named"), (m3.get(STRICT) or {}).get("named")
+    if a is not None and b is not None and len(a) == len(b):
+        both = [
+            (x, y)
+            for sa, sb in zip(a, b)
+            if len(sa) == len(sb)
+            for x, y in zip(sa, sb)
+            if x is not None and y is not None
+        ]
+        out["m3"] = (len(both), sum(x == y for x, y in both))
     return out
 
 
@@ -226,6 +277,8 @@ def chapters(paths: list[Path], days: dict, app_sha: str) -> list[dict]:
                 1 for s in r.get("scenes") or [] if (s.get("content") or "").strip()
             ),
             "judged": bool(rec.get("judged")),
+            "judged_strict": bool(rec.get("judged_strict")),
+            "agreement": agreement(rec),
             "first_person": bool(text.strip()) and first_person(text),
             "sample_overlap": sample_overlap(book, r) if text.strip() else None,
         }
@@ -573,6 +626,7 @@ def per_arm(rows: list[dict]) -> dict:
             "failure": dict(sorted(fail.items())),
             "no_scenes": sum(1 for r in mine if not r["scenes"]),
             "judged": sum(1 for r in mine if r["judged"]),
+            "judged_strict": sum(1 for r in mine if r.get("judged_strict")),
             "m3_eligible_lines": sum(r.get("m3_lines") or 0 for r in mine),
             "m3_narrator_lines": sum(r.get("m3_narrator_lines") or 0 for r in mine),
             "sample_overlap_8gram": {
@@ -663,7 +717,81 @@ def analyze(
         )
         for c in CONTRASTS
     ]
+    out["strict"] = strict_check(
+        out, prs_of, rows, holds_n=_h2_held(out, tests.get("N", none), floors["N"])
+    )
     return out
+
+
+def _h2_held(out: dict, test_: dict, floor_: dict) -> int:
+    """+1 / -1 when H2's decision is a holding result lower / the other way
+    round, 0 otherwise (not tested, undetermined, at the floor, not rejected)."""
+    s = out["contrasts"]["N"]["m2 sonnet"]
+    if (
+        "N" not in out["family"]
+        or floor_["at_floor"]
+        or (s.get("n_clusters") or 0) < MIN_CLUSTERS
+        or not test_["reject"]
+        or not s["d"]
+    ):
+        return 0
+    return -1 if s["d"] < 0 else 1
+
+
+def strict_check(out: dict, prs_of: dict, rows: list[dict], holds_n: int) -> dict:
+    """SPEC-96 Amendment 2: the strict judge beside Sonnet on N (H2) and V (H3)."""
+    n = out["contrasts"]["N"][f"m2 {STRICT}"]
+    v = out["contrasts"]["V"][f"m3 {STRICT}"]
+    floors = {
+        "N": floor(prs_of["N"], f"m2 {STRICT}"),
+        "V": floor(prs_of["V"], f"m3 {STRICT}", m3_chance(prs_of["V"]) or 0.0),
+    }
+    agrees = (
+        holds_n != 0
+        and n["d"] is not None
+        and n["p"] is not None
+        and (n["d"] > 0) == (holds_n > 0)
+        and n["d"] != 0
+        and n["p"] < STRICT_ALPHA
+        and not floors["N"]["at_floor"]
+    )
+    tally: dict = {}
+    for r in rows:
+        if r["arm"] not in ("A", "N", "V"):
+            continue
+        for m, (both, same) in (r.get("agreement") or {}).items():
+            t = tally.setdefault(m, [0, 0])
+            t[0] += both
+            t[1] += same
+    agreement_ = {
+        m: {"both_rated": b, "agree": a, "share": round(a / b, 4) if b else None}
+        for m, (b, a) in sorted(tally.items())
+    }
+    if holds_n == 0:
+        line = (
+            "H2 (strict judge): no Sonnet holding result to confirm; descriptive "
+            f"only (d = {n['d']}, p = {n['p']}, k = {n['n_clusters']})"
+        )
+    elif agrees:
+        line = (
+            f"H2 (strict judge): robust: the strict judge agrees (d = {n['d']}, "
+            f"p = {n['p']}, k = {n['n_clusters']})"
+        )
+    else:
+        line = (
+            "H2 (strict judge): not robust: Sonnet's result is not confirmed by "
+            f"the strict judge (d = {n['d']}, p = {n['p']}, k = {n['n_clusters']}"
+            + ("; A at the strict judge's floor" if floors["N"]["at_floor"] else "")
+            + ")"
+        )
+    return {
+        "N m2": n,
+        "V m3": v,
+        "floors": floors,
+        "agreement": agreement_,
+        "robust": bool(agrees) if holds_n else None,
+        "decision": line + " (" + CAVEAT.format(judged="strict-judged, ") + ")",
+    }
 
 
 def render(res: dict) -> str:
@@ -699,6 +827,18 @@ def render(res: dict) -> str:
         lines.append(f"  {k}: d = {s['d']} p = {s['p']} t {s['t_ci']} {extra or ''}")
     lines.append("decisions:")
     lines += [f"  {d}" for d in res["decisions"]]
+    st = res.get("strict")
+    if st:
+        lines.append("strict judge (SPEC-96 Amendment 2):")
+        for k in ("N m2", "V m3"):
+            s = st[k]
+            lines.append(
+                f"  {k}: d = {s['d']} p = {s['p']} t {s['t_ci']} "
+                f"pairs {s['n_pairs']} clusters {s['n_clusters']}"
+            )
+        lines.append(f"  floors: {json.dumps(st['floors'])}")
+        lines.append(f"  Sonnet-strict agreement: {json.dumps(st['agreement'])}")
+        lines.append(f"  {st['decision']}")
     return "\n".join(lines)
 
 
