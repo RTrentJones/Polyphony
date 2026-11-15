@@ -3,8 +3,9 @@
 objective attribution items, the sign-flip test), SPEC-81 (spend enforcement). **Directed** by the user on 2026-11-15:
 "Create a plan to execute all of this. The end result should be CI/CD measured evals to ensure we are hill climbing.
 Include where we should use Anthropic's API (where I have $100 credit a month from my max plan) vs free tiers".
-**Status**: plan. Nothing here is built, and nothing under `app/`, `evals/` or `.github/` changes before wave 21's
-analysis is recorded (SPEC-96 keeps main's harness at ebed0aa until then).
+**Status**: P1 in progress on the working branch (each piece is marked **Built** below). Main keeps wave 21's signed
+harness (ebed0aa) until its last judge run, so none of this merges before wave 21's analysis is recorded, and nothing
+under `app/` changes before then.
 
 ## Why
 Wave 18's prose changes shipped green and were found two weeks later to be preferred to wave 17's about 3 times in 10
@@ -80,6 +81,14 @@ from December, and a November run on this harness needs `EVAL_CLAUDE_LINES` set 
   and a score against the human-rated calibration set; the thresholds are fixed in P2 before any judge is scored.
 - **D98-5 Deterministic product failures are fixed when found.** With D98-1 a fix no longer disturbs a running
   experiment; Frankenstein's outline chapter 3 is the first.
+  **Diagnosed (2026-11-15), not yet fixed:** the frozen outline's chapter 3 ("Shadows and Letters") follows the
+  creature, who is not in the renamed corpus's cast, so the outline saved it with no `pov` and no cast characters;
+  `generate-planned` then refuses the whole chapter with 422 "Pick at least one character from the cast"
+  (`app/characters/cast.py`). An author can pick a cast in the modal; the harness, like a one-click author, sends
+  none. The chapter prompt allows `"pov": "canon character name or ''"`. Proposed fix, for the user's decision since
+  it changes R1.5a: the chapter stage requires a cast `pov` for every chapter, repairs a chapter that has none once
+  (as it already does for omitted principals), and the outline audit warns on any that remains. Frozen outlines are
+  re-recorded for the gate in P3; wave 21's stays as recorded.
 - **D98-6 Power comes from clusters.** New development corpora and chapters are added before days; an experiment's plan
   states its cluster count and the smallest effect it can detect before it starts.
 
@@ -92,7 +101,10 @@ Each phase is one PR (or a short series) through the usual gate, and ends on a n
   the report writer (D98-3); the push gate restored in the repo as one script (`scripts/gate.sh`: black, ruff, pytest);
   `evals.yml` split into a reusable workflow with thin callers (`eval-pr`, `eval-candidate`, `eval-experiment`,
   `eval-holdout`), its mode guards moved from shell into one validated config object with unit tests; a `tier` label
-  and per-line budget caps; the Frankenstein chapter 3 fix (D98-5). *Done when* an experiment-tier run dispatched from
+  and per-line budget caps; the Frankenstein chapter 3 fix (D98-5). **Built so far:** the gate script, the
+  per-line caps, the results branch (first bundle: `experiment/p1-publish-check/43697392971.json`), and the config
+  object (`evals/config.py`: every input rule checked in the job's first step, all problems reported at once; the
+  step guards remain until the split). *Done when* an experiment-tier run dispatched from
   a tag completes while main has moved, and its report is on `eval-results`.
 - **P2 — The anchor (about 2 days, plus about 2 hours of the user's rating time).** A calibration set of 60–100 items
   drawn from existing chapters (attribution items with a right answer, and preference pairs), rated once by the user

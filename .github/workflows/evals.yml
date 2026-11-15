@@ -189,6 +189,29 @@ jobs:
       EVAL_CHAPTER_REPLICATES: ${{ github.event.inputs.replicates || '1' }}
     steps:
       - uses: actions/checkout@v4
+      # SPEC-98 P1: every input rule checked at once (evals/config.py), before the app boots or a
+      # key is read. The guards in the steps below stay: each still protects its own step.
+      - name: Validate the dispatch's inputs
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          INPUT_BOOK: ${{ github.event.inputs.book || '' }}
+          INPUT_STEPS: ${{ github.event.inputs.steps || '' }}
+          INPUT_REPEAT: ${{ github.event.inputs.repeat || '' }}
+          INPUT_BASE_URL: ${{ github.event.inputs.base_url || '' }}
+          INPUT_HOLDOUT: ${{ github.event.inputs.holdout || '' }}
+          INPUT_CLAUDE: ${{ github.event.inputs.claude || '' }}
+          INPUT_CLAUDE_GENERATE: ${{ github.event.inputs.claude_generate || '' }}
+          INPUT_CLAUDE_MONTHLY_USD: ${{ github.event.inputs.claude_monthly_usd || '' }}
+          INPUT_CLAUDE_USD_CAP: ${{ github.event.inputs.claude_usd_cap || '' }}
+          INPUT_TIER: ${{ github.event.inputs.tier || '' }}
+          INPUT_APP_SHA: ${{ github.event.inputs.app_sha || '' }}
+          INPUT_FROM_RUNS: ${{ github.event.inputs.from_runs || '' }}
+          INPUT_CHAPTERS: ${{ github.event.inputs.chapters || '' }}
+          INPUT_REPLICATES: ${{ github.event.inputs.replicates || '' }}
+          INPUT_JUDGE: ${{ github.event.inputs.judge || '' }}
+          INPUT_CALIBRATION_RUN: ${{ github.event.inputs.calibration_run || '' }}
+          INPUT_ABLATION: ${{ github.event.inputs.ablation || '' }}
+        run: python3 -m evals.config
       # D19-4: holdout-v1 fixes the holdout corpora, the release under test fixes the code; a holdout
       # run from a later tag (E4's harness) must carry holdout-v1's corpora byte for byte.
       - name: Holdout corpora are holdout-v1's (holdout=yes)
