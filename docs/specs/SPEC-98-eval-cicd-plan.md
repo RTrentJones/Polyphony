@@ -72,6 +72,10 @@ from December, and a November run on this harness needs `EVAL_CLAUDE_LINES` set 
   21's unblinded variances, and the rule is validated by an A/A run (release against itself) before it enforces.
 - **D98-3 Results are committed.** Each report is written to an orphan `eval-results` branch under
   `<tier>/<experiment>/<run>.json`; analyzers read that branch by experiment tag. Tracer ingestion stays for trending.
+  **Built (2026-11-15):** `evals/results.py` writes one bundle per run attempt (identity, the reports by file name,
+  the ceiling and done markers) and `load()` reads an experiment's bundles back in order; `evals.yml`'s `publish` job
+  commits it. That job holds the workflow's only write permission and none of the eval job's secrets; a push-triggered
+  run, a run with no report, and a run that answered calibration items publish nothing.
 - **D98-4 Judges qualify before they are paid or trusted.** A judge enters a tier only after an order-consistency test
   and a score against the human-rated calibration set; the thresholds are fixed in P2 before any judge is scored.
 - **D98-5 Deterministic product failures are fixed when found.** With D98-1 a fix no longer disturbs a running

@@ -537,3 +537,57 @@ jobs:
             calibration-answers.json
             app.log
           if-no-files-found: warn
+
+  # SPEC-98 D98-3: the run's reports committed to the orphan `eval-results` branch as
+  # <tier>/<experiment>/<run>[-<attempt>].json (evals/results.py), where they do not expire
+  # and an analyzer finds them by experiment. A job of its own: it holds the only write
+  # permission in this workflow and none of the eval job's secrets. A push run (no inputs)
+  # publishes nothing, and neither does a run with no report or one that answered
+  # calibration items. Each run writes its own file, so a lost push race is retried.
+  publish:
+    needs: eval
+    if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    permissions: {contents: write}
+    steps:
+      - uses: actions/checkout@v4
+        with: {path: repo}
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: ${{ github.run_attempt == '1' && format('eval-report-{0}', github.run_id) || format('eval-report-{0}-{1}', github.run_id, github.run_attempt) }}
+          path: artifact
+      - name: Commit the reports to eval-results
+        env:
+          TIER: ${{ github.event.inputs.tier || 'experiment' }}
+          EXPERIMENT: ${{ github.event.inputs.experiment || '' }}
+        run: |
+          [ -d artifact ] || { echo "no artifact to publish"; exit 0; }
+          # The writer is this ref's; the checkout then moves to the results branch.
+          mkdir -p "$RUNNER_TEMP/harness"
+          cp -r repo/evals "$RUNNER_TEMP/harness/evals"
+          cd repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for try in 1 2 3 4 5; do
+            if git fetch -q --depth=1 origin "+refs/heads/eval-results:refs/remotes/origin/eval-results" 2>/dev/null; then
+              git checkout -q -B eval-results origin/eval-results
+            else
+              git checkout -q --orphan "eval-results-$try"
+              git rm -rfq --cached . >/dev/null
+            fi
+            git clean -fdxq
+            out="$(PYTHONPATH="$RUNNER_TEMP/harness" python3 -m evals.results "$GITHUB_WORKSPACE/artifact" . \
+              --tier "$TIER" --experiment "$EXPERIMENT" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+              --ref "$GITHUB_REF" --sha "$GITHUB_SHA")"
+            [ -n "$out" ] || { echo "nothing to publish"; exit 0; }
+            git add -- "$out"
+            git commit -q -m "$TIER: run $GITHUB_RUN_ID attempt $GITHUB_RUN_ATTEMPT"
+            if git push -q origin HEAD:refs/heads/eval-results; then
+              echo "published \`$out\` to eval-results" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep $((try * 5))
+          done
+          echo "::error::could not push to eval-results after 5 tries"
+          exit 1
