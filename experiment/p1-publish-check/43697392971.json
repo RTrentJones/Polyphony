@@ -1,0 +1,72 @@
+{
+ "attempt": 1,
+ "ceiling": null,
+ "done": true,
+ "experiment": "p1-publish-check",
+ "ref": "refs/heads/claude/determined-bell-wo0vsx",
+ "reports": {
+  "eval-report-dracula.json": {
+   "ablation": null,
+   "app_sha": "b70eb38d76c660ea4dca5567960383c2c3249a7d",
+   "book": "dracula",
+   "generator": {
+    "model": "gemini-3.5-flash-lite",
+    "provider": "gemini",
+    "source": "config"
+   },
+   "harness_sha": "b70eb38d76c660ea4dca5567960383c2c3249a7d",
+   "judge": {
+    "endpoint": null,
+    "fell_back": false,
+    "model": null,
+    "provider": "groq",
+    "requested": "groq,openrouter",
+    "requested_mode": "chain",
+    "self": false
+   },
+   "judge_cost_usd": 0.0,
+   "mode": "boot",
+   "model": "gemini-3.5-flash-lite",
+   "repeat": 1,
+   "run": null,
+   "steps": {
+    "retrieval": {
+     "characters": [
+      "Aldous Kerr",
+      "Nora Vance",
+      "Elias Ward"
+     ],
+     "mrr": 0.9545,
+     "n_queries": 11,
+     "per_character": {
+      "Aldous Kerr": {
+       "mrr": 1.0,
+       "precision_at_k": 1.0
+      },
+      "Elias Ward": {
+       "mrr": 0.9,
+       "precision_at_k": 0.8
+      },
+      "Nora Vance": {
+       "mrr": 1.0,
+       "precision_at_k": 0.5
+      }
+     },
+     "precision_at_k": 0.8182,
+     "score": 0.8181818181818182
+    }
+   },
+   "unscored": {
+    "claimed_empty": 0,
+    "items": 0,
+    "rubrics": 0,
+    "unavailable": 0,
+    "unparseable": 0
+   }
+  }
+ },
+ "run": "43697392971",
+ "schema": 1,
+ "sha": "b70eb38d76c660ea4dca5567960383c2c3249a7d",
+ "tier": "experiment"
+}
