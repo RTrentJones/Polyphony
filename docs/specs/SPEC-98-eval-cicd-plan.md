@@ -55,7 +55,12 @@ price; judging is not latency-sensitive) and prompt caching of the rubric and ch
 | Reserve | $10 | never planned against |
 
 `evals.yml` already subtracts the month's earlier spend from `EVAL_CLAUDE_MONTHLY_USD` (SPEC-90 D1). P1 adds a per-line
-cap keyed by the run's `tier` label, so the gate cannot spend the experiment's money.
+cap keyed by the run's `tier` input, so the gate cannot spend the experiment's money. **Built (2026-11-15):**
+`evals.spend --tier <t> [--lines ...]` bounds a run's ceiling by what is left of its line and refuses a spent line; the
+workflow records each run's tier in its artifact (`eval-tier.json`), and an attempt without one, every run before this,
+counts as an experiment. The amounts are `evals/spend.py`'s `LINES`, overridden by the `EVAL_CLAUDE_LINES` repository
+variable. November's experiment line is already overspent by wave 21, which ran under the $64 ledger: the lines apply
+from December, and a November run on this harness needs `EVAL_CLAUDE_LINES` set for the month.
 
 ## Decisions
 - **D98-1 Experiments run from an immutable tag.** A harness is signed as a tag (`w22-harness`), dispatched with

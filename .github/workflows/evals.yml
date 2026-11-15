@@ -75,6 +75,14 @@ on:
       claude_usd_cap:
         description: with claude=yes, an optional tighter per-run ceiling in USD (blank = the month's remainder)
         default: ''
+      tier:
+        description: >-
+          SPEC-98: the budget line a claude=yes run spends from (gate, experiment, release, calibration;
+          amounts in the EVAL_CLAUDE_LINES repo variable, else evals/spend.py's). The run's ceiling is
+          also bounded by what is left of its line. Recorded in the run's artifact (eval-tier.json).
+        type: choice
+        options: ['experiment', 'gate', 'release', 'calibration']
+        default: 'experiment'
       app_sha:
         description: >-
           E4 (SPEC-95): boot the app (app/, alembic/, alembic.ini, requirements.txt) from this full commit
@@ -363,6 +371,8 @@ jobs:
           BUDGET: ${{ github.event.inputs.claude_monthly_usd || vars.EVAL_CLAUDE_MONTHLY_USD || '100' }}
           CAP: ${{ github.event.inputs.claude_usd_cap || '' }}
           GENERATE: ${{ github.event.inputs.claude_generate || 'yes' }}
+          TIER: ${{ github.event.inputs.tier || 'experiment' }}
+          LINES: ${{ vars.EVAL_CLAUDE_LINES || '' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           case "$GENERATE" in
@@ -394,13 +404,16 @@ jobs:
               gh run download "$id" -R "$GITHUB_REPOSITORY" -p "eval-report-$id*" -D "$RUNS/$id" \
                 >/dev/null 2>&1 || echo "run $id: no eval-report artifact, counted as 0"
             done
-          if ! CEILING="$(python3 -m evals.spend "$RUNS" --budget "$BUDGET" ${CAP:+--cap "$CAP"})"; then
+          if ! CEILING="$(python3 -m evals.spend "$RUNS" --budget "$BUDGET" ${CAP:+--cap "$CAP"} \
+            --tier "$TIER" ${LINES:+--lines "$LINES"})"; then
             echo "$CEILING"
             exit 1
           fi
           echo "this run's ceiling: \$$CEILING" | tee -a "$GITHUB_STEP_SUMMARY"
           # Uploaded with the reports: a run killed before any report counts at its ceiling.
           printf '{"ceiling": %s}\n' "$CEILING" > eval-ceiling.json
+          # The run's budget line (SPEC-98): later runs read it to total each tier's spend.
+          printf '{"tier": "%s"}\n' "$TIER" > eval-tier.json
           {
             echo "ANTHROPIC_API_KEY=$KEY"
             echo "MONTHLY_COST_CEILING_USD=$CEILING"
@@ -518,6 +531,7 @@ jobs:
           path: |
             eval-report-*.json
             eval-ceiling.json
+            eval-tier.json
             eval-done.json
             gl-export-*.json
             calibration-answers.json
