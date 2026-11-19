@@ -116,10 +116,23 @@ Each phase is one PR (or a short series) through the usual gate, and ends on a n
   object (`evals/config.py`: every input rule checked in the job's first step, all problems reported at once; the
   step guards remain until the split). *Done when* an experiment-tier run dispatched from
   a tag completes while main has moved, and its report is on `eval-results`.
-- **P2 — The anchor (about 2 days, plus about 2 hours of the user's rating time).** A calibration set of 60–100 items
-  drawn from existing chapters (attribution items with a right answer, and preference pairs), rated once by the user
-  through `calibration.yml`; qualification of Sonnet, Haiku, Opus and each free judge against it (D98-4). *Done when*
-  every judge has a recorded accuracy and order-consistency, and each tier's judge is named from that table.
+- **P2 — The anchor (amended 2026-11-19).** The user does not know the source books well enough to rate attribution
+  ("I don't know the books well enough to be a rater") and chose a half-hour preference set. So the anchor has two
+  parts. (a) **Objective items, no rater:** narrator and speaker attribution on the source texts, scored against the text
+  itself (as SPEC-96's validation run 41145514872 did), for correctness. (b) **A blind preference set, one reader:**
+  `evals/calibration/prefs.py` (seed 20261119) draws 16 pairs of passages that open the same planned scene of the same
+  frozen outline (whole paragraphs, 150–300 words a side), 5 A–N, 5 A–V and 3 A–P from wave 21 on the same ledger day,
+  and 3 Claude-written A against Flash-Lite A on the same outline position, one pair per outline chapter, sides
+  randomised, plus 2 earlier items repeated with the sides swapped to measure the reader's own consistency. The reader
+  sees the chapter summary, the scene's title and the two passages, and answers A, B or no preference on a private page
+  (only its owner reads or writes the answers). The key stays out of the page and the repository; the seed and the
+  builder regenerate it. **Qualification rule, fixed before any judge answers these items:** a judge answers every pair
+  in both orders; it qualifies to decide the gate when its order-consistency is at least 0.80 and it agrees with the
+  reader on at least 0.70 of the pairs the reader did not mark "no preference", and it is a candidate for bulk
+  first-pass judging at 0.65 with the same order-consistency. With about 13 decisive pairs these bounds are coarse, so
+  every judge's numbers are reported with their counts, and the reader's own repeat consistency is reported beside
+  them. The A–N and A–V answers are also a first human read on wave 18's excerpts and VOICES rule, descriptive only at
+  5 pairs each. *Done when* the reader has rated the set and every judge has a recorded agreement and order-consistency.
 - **P3 — The candidate gate (about 4 days, then 2 weeks advisory).** Frozen outlines (the three recorded in SPEC-96);
   release chapters generated once per release and cached on `eval-results`, regenerated weekly to catch provider drift;
   the candidate's chapters generated per run (about 110 requests for two books of six chapters, so three candidates a
