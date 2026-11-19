@@ -211,6 +211,7 @@ jobs:
           INPUT_JUDGE: ${{ github.event.inputs.judge || '' }}
           INPUT_CALIBRATION_RUN: ${{ github.event.inputs.calibration_run || '' }}
           INPUT_ABLATION: ${{ github.event.inputs.ablation || '' }}
+          INPUT_EXPERIMENT: ${{ github.event.inputs.experiment || '' }}
         run: python3 -m evals.config
       # D19-4: holdout-v1 fixes the holdout corpora, the release under test fixes the code; a holdout
       # run from a later tag (E4's harness) must carry holdout-v1's corpora byte for byte.

@@ -26,6 +26,8 @@ def test_the_defaults_and_the_recorded_dispatch_shapes_are_valid():
     strict = {**judged, "judge": "strict", "steps": "narration_judges"}
     assert config.validate(strict) == []
     assert config.validate({"holdout": "yes"}, ref_type="tag") == []
+    assert config.validate({"experiment": "w22"}, ref_type="tag") == []
+    assert config.validate({"experiment": "smoke", "tier": "gate"}) == []
     assert config.validate({"holdout": "yes", "book": HOLDOUT[0]}, "tag") == []
 
 
@@ -55,6 +57,7 @@ def test_the_defaults_and_the_recorded_dispatch_shapes_are_valid():
         ({"holdout": "yes", "book": "dracula"}, "tag", "not dracula"),
         ({"book": f"dracula {HOLDOUT[1]}"}, "branch", "dispatch with holdout=yes"),
         ({"bok": "dracula"}, "branch", "unknown input"),
+        ({"experiment": "w22"}, "branch", "harness tag"),
     ],
 )
 def test_a_bad_dispatch_is_refused_with_its_reason(inputs, ref_type, needle):
