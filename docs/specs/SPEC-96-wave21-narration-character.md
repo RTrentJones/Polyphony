@@ -225,6 +225,58 @@ to H2 and descriptive lines to H3; nothing it measures can make a hypothesis hol
 
 Signed (Amendment 2): principal, 2026-11-14. A strict second judge (`judge=strict`, the Anthropic provider's default model, alone, its model recorded in each report) re-judges W21's A, N and V chapters on the identical plan (default `NARRATION_SEED`; a strict record joins only a completely judged chapter whose M2 and M3 keys equal Sonnet's, others counted as incomplete or plan mismatch), for an external reason (the user asked for stricter evals with the Anthropic key), written before any outcome was read (counts and costs only, through day 20). Harness fb3629f (727f8df with this review's required changes R1–R5 and its recommendations; `git diff 727f8df fb3629f -- app alembic alembic.ini requirements.txt .github` empty), dispatched from its branch; `main` keeps ebed0aa until the last pre-registered Sonnet judge run is dispatched, and the daily runner's `git diff ebed0aa origin/main -- app alembic alembic.ini requirements.txt evals .github/workflows/evals.yml` check is unchanged. The strict judge qualifies H2 only, in a separate block: "robust" when Sonnet's Holm rejection (either direction, k ≥ 7, A off Sonnet's floor) is matched by a strict N-against-A M2 contrast of the same sign, unadjusted two-sided sign-flip p < 0.05 and A off the strict floor, else "not robust"; it is descriptive for H3 and for the Sonnet-strict agreement, is outside the Holm family, and changes no pre-registered decision, which the analysis confirms by equality with the ebed0aa analyzer on the reports less the strict judge's (a mismatch voids the strict block, not the primary). Strict spend is at most min($11, the ledger remainder after a 1.5× reserve for the Sonnet judging of days 21 to 24), at most $2 a dispatch with `claude_generate=no`, one `claude=yes` run at a time outside 07:40–09:30Z, ending Nov 18, ledger rows labelled "W21 strict". Arms, measures, statistic, family, floors, the day table, its contingency, the stop and the dispatch-ref check are unchanged. (Nit noted, not blocking: a chapter the plan marks ineligible reads "incomplete" in the strict counts; it is outside every pair.)
 
+## Result (2026-11-19; analysed once, after the stop)
+Generation ran 29 ledger days (Oct 31 – Nov 18 UTC, the last dispatch at 07:57Z on Nov 18, inside the stop at the end
+of Nov 17 Pacific) plus the make-up units 5r and 6r and the contingency's b-labels: 95 chapter runs, every one
+Flash-Lite-written (each report's `generator`) on app ebed0aa, judged by 34 Sonnet runs (each report's `judge`
+model, requested mode claude) and re-judged by 19 strict runs (each report's `strict_model`, the Anthropic provider's
+default model). Day 30
+(Frankenstein V, P, A: 44265328130, 44266368379, 44267584217, judges 44268801005) was dispatched from 08:14Z, after the
+stop, because the runner checked the stop only when the day began; it is left out of the analysis, a call made from the
+dispatch timestamps alone before any outcome was read, and its judge cost stays on the ledger. Day 29's last run
+(44262862151) was dispatched at 07:57Z and finished at 08:05Z; it is in. The analysis ran once, with
+`evals.narration.analyze run … --app-sha ebed0aa1a0c5b1e28da30b927ac294f88aa70cd8 --days <29 days> --m1-validation
+<the script's validation, rerun: person_mismatch_window validated on 17/17 source chapters>`, from the strict harness
+(9d6cf5c) on the reports with the strict judge's, and from the signed harness (ebed0aa) on the same reports without
+them. Their `family`, `primary`, `decisions`, `floors` and `sensitivities` are equal (Amendment 2's check), so the
+strict block stands.
+
+Pairs: P 108 (6 unpaired, day 5's lone P), N 114, V 108, each over 17 clusters; by book D 42/42/36, F 30/30/30, W 36/42/42
+(P/N/V). Exclusions: 6 no-scene chapters a side per contrast, all Frankenstein outline chapter 3 (see SPEC-98 D98-5).
+Product failures per arm: A 11/198 chapters, P 6/120, N 6/120, V 6/114, the same chapter every time.
+
+| contrast | measure | d (T − A) | t-interval | sign-flip p | Holm p | pairs / clusters |
+|---|---|---|---|---|---|---|
+| H1: P vs A | `person_mismatch_window` | −0.113 | [−0.269, 0.044] | 0.094 | 0.19 | 108 / 17 |
+| H2: N vs A | M2, Sonnet | +0.015 | [−0.018, 0.048] | 1.0 | 1.0 | 93 / 14 |
+| H3: V vs A (descriptive) | M3, Sonnet | 0.000 | [0.000, 0.000] | 1.0 | – | 19 / 5 |
+
+- **H1 (P).** Not holding: **"no effect of dropping the default POV mode detectable at n = 108 (not equivalence)."**
+  The direction is the required one: A's windowed mismatch is 0.17 [−0.02, 0.36] across clusters and P's 0.06, and
+  sentence-level `person_mismatch` agrees (d −0.104, p 0.050; sensitivity a). The descriptive bootstrap's interval
+  excludes 0 (p 0.034), but it is anticonservative at this cluster count and decides nothing.
+- **H2 (N).** Not holding, and A is off the floor (A's M2 0.96 [0.89, 1.03]): **"no effect of the excerpts on narrator
+  attribution detectable at n = 93 (not equivalence); the lever becomes a candidate for removal, decided with E4's
+  result."** Sensitivities: N does not move person (b: d +0.013, p 0.37); restricted to pairs both first person, d
+  +0.017, p 1.0 (c).
+- **H3 (V).** Descriptive: no difference in speaker attribution on 19 pairs over 5 clusters; A's M3 0.975 [0.92, 1.03]
+  against chance 0.34. Without narrator-credited lines, d 0.0 (d).
+- **Strict judge (Amendment 2).** No Sonnet result held, so the strict lines are descriptive: N against A on M2 d 0.0,
+  p 1.0 (93 pairs, 14 clusters), with A at 1.00; V against A on M3 d −0.014, p 1.0 (19 pairs). The two judges agree on
+  96.4% of the 640 M2 passages and 96.9% of the 231 M3 lines both rated. Strict coverage: 393 A, N and V chapters
+  joined, 0 incomplete, 0 plan mismatches, 39 not judged (the 23 no-scene chapters, and the A chapters of P-only labels,
+  which Amendment 2 does not re-judge).
+- **Observation, not pre-registered.** The pre-registration guarded M2 against a floor; on these chapters it is at a
+  ceiling instead (A 0.96 by Sonnet, 1.00 by the strict judge), so it had almost no room to show the drop H2 asked
+  about. The null on H2 is therefore weak evidence about the excerpts, and the same holds for M3 on V.
+- **Reading with E4.** E4 found Sonnet preferring wave 17's chapters to wave 18's about 3 times in 10. Wave 21 measured
+  attribution, not preference, and found no lever that moves it: neither the excerpts (N) nor the VOICES rule (V) changes
+  narrator or speaker attribution measurably, and the POV fix moves person in the expected direction without a result.
+  Wave 21 therefore cannot say which of wave 18's changes carries E4's loss. The excerpts' pre-registered status is
+  "candidate for removal"; the decision is the user's, and a direct preference compare of each lever (SPEC-98's
+  candidate gate) is the instrument that can settle it. Every line: exploratory, Flash-Lite-written, Sonnet-judged where
+  a judge measure, not human, development corpora. No product change follows from W21 alone (Decision wording).
+
 ## Ledger
 Rows are kept in SPEC-95's ledger, labelled W21.
 - 2026-10-30: `git diff cc34b82 ebed0aa -- app alembic alembic.ini requirements.txt evals .github/workflows/evals.yml` is
@@ -234,3 +286,16 @@ Rows are kept in SPEC-95's ledger, labelled W21.
   Frankenstein. Availability failures, excluded on both sides. Per the contingency, make-up units ran on Nov 6 under their
   own labels with a new A on the same book: "W21 day 5r" (P, A, V; Wuthering) and "W21 day 6r" (N, A; Frankenstein).
   Day 5's lone P run (41989261079) has no A in its label and is unpaired.
+- 2026-11-14 to 11-18: the strict re-judge (Amendment 2) ran 19 dispatches over 69 runs (A, N and V of every label
+  holding N or V through day 29), $8.57 of its $11 cap. Three dispatches on Nov 15 ran from the branch at 82e1e30 and
+  three at f94f742 before the harness tag existed; `git diff <each> 9d6cf5c -- app alembic alembic.ini requirements.txt
+  evals .github` is empty for both, as it is for fb3629f (Amendment 2's signed harness) against 9d6cf5c, whose only
+  later commit is the signature.
+- 2026-11-18: day 30 (44265328130, 44266368379, 44267584217; judges 44268801005) was dispatched after the stop and is
+  excluded from the analysis; see the Result.
+- 2026-11-19: the analysis's generator check: all 95 chapter reports name Flash-Lite as `generator` and app ebed0aa; the
+  34 Sonnet judge reports name Sonnet as the judge (their `generator` field is the judge run's own app configuration,
+  which wrote nothing); the 19 strict reports name the Anthropic provider's default model as `strict_model`, one model
+  for all 19. The ebed0aa
+  analyzer's `family`, `primary`, `decisions`, `floors` and `sensitivities` equal the strict harness's.
+- Totals: W21's Sonnet judging $2.54 from Nov 13, the strict re-judge $8.57; the D20-1 ledger closes at $60.43 of $64.

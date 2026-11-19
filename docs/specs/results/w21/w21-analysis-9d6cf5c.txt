@@ -1,0 +1,70 @@
+W21, SPEC-96; exploratory; Flash-Lite-written, judge measures Sonnet-judged, not human, development corpora
+per arm:
+  A: {"chapters": 198, "failure": {"none": 187, "product": 11}, "no_scenes": 11, "judged": 187, "judged_strict": 171, "m3_eligible_lines": 73, "m3_narrator_lines": 23, "sample_overlap_8gram": {"chapters": 154, "mean": 0.0032, "max": 0.09483, "with_any": 40}}
+  P: {"chapters": 120, "failure": {"none": 114, "product": 6}, "no_scenes": 6, "judged": 114, "judged_strict": 0, "m3_eligible_lines": 62, "m3_narrator_lines": 28, "sample_overlap_8gram": {"chapters": 93, "mean": 0.00169, "max": 0.0392, "with_any": 17}}
+  N: {"chapters": 120, "failure": {"none": 114, "product": 6}, "no_scenes": 6, "judged": 114, "judged_strict": 114, "m3_eligible_lines": 92, "m3_narrator_lines": 23, "sample_overlap_8gram": {"chapters": 93, "mean": 0.00287, "max": 0.06951, "with_any": 31}}
+  V: {"chapters": 114, "failure": {"none": 108, "product": 6}, "no_scenes": 6, "judged": 108, "judged_strict": 108, "m3_eligible_lines": 74, "m3_narrator_lines": 17, "sample_overlap_8gram": {"chapters": 88, "mean": 0.00055, "max": 0.00993, "with_any": 11}}
+  contrast measure                 d (T-A)         t-interval sign-flip p pairs clusters  bootstrap (descriptive)
+  P        person_mismatch         -0.1038    [-0.240, 0.032] 0.050079345703125   108       17  ci [-0.2484, -0.0048] p 0.0152
+  P        person_mismatch_window *  -0.1125    [-0.269, 0.044]     0.09375   108       17  ci [-0.2799, -0.0015] p 0.034
+  P        tense_mismatch           0.0004    [-0.023, 0.024] 0.963165283203125   108       17  ci [-0.0203, 0.0212] p 0.8752
+  P        quote_mismatch              0.0     [0.000, 0.000]         1.0    44       11  ci [0.0, 0.0] p 1.0
+  P        m2 sonnet                0.0051    [-0.006, 0.016]         1.0    89       14  ci [0.0, 0.0169] p 0.7132
+  P        m2 free                  0.0128    [-0.048, 0.074]      0.6875    89       14  ci [-0.0385, 0.064] p 0.7702
+  P        m2 strict                  None                n/a        None     0        0  ci None p None
+  P        m3 sonnet                0.0323    [-0.057, 0.121]         1.0    19        7  ci [-0.0179, 0.1579] p 0.6946
+  P        m3 free                  0.0689    [-0.348, 0.486]       0.875    18        7  ci [-0.1818, 0.2222] p 0.9588
+  P        m3 strict                  None                n/a        None     0        0  ci None p None
+  P        m3_own sonnet              0.05    [-0.165, 0.265]         1.0    12        4  ci [-0.0441, 0.2143] p 0.6218
+  P        m3_own free             -0.0375    [-0.114, 0.039]         0.5    12        4  ci [-0.0895, 0.0] p 0.1204
+  P        m3_own strict              None                n/a        None     0        0  ci None p None
+  P        counts {"pairs": 108, "unpaired": 6, "outline_differs": 0, "excluded": {"treatment": {"no_scenes": 6}, "A": {"no_scenes": 6}}, "pairs_by_book": {"dracula": 42, "frankenstein": 30, "wuthering": 36}, "m3_no_line": 89, "m2_not_judged": 19, "m3_eligible_lines": {"treatment": 59, "A": 48}}
+  N        person_mismatch          0.0272    [-0.006, 0.061] 0.096466064453125   114       17  ci [0.0006, 0.0619] p 0.0438
+  N        person_mismatch_window   0.0126    [-0.019, 0.044]  0.37109375   114       17  ci [-0.017, 0.0418] p 0.4042
+  N        tense_mismatch           0.0076    [-0.010, 0.026] 0.47412109375   114       17  ci [-0.007, 0.0263] p 0.3888
+  N        quote_mismatch              0.0     [0.000, 0.000]         1.0    42        9  ci [0.0, 0.0] p 1.0
+  N        m2 sonnet *              0.0153    [-0.018, 0.048]         1.0    93       14  ci [0.0, 0.0489] p 0.694
+  N        m2 free                 -0.0357    [-0.089, 0.017]        0.25    93       14  ci [-0.0867, 0.0106] p 0.1424
+  N        m2 strict                   0.0     [0.000, 0.000]         1.0    93       14  ci [0.0, 0.0] p 1.0
+  N        m3 sonnet                0.0222    [-0.040, 0.084]         1.0    19        5  ci [0.0, 0.0833] p 0.6474
+  N        m3 free                 -0.0878    [-0.498, 0.323]         1.0    17        5  ci [-0.3929, 0.1063] p 0.6696
+  N        m3 strict                   0.0     [0.000, 0.000]         1.0    19        5  ci [0.0, 0.0] p 1.0
+  N        m3_own sonnet            0.0278    [-0.061, 0.116]         1.0    13        4  ci [0.0, 0.1] p 0.6218
+  N        m3_own free              0.0056    [-0.012, 0.023]         1.0    12        4  ci [0.0, 0.02] p 0.6218
+  N        m3_own strict               0.0     [0.000, 0.000]         1.0    13        4  ci [0.0, 0.0] p 1.0
+  N        counts {"pairs": 114, "unpaired": 0, "outline_differs": 0, "excluded": {"treatment": {"no_scenes": 6}, "A": {"no_scenes": 6}}, "pairs_by_book": {"dracula": 42, "frankenstein": 30, "wuthering": 42}, "m3_no_line": 95, "m2_not_judged": 21, "m3_eligible_lines": {"treatment": 92, "A": 43}}
+  V        person_mismatch          0.0206    [-0.001, 0.042] 0.050445556640625   108       17  ci [0.0026, 0.0426] p 0.0244
+  V        person_mismatch_window   0.0054    [-0.022, 0.033]     0.71875   108       17  ci [-0.0234, 0.0285] p 0.6656
+  V        tense_mismatch          -0.0038    [-0.023, 0.015] 0.6850738525390625   108       17  ci [-0.0204, 0.0133] p 0.7242
+  V        quote_mismatch              0.0     [0.000, 0.000]         1.0    44       11  ci [0.0, 0.0] p 1.0
+  V        m2 sonnet                   0.0     [0.000, 0.000]         1.0    88       14  ci [0.0, 0.0] p 1.0
+  V        m2 free                   0.023    [-0.029, 0.075]     0.40625    88       14  ci [-0.0176, 0.0769] p 0.3034
+  V        m2 strict                   0.0     [0.000, 0.000]         1.0    88       14  ci [0.0, 0.0] p 1.0
+  V        m3 sonnet *                 0.0     [0.000, 0.000]         1.0    19        5  ci [0.0, 0.0] p 1.0
+  V        m3 free                 -0.0246    [-0.126, 0.077]         1.0    15        5  ci [-0.1, 0.0292] p 0.7084
+  V        m3 strict               -0.0143    [-0.054, 0.025]         1.0    19        5  ci [-0.0451, 0.0] p 0.6474
+  V        m3_own sonnet               0.0     [0.000, 0.000]         1.0    13        4  ci [0.0, 0.0] p 1.0
+  V        m3_own free              0.0265    [-0.088, 0.141]         1.0    10        3  ci [0.0, 0.0795] p 0.5944
+  V        m3_own strict           -0.0208    [-0.087, 0.045]         1.0    13        4  ci [-0.0667, 0.0] p 0.6218
+  V        counts {"pairs": 108, "unpaired": 0, "outline_differs": 0, "excluded": {"treatment": {"no_scenes": 6}, "A": {"no_scenes": 6}}, "pairs_by_book": {"dracula": 36, "frankenstein": 30, "wuthering": 42}, "m3_no_line": 89, "m2_not_judged": 20, "m3_eligible_lines": {"treatment": 74, "A": 44}}
+family (Holm on the sign-flip p): ['P', 'N']
+  P: person_mismatch_window d = -0.1125 p = 0.09375 Holm p = 0.1875 reject = False tested = True
+  N: m2 sonnet d = 0.0153 p = 1.0 Holm p = 1.0 reject = False tested = True
+  V: m3 sonnet d = 0.0 p = 1.0 Holm p = None reject = False tested = False (descriptive (pre-registration))
+instrument floors: {"N": {"a_mean": 0.9592, "t_ci": [0.8911, 1.0273], "clusters": 14, "at_floor": false}, "V": {"a_mean": 0.975, "t_ci": [0.9159, 1.0341], "clusters": 8, "chance": 0.3447, "at_floor": false}}
+sensitivities (descriptive):
+  a: H1 on sentence-level person_mismatch: d = -0.1038 p = 0.050079345703125 t [-0.2399, 0.0324] {'direction_agrees': True}
+  b: N vs A on person_mismatch_window: d = 0.0126 p = 0.37109375 t [-0.0187, 0.0438] 
+  c: H2 on pairs both first person: d = 0.0165 p = 1.0 t [-0.0194, 0.0524] {'pairs_first_person': 92}
+  d: M3 without narrator-credited lines: d = 0.0 p = 1.0 t [0.0, 0.0] 
+decisions:
+  P: no effect of dropping the default POV mode detectable at n = 108 (not equivalence) (exploratory; Flash-Lite-written, not human, development corpora)
+  N: no effect of the excerpts on narrator attribution detectable at n = 93 (not equivalence); the lever becomes a candidate for removal, decided with E4's result (exploratory; Flash-Lite-written, Sonnet-judged, not human, development corpora)
+  V: descriptive only (pre-registration): d = 0.0, t-interval [0.0, 0.0], n = 19 pairs (exploratory; Flash-Lite-written, Sonnet-judged, not human, development corpora)
+strict judge (SPEC-96 Amendment 2):
+  N m2: d = 0.0 p = 1.0 t [0.0, 0.0] pairs 93 clusters 14 left out 21
+  V m3: d = -0.0143 p = 1.0 t [-0.0539, 0.0254] pairs 19 clusters 5 left out 89
+  floors: {"N": {"a_mean": 1.0, "t_ci": [1.0, 1.0], "clusters": 14, "at_floor": false}, "V": {"a_mean": 0.975, "t_ci": [0.9159, 1.0341], "clusters": 8, "chance": 0.3447, "at_floor": false}}
+  Sonnet-strict agreement: {"m2": {"both_rated": 640, "agree": 617, "share": 0.9641}, "m3": {"both_rated": 231, "agree": 224, "share": 0.9697}}
+  chapters (A, N, V): {"joined": 393, "not_judged": 39}
+  H2 (strict judge): no Sonnet holding result to confirm; descriptive only (d = 0.0, p = 1.0, k = 14) (exploratory; Flash-Lite-written, strict-judged, not human, development corpora)

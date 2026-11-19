@@ -97,6 +97,10 @@ Each phase is one PR (or a short series) through the usual gate, and ends on a n
 
 - **P0 — Close wave 21 (Nov 18–19).** As SPEC-96 says: finish the strict judging, analyse once, record the result and
   the ledger. Decide the wave 18 levers on E4 and wave 21 together. *Done when* the record PR is merged.
+  **Analysed (2026-11-19):** SPEC-96's H1 and H2 do not hold (P: d −0.11, Holm p 0.19; N: d +0.02, p 1.0, with M2 at
+  a ceiling); SPEC-97's H1c holds (with Claude writing, P lowers windowed person mismatch by 0.86, p 1.5 × 10⁻⁵). Wave 21
+  measured attribution and cannot say which of wave 18's levers carries E4's preference loss, so that decision moves to
+  a direct preference compare per lever, the first use of P3's compare step. The ledger closed at $60.43 of $64.
 - **P1 — Foundations (about 3 days).** Tag-pinned dispatch (D98-1) and the guard change; the `eval-results` branch and
   the report writer (D98-3); the push gate restored in the repo as one script (`scripts/gate.sh`: black, ruff, pytest);
   `evals.yml` split into a reusable workflow with thin callers (`eval-pr`, `eval-candidate`, `eval-experiment`,

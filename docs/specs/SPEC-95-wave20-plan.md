@@ -382,3 +382,37 @@ chapters as clusters. Runs: compares 40657916195, 40840467118, 41024885672, 4118
 | 42781355997, 42786523556 (W21 Nov 10: day 13 Dracula A/V/N, day 14 Wuthering P/A/V) | W21 | $0.47 | $48.51 |
 | 42984631380, 42989313015 (W21 Nov 11: day 15 Frankenstein N/P/A, day 16 Dracula A/P/V) | W21 | $0.45 | $48.95 |
 | 43180695077, 43185551237 (W21 Nov 12: day 17 Wuthering N/A/P, day 18 Frankenstein V/N/A; second nine-day cycle complete) | W21 | $0.36 | $49.32 |
+| 43390754330 (W21 day 19 judges, Dracula A/P/N) | W21 | $0.25 | $49.57 |
+| 43395800064 (W21 day 20 judges, Wuthering V/A/N) | W21 | $0.19 | $49.76 |
+| 43565393542 (strict re-judge, Dracula, 5 runs, 30/30 chapters) | W21 strict | $0.80 | $50.56 |
+| 43565922515 (strict re-judge, Wuthering, 5 runs, 30/30 chapters) | W21 strict | $0.52 | $51.08 |
+| 43566273598 (strict re-judge, Frankenstein, 5 runs, 25/30 chapters) | W21 strict | $0.51 | $51.59 |
+| 43574073915 (W21 day 21 judges, Frankenstein V/P/A) | W21 | $0.18 | $51.78 |
+| 43576839170 (W21 day 22 judges, Dracula A/V/N) | W21 | $0.27 | $52.04 |
+| 43680960233 (strict re-judge, Wuthering, 5 runs, 30/30 chapters) | W21 strict | $0.51 | $52.56 |
+| 43681251222 (strict re-judge, Dracula, 5 runs, 30/30 chapters) | W21 strict | $0.81 | $53.37 |
+| 43681718927 (strict re-judge, Frankenstein, 5 runs, 25/30 chapters) | W21 strict | $0.55 | $53.91 |
+| 43682021297 (strict re-judge, Wuthering, 5 runs, 30/30 chapters) | W21 strict | $0.53 | $54.44 |
+| 43682323171 (strict re-judge, Dracula, 5 runs, 30/30 chapters) | W21 strict | $0.82 | $55.25 |
+| 43682697876 (strict re-judge, Frankenstein, 5 runs, 25/30 chapters) | W21 strict | $0.52 | $55.78 |
+| 43683071054 (strict re-judge, Dracula, 4 runs, 24/24 chapters) | W21 strict | $0.67 | $56.45 |
+| 43683422170 (strict re-judge, Wuthering, 3 runs, 18/18 chapters) | W21 strict | $0.31 | $56.76 |
+| 43683761604 (strict re-judge, Frankenstein, 1 run, 5/6 chapters) | W21 strict | $0.10 | $56.86 |
+| 43692956485 (W21 day 23 judges, Wuthering P/A/V) | W21 | $0.19 | $57.05 |
+| 43695647432 (W21 day 24 judges, Frankenstein N/P/A) | W21 | $0.18 | $57.23 |
+| 43699590534 (strict re-judge, Wuthering, 2 runs, 12/12 chapters) | W21 strict | $0.21 | $57.44 |
+| 43699943729 (strict re-judge, Frankenstein, 2 runs, 10/12 chapters) | W21 strict | $0.22 | $57.66 |
+| 43828679089 (W21 day 25 judges, Dracula A/P/V) | W21 | $0.26 | $57.92 |
+| 43833853142 (W21 day 26 judges, Wuthering N/A/P) | W21 | $0.18 | $58.11 |
+| 43840503695 (strict re-judge, Dracula, 2 runs, 12/12 chapters) | W21 strict | $0.31 | $58.42 |
+| 43841285808 (strict re-judge, Wuthering, 2 runs, 12/12 chapters) | W21 strict | $0.20 | $58.62 |
+| 44044175453 (W21 day 27 judges, Frankenstein V/N/A) | W21 | $0.19 | $58.81 |
+| 44049517484 (W21 day 28 judges, Dracula A/P/N) | W21 | $0.27 | $59.08 |
+| 44056271160 (strict re-judge, Frankenstein, 3 runs, 15/18 chapters) | W21 strict | $0.32 | $59.40 |
+| 44057094467 (strict re-judge, Dracula, 2 runs, 12/12 chapters) | W21 strict | $0.33 | $59.73 |
+| 44264002556 (W21 day 29 judges, Wuthering V/A/N) | W21 | $0.20 | $59.92 |
+| 44268801005 (W21 day 30 judges, Frankenstein V/P/A) (dispatched after the stop; excluded from the analysis) | W21 | $0.18 | $60.10 |
+| 44276564545 (strict re-judge, Wuthering, 3 runs, 18/18 chapters) | W21 strict | $0.32 | $60.43 |
+
+The ledger closes at **$60.43 of $64** (2026-11-19): E4, W21 and W21-C are analysed, E5's calibration set still awaits
+its human rating (SPEC-98 P2), and no further Claude spend is planned against this ledger. SPEC-98 takes over the monthly budget from December.
