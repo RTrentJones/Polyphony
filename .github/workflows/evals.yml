@@ -576,17 +576,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: {path: repo}
+      # Every attempt's report artifact, each in its own directory: a re-run of this job alone
+      # (attempt N) publishes the eval job's own attempt, not a missing eval-report-<run>-N. A
+      # pattern that matches nothing downloads nothing; a failed download fails the job.
       - uses: actions/download-artifact@v4
-        continue-on-error: true
         with:
-          name: ${{ github.run_attempt == '1' && format('eval-report-{0}', github.run_id) || format('eval-report-{0}-{1}', github.run_id, github.run_attempt) }}
-          path: artifact
+          pattern: eval-report-${{ github.run_id }}*
+          path: artifacts
       - name: Commit the reports to eval-results
         env:
           TIER: ${{ github.event.inputs.tier || 'experiment' }}
           EXPERIMENT: ${{ github.event.inputs.experiment || '' }}
         run: |
-          [ -d artifact ] || { echo "no artifact to publish"; exit 0; }
+          # The latest attempt's artifact: eval-report-<run> is attempt 1, eval-report-<run>-<n> is n.
+          ATTEMPT=0
+          for dir in artifacts/eval-report-"$GITHUB_RUN_ID" artifacts/eval-report-"$GITHUB_RUN_ID"-*; do
+            [ -d "$dir" ] || continue
+            n="${dir#artifacts/eval-report-"$GITHUB_RUN_ID"}"; n="${n#-}"; n="${n:-1}"
+            if printf '%s' "$n" | grep -Eq '^[0-9]+$' && [ "$n" -gt "$ATTEMPT" ]; then ATTEMPT="$n"; fi
+          done
+          [ "$ATTEMPT" -gt 0 ] || { echo "no artifact to publish"; exit 0; }
+          ARTIFACT="$GITHUB_WORKSPACE/artifacts/eval-report-$GITHUB_RUN_ID"
+          if [ "$ATTEMPT" -gt 1 ]; then ARTIFACT="$ARTIFACT-$ATTEMPT"; fi
           # The writer is this ref's; the checkout then moves to the results branch.
           mkdir -p "$RUNNER_TEMP/harness"
           cp -r repo/evals "$RUNNER_TEMP/harness/evals"
@@ -601,12 +612,18 @@ jobs:
               git rm -rfq --cached . >/dev/null
             fi
             git clean -fdxq
-            out="$(PYTHONPATH="$RUNNER_TEMP/harness" python3 -m evals.results "$GITHUB_WORKSPACE/artifact" . \
-              --tier "$TIER" --experiment "$EXPERIMENT" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            out="$(PYTHONPATH="$RUNNER_TEMP/harness" python3 -m evals.results "$ARTIFACT" . \
+              --tier "$TIER" --experiment "$EXPERIMENT" --run "$GITHUB_RUN_ID" --attempt "$ATTEMPT" \
               --ref "$GITHUB_REF" --sha "$GITHUB_SHA")"
             [ -n "$out" ] || { echo "nothing to publish"; exit 0; }
             git add -- "$out"
-            git commit -q -m "$TIER: run $GITHUB_RUN_ID attempt $GITHUB_RUN_ATTEMPT"
+            # Already on eval-results: an earlier try's push landed though it reported a failure,
+            # or an earlier run of this job published this attempt.
+            if git diff --cached --quiet; then
+              echo "\`$out\` is already on eval-results" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            git commit -q -m "$TIER: run $GITHUB_RUN_ID attempt $ATTEMPT"
             if git push -q origin HEAD:refs/heads/eval-results; then
               echo "published \`$out\` to eval-results" | tee -a "$GITHUB_STEP_SUMMARY"
               exit 0

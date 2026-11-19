@@ -37,6 +37,8 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
+from evals.baseline.blind import strip_markers
+
 ITEMS_SCHEMA = "polyphony-preference-items/1"
 KEY_SCHEMA = "polyphony-preference-key/1"
 SEED = 2026_11_19
@@ -53,7 +55,9 @@ ARMS = {None: "A", "": "A", "pov_fix": "P", "no_excerpts": "N", "no_voices": "V"
 
 
 def _rows(root: Path, days: dict, writer: str) -> list[dict]:
-    """Every written chapter of the runs named in `days`."""
+    """Every written chapter of the runs named in `days`, its scenes stripped
+    of the harness's markers (as the judges see them) so neither side shows
+    one."""
     out = []
     for path in sorted(root.glob("*/*/eval-report-*.json")):
         run = path.parent.parent.name
@@ -61,10 +65,18 @@ def _rows(root: Path, days: dict, writer: str) -> list[dict]:
         chapters = (report.get("steps") or {}).get("chapters")
         if run not in days or not chapters:
             continue
+        if report.get("ablation") not in ARMS or "book" not in report:
+            raise SystemExit(
+                f"{path}: no book, or an unknown ablation {report.get('ablation')!r}"
+            )
         for row in chapters.get("chapters") or []:
-            scenes = [(s.get("content") or "").strip() for s in row.get("scenes") or []]
+            scenes = [
+                strip_markers(s.get("content") or "") for s in row.get("scenes") or []
+            ]
             if row.get("failure") or not any(scenes):
                 continue
+            if "position" not in row:
+                raise SystemExit(f"{path}: a chapter row has no position")
             out.append(
                 {
                     "run": run,

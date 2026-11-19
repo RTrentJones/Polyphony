@@ -952,7 +952,10 @@ def _canon_hash(setup: SceneSetup, summary: str, position, prior_tail="") -> str
     source edit leaves the approved canon as it was but can change them, and
     beats written against one narration reference must not be finished
     against another. An eval-only ablation (SPEC-96) counts when one is set,
-    so an ablated run never finishes a product checkpoint or the reverse."""
+    so an ablated run never finishes a product checkpoint or the reverse, and
+    so does a POV line that takes person from the narration (`claude_writes`,
+    R7.9): an author moved to or from Claude never finishes a scene under the
+    other POV line."""
     import hashlib
     import json
 
@@ -970,6 +973,9 @@ def _canon_hash(setup: SceneSetup, summary: str, position, prior_tail="") -> str
     ablation = prose_ablation()
     if ablation:
         parts += ("ablation:" + ",".join(sorted(ablation)),)
+    from_narration = getattr(setup.pov, "from_narration", "")
+    if from_narration:
+        parts += ("pov:" + from_narration,)
     return hashlib.sha256("\x00".join(parts).encode("utf-8")).hexdigest()[:16]
 
 

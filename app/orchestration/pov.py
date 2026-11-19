@@ -47,8 +47,9 @@ class Pov(NamedTuple):
     """A scene's point of view: the narrative mode, and whose head the scene
     stays in (a cast member's name), if anyone's.
 
-    `from_narration` is set only by the eval-only `pov_fix` ablation (SPEC-96)
-    for a book whose style guide names no mode but whose narration excerpts the
+    `from_narration` is set by `scene_setup` for an author who writes with
+    Claude (BRD R7.9, `prose.claude_writes`), or by the eval-only `pov_fix`
+    ablation (SPEC-96), for a book whose style guide names no mode but whose narration excerpts the
     prompt shows: what the excerpts decide ("person and tense", or "person" when
     the style guide sets a tense). The POV line then states no mode; `mode`
     keeps the default, which still decides the one-head rule."""
@@ -117,7 +118,8 @@ _NO_FORESHADOWING = "no foreshadowing — never 'would later learn'"
 
 # Where a `Pov.from_narration` POV line sends the writer for person and tense,
 # per prompt: the beat prompt shows the excerpts in its STYLE section below the
-# line; the planner shows none; revise keeps the draft's own (SPEC-96 pov_fix).
+# line; the planner shows none; revise keeps the draft's own (Claude authors and
+# the SPEC-96 pov_fix ablation).
 NARRATION_BELOW = "the book's narration passages below"
 BOOK_NARRATION = "the book's own narration"
 DRAFT_NARRATION = "the draft's own narration"
@@ -128,7 +130,7 @@ def pov_instruction(pov: Pov, narration: str = NARRATION_BELOW) -> str:
     mode and character on one line, then what the mode allows. A one-head mode
     names no one before the POV character learns their name; a wide mode may
     leave one head, but neither tells what has not happened yet. A
-    `from_narration` POV (SPEC-96 pov_fix) names no mode on that line: the
+    `from_narration` POV (a Claude author, or SPEC-96 pov_fix) names no mode on that line: the
     character, if any, and that person (and tense) come from `narration`."""
     if pov.from_narration:
         lead = f"{pov.who}; " if pov.who else ""

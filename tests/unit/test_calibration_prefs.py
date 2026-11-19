@@ -11,10 +11,16 @@ pytestmark = pytest.mark.unit
 PARA = " ".join(["word"] * 80)  # 80 words
 
 
+def _scene(tag):
+    """Three 80-word paragraphs opening with `tag`, so each passage names
+    its row and scene."""
+    return "\n\n".join([f"{tag} " + " ".join(["word"] * 79)] + [PARA, PARA])
+
+
 def _row(arm, book, day, position, writer="flash-lite", run=None):
-    scene = "\n\n".join([PARA, PARA, PARA])
+    run = run or f"{arm}{book}{day}{position}{writer[0]}"
     return {
-        "run": run or f"{arm}{book}{day}{position}",
+        "run": run,
         "day": day,
         "writer": writer,
         "arm": arm,
@@ -24,7 +30,7 @@ def _row(arm, book, day, position, writer="flash-lite", run=None):
         "replicate": 1,
         "summary": f"{book} chapter {position}",
         "beats": ["opening", "second"],
-        "scenes": [scene, scene],
+        "scenes": [_scene(f"{run}-s0"), _scene(f"{run}-s1")],
     }
 
 
@@ -68,6 +74,10 @@ def test_the_set_follows_the_plan_blind_with_swapped_repeats():
             src, rep = by_id[v["repeat_of"]], by_id[item_id]
             assert (rep["a"], rep["b"]) == (src["b"], src["a"])
             assert v["a"] == k[v["repeat_of"]]["b"]
+    for it in items["items"]:
+        v = k[it["id"]]
+        for side in ("a", "b"):  # each side is its run's passage of the keyed scene
+            assert it[side].split()[0] == f"{v[side]['run']}-s{v['scene']}"
     for v in k.values():
         if v["kind"] == "C":
             assert {v["a"]["writer"], v["b"]["writer"]} == {"claude", "flash-lite"}
@@ -81,3 +91,24 @@ def test_a_draw_too_large_for_its_pool_is_refused():
     w21, w21c = _pool()
     with pytest.raises(SystemExit, match="usable pairs"):
         prefs.build(w21, w21c[:1])
+
+
+def _report(root, run, ablation, content):
+    d = root / run / "x"
+    d.mkdir(parents=True)
+    row = {"position": 1, "summary": "s", "scenes": [{"content": content}]}
+    report = {"ablation": ablation, "book": "dracula"}
+    report["steps"] = {"chapters": {"outline_digest": "d", "chapters": [row]}}
+    (d / "eval-report-1.json").write_text(json.dumps(report))
+
+
+def test_rows_strip_the_harness_markers_from_scenes(tmp_path):
+    _report(tmp_path, "r1", None, "Beat 1: Arrival\n\n" + PARA + " [[eval-x]]")
+    (row,) = prefs._rows(tmp_path, {"r1": "d1"}, "flash-lite")
+    assert row["scenes"] == ["Arrival\n\n" + PARA]
+
+
+def test_an_unknown_ablation_names_its_report(tmp_path):
+    _report(tmp_path, "r1", "other_arm", PARA)
+    with pytest.raises(SystemExit, match="r1.*unknown ablation 'other_arm'"):
+        prefs._rows(tmp_path, {"r1": "d1"}, "flash-lite")

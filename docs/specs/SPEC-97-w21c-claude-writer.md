@@ -92,8 +92,9 @@ F 10); 2 no-scene chapters a side, Frankenstein outline chapter 3 both times; no
   are Claude-written and Sonnet-judged, the same family. Beside them, W21's Flash-Lite chapters: A's windowed mismatch
   0.17, P's 0.06 (unpaired across writers, descriptive).
 - **Reading.** Under the default POV mode, Claude writes these first-person books in the third person in about 86% of
-  windows; without it, in none. Flash-Lite drifts far less under the same mode (0.17), which is why SPEC-96's H1 had
-  little room and did not hold.
+  windows; without it, in none. Flash-Lite drifts far less under the same mode (0.17 [−0.02, 0.36]), though by this
+  spec's room rule it still had room (the upper bound is above 0.05) and P lowered it to 0.06; SPEC-96's H1 did not hold
+  because its cluster-level interval was wide (d −0.11 [−0.27, 0.04], p 0.094), not for want of room.
 - **Close (with SPEC-96's H1).** The pre-registered rule ships the fix to the product only if H1 holds for Flash-Lite;
   it did not, so nothing ships from wave 21 automatically. W21-C answers the second half: the Claude writer path needs
   the fix, by a wide margin. The fix is proposed for the Claude writer path in the next product wave, and the free

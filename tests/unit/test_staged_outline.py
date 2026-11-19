@@ -223,7 +223,9 @@ class TestStagedOrchestration:
         '"children":[{"title":"b","summary":"x","children":[]}]}]'
     )
 
-    async def _castless(self, monkeypatch, repaired_ch2: str):
+    async def _castless(
+        self, monkeypatch, repaired_ch2: str, repaired_ch1=None, beats2=None
+    ):
         castless = '{"title":"Shadows","summary":"a stranger watches a cottage",'
         castless += '"act_index":0,"pov":"","people":[],"threads":[]}'
         fake = FakeLLM(
@@ -231,18 +233,19 @@ class TestStagedOrchestration:
                 "outline:skeleton": self._TWO_ACT_SKELETON,
                 "outline:chapters": [
                     f"[{self._CAST_CH1},{castless}]",
-                    f"[{self._CAST_CH1},{repaired_ch2}]",
+                    f"[{repaired_ch1 or self._CAST_CH1},{repaired_ch2}]",
                 ],
-                "outline:beats": [self._BEATS, self._BEATS],
+                "outline:beats": [self._BEATS, beats2 or self._BEATS],
             }
         )
         monkeypatch.setattr(so, "get_llm_client", lambda: fake)
         canon = self._canon()
         for i, c in enumerate(canon.characters):  # resolvable, as ORM rows are
             c.id = f"c{i}"
-        _, warnings = await so.generate_staged_outline(
+        nodes, warnings = await so.generate_staged_outline(
             canon, chapters_target=2, user_id=None
         )
+        self.nodes = nodes
         return fake, warnings
 
     async def test_a_chapter_with_no_cast_is_repaired_once(self, monkeypatch):
@@ -267,6 +270,42 @@ class TestStagedOrchestration:
         assert any(
             "name no one from the cast" in w and '2 "Shadows"' in w for w in warnings
         )
+
+    async def test_a_castless_repair_that_drops_a_principal_is_discarded(
+        self, monkeypatch
+    ):
+        """The first pass had every principal (R1.4's hard gate) and one
+        castless chapter; the repair fixes the chapter but loses Edric Thane.
+        The outline that passed the gate is kept, not the worse repair."""
+        ch1 = '{"title":"Ch1","summary":"Milo Voss and Zara Okafor talk",'
+        ch1 += '"act_index":0,"pov":"Milo Voss",'
+        ch1 += '"people":["Milo Voss","Zara Okafor"],"threads":[]}'
+        fixed = '{"title":"Shadows","summary":"Zara Okafor watches a cottage",'
+        fixed += '"act_index":0,"pov":"Zara Okafor","people":["Zara Okafor"]}'
+        beats = (
+            '[{"title":"Ch1","summary":"Milo Voss and Zara Okafor talk",'
+            '"children":[{"title":"b","summary":"x","children":[]}]},'
+            '{"title":"Shadows","summary":"Zara Okafor watches a cottage",'
+            '"children":[{"title":"b","summary":"x","children":[]}]}]'
+        )
+        fake, warnings = await self._castless(
+            monkeypatch, fixed, repaired_ch1=ch1, beats2=beats
+        )
+        assert fake.calls.count("outline:chapters") == 2  # the repair ran
+        assert not any("missing principal" in w for w in warnings)
+        assert any('2 "Shadows"' in w for w in warnings)  # pass 0's warning
+        assert "Edric Thane" in self.nodes[0]["summary"]
+
+    async def test_the_castless_repair_fences_the_cited_titles(self, monkeypatch):
+        """A chapter title is model output: the repair cites it inside a
+        story-material fence, on one line, never as instruction text."""
+        fixed = '{"title":"Shadows","summary":"Zara Okafor watches a cottage",'
+        fixed += '"act_index":0,"pov":"Zara Okafor","people":["Zara Okafor"]}'
+        fake, _ = await self._castless(monkeypatch, fixed)
+        repair = fake.prompts["outline:chapters"][1]
+        fence = f'<{so.CASTLESS_FENCE}>\n2 "Shadows"\n</{so.CASTLESS_FENCE}>'
+        assert fence in repair
+        assert "place in that attempt" in repair
 
 
 class TestBeatsStageSeesThePlan:

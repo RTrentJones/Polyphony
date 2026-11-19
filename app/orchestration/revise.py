@@ -360,7 +360,7 @@ def build_revise_prompt(
         if after.strip()
         else "The target ends the scene."
     )
-    # A POV with no mode (SPEC-96 pov_fix) already sends person and tense to
+    # A POV with no mode (a Claude author, or SPEC-96 pov_fix) already sends person and tense to
     # the draft; the clause would refer to a mode "named here" that is not.
     pov_line = pov_instruction(pov, DRAFT_NARRATION)
     if person_from_draft and not pov.from_narration:

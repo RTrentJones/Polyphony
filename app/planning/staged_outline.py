@@ -38,7 +38,11 @@ import json
 from typing import Awaitable, Callable, Optional
 from uuid import UUID
 
-from app.core.llm_text import STORY_MATERIAL_NOTICE, TextTooLargeError
+from app.core.llm_text import (
+    STORY_MATERIAL_NOTICE,
+    TextTooLargeError,
+    as_quoted_block,
+)
 from app.core.logging_config import setup_logging
 from app.core.prompt_markers import (
     ACT_CHAPTERS_HEADER,
@@ -165,6 +169,8 @@ OUTLINE_POV_LINE = (
     "Write each summary as what the chapter's POV character witnesses or learns; "
     "never what they fail to notice or will later learn."
 )
+# SPEC-98 D98-5: the fence around the castless chapters a repair cites.
+CASTLESS_FENCE = "castless_chapters"
 
 
 async def _stage_chapters(
@@ -177,11 +183,15 @@ async def _stage_chapters(
     repair = ""
     if repair_castless:
         # SPEC-98 D98-5: a chapter with no cast member cannot be written.
+        # Their titles are model output (possibly echoing a source), so they
+        # are fenced as story material, one per line.
+        cited = "\n".join(" ".join(c.split()) for c in repair_castless)
         repair += (
-            "\n\nThe previous attempt gave these chapters no canon cast member: "
-            f"{'; '.join(repair_castless)}. Every chapter MUST have a `pov` from "
-            "the canon cast; tell a chapter that follows someone outside the "
-            "cast through the cast member nearest to those events."
+            "\n\nThe previous attempt gave these chapters (numbered by their "
+            "place in that attempt) no canon cast member:\n"
+            f"{as_quoted_block(cited, CASTLESS_FENCE)}\nEvery chapter MUST have a "
+            "`pov` from the canon cast; tell a chapter that follows someone "
+            "outside the cast through the cast member nearest to those events."
         )
     if repair_missing:
         # The chapter stage is where structural cast (pov, characters[]) is chosen,
@@ -570,10 +580,26 @@ async def generate_staged_outline(
         # Repair at the CHAPTER stage (where cast is chosen) with the missing
         # principals and the castless chapters as explicit feedback, then
         # re-derive beats (PR review #5, SPEC-98 D98-5).
+        first = nodes, audit
         nodes = await _run_pass(1, audit.missing, audit.castless)
         audit = audit_outline(
             nodes, principals, known, cast=cast, canon_text=canon_text
         )
+        if first[1].passed and (
+            not audit.passed or len(audit.castless) > len(first[1].castless)
+        ):
+            # A repair for castless chapters alone never costs the hard gate
+            # (R1.4): an outline that had every principal keeps its first pass
+            # when the second drops one or leaves more chapters castless.
+            logger.warning(
+                "Outline repair came back worse; keeping the first pass",
+                extra_fields={
+                    "event": "outline_fidelity_repair_discarded",
+                    "missing": audit.missing,
+                    "castless": audit.castless,
+                },
+            )
+            nodes, audit = first
 
     return (
         validate_outline_nodes(nodes, cast=cast, known_text=known_text),
