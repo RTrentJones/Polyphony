@@ -75,6 +75,14 @@ on:
       claude_usd_cap:
         description: with claude=yes, an optional tighter per-run ceiling in USD (blank = the month's remainder)
         default: ''
+      tier:
+        description: >-
+          SPEC-98: the budget line a claude=yes run spends from (gate, experiment, release, calibration;
+          amounts in the EVAL_CLAUDE_LINES repo variable, else evals/spend.py's). The run's ceiling is
+          also bounded by what is left of its line. Recorded in the run's artifact (eval-tier.json).
+        type: choice
+        options: ['experiment', 'gate', 'release', 'calibration']
+        default: 'experiment'
       app_sha:
         description: >-
           E4 (SPEC-95): boot the app (app/, alembic/, alembic.ini, requirements.txt) from this full commit
@@ -96,8 +104,10 @@ on:
           who judges (SPEC-95 E0): chain = the free judges (with claude=yes, Claude Sonnet only as the last
           resort); claude = Claude Sonnet first, the free judges behind it. claude needs claude=yes (its key
           and spend ceiling) and a booted app. Recorded in each report's judge block (requested_mode).
+          strict (SPEC-96 Amendment 2) = steps=narration_judges only, judged by the Anthropic provider's
+          default model alone (no Sonnet, no free chain), under the same needs as claude.
         type: choice
-        options: ['chain', 'claude']
+        options: ['chain', 'claude', 'strict']
         default: 'chain'
       calibration_run:
         description: >-
@@ -179,6 +189,29 @@ jobs:
       EVAL_CHAPTER_REPLICATES: ${{ github.event.inputs.replicates || '1' }}
     steps:
       - uses: actions/checkout@v4
+      # SPEC-98 P1: every input rule checked at once (evals/config.py), before the app boots or a
+      # key is read. The guards in the steps below stay: each still protects its own step.
+      - name: Validate the dispatch's inputs
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          INPUT_BOOK: ${{ github.event.inputs.book || '' }}
+          INPUT_STEPS: ${{ github.event.inputs.steps || '' }}
+          INPUT_REPEAT: ${{ github.event.inputs.repeat || '' }}
+          INPUT_BASE_URL: ${{ github.event.inputs.base_url || '' }}
+          INPUT_HOLDOUT: ${{ github.event.inputs.holdout || '' }}
+          INPUT_CLAUDE: ${{ github.event.inputs.claude || '' }}
+          INPUT_CLAUDE_GENERATE: ${{ github.event.inputs.claude_generate || '' }}
+          INPUT_CLAUDE_MONTHLY_USD: ${{ github.event.inputs.claude_monthly_usd || '' }}
+          INPUT_CLAUDE_USD_CAP: ${{ github.event.inputs.claude_usd_cap || '' }}
+          INPUT_TIER: ${{ github.event.inputs.tier || '' }}
+          INPUT_APP_SHA: ${{ github.event.inputs.app_sha || '' }}
+          INPUT_FROM_RUNS: ${{ github.event.inputs.from_runs || '' }}
+          INPUT_CHAPTERS: ${{ github.event.inputs.chapters || '' }}
+          INPUT_REPLICATES: ${{ github.event.inputs.replicates || '' }}
+          INPUT_JUDGE: ${{ github.event.inputs.judge || '' }}
+          INPUT_CALIBRATION_RUN: ${{ github.event.inputs.calibration_run || '' }}
+          INPUT_ABLATION: ${{ github.event.inputs.ablation || '' }}
+        run: python3 -m evals.config
       # D19-4: holdout-v1 fixes the holdout corpora, the release under test fixes the code; a holdout
       # run from a later tag (E4's harness) must carry holdout-v1's corpora byte for byte.
       - name: Holdout corpora are holdout-v1's (holdout=yes)
@@ -269,6 +302,7 @@ jobs:
       - name: Judge chain
         env:
           JUDGE: ${{ github.event.inputs.judge || 'chain' }}
+          STEPS: ${{ github.event.inputs.steps || 'all' }}
           CLAUDE: ${{ github.event.inputs.claude || 'no' }}
           BASE_URL: ${{ github.event.inputs.base_url || '' }}
           FREE_CHAIN: ${{ vars.EVAL_JUDGE_PROVIDER || 'groq,openrouter' }}
@@ -289,8 +323,20 @@ jobs:
               fi
               CHAIN="anthropic,$FREE_CHAIN"
               ;;
+            strict)
+              if [ "$CLAUDE" != "yes" ] || [ -n "$BASE_URL" ]; then
+                echo "::error title=Judge::judge=strict needs claude=yes and a booted app, as judge=claude does"
+                exit 1
+              fi
+              if [ "$STEPS" != "narration_judges" ]; then
+                echo "::error title=Judge::judge=strict is for steps=narration_judges alone (got '$STEPS')"
+                exit 1
+              fi
+              CHAIN="anthropic"
+              echo "NARRATION_JUDGES=strict" >> "$GITHUB_ENV"
+              ;;
             *)
-              echo "::error title=Judge::judge must be chain or claude (got '$JUDGE')"
+              echo "::error title=Judge::judge must be chain, claude or strict (got '$JUDGE')"
               exit 1
               ;;
           esac
@@ -348,6 +394,8 @@ jobs:
           BUDGET: ${{ github.event.inputs.claude_monthly_usd || vars.EVAL_CLAUDE_MONTHLY_USD || '100' }}
           CAP: ${{ github.event.inputs.claude_usd_cap || '' }}
           GENERATE: ${{ github.event.inputs.claude_generate || 'yes' }}
+          TIER: ${{ github.event.inputs.tier || 'experiment' }}
+          LINES: ${{ vars.EVAL_CLAUDE_LINES || '' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           case "$GENERATE" in
@@ -379,13 +427,16 @@ jobs:
               gh run download "$id" -R "$GITHUB_REPOSITORY" -p "eval-report-$id*" -D "$RUNS/$id" \
                 >/dev/null 2>&1 || echo "run $id: no eval-report artifact, counted as 0"
             done
-          if ! CEILING="$(python3 -m evals.spend "$RUNS" --budget "$BUDGET" ${CAP:+--cap "$CAP"})"; then
+          if ! CEILING="$(python3 -m evals.spend "$RUNS" --budget "$BUDGET" ${CAP:+--cap "$CAP"} \
+            --tier "$TIER" ${LINES:+--lines "$LINES"})"; then
             echo "$CEILING"
             exit 1
           fi
           echo "this run's ceiling: \$$CEILING" | tee -a "$GITHUB_STEP_SUMMARY"
           # Uploaded with the reports: a run killed before any report counts at its ceiling.
           printf '{"ceiling": %s}\n' "$CEILING" > eval-ceiling.json
+          # The run's budget line (SPEC-98): later runs read it to total each tier's spend.
+          printf '{"tier": "%s"}\n' "$TIER" > eval-tier.json
           {
             echo "ANTHROPIC_API_KEY=$KEY"
             echo "MONTHLY_COST_CEILING_USD=$CEILING"
@@ -503,8 +554,63 @@ jobs:
           path: |
             eval-report-*.json
             eval-ceiling.json
+            eval-tier.json
             eval-done.json
             gl-export-*.json
             calibration-answers.json
             app.log
           if-no-files-found: warn
+
+  # SPEC-98 D98-3: the run's reports committed to the orphan `eval-results` branch as
+  # <tier>/<experiment>/<run>[-<attempt>].json (evals/results.py), where they do not expire
+  # and an analyzer finds them by experiment. A job of its own: it holds the only write
+  # permission in this workflow and none of the eval job's secrets. A push run (no inputs)
+  # publishes nothing, and neither does a run with no report or one that answered
+  # calibration items. Each run writes its own file, so a lost push race is retried.
+  publish:
+    needs: eval
+    if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    permissions: {contents: write}
+    steps:
+      - uses: actions/checkout@v4
+        with: {path: repo}
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: ${{ github.run_attempt == '1' && format('eval-report-{0}', github.run_id) || format('eval-report-{0}-{1}', github.run_id, github.run_attempt) }}
+          path: artifact
+      - name: Commit the reports to eval-results
+        env:
+          TIER: ${{ github.event.inputs.tier || 'experiment' }}
+          EXPERIMENT: ${{ github.event.inputs.experiment || '' }}
+        run: |
+          [ -d artifact ] || { echo "no artifact to publish"; exit 0; }
+          # The writer is this ref's; the checkout then moves to the results branch.
+          mkdir -p "$RUNNER_TEMP/harness"
+          cp -r repo/evals "$RUNNER_TEMP/harness/evals"
+          cd repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for try in 1 2 3 4 5; do
+            if git fetch -q --depth=1 origin "+refs/heads/eval-results:refs/remotes/origin/eval-results" 2>/dev/null; then
+              git checkout -q -B eval-results origin/eval-results
+            else
+              git checkout -q --orphan "eval-results-$try"
+              git rm -rfq --cached . >/dev/null
+            fi
+            git clean -fdxq
+            out="$(PYTHONPATH="$RUNNER_TEMP/harness" python3 -m evals.results "$GITHUB_WORKSPACE/artifact" . \
+              --tier "$TIER" --experiment "$EXPERIMENT" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+              --ref "$GITHUB_REF" --sha "$GITHUB_SHA")"
+            [ -n "$out" ] || { echo "nothing to publish"; exit 0; }
+            git add -- "$out"
+            git commit -q -m "$TIER: run $GITHUB_RUN_ID attempt $GITHUB_RUN_ATTEMPT"
+            if git push -q origin HEAD:refs/heads/eval-results; then
+              echo "published \`$out\` to eval-results" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep $((try * 5))
+          done
+          echo "::error::could not push to eval-results after 5 tries"
+          exit 1

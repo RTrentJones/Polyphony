@@ -328,3 +328,66 @@ async def test_a_report_records_what_generated(tmp_path, monkeypatch, users, wan
     cfg.base_url = "https://polyphony.example"  # an external app: not known
     out = await r.run("cel", ["retrieval"], str(tmp_path / "r.json"), 1, None)
     assert out["generator"]["provider"] is None
+
+
+def _attempt(root, name, cost=None, tier=None, done=True):
+    d = root / name
+    d.mkdir(parents=True)
+    if cost is not None:
+        (d / "eval-report-0.json").write_text(
+            json.dumps({"usage": {"deployment_cost_30d_usd": cost}})
+        )
+    if tier is not None:
+        (d / "eval-tier.json").write_text(json.dumps({"tier": tier}))
+    if done:
+        (d / "eval-done.json").write_text("{}")
+
+
+def test_a_runs_ceiling_is_also_bounded_by_its_tiers_line(
+    tmp_path, capsys, monkeypatch
+):
+    # SPEC-98: the month is split into lines; a run spends from its tier's line,
+    # and an attempt with no eval-tier.json (every earlier run) is an experiment.
+    from evals import spend
+
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    _attempt(tmp_path, "1/a1", cost=4.0)  # no tier file: experiment
+    _attempt(tmp_path, "2/a1", cost=28.5, tier="gate")
+    _attempt(tmp_path, "3/a1", cost=1.0, tier="release")
+    assert spend.month_tiers(tmp_path) == {
+        "1/a1": "experiment",
+        "2/a1": "gate",
+        "3/a1": "release",
+    }
+    args = [str(tmp_path), "--budget", "100"]
+    assert spend.main([*args, "--tier", "gate"]) == 0
+    assert capsys.readouterr().out.strip() == "1.50"  # 30 - 28.50, not 66.50
+    assert spend.main([*args, "--tier", "gate", "--cap", "1"]) == 0
+    assert capsys.readouterr().out.strip() == "1.00"  # the run cap is tighter
+    assert spend.main([*args, "--tier", "experiment"]) == 0
+    assert capsys.readouterr().out.strip() == "31.00"  # 35 - 4
+    # The month still bounds a line: 100 - 33.50 spent leaves 66.50 > any line,
+    # but a smaller month leaves less than the line does.
+    assert spend.main([str(tmp_path), "--budget", "40", "--tier", "release"]) == 0
+    assert capsys.readouterr().out.strip() == "6.50"  # min(40 - 33.50, 20 - 1)
+    # Without --tier nothing changes (SPEC-90 D1's month alone).
+    assert spend.main(args) == 0
+    assert capsys.readouterr().out.strip() == "66.50"
+
+
+def test_a_spent_or_unknown_tier_is_refused(tmp_path, capsys, monkeypatch):
+    from evals import spend
+
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    _attempt(tmp_path, "1/a1", cost=5.0, tier="calibration")
+    args = [str(tmp_path), "--budget", "100", "--tier"]
+    assert spend.main([*args, "calibration"]) == 1  # its $5 line is spent
+    assert "calibration budget line is spent" in capsys.readouterr().out
+    assert spend.main([*args, "holdout"]) == 1  # no such line
+    assert "no budget line" in capsys.readouterr().out
+    # The lines can be set per repository; a malformed set is refused, not guessed.
+    assert spend.main([*args, "calibration", "--lines", "calibration=8"]) == 0
+    assert capsys.readouterr().out.strip() == "3.00"
+    for bad in ("gate", "gate=0", "gate=x", "gate=1,gate=2"):
+        assert spend.main([*args, "gate", "--lines", bad]) == 1
+    assert spend.parse_lines(" ") == spend.LINES

@@ -1,0 +1,943 @@
+{
+ "label": "W21, SPEC-96; exploratory; Flash-Lite-written, judge measures Sonnet-judged, not human, development corpora",
+ "per_arm": {
+  "A": {
+   "chapters": 198,
+   "failure": {
+    "none": 187,
+    "product": 11
+   },
+   "no_scenes": 11,
+   "judged": 187,
+   "m3_eligible_lines": 73,
+   "m3_narrator_lines": 23,
+   "sample_overlap_8gram": {
+    "chapters": 154,
+    "mean": 0.0032,
+    "max": 0.09483,
+    "with_any": 40
+   }
+  },
+  "P": {
+   "chapters": 120,
+   "failure": {
+    "none": 114,
+    "product": 6
+   },
+   "no_scenes": 6,
+   "judged": 114,
+   "m3_eligible_lines": 62,
+   "m3_narrator_lines": 28,
+   "sample_overlap_8gram": {
+    "chapters": 93,
+    "mean": 0.00169,
+    "max": 0.0392,
+    "with_any": 17
+   }
+  },
+  "N": {
+   "chapters": 120,
+   "failure": {
+    "none": 114,
+    "product": 6
+   },
+   "no_scenes": 6,
+   "judged": 114,
+   "m3_eligible_lines": 92,
+   "m3_narrator_lines": 23,
+   "sample_overlap_8gram": {
+    "chapters": 93,
+    "mean": 0.00287,
+    "max": 0.06951,
+    "with_any": 31
+   }
+  },
+  "V": {
+   "chapters": 114,
+   "failure": {
+    "none": 108,
+    "product": 6
+   },
+   "no_scenes": 6,
+   "judged": 108,
+   "m3_eligible_lines": 74,
+   "m3_narrator_lines": 17,
+   "sample_overlap_8gram": {
+    "chapters": 88,
+    "mean": 0.00055,
+    "max": 0.00993,
+    "with_any": 11
+   }
+  }
+ },
+ "contrasts": {
+  "P": {
+   "counts": {
+    "pairs": 108,
+    "unpaired": 6,
+    "outline_differs": 0,
+    "excluded": {
+     "treatment": {
+      "no_scenes": 6
+     },
+     "A": {
+      "no_scenes": 6
+     }
+    },
+    "pairs_by_book": {
+     "dracula": 42,
+     "frankenstein": 30,
+     "wuthering": 36
+    },
+    "m3_no_line": 89,
+    "m2_not_judged": 19,
+    "m3_eligible_lines": {
+     "treatment": 59,
+     "A": 48
+    }
+   },
+   "person_mismatch": {
+    "d": -0.1038,
+    "p": 0.050079345703125,
+    "t_ci": [
+     -0.2399,
+     0.0324
+    ],
+    "exact": true,
+    "n_clusters": 17,
+    "n_pairs": 108,
+    "bootstrap (descriptive)": {
+     "d": -0.1066,
+     "ci": [
+      -0.2484,
+      -0.0048
+     ],
+     "p": 0.0152
+    },
+    "left_out": 0
+   },
+   "person_mismatch_window": {
+    "d": -0.1125,
+    "p": 0.09375,
+    "t_ci": [
+     -0.2692,
+     0.0441
+    ],
+    "exact": true,
+    "n_clusters": 17,
+    "n_pairs": 108,
+    "bootstrap (descriptive)": {
+     "d": -0.1159,
+     "ci": [
+      -0.2799,
+      -0.0015
+     ],
+     "p": 0.034
+    },
+    "left_out": 0
+   },
+   "tense_mismatch": {
+    "d": 0.0004,
+    "p": 0.963165283203125,
+    "t_ci": [
+     -0.0227,
+     0.0236
+    ],
+    "exact": true,
+    "n_clusters": 17,
+    "n_pairs": 108,
+    "bootstrap (descriptive)": {
+     "d": -0.001,
+     "ci": [
+      -0.0203,
+      0.0212
+     ],
+     "p": 0.8752
+    },
+    "left_out": 0
+   },
+   "quote_mismatch": {
+    "d": 0.0,
+    "p": 1.0,
+    "t_ci": [
+     0.0,
+     0.0
+    ],
+    "exact": true,
+    "n_clusters": 11,
+    "n_pairs": 44,
+    "bootstrap (descriptive)": {
+     "d": 0.0,
+     "ci": [
+      0.0,
+      0.0
+     ],
+     "p": 1.0
+    },
+    "left_out": 64
+   },
+   "m2 sonnet": {
+    "d": 0.0051,
+    "p": 1.0,
+    "t_ci": [
+     -0.0059,
+     0.0161
+    ],
+    "exact": true,
+    "n_clusters": 14,
+    "n_pairs": 89,
+    "bootstrap (descriptive)": {
+     "d": 0.0056,
+     "ci": [
+      0.0,
+      0.0169
+     ],
+     "p": 0.7132
+    },
+    "left_out": 19
+   },
+   "m2 free": {
+    "d": 0.0128,
+    "p": 0.6875,
+    "t_ci": [
+     -0.0482,
+     0.0737
+    ],
+    "exact": true,
+    "n_clusters": 14,
+    "n_pairs": 89,
+    "bootstrap (descriptive)": {
+     "d": 0.0112,
+     "ci": [
+      -0.0385,
+      0.064
+     ],
+     "p": 0.7702
+    },
+    "left_out": 19
+   },
+   "m3 sonnet": {
+    "d": 0.0323,
+    "p": 1.0,
+    "t_ci": [
+     -0.0568,
+     0.1215
+    ],
+    "exact": true,
+    "n_clusters": 7,
+    "n_pairs": 19,
+    "bootstrap (descriptive)": {
+     "d": 0.0439,
+     "ci": [
+      -0.0179,
+      0.1579
+     ],
+     "p": 0.6946
+    },
+    "left_out": 89
+   },
+   "m3 free": {
+    "d": 0.0689,
+    "p": 0.875,
+    "t_ci": [
+     -0.348,
+     0.4858
+    ],
+    "exact": true,
+    "n_clusters": 7,
+    "n_pairs": 18,
+    "bootstrap (descriptive)": {
+     "d": -0.0,
+     "ci": [
+      -0.1818,
+      0.2222
+     ],
+     "p": 0.9588
+    },
+    "left_out": 90
+   },
+   "m3_own sonnet": {
+    "d": 0.05,
+    "p": 1.0,
+    "t_ci": [
+     -0.1654,
+     0.2654
+    ],
+    "exact": true,
+    "n_clusters": 4,
+    "n_pairs": 12,
+    "bootstrap (descriptive)": {
+     "d": 0.0625,
+     "ci": [
+      -0.0441,
+      0.2143
+     ],
+     "p": 0.6218
+    },
+    "left_out": 96
+   },
+   "m3_own free": {
+    "d": -0.0375,
+    "p": 0.5,
+    "t_ci": [
+     -0.1137,
+     0.0387
+    ],
+    "exact": true,
+    "n_clusters": 4,
+    "n_pairs": 12,
+    "bootstrap (descriptive)": {
+     "d": -0.0583,
+     "ci": [
+      -0.0895,
+      0.0
+     ],
+     "p": 0.1204
+    },
+    "left_out": 96
+   }
+  },
+  "N": {
+   "counts": {
+    "pairs": 114,
+    "unpaired": 0,
+    "outline_differs": 0,
+    "excluded": {
+     "treatment": {
+      "no_scenes": 6
+     },
+     "A": {
+      "no_scenes": 6
+     }
+    },
+    "pairs_by_book": {
+     "dracula": 42,
+     "frankenstein": 30,
+     "wuthering": 42
+    },
+    "m3_no_line": 95,
+    "m2_not_judged": 21,
+    "m3_eligible_lines": {
+     "treatment": 92,
+     "A": 43
+    }
+   },
+   "person_mismatch": {
+    "d": 0.0272,
+    "p": 0.096466064453125,
+    "t_ci": [
+     -0.0063,
+     0.0607
+    ],
+    "exact": true,
+    "n_clusters": 17,
+    "n_pairs": 114,
+    "bootstrap (descriptive)": {
+     "d": 0.0281,
+     "ci": [
+      0.0006,
+      0.0619
+     ],
+     "p": 0.0438
+    },
+    "left_out": 0
+   },
+   "person_mismatch_window": {
+    "d": 0.0126,
+    "p": 0.37109375,
+    "t_ci": [
+     -0.0187,
+     0.0438
+    ],
+    "exact": true,
+    "n_clusters": 17,
+    "n_pairs": 114,
+    "bootstrap (descriptive)": {
+     "d": 0.0122,
+     "ci": [
+      -0.017,
+      0.0418
+     ],
+     "p": 0.4042
+    },
+    "left_out": 0
+   },
+   "tense_mismatch": {
+    "d": 0.0076,
+    "p": 0.47412109375,
+    "t_ci": [
+     -0.0104,
+     0.0256
+    ],
+    "exact": true,
+    "n_clusters": 17,
+    "n_pairs": 114,
+    "bootstrap (descriptive)": {
+     "d": 0.0074,
+     "ci": [
+      -0.007,
+      0.0263
+     ],
+     "p": 0.3888
+    },
+    "left_out": 0
+   },
+   "quote_mismatch": {
+    "d": 0.0,
+    "p": 1.0,
+    "t_ci": [
+     0.0,
+     0.0
+    ],
+    "exact": true,
+    "n_clusters": 9,
+    "n_pairs": 42,
+    "bootstrap (descriptive)": {
+     "d": 0.0,
+     "ci": [
+      0.0,
+      0.0
+     ],
+     "p": 1.0
+    },
+    "left_out": 72
+   },
+   "m2 sonnet": {
+    "d": 0.0153,
+    "p": 1.0,
+    "t_ci": [
+     -0.0178,
+     0.0484
+    ],
+    "exact": true,
+    "n_clusters": 14,
+    "n_pairs": 93,
+    "bootstrap (descriptive)": {
+     "d": 0.0161,
+     "ci": [
+      0.0,
+      0.0489
+     ],
+     "p": 0.694
+    },
+    "left_out": 21
+   },
+   "m2 free": {
+    "d": -0.0357,
+    "p": 0.25,
+    "t_ci": [
+     -0.0887,
+     0.0173
+    ],
+    "exact": true,
+    "n_clusters": 14,
+    "n_pairs": 93,
+    "bootstrap (descriptive)": {
+     "d": -0.0376,
+     "ci": [
+      -0.0867,
+      0.0106
+     ],
+     "p": 0.1424
+    },
+    "left_out": 21
+   },
+   "m3 sonnet": {
+    "d": 0.0222,
+    "p": 1.0,
+    "t_ci": [
+     -0.0395,
+     0.0839
+    ],
+    "exact": true,
+    "n_clusters": 5,
+    "n_pairs": 19,
+    "bootstrap (descriptive)": {
+     "d": 0.0351,
+     "ci": [
+      0.0,
+      0.0833
+     ],
+     "p": 0.6474
+    },
+    "left_out": 95
+   },
+   "m3 free": {
+    "d": -0.0878,
+    "p": 1.0,
+    "t_ci": [
+     -0.4983,
+     0.3228
+    ],
+    "exact": true,
+    "n_clusters": 5,
+    "n_pairs": 17,
+    "bootstrap (descriptive)": {
+     "d": -0.0667,
+     "ci": [
+      -0.3929,
+      0.1063
+     ],
+     "p": 0.6696
+    },
+    "left_out": 97
+   },
+   "m3_own sonnet": {
+    "d": 0.0278,
+    "p": 1.0,
+    "t_ci": [
+     -0.0606,
+     0.1162
+    ],
+    "exact": true,
+    "n_clusters": 4,
+    "n_pairs": 13,
+    "bootstrap (descriptive)": {
+     "d": 0.0513,
+     "ci": [
+      0.0,
+      0.1
+     ],
+     "p": 0.6218
+    },
+    "left_out": 101
+   },
+   "m3_own free": {
+    "d": 0.0056,
+    "p": 1.0,
+    "t_ci": [
+     -0.0121,
+     0.0232
+    ],
+    "exact": true,
+    "n_clusters": 4,
+    "n_pairs": 12,
+    "bootstrap (descriptive)": {
+     "d": 0.0111,
+     "ci": [
+      0.0,
+      0.02
+     ],
+     "p": 0.6218
+    },
+    "left_out": 102
+   }
+  },
+  "V": {
+   "counts": {
+    "pairs": 108,
+    "unpaired": 0,
+    "outline_differs": 0,
+    "excluded": {
+     "treatment": {
+      "no_scenes": 6
+     },
+     "A": {
+      "no_scenes": 6
+     }
+    },
+    "pairs_by_book": {
+     "dracula": 36,
+     "frankenstein": 30,
+     "wuthering": 42
+    },
+    "m3_no_line": 89,
+    "m2_not_judged": 20,
+    "m3_eligible_lines": {
+     "treatment": 74,
+     "A": 44
+    }
+   },
+   "person_mismatch": {
+    "d": 0.0206,
+    "p": 0.050445556640625,
+    "t_ci": [
+     -0.0006,
+     0.0419
+    ],
+    "exact": true,
+    "n_clusters": 17,
+    "n_pairs": 108,
+    "bootstrap (descriptive)": {
+     "d": 0.0213,
+     "ci": [
+      0.0026,
+      0.0426
+     ],
+     "p": 0.0244
+    },
+    "left_out": 0
+   },
+   "person_mismatch_window": {
+    "d": 0.0054,
+    "p": 0.71875,
+    "t_ci": [
+     -0.0217,
+     0.0325
+    ],
+    "exact": true,
+    "n_clusters": 17,
+    "n_pairs": 108,
+    "bootstrap (descriptive)": {
+     "d": 0.0049,
+     "ci": [
+      -0.0234,
+      0.0285
+     ],
+     "p": 0.6656
+    },
+    "left_out": 0
+   },
+   "tense_mismatch": {
+    "d": -0.0038,
+    "p": 0.6850738525390625,
+    "t_ci": [
+     -0.0226,
+     0.015
+    ],
+    "exact": true,
+    "n_clusters": 17,
+    "n_pairs": 108,
+    "bootstrap (descriptive)": {
+     "d": -0.0032,
+     "ci": [
+      -0.0204,
+      0.0133
+     ],
+     "p": 0.7242
+    },
+    "left_out": 0
+   },
+   "quote_mismatch": {
+    "d": 0.0,
+    "p": 1.0,
+    "t_ci": [
+     0.0,
+     0.0
+    ],
+    "exact": true,
+    "n_clusters": 11,
+    "n_pairs": 44,
+    "bootstrap (descriptive)": {
+     "d": 0.0,
+     "ci": [
+      0.0,
+      0.0
+     ],
+     "p": 1.0
+    },
+    "left_out": 64
+   },
+   "m2 sonnet": {
+    "d": 0.0,
+    "p": 1.0,
+    "t_ci": [
+     0.0,
+     0.0
+    ],
+    "exact": true,
+    "n_clusters": 14,
+    "n_pairs": 88,
+    "bootstrap (descriptive)": {
+     "d": 0.0,
+     "ci": [
+      0.0,
+      0.0
+     ],
+     "p": 1.0
+    },
+    "left_out": 20
+   },
+   "m2 free": {
+    "d": 0.023,
+    "p": 0.40625,
+    "t_ci": [
+     -0.029,
+     0.0749
+    ],
+    "exact": true,
+    "n_clusters": 14,
+    "n_pairs": 88,
+    "bootstrap (descriptive)": {
+     "d": 0.0284,
+     "ci": [
+      -0.0176,
+      0.0769
+     ],
+     "p": 0.3034
+    },
+    "left_out": 20
+   },
+   "m3 sonnet": {
+    "d": 0.0,
+    "p": 1.0,
+    "t_ci": [
+     0.0,
+     0.0
+    ],
+    "exact": true,
+    "n_clusters": 5,
+    "n_pairs": 19,
+    "bootstrap (descriptive)": {
+     "d": 0.0,
+     "ci": [
+      0.0,
+      0.0
+     ],
+     "p": 1.0
+    },
+    "left_out": 89
+   },
+   "m3 free": {
+    "d": -0.0246,
+    "p": 1.0,
+    "t_ci": [
+     -0.126,
+     0.0768
+    ],
+    "exact": true,
+    "n_clusters": 5,
+    "n_pairs": 15,
+    "bootstrap (descriptive)": {
+     "d": -0.0216,
+     "ci": [
+      -0.1,
+      0.0292
+     ],
+     "p": 0.7084
+    },
+    "left_out": 93
+   },
+   "m3_own sonnet": {
+    "d": 0.0,
+    "p": 1.0,
+    "t_ci": [
+     0.0,
+     0.0
+    ],
+    "exact": true,
+    "n_clusters": 4,
+    "n_pairs": 13,
+    "bootstrap (descriptive)": {
+     "d": 0.0,
+     "ci": [
+      0.0,
+      0.0
+     ],
+     "p": 1.0
+    },
+    "left_out": 95
+   },
+   "m3_own free": {
+    "d": 0.0265,
+    "p": 1.0,
+    "t_ci": [
+     -0.0876,
+     0.1406
+    ],
+    "exact": true,
+    "n_clusters": 3,
+    "n_pairs": 10,
+    "bootstrap (descriptive)": {
+     "d": 0.0318,
+     "ci": [
+      0.0,
+      0.0795
+     ],
+     "p": 0.5944
+    },
+    "left_out": 98
+   }
+  }
+ },
+ "family": [
+  "P",
+  "N"
+ ],
+ "floors": {
+  "N": {
+   "a_mean": 0.9592,
+   "t_ci": [
+    0.8911,
+    1.0273
+   ],
+   "clusters": 14,
+   "at_floor": false
+  },
+  "V": {
+   "a_mean": 0.975,
+   "t_ci": [
+    0.9159,
+    1.0341
+   ],
+   "clusters": 8,
+   "chance": 0.3447,
+   "at_floor": false
+  }
+ },
+ "primary": {
+  "P": {
+   "measure": "person_mismatch_window",
+   "tested": true,
+   "untested_because": null,
+   "d": -0.1125,
+   "p": 0.09375,
+   "t_ci": [
+    -0.2692,
+    0.0441
+   ],
+   "exact": true,
+   "n_clusters": 17,
+   "n_pairs": 108,
+   "bootstrap (descriptive)": {
+    "d": -0.1159,
+    "ci": [
+     -0.2799,
+     -0.0015
+    ],
+    "p": 0.034
+   },
+   "left_out": 0,
+   "p_holm": 0.1875,
+   "reject": false
+  },
+  "N": {
+   "measure": "m2 sonnet",
+   "tested": true,
+   "untested_because": null,
+   "d": 0.0153,
+   "p": 1.0,
+   "t_ci": [
+    -0.0178,
+    0.0484
+   ],
+   "exact": true,
+   "n_clusters": 14,
+   "n_pairs": 93,
+   "bootstrap (descriptive)": {
+    "d": 0.0161,
+    "ci": [
+     0.0,
+     0.0489
+    ],
+    "p": 0.694
+   },
+   "left_out": 21,
+   "p_holm": 1.0,
+   "reject": false
+  },
+  "V": {
+   "measure": "m3 sonnet",
+   "tested": false,
+   "untested_because": "descriptive (pre-registration)",
+   "d": 0.0,
+   "p": 1.0,
+   "t_ci": [
+    0.0,
+    0.0
+   ],
+   "exact": true,
+   "n_clusters": 5,
+   "n_pairs": 19,
+   "bootstrap (descriptive)": {
+    "d": 0.0,
+    "ci": [
+     0.0,
+     0.0
+    ],
+    "p": 1.0
+   },
+   "left_out": 89,
+   "p_holm": null,
+   "reject": false
+  }
+ },
+ "sensitivities": {
+  "a: H1 on sentence-level person_mismatch": {
+   "d": -0.1038,
+   "p": 0.050079345703125,
+   "t_ci": [
+    -0.2399,
+    0.0324
+   ],
+   "exact": true,
+   "n_clusters": 17,
+   "n_pairs": 108,
+   "bootstrap (descriptive)": {
+    "d": -0.1066,
+    "ci": [
+     -0.2484,
+     -0.0048
+    ],
+    "p": 0.0152
+   },
+   "left_out": 0,
+   "direction_agrees": true
+  },
+  "b: N vs A on person_mismatch_window": {
+   "d": 0.0126,
+   "p": 0.37109375,
+   "t_ci": [
+    -0.0187,
+    0.0438
+   ],
+   "exact": true,
+   "n_clusters": 17,
+   "n_pairs": 114,
+   "bootstrap (descriptive)": {
+    "d": 0.0122,
+    "ci": [
+     -0.017,
+     0.0418
+    ],
+    "p": 0.4042
+   },
+   "left_out": 0
+  },
+  "c: H2 on pairs both first person": {
+   "d": 0.0165,
+   "p": 1.0,
+   "t_ci": [
+    -0.0194,
+    0.0524
+   ],
+   "exact": true,
+   "n_clusters": 13,
+   "n_pairs": 85,
+   "bootstrap (descriptive)": {
+    "d": 0.0176,
+    "ci": [
+     0.0,
+     0.0529
+    ],
+    "p": 0.7
+   },
+   "pairs_first_person": 92
+  },
+  "d: M3 without narrator-credited lines": {
+   "d": 0.0,
+   "p": 1.0,
+   "t_ci": [
+    0.0,
+    0.0
+   ],
+   "exact": true,
+   "n_clusters": 4,
+   "n_pairs": 13,
+   "bootstrap (descriptive)": {
+    "d": 0.0,
+    "ci": [
+     0.0,
+     0.0
+    ],
+    "p": 1.0
+   },
+   "left_out": 95
+  }
+ },
+ "decisions": [
+  "P: no effect of dropping the default POV mode detectable at n = 108 (not equivalence) (exploratory; Flash-Lite-written, not human, development corpora)",
+  "N: no effect of the excerpts on narrator attribution detectable at n = 93 (not equivalence); the lever becomes a candidate for removal, decided with E4's result (exploratory; Flash-Lite-written, Sonnet-judged, not human, development corpora)",
+  "V: descriptive only (pre-registration): d = 0.0, t-interval [0.0, 0.0], n = 19 pairs (exploratory; Flash-Lite-written, Sonnet-judged, not human, development corpora)"
+ ]
+}

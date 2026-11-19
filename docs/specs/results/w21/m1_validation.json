@@ -1,0 +1,953 @@
+{
+ "books": [
+  {
+   "book": "dracula",
+   "profile": {
+    "book": "dracula",
+    "person": "first",
+    "tense": "past",
+    "quotes": "double",
+    "counts": {
+     "sentences": 683,
+     "person": {
+      "first": 438,
+      "third": 98
+     },
+     "person_window": {
+      "first": 106,
+      "third": 0
+     },
+     "tense": {
+      "past": 447,
+      "present": 106
+     },
+     "quotes": {
+      "double": 223,
+      "single": 0
+     }
+    }
+   },
+   "chapters": [
+    {
+     "heading": "CHAPTER II",
+     "framed": false,
+     "source": {
+      "person_mismatch": 0.1027,
+      "person_mismatch_window": 0.0,
+      "tense_mismatch": 0.1447,
+      "quote_mismatch": 0.0
+     },
+     "counts": {
+      "sentences": 174,
+      "person": {
+       "first": 131,
+       "third": 15
+      },
+      "person_window": {
+       "first": 29,
+       "third": 0
+      },
+      "tense": {
+       "past": 130,
+       "present": 22
+      },
+      "quotes": {
+       "double": 46,
+       "single": 0
+      }
+     },
+     "to_third": {
+      "person_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.8973,
+       "detected": true
+      },
+      "person_mismatch_window": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      }
+     },
+     "to_present": {
+      "tense_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.8553,
+       "detected": true
+      }
+     }
+    },
+    {
+     "heading": "CHAPTER V",
+     "framed": false,
+     "source": {
+      "person_mismatch": 0.0,
+      "person_mismatch_window": 0.0,
+      "tense_mismatch": 0.5,
+      "quote_mismatch": 0.0
+     },
+     "counts": {
+      "sentences": 28,
+      "person": {
+       "first": 12,
+       "third": 0
+      },
+      "person_window": {
+       "first": 2,
+       "third": 0
+      },
+      "tense": {
+       "past": 5,
+       "present": 5
+      },
+      "quotes": {
+       "double": 38,
+       "single": 0
+      }
+     },
+     "to_third": {
+      "person_mismatch": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      },
+      "person_mismatch_window": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      }
+     },
+     "to_present": {
+      "tense_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.5,
+       "detected": true
+      }
+     }
+    },
+    {
+     "heading": "CHAPTER VIII",
+     "framed": false,
+     "source": {
+      "person_mismatch": 0.1909,
+      "person_mismatch_window": 0.0,
+      "tense_mismatch": 0.2825,
+      "quote_mismatch": 0.0
+     },
+     "counts": {
+      "sentences": 283,
+      "person": {
+       "first": 178,
+       "third": 42
+      },
+      "person_window": {
+       "first": 44,
+       "third": 0
+      },
+      "tense": {
+       "past": 160,
+       "present": 63
+      },
+      "quotes": {
+       "double": 39,
+       "single": 0
+      }
+     },
+     "to_third": {
+      "person_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.8091,
+       "detected": true
+      },
+      "person_mismatch_window": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      }
+     },
+     "to_present": {
+      "tense_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.7175,
+       "detected": true
+      }
+     }
+    },
+    {
+     "heading": "CHAPTER X",
+     "framed": false,
+     "source": {
+      "person_mismatch": 0.2595,
+      "person_mismatch_window": 0.0,
+      "tense_mismatch": 0.0952,
+      "quote_mismatch": 0.0
+     },
+     "counts": {
+      "sentences": 198,
+      "person": {
+       "first": 117,
+       "third": 41
+      },
+      "person_window": {
+       "first": 31,
+       "third": 0
+      },
+      "tense": {
+       "past": 152,
+       "present": 16
+      },
+      "quotes": {
+       "double": 100,
+       "single": 0
+      }
+     },
+     "to_third": {
+      "person_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.7405,
+       "detected": true
+      },
+      "person_mismatch_window": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      }
+     },
+     "to_present": {
+      "tense_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.9048,
+       "detected": true
+      }
+     }
+    }
+   ]
+  },
+  {
+   "book": "frankenstein",
+   "profile": {
+    "book": "frankenstein",
+    "person": "first",
+    "tense": "past",
+    "quotes": "double",
+    "counts": {
+     "sentences": 378,
+     "person": {
+      "first": 276,
+      "third": 33
+     },
+     "person_window": {
+      "first": 60,
+      "third": 0
+     },
+     "tense": {
+      "past": 200,
+      "present": 85
+     },
+     "quotes": {
+      "double": 40,
+      "single": 1
+     }
+    }
+   },
+   "chapters": [
+    {
+     "heading": "Letter 1",
+     "framed": false,
+     "source": {
+      "person_mismatch": 0.0,
+      "person_mismatch_window": 0.0,
+      "tense_mismatch": 0.625,
+      "quote_mismatch": null
+     },
+     "counts": {
+      "sentences": 53,
+      "person": {
+       "first": 40,
+       "third": 0
+      },
+      "person_window": {
+       "first": 8,
+       "third": 0
+      },
+      "tense": {
+       "past": 12,
+       "present": 20
+      },
+      "quotes": {
+       "double": 0,
+       "single": 0
+      }
+     },
+     "to_third": {
+      "person_mismatch": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      },
+      "person_mismatch_window": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      }
+     },
+     "to_present": {
+      "tense_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.375,
+       "detected": true
+      }
+     }
+    },
+    {
+     "heading": "Letter 2",
+     "framed": false,
+     "source": {
+      "person_mismatch": 0.122,
+      "person_mismatch_window": 0.0,
+      "tense_mismatch": 0.7692,
+      "quote_mismatch": 0.0
+     },
+     "counts": {
+      "sentences": 49,
+      "person": {
+       "first": 36,
+       "third": 5
+      },
+      "person_window": {
+       "first": 8,
+       "third": 0
+      },
+      "tense": {
+       "past": 9,
+       "present": 30
+      },
+      "quotes": {
+       "double": 3,
+       "single": 0
+      }
+     },
+     "to_third": {
+      "person_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.878,
+       "detected": true
+      },
+      "person_mismatch_window": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      }
+     },
+     "to_present": {
+      "tense_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.2308,
+       "detected": false
+      }
+     }
+    },
+    {
+     "heading": "Letter 3",
+     "framed": false,
+     "source": {
+      "person_mismatch": 0.0,
+      "person_mismatch_window": 0.0,
+      "tense_mismatch": 1.0,
+      "quote_mismatch": null
+     },
+     "counts": {
+      "sentences": 21,
+      "person": {
+       "first": 15,
+       "third": 0
+      },
+      "person_window": {
+       "first": 3,
+       "third": 0
+      },
+      "tense": {
+       "past": 0,
+       "present": 5
+      },
+      "quotes": {
+       "double": 0,
+       "single": 0
+      }
+     },
+     "to_third": {
+      "person_mismatch": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      },
+      "person_mismatch_window": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      }
+     },
+     "to_present": {
+      "tense_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.0,
+       "detected": false
+      }
+     }
+    },
+    {
+     "heading": "Letter 4",
+     "framed": false,
+     "source": {
+      "person_mismatch": 0.175,
+      "person_mismatch_window": 0.0,
+      "tense_mismatch": 0.3158,
+      "quote_mismatch": 0.0
+     },
+     "counts": {
+      "sentences": 96,
+      "person": {
+       "first": 66,
+       "third": 14
+      },
+      "person_window": {
+       "first": 16,
+       "third": 0
+      },
+      "tense": {
+       "past": 52,
+       "present": 24
+      },
+      "quotes": {
+       "double": 17,
+       "single": 0
+      }
+     },
+     "to_third": {
+      "person_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.825,
+       "detected": true
+      },
+      "person_mismatch_window": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      }
+     },
+     "to_present": {
+      "tense_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.6842,
+       "detected": true
+      }
+     }
+    },
+    {
+     "heading": "Chapter 5",
+     "framed": false,
+     "source": {
+      "person_mismatch": 0.058,
+      "person_mismatch_window": 0.0,
+      "tense_mismatch": 0.0312,
+      "quote_mismatch": 0.0
+     },
+     "counts": {
+      "sentences": 80,
+      "person": {
+       "first": 65,
+       "third": 4
+      },
+      "person_window": {
+       "first": 13,
+       "third": 0
+      },
+      "tense": {
+       "past": 62,
+       "present": 2
+      },
+      "quotes": {
+       "double": 20,
+       "single": 0
+      }
+     },
+     "to_third": {
+      "person_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.942,
+       "detected": true
+      },
+      "person_mismatch_window": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      }
+     },
+     "to_present": {
+      "tense_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.9688,
+       "detected": true
+      }
+     }
+    },
+    {
+     "heading": "Chapter 13",
+     "framed": true,
+     "source": {
+      "person_mismatch": 0.1562,
+      "person_mismatch_window": 0.0,
+      "tense_mismatch": 0.058,
+      "quote_mismatch": 1.0
+     },
+     "counts": {
+      "sentences": 79,
+      "person": {
+       "first": 54,
+       "third": 10
+      },
+      "person_window": {
+       "first": 12,
+       "third": 0
+      },
+      "tense": {
+       "past": 65,
+       "present": 4
+      },
+      "quotes": {
+       "double": 0,
+       "single": 1
+      }
+     },
+     "to_third": {
+      "person_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.8438,
+       "detected": true
+      },
+      "person_mismatch_window": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      }
+     },
+     "to_present": {
+      "tense_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.942,
+       "detected": true
+      }
+     }
+    }
+   ]
+  },
+  {
+   "book": "wuthering",
+   "profile": {
+    "book": "wuthering",
+    "person": "first",
+    "tense": "past",
+    "quotes": "double",
+    "counts": {
+     "sentences": 705,
+     "person": {
+      "first": 406,
+      "third": 107
+     },
+     "person_window": {
+      "first": 100,
+      "third": 0
+     },
+     "tense": {
+      "past": 492,
+      "present": 24
+     },
+     "quotes": {
+      "double": 572,
+      "single": 0
+     }
+    }
+   },
+   "chapters": [
+    {
+     "heading": "CHAPTER I",
+     "framed": false,
+     "source": {
+      "person_mismatch": 0.1026,
+      "person_mismatch_window": 0.0,
+      "tense_mismatch": 0.3714,
+      "quote_mismatch": 0.0
+     },
+     "counts": {
+      "sentences": 57,
+      "person": {
+       "first": 35,
+       "third": 4
+      },
+      "person_window": {
+       "first": 7,
+       "third": 0
+      },
+      "tense": {
+       "past": 22,
+       "present": 13
+      },
+      "quotes": {
+       "double": 28,
+       "single": 0
+      }
+     },
+     "to_third": {
+      "person_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.8974,
+       "detected": true
+      },
+      "person_mismatch_window": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      }
+     },
+     "to_present": {
+      "tense_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.6286,
+       "detected": true
+      }
+     }
+    },
+    {
+     "heading": "CHAPTER II",
+     "framed": false,
+     "source": {
+      "person_mismatch": 0.1,
+      "person_mismatch_window": 0.0,
+      "tense_mismatch": 0.0,
+      "quote_mismatch": 0.0
+     },
+     "counts": {
+      "sentences": 99,
+      "person": {
+       "first": 63,
+       "third": 7
+      },
+      "person_window": {
+       "first": 14,
+       "third": 0
+      },
+      "tense": {
+       "past": 67,
+       "present": 0
+      },
+      "quotes": {
+       "double": 96,
+       "single": 0
+      }
+     },
+     "to_third": {
+      "person_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.9,
+       "detected": true
+      },
+      "person_mismatch_window": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      }
+     },
+     "to_present": {
+      "tense_mismatch": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      }
+     }
+    },
+    {
+     "heading": "CHAPTER III",
+     "framed": false,
+     "source": {
+      "person_mismatch": 0.0816,
+      "person_mismatch_window": 0.0,
+      "tense_mismatch": 0.0291,
+      "quote_mismatch": 0.0
+     },
+     "counts": {
+      "sentences": 121,
+      "person": {
+       "first": 90,
+       "third": 8
+      },
+      "person_window": {
+       "first": 19,
+       "third": 0
+      },
+      "tense": {
+       "past": 100,
+       "present": 3
+      },
+      "quotes": {
+       "double": 66,
+       "single": 0
+      }
+     },
+     "to_third": {
+      "person_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.9184,
+       "detected": true
+      },
+      "person_mismatch_window": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      }
+     },
+     "to_present": {
+      "tense_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.9709,
+       "detected": true
+      }
+     }
+    },
+    {
+     "heading": "CHAPTER IX",
+     "framed": false,
+     "source": {
+      "person_mismatch": 0.2523,
+      "person_mismatch_window": 0.0,
+      "tense_mismatch": 0.0306,
+      "quote_mismatch": 0.0
+     },
+     "counts": {
+      "sentences": 139,
+      "person": {
+       "first": 80,
+       "third": 27
+      },
+      "person_window": {
+       "first": 21,
+       "third": 0
+      },
+      "tense": {
+       "past": 95,
+       "present": 3
+      },
+      "quotes": {
+       "double": 145,
+       "single": 0
+      }
+     },
+     "to_third": {
+      "person_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.7477,
+       "detected": true
+      },
+      "person_mismatch_window": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      }
+     },
+     "to_present": {
+      "tense_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.9694,
+       "detected": true
+      }
+     }
+    },
+    {
+     "heading": "CHAPTER XV",
+     "framed": false,
+     "source": {
+      "person_mismatch": 0.3279,
+      "person_mismatch_window": 0.0,
+      "tense_mismatch": 0.0429,
+      "quote_mismatch": 0.0
+     },
+     "counts": {
+      "sentences": 89,
+      "person": {
+       "first": 41,
+       "third": 20
+      },
+      "person_window": {
+       "first": 12,
+       "third": 0
+      },
+      "tense": {
+       "past": 67,
+       "present": 3
+      },
+      "quotes": {
+       "double": 49,
+       "single": 0
+      }
+     },
+     "to_third": {
+      "person_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.6721,
+       "detected": true
+      },
+      "person_mismatch_window": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      }
+     },
+     "to_present": {
+      "tense_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.9571,
+       "detected": true
+      }
+     }
+    },
+    {
+     "heading": "CHAPTER XXI",
+     "framed": false,
+     "source": {
+      "person_mismatch": 0.3267,
+      "person_mismatch_window": 0.0,
+      "tense_mismatch": 0.0185,
+      "quote_mismatch": 0.0
+     },
+     "counts": {
+      "sentences": 150,
+      "person": {
+       "first": 68,
+       "third": 33
+      },
+      "person_window": {
+       "first": 20,
+       "third": 0
+      },
+      "tense": {
+       "past": 106,
+       "present": 2
+      },
+      "quotes": {
+       "double": 147,
+       "single": 0
+      }
+     },
+     "to_third": {
+      "person_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.6733,
+       "detected": true
+      },
+      "person_mismatch_window": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      }
+     },
+     "to_present": {
+      "tense_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.9815,
+       "detected": true
+      }
+     }
+    },
+    {
+     "heading": "CHAPTER XXII",
+     "framed": false,
+     "source": {
+      "person_mismatch": 0.2162,
+      "person_mismatch_window": 0.0,
+      "tense_mismatch": 0.0,
+      "quote_mismatch": 0.0
+     },
+     "counts": {
+      "sentences": 50,
+      "person": {
+       "first": 29,
+       "third": 8
+      },
+      "person_window": {
+       "first": 7,
+       "third": 0
+      },
+      "tense": {
+       "past": 35,
+       "present": 0
+      },
+      "quotes": {
+       "double": 41,
+       "single": 0
+      }
+     },
+     "to_third": {
+      "person_mismatch": {
+       "damaged": 1.0,
+       "delta": 0.7838,
+       "detected": true
+      },
+      "person_mismatch_window": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      }
+     },
+     "to_present": {
+      "tense_mismatch": {
+       "damaged": 1.0,
+       "delta": 1.0,
+       "detected": true
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "summary": {
+  "chapters": 17,
+  "delta": 0.25,
+  "false_positive person_mismatch": {
+   "n": 17,
+   "max": 0.3279,
+   "mean": 0.1454,
+   "passes": false
+  },
+  "false_positive person_mismatch_window": {
+   "n": 17,
+   "max": 0.0,
+   "mean": 0.0,
+   "passes": true
+  },
+  "false_positive tense_mismatch": {
+   "n": 17,
+   "max": 1.0,
+   "mean": 0.2538,
+   "passes": false
+  },
+  "detection to_third person_mismatch": {
+   "detected": 17,
+   "n": 17,
+   "rate": 1.0,
+   "passes": true
+  },
+  "detection to_third person_mismatch_window": {
+   "detected": 17,
+   "n": 17,
+   "rate": 1.0,
+   "passes": true
+  },
+  "detection to_present tense_mismatch": {
+   "detected": 15,
+   "n": 17,
+   "rate": 0.8824,
+   "passes": false
+  },
+  "validated person_mismatch": false,
+  "validated person_mismatch_window": true,
+  "validated tense_mismatch": false
+ }
+}

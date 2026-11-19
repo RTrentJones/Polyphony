@@ -253,7 +253,9 @@ def _wf_step(name: str) -> dict:
     return next(s for s in wf["jobs"]["eval"]["steps"] if s.get("name") == name)
 
 
-def _judge_step(tmp_path, judge: str, claude: str, base_url: str = "") -> tuple:
+def _judge_step(
+    tmp_path, judge: str, claude: str, base_url: str = "", steps: str = "all"
+) -> tuple:
     """Run evals.yml's judge-chain step as written: (exit code, stdout,
     {name: value} it wrote to GITHUB_ENV)."""
     import subprocess
@@ -272,6 +274,7 @@ def _judge_step(tmp_path, judge: str, claude: str, base_url: str = "") -> tuple:
             "JUDGE": judge,
             "CLAUDE": claude,
             "BASE_URL": base_url,
+            "STEPS": steps,
             "FREE_CHAIN": "groq,openrouter",
             "GITHUB_ENV": str(env_file),
         },
@@ -319,7 +322,29 @@ def test_the_judge_chain_is_set_only_by_the_judge_step():
     names = [s.get("name") for s in job["steps"]]
     assert names.index("Judge chain") < names.index("Run evals + ingest to Tracer")
     judge = wf[True]["workflow_dispatch"]["inputs"]["judge"]
-    assert judge["options"] == ["chain", "claude"] and judge["default"] == "chain"
+    assert judge["options"] == ["chain", "claude", "strict"]
+    assert judge["default"] == "chain"
+
+
+def test_judge_strict_is_the_anthropic_judge_alone_for_narration(tmp_path):
+    """SPEC-96 Amendment 2: judge=strict, narration_judges only."""
+    step = _wf_step("Judge chain")
+    assert step["env"]["STEPS"] == "${{ github.event.inputs.steps || 'all' }}"
+    code, _, env = _judge_step(tmp_path, "strict", "yes", steps="narration_judges")
+    assert code == 0
+    assert env == {
+        "NARRATION_JUDGES": "strict",
+        "EVAL_JUDGE_PROVIDER": "anthropic",
+        "EVAL_JUDGE_MODE": "strict",
+    }
+    for claude, base, steps in (
+        ("no", "", "narration_judges"),
+        ("yes", "https://x.example", "narration_judges"),
+        ("yes", "", "all"),
+        ("yes", "", "chapters,narration_judges"),
+    ):
+        code, out, env = _judge_step(tmp_path, "strict", claude, base, steps)
+        assert code == 1 and not env and "::error title=Judge::" in out
 
 
 def _calibration_items_step(tmp_path, steps: str, run_id: str, artifact: dict):
