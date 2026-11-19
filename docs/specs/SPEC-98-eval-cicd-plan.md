@@ -67,6 +67,9 @@ from December, and a November run on this harness needs `EVAL_CLAUDE_LINES` set 
 - **D98-1 Experiments run from an immutable tag.** A harness is signed as a tag (`w22-harness`), dispatched with
   `--ref <tag>`, and the app under test is passed by `app_sha`. The runner's guard compares the tag, not main. Main is
   never frozen again.
+  **Built (2026-11-19):** `evals/config.py` refuses an experiment-tier dispatch that names an `experiment` unless it
+  comes from a tag (`GITHUB_REF_TYPE`); gate, release and calibration runs, and unnamed runs, are unaffected. The
+  runner's own guard moves with it into the repo in P4.
 - **D98-2 One standing gate rule, signed once.** Candidate against the last release on the frozen outlines, both orders,
   Sonnet: the deploy is blocked when the interval for P(candidate > release) lies wholly below 0.5, or when a guard
   measure regresses (chapter failure rate, M1). The exact statistic, sample size and interval are fixed in P3 from wave

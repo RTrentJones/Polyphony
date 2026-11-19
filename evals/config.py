@@ -42,6 +42,7 @@ DEFAULTS = {
     "judge": "chain",
     "calibration_run": "",
     "ablation": "",
+    "experiment": "",
 }
 _SHA = re.compile(r"[0-9a-f]{40}")
 _USD = re.compile(r"[0-9]+(\.[0-9]+)?")
@@ -105,6 +106,13 @@ def validate(inputs: dict[str, str], ref_type: str = "branch") -> list[str]:
     if not _int_in(v["replicates"], 1, 6):
         errors.append("replicates must be 1..6")
 
+    # SPEC-98 D98-1: a named experiment runs from its signed harness tag, so
+    # main never freezes for it; `app_sha` names the app under test.
+    if v["experiment"] and v["tier"] == "experiment" and ref_type != "tag":
+        errors.append(
+            "an experiment-tier run with an experiment name is dispatched from "
+            "its harness tag (SPEC-98 D98-1), not a branch"
+        )
     books, holdout = v["book"].split(), splits.corpora("holdout")
     if v["holdout"] == "yes":
         if ref_type != "tag":
