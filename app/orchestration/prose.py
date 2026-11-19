@@ -23,7 +23,7 @@ from app.core.config import prose_ablation
 from app.core.database import get_async_session
 from app.core.llm_text import STORY_MATERIAL_NOTICE, as_quoted_block, clean_for_llm
 from app.core.logging_config import log_business_event, log_error, setup_logging
-from app.core.orm_models import Chapter, Scene, SceneBeat, Source
+from app.core.orm_models import Book, Chapter, Scene, SceneBeat, Source
 from app.core.prompt_markers import (
     BEAT_TO_WRITE_LABEL,
     BEATS_FENCE,
@@ -173,11 +173,24 @@ async def scene_setup(
             names=[n for c in canon.characters for n in (c.name, *(c.aliases or []))],
         )
     )
-    if "pov_fix" in ablation:
+    if "pov_fix" in ablation or await claude_writes(session, book_id):
         pov = pov._replace(from_narration=narrated_person(canon, narration))
     return SceneSetup(
         canon, cast, scope, pov, block, plan, earlier, summary, position, narration
     )
+
+
+async def claude_writes(session, book_id: UUID) -> bool:
+    """True when the book's author writes with Claude (BRD R7.9). Their scenes
+    take person (and tense) from the book's narration instead of a stated
+    default mode, as the eval-only `pov_fix` ablation does: under the stated
+    default, Claude wrote first-person books in the third person in about 86%
+    of windows, and in none without it (SPEC-97). The free writer keeps the
+    default mode (SPEC-96's H1 did not hold)."""
+    from app.llm.providers import provider_for
+
+    user_id = await session.scalar(select(Book.user_id).where(Book.id == book_id))
+    return (await provider_for(user_id)).kind == "anthropic"
 
 
 def untold_lines(brief: str, plan: list, position: Optional[StoryPosition]) -> list:

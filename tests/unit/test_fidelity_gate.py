@@ -402,3 +402,24 @@ def test_the_audit_names_each_scene_its_pov_cannot_witness():
         found = [w for w in audit_outline(nodes, [], set()).warnings if '" ("' in w]
         expected = leak and 'chapter {chapter} "{scene}" ("{phrase}")'.format(**leak)
         assert found == ([POV_LEAK_WARNING + expected] if leak else []), row
+
+
+def test_a_chapter_with_no_cast_member_is_reported_but_not_gated():
+    """SPEC-98 D98-5: a chapter whose pov and people resolve to no cast
+    member is listed (numbered from 1) and asks for the repair; the hard gate
+    stays principal recall. A book with no cast reports nothing."""
+    from app.planning.fidelity import CASTLESS_WARNING, audit_outline
+    from app.planning.outline import CastIndex
+
+    chars = [types.SimpleNamespace(id="m", name="Milo Voss", aliases=[])]
+    nodes = [
+        {"title": "One", "summary": "Milo Voss works.", "pov": "Milo Voss"},
+        {"title": "Two", "summary": "Someone watches.", "pov": "", "people": []},
+    ]
+    principals = [{"name": "Milo Voss", "aliases": []}]
+    audit = audit_outline(nodes, principals, set(), cast=CastIndex(chars))
+    assert audit.passed and audit.needs_repair
+    assert audit.castless == ['2 "Two"']
+    assert any(w.startswith(CASTLESS_WARNING) for w in audit.warnings)
+    none = audit_outline(nodes, [], set(), cast=CastIndex([]))
+    assert none.castless == [] and not none.needs_repair

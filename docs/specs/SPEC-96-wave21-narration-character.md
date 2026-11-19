@@ -276,6 +276,9 @@ Product failures per arm: A 11/198 chapters, P 6/120, N 6/120, V 6/114, the same
   "candidate for removal"; the decision is the user's, and a direct preference compare of each lever (SPEC-98's
   candidate gate) is the instrument that can settle it. Every line: exploratory, Flash-Lite-written, Sonnet-judged where
   a judge measure, not human, development corpora. No product change follows from W21 alone (Decision wording).
+- **Decisions (user, 2026-11-19: "Follow your best recommendations").** The POV fix ships for the Claude writer path
+  only, on SPEC-97's result; the free writer keeps the default mode. The excerpts and the VOICES rule stay as shipped
+  until a direct preference compare of each against its removal (SPEC-98 P3's compare step) decides them with E4.
 
 ## Ledger
 Rows are kept in SPEC-95's ledger, labelled W21.

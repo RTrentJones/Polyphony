@@ -98,6 +98,11 @@ F 10); 2 no-scene chapters a side, Frankenstein outline chapter 3 both times; no
   it did not, so nothing ships from wave 21 automatically. W21-C answers the second half: the Claude writer path needs
   the fix, by a wide margin. The fix is proposed for the Claude writer path in the next product wave, and the free
   path's decision is left to the user with SPEC-96's same-direction, undetermined result beside it.
+- **Decision (user, 2026-11-19: "Follow your best recommendations").** The fix ships for the Claude writer path: an
+  author who writes with Claude (BRD R7.9) gets the `pov_fix` behaviour in the product, with no ablation set (BRD
+  R1.1a, `prose.claude_writes`). The free writer keeps the stated default mode until a larger test settles it. An
+  eval run with `claude=yes` and `claude_generate=yes` now writes A as P did, so a later Claude-writer experiment on the
+  POV mode needs its own arm.
 
 ## Ledger
 Rows are kept in SPEC-95's ledger, labelled W21C.
