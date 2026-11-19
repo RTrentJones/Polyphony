@@ -343,11 +343,20 @@ class FidelityAudit:
     missing: list[str]
     unknown: list[str]
     warnings: list[str] = field(default_factory=list)
+    # Chapters ("3 \"Title\"") whose pov and people name no cast member: their
+    # planned scenes have no cast to write with (SPEC-98 D98-5).
+    castless: list[str] = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
         """The HARD gate: every principal present."""
         return self.principal_recall >= 1.0
+
+    @property
+    def needs_repair(self) -> bool:
+        """Worth the one chapter-stage repair: the hard gate failed, or a
+        chapter names no cast member. Only `passed` is a gate."""
+        return not self.passed or bool(self.castless)
 
     def as_dict(self) -> dict:
         return {
@@ -356,23 +365,28 @@ class FidelityAudit:
             "missing": self.missing,
             "unknown": self.unknown,
             "warnings": self.warnings,
+            "castless": self.castless,
         }
 
 
 def _structural_cast(
     nodes: list[dict], cast, known_text: Optional[str]
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[str], list[str], list[str]]:
     """(names the top-level people resolve to, per-chapter entries that are
     neither cast nor a person the canon names). Each chapter's `people` (and
     legacy `character_ids` / `characters` / `secondary_names`) go through one
     classify_people call, the rule validation applies (R1.5, SPEC-24): its
     `invented` entries, plus a `pov` that does not resolve, are reported per
-    chapter, never left to the advisory proper-noun heuristic."""
+    chapter, never left to the advisory proper-noun heuristic. The third list
+    is the chapters, numbered from 1, that resolve to no cast member at all."""
     names: list[str] = []
     bad: list[str] = []
+    castless: list[str] = []
+    number = 0
     for node in nodes:
         if not isinstance(node, dict):
             continue
+        number += 1
         people = classify_people(people_refs(node), cast, known_text)
         outside = list(people.invented)
         pov = node.get("pov")
@@ -385,13 +399,21 @@ def _structural_cast(
         names.extend(cast.names[cid] for cid in people.ids)
         if outside:
             bad.append(f"{node.get('title', '?')}: {', '.join(outside)}")
-    return names, bad
+        if not people.ids and cast.names:  # a book with a cast
+            castless.append(f'{number} "{node.get("title", "")}"')
+    return names, bad, castless
 
 
 # D9 (SPEC-49): a scene summary that says what its POV character cannot witness.
 _POV_LEAK = re.compile(
     r"\b(does not see|does not notice|the reader|will later|would later|cannot see)\b",
     re.IGNORECASE,
+)
+# SPEC-98 D98-5: a chapter whose planned scenes have no cast to write with
+# ("Generate all planned scenes" refuses it until the author picks one).
+CASTLESS_WARNING = (
+    "Chapters name no one from the cast (pick a cast member for their scenes, "
+    "or add the person they follow to the cast): "
 )
 POV_LEAK_WARNING = "Scene summaries say what their POV character cannot witness (edit them in the beat editor): "
 
@@ -418,8 +440,11 @@ def audit_outline(
     titles, body = flatten_outline(nodes)
     text = "  ".join([*titles, *body])
     structural_bad: list[str] = []
+    castless: list[str] = []
     if cast is not None:
-        names, structural_bad = _structural_cast(nodes, cast, norm(canon_text))
+        names, structural_bad, castless = _structural_cast(
+            nodes, cast, norm(canon_text)
+        )
         text = "  ".join([text, *names])
     recall, present, missing = principal_recall(text, principals)
 
@@ -439,6 +464,8 @@ def audit_outline(
             "Chapters cast characters who are not in the canon (dropped from "
             "their cast): " + "; ".join(structural_bad[:12])
         )
+    if castless:
+        warnings.append(CASTLESS_WARNING + "; ".join(castless))
     if unknown:
         warnings.append(
             "Outline introduces names not in the canon (may be inventions): "
@@ -453,4 +480,4 @@ def audit_outline(
     ]
     if leaks:
         warnings.append(POV_LEAK_WARNING + "; ".join(leaks))
-    return FidelityAudit(recall, present, missing, unknown, warnings)
+    return FidelityAudit(recall, present, missing, unknown, warnings, castless)

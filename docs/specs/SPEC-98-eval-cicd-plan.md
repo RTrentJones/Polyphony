@@ -81,7 +81,7 @@ from December, and a November run on this harness needs `EVAL_CLAUDE_LINES` set 
   and a score against the human-rated calibration set; the thresholds are fixed in P2 before any judge is scored.
 - **D98-5 Deterministic product failures are fixed when found.** With D98-1 a fix no longer disturbs a running
   experiment; Frankenstein's outline chapter 3 is the first.
-  **Diagnosed (2026-11-15), not yet fixed:** the frozen outline's chapter 3 ("Shadows and Letters") follows the
+  **Diagnosed (2026-11-15); fixed 2026-11-19 (user: "Follow your best recommendations"):** the frozen outline's chapter 3 ("Shadows and Letters") follows the
   creature, who is not in the renamed corpus's cast, so the outline saved it with no `pov` and no cast characters;
   `generate-planned` then refuses the whole chapter with 422 "Pick at least one character from the cast"
   (`app/characters/cast.py`). An author can pick a cast in the modal; the harness, like a one-click author, sends
@@ -89,6 +89,9 @@ from December, and a November run on this harness needs `EVAL_CLAUDE_LINES` set 
   it changes R1.5a: the chapter stage requires a cast `pov` for every chapter, repairs a chapter that has none once
   (as it already does for omitted principals), and the outline audit warns on any that remains. Frozen outlines are
   re-recorded for the gate in P3; wave 21's stays as recorded.
+  As built, the first chapter pass is unchanged (its prompt still allows `''`); the outline audit lists chapters that
+  resolve to no cast member (`FidelityAudit.castless`), and that list triggers the one chapter-stage repair the principal
+  gate already had, with those chapters as feedback. A chapter still without a cast is a warning (BRD R1.4, R1.6).
 - **D98-6 Power comes from clusters.** New development corpora and chapters are added before days; an experiment's plan
   states its cluster count and the smallest effect it can detect before it starts.
 

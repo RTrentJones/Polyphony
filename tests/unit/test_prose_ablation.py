@@ -497,3 +497,41 @@ def test_pov_fix_keeps_the_mode_when_sample_prose_outranks_the_excerpts():
         style=SimpleNamespace(pov=None, tense=None, sample_prose="She ran.")
     )
     assert narrated_person(sampled, narration) == ""
+
+
+async def test_an_author_who_writes_with_claude_gets_the_pov_fix(
+    monkeypatch, async_session, test_book, test_source
+):
+    """BRD R1.1a / R7.9 (SPEC-97): the product applies the POV fix, with no
+    ablation set, exactly when the book's author writes with Claude; the free
+    writer's scene is unchanged."""
+    from app.llm.providers import PROVIDERS
+    from app.orchestration import prose
+    from tests.unit.factories import add_planned_chapter, add_scene
+
+    para = (
+        "I walked along the shore of the grey lake that evening. The wind "
+        "came cold off the water and the reeds bent low beside the path. I "
+        "thought of nothing at all for a long while, and the light went."
+    )
+    test_source.content_text = "\n\n".join([para] * 3)
+    chapter = await add_planned_chapter(async_session, test_book, [], 0)
+    scene = await add_scene(async_session, test_book, chapter)
+    await async_session.commit()
+    request = {"scene_description": "A meeting at the inn."}
+    asked = []
+
+    def writer(provider_id):
+        async def provider_for(user_id):
+            asked.append(user_id)
+            return PROVIDERS[provider_id]
+
+        monkeypatch.setattr("app.llm.providers.provider_for", provider_for)
+
+    writer("gemini")
+    free = await prose.scene_setup(async_session, test_book.id, request, scene.id)
+    assert free.narration and free.pov.from_narration == ""
+    writer("anthropic")
+    paid = await prose.scene_setup(async_session, test_book.id, request, scene.id)
+    assert paid.pov == free.pov._replace(from_narration="person and tense")
+    assert asked == [test_book.user_id, test_book.user_id]

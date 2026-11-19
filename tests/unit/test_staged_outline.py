@@ -207,6 +207,67 @@ class TestStagedOrchestration:
         assert "Milo Voss" in nodes[0]["summary"]
         assert warnings == []  # repair recovered the cast
 
+    _TWO_ACT_SKELETON = (
+        '{"premise_restated":"p","central_conflict":"c","acts":['
+        '{"title":"A","goal":"g","turn":"t","chapters_planned":2}]}'
+    )
+    _CAST_CH1 = (
+        '{"title":"Ch1","summary":"Milo Voss and Zara Okafor face Edric Thane",'
+        '"act_index":0,"pov":"Milo Voss",'
+        '"people":["Milo Voss","Zara Okafor","Edric Thane"],"threads":[]}'
+    )
+    _BEATS = (
+        '[{"title":"Ch1","summary":"Milo Voss and Zara Okafor face Edric Thane",'
+        '"children":[{"title":"b","summary":"x","children":[]}]},'
+        '{"title":"Shadows","summary":"a stranger watches a cottage",'
+        '"children":[{"title":"b","summary":"x","children":[]}]}]'
+    )
+
+    async def _castless(self, monkeypatch, repaired_ch2: str):
+        castless = '{"title":"Shadows","summary":"a stranger watches a cottage",'
+        castless += '"act_index":0,"pov":"","people":[],"threads":[]}'
+        fake = FakeLLM(
+            {
+                "outline:skeleton": self._TWO_ACT_SKELETON,
+                "outline:chapters": [
+                    f"[{self._CAST_CH1},{castless}]",
+                    f"[{self._CAST_CH1},{repaired_ch2}]",
+                ],
+                "outline:beats": [self._BEATS, self._BEATS],
+            }
+        )
+        monkeypatch.setattr(so, "get_llm_client", lambda: fake)
+        canon = self._canon()
+        for i, c in enumerate(canon.characters):  # resolvable, as ORM rows are
+            c.id = f"c{i}"
+        _, warnings = await so.generate_staged_outline(
+            canon, chapters_target=2, user_id=None
+        )
+        return fake, warnings
+
+    async def test_a_chapter_with_no_cast_is_repaired_once(self, monkeypatch):
+        """SPEC-98 D98-5: every principal is present, but chapter 2 names no
+        one from the cast, so its planned scenes could not be written. The
+        chapter stage runs once more with that chapter as feedback."""
+        fixed = '{"title":"Shadows","summary":"Zara Okafor watches a cottage",'
+        fixed += '"act_index":0,"pov":"Zara Okafor","people":["Zara Okafor"]}'
+        fake, warnings = await self._castless(monkeypatch, fixed)
+        assert fake.calls.count("outline:chapters") == 2
+        repair = fake.prompts["outline:chapters"][1]
+        assert '2 "Shadows"' in repair and "MUST have a `pov`" in repair
+        assert "OMITTED" not in repair  # no principal was missing
+        assert "no canon cast member" not in fake.prompts["outline:chapters"][0]
+        assert warnings == []
+
+    async def test_a_chapter_still_without_cast_is_warned_not_failed(self, monkeypatch):
+        still = '{"title":"Shadows","summary":"a stranger watches a cottage",'
+        still += '"act_index":0,"pov":"","people":[],"threads":[]}'
+        fake, warnings = await self._castless(monkeypatch, still)
+        assert fake.calls.count("outline:chapters") == 2  # once, never a loop
+        assert any(
+            "name no one from the cast" in w and '2 "Shadows"' in w for w in warnings
+        )
+
 
 class TestBeatsStageSeesThePlan:
     """SPEC-18 (B11): the beats stage gets the premise, the central conflict

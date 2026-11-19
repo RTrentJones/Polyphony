@@ -168,14 +168,26 @@ OUTLINE_POV_LINE = (
 
 
 async def _stage_chapters(
-    canon: Canon, skeleton: dict, user_id, repair_missing: Optional[list[str]] = None
+    canon: Canon,
+    skeleton: dict,
+    user_id,
+    repair_missing: Optional[list[str]] = None,
+    repair_castless: Optional[list[str]] = None,
 ) -> list[dict]:
     repair = ""
+    if repair_castless:
+        # SPEC-98 D98-5: a chapter with no cast member cannot be written.
+        repair += (
+            "\n\nThe previous attempt gave these chapters no canon cast member: "
+            f"{'; '.join(repair_castless)}. Every chapter MUST have a `pov` from "
+            "the canon cast; tell a chapter that follows someone outside the "
+            "cast through the cast member nearest to those events."
+        )
     if repair_missing:
         # The chapter stage is where structural cast (pov, characters[]) is chosen,
         # so a recall failure is repaired HERE, not only at the beat stage
         # (PR review #5).
-        repair = (
+        repair += (
             "\n\nThe previous attempt OMITTED these principal characters entirely. "
             "You MUST give each of them a role across the chapters, present in the "
             f"`pov` or `people` of specific chapters: {', '.join(repair_missing)}"
@@ -494,14 +506,22 @@ async def generate_staged_outline(
         if save_checkpoint is not None:
             await save_checkpoint(ck)
 
-    async def _run_pass(index: int, repair_missing: Optional[list[str]]) -> list:
+    async def _run_pass(
+        index: int,
+        repair_missing: Optional[list[str]],
+        repair_castless: Optional[list[str]] = None,
+    ) -> list:
         if len(passes) <= index:
             passes.append({})
         p = passes[index]
         if "chapters" not in p:
             await _emit("chapters")
             p["chapters"] = await _stage_chapters(
-                canon, ck["skeleton"], user_id, repair_missing=repair_missing
+                canon,
+                ck["skeleton"],
+                user_id,
+                repair_missing=repair_missing,
+                repair_castless=repair_castless,
             )
             p["acts"] = {}
             await _save("chapters")
@@ -536,18 +556,21 @@ async def generate_staged_outline(
     audit: FidelityAudit = audit_outline(
         nodes, principals, known, cast=cast, canon_text=canon_text
     )
-    if not audit.passed:
+    if audit.needs_repair:
         logger.warning(
-            "Outline failed the principal-cast gate; regenerating once",
+            "Outline failed the principal-cast gate or left a chapter with no "
+            "cast; regenerating once",
             extra_fields={
                 "event": "outline_fidelity_repair",
                 "missing": audit.missing,
+                "castless": audit.castless,
                 "recall": audit.principal_recall,
             },
         )
         # Repair at the CHAPTER stage (where cast is chosen) with the missing
-        # principals as explicit feedback, then re-derive beats (PR review #5).
-        nodes = await _run_pass(1, audit.missing)
+        # principals and the castless chapters as explicit feedback, then
+        # re-derive beats (PR review #5, SPEC-98 D98-5).
+        nodes = await _run_pass(1, audit.missing, audit.castless)
         audit = audit_outline(
             nodes, principals, known, cast=cast, canon_text=canon_text
         )
