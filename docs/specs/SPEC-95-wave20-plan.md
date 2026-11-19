@@ -415,4 +415,6 @@ chapters as clusters. Runs: compares 40657916195, 40840467118, 41024885672, 4118
 | 44276564545 (strict re-judge, Wuthering, 3 runs, 18/18 chapters) | W21 strict | $0.32 | $60.43 |
 
 The ledger closes at **$60.43 of $64** (2026-11-19): E4, W21 and W21-C are analysed, E5's calibration set still awaits
-its human rating (SPEC-98 P2), and no further Claude spend is planned against this ledger. SPEC-98 takes over the monthly budget from December.
+its human rating (SPEC-98 P2), and no further Claude spend is planned against this ledger. Each row's cost is rounded to the cent while the running total
+carries the unrounded costs, so from Nov 11 on a row's total can differ by a cent from the previous total plus the row's
+cost, and the 19 strict re-judge rows sum to $8.56 against the $8.57 SPEC-96 records. SPEC-98 takes over the monthly budget from December.

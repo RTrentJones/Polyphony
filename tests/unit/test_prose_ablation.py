@@ -336,6 +336,26 @@ def test_the_fingerprint_is_unchanged_by_default_and_differs_per_flag(ablate):
     assert _canon_hash(setup, "ch", None) == hashes["no_voices,pov_fix"]
 
 
+def test_the_fingerprint_counts_a_pov_taken_from_the_narration(ablate):
+    """R7.9: a scene paused under one POV line (an author moved to or from
+    Claude, or a pre-SPEC-97 checkpoint) restarts rather than finishing its
+    beats under the other."""
+    pov = Pov("third person limited", _WHO)
+
+    def setup(p):
+        return SceneSetup(
+            Canon("c"), [], None, p, "", [], [], "", None, narration=_EXCERPTS
+        )
+
+    ablate("")
+    stated = _canon_hash(setup(pov), "ch", None)
+    assert stated == _canon_hash(setup(None), "ch", None) == "6e101991705b30d5"
+    narrated = _canon_hash(
+        setup(pov._replace(from_narration="person and tense")), "ch", None
+    )
+    assert narrated != stated
+
+
 # --- evals.yml -----------------------------------------------------------------
 
 

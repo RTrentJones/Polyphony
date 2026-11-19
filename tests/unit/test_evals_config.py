@@ -65,6 +65,21 @@ def test_a_bad_dispatch_is_refused_with_its_reason(inputs, ref_type, needle):
     assert len(errors) == 1 and needle in errors[0], errors
 
 
+def test_each_input_is_read_as_the_step_that_uses_it_reads_it():
+    # The `from_runs` step splits on commas and whitespace, so a spaced list runs.
+    assert config.validate({"from_runs": "123, 456"}) == []
+    # The app_sha, calibration, judge and ablation steps match the whole input,
+    # so what they would refuse minutes in is refused here first.
+    strict = {"claude": "yes", "judge": "strict"}
+    for bad in (
+        {"app_sha": f" {SHA}"},
+        {"steps": "calibration_answers", "calibration_run": "12 "},
+        {**strict, "steps": "narration_judges,"},
+        {"ablation": " pov_fix"},
+    ):
+        assert len(config.validate(bad)) == 1, bad
+
+
 def test_every_problem_is_reported_at_once(capsys):
     env = {"INPUT_JUDGE": "strict", "INPUT_ABLATION": "x", "INPUT_BOOK": ""}
     assert config.main(env) == 1

@@ -45,6 +45,7 @@ DEFAULTS = {
     "experiment": "",
 }
 _SHA = re.compile(r"[0-9a-f]{40}")
+_ID = re.compile(r"[0-9]+")
 _USD = re.compile(r"[0-9]+(\.[0-9]+)?")
 
 
@@ -57,7 +58,8 @@ def validate(inputs: dict[str, str], ref_type: str = "branch") -> list[str]:
     the workflow's inputs by name (a missing one takes its default); `ref_type`
     is GITHUB_REF_TYPE."""
     unknown = sorted(set(inputs) - set(DEFAULTS))
-    v = {**DEFAULTS, **{k: (inputs[k] or "").strip() for k in inputs}}
+    raw = {**DEFAULTS, **{k: inputs[k] or "" for k in inputs}}
+    v = {k: text.strip() for k, text in raw.items()}
     errors = [f"unknown input {name!r}" for name in unknown]
 
     def choice(name: str, allowed) -> bool:
@@ -70,30 +72,33 @@ def validate(inputs: dict[str, str], ref_type: str = "branch") -> list[str]:
         choice(name, ("yes", "no"))
     choice("tier", tuple(LINES))
     claude, external = v["claude"] == "yes", bool(v["base_url"])
-    steps = [s for s in v["steps"].split(",") if s]
+    steps = raw["steps"].split(",")
 
     if choice("judge", JUDGES) and v["judge"] != "chain":
         if not claude:
             errors.append(f"judge={v['judge']} needs claude=yes")
         if external:
             errors.append(f"judge={v['judge']} needs a booted app (base_url is set)")
-        if v["judge"] == "strict" and steps != ["narration_judges"]:
+        # The Judge chain step compares the whole input, so no stray comma.
+        if v["judge"] == "strict" and raw["steps"] != "narration_judges":
             errors.append("judge=strict is for steps=narration_judges alone")
 
-    if v["ablation"]:
-        if not all(flag in ABLATIONS for flag in v["ablation"].split(",")):
+    if raw["ablation"]:  # the Ablation step matches the whole input
+        if not all(flag in ABLATIONS for flag in raw["ablation"].split(",")):
             errors.append(
                 f"ablation must be a comma list of {', '.join(ABLATIONS)} "
-                f"with no spaces (got {v['ablation']!r})"
+                f"with no spaces (got {raw['ablation']!r})"
             )
         if external:
             errors.append("ablation needs a booted app (base_url is set)")
 
-    if v["app_sha"] and not _SHA.fullmatch(v["app_sha"]):
+    # As the steps that use them read them: app_sha and calibration_run whole,
+    # from_runs split on commas and whitespace (`${FROM_RUNS//,/ }`).
+    if raw["app_sha"] and not _SHA.fullmatch(raw["app_sha"]):
         errors.append("app_sha must be a full 40-character commit sha")
-    if v["from_runs"] and not all(r.isdigit() for r in v["from_runs"].split(",")):
+    if not all(_ID.fullmatch(r) for r in raw["from_runs"].replace(",", " ").split()):
         errors.append("from_runs takes comma-separated run ids")
-    if "calibration_answers" in steps and not v["calibration_run"].isdigit():
+    if "calibration_answers" in steps and not _ID.fullmatch(raw["calibration_run"]):
         errors.append("steps=calibration_answers needs calibration_run, a run id")
 
     for name in ("claude_monthly_usd", "claude_usd_cap"):
