@@ -112,3 +112,114 @@ def test_an_unknown_ablation_names_its_report(tmp_path):
     _report(tmp_path, "r1", "other_arm", PARA)
     with pytest.raises(SystemExit, match="r1.*unknown ablation 'other_arm'"):
         prefs._rows(tmp_path, {"r1": "d1"}, "flash-lite")
+
+
+# --- the judges' items and the score (SPEC-98 P2) ---------------------------------
+
+
+def test_judges_get_each_distinct_pair_in_both_orders_and_nothing_from_the_key():
+    from evals.calibration import prefs_guard
+    from evals.calibration.answer import ITEMS_SCHEMA, parse, prompt
+
+    items, key = prefs.build(*_pool())
+    j = prefs.judge_items(items, key)
+    n = sum(prefs.PLAN.values())
+    assert j["schema"] == ITEMS_SCHEMA and len(j["items"]) == 2 * n
+    assert j["prefs_digest"] == prefs.digest(items)
+    by = {it["id"]: it for it in j["items"]}
+    for it in items["items"]:
+        if key["key"][it["id"]]["repeat_of"]:
+            assert f"{it['id']}-ab" not in by
+            continue
+        ab, ba = by[f"{it['id']}-ab"], by[f"{it['id']}-ba"]
+        assert (ab["text_a"], ab["text_b"]) == (it["a"], it["b"])
+        assert (ba["text_a"], ba["text_b"]) == (it["b"], it["a"])
+        assert ab["book"] == key["key"][it["id"]]["book"]
+    assert prefs_guard.leaks(j, key) == []
+    one = dict(j["items"][0])
+    assert '{"preferred": "none"}' in prompt(one)
+    assert parse(one, {"preferred": "none"}) == "none"
+    assert parse({**one, "allow_none": False}, {"preferred": "none"}) is None
+    leaked = {**j, "items": [{**one, "arm": "N"}]}
+    assert prefs_guard.leaks(leaked, key)
+    told = {**j, "items": [{**one, "context": one["context"] + " (written by claude)"}]}
+    assert any("claude" in x for x in prefs_guard.leaks(told, key))
+    told = {**j, "items": [{**one, "text_b": "no_excerpts " + one["text_b"]}]}
+    assert prefs_guard.leaks(told, key)
+
+
+def test_the_score_counts_order_consistency_and_agreement_as_spec_98_says():
+    items, key = prefs.build(*_pool())
+    k = key["key"]
+    pairs = [i for i, v in k.items() if not v["repeat_of"]]
+    reader = {i: "A" for i in pairs}
+    reps = [i for i, v in k.items() if v["repeat_of"]]
+    reader[reps[0]] = "B"  # the repeat confirms its pair (sides swapped)
+    reader[reps[1]] = "A"  # the repeat contradicts its pair: it leaves the set
+    perfect = {f"{i}-ab": "A" for i in pairs} | {f"{i}-ba": "B" for i in pairs}
+    flaky = dict(perfect) | {f"{i}-ba": "A" for i in pairs[:4]}  # 4 inconsistent
+    s = prefs.score(items, key, reader, {"perfect": perfect, "flaky": flaky})
+    n = len(pairs) - 1
+    assert s["decisive"] == n
+    assert [r["consistent"] for r in s["reader_repeats"]] == [True, False]
+    assert s["agreement_needed"]["gate"] == -(-7 * n // 10)
+    p, f = s["judges"]["perfect"], s["judges"]["flaky"]
+    assert (p["order_consistent"], p["agree"], p["qualifies_gate"]) == (16, n, True)
+    assert f["order_consistent"] == 12 and not f["qualifies_gate"]
+    assert not f["qualifies_bulk"]  # below 13/16 consistency
+    unconfirmed = {i: v for i, v in reader.items() if i != reps[0]}
+    u = prefs.score(items, key, unconfirmed, {"perfect": perfect})
+    assert u["decisive"] == n - 1  # an unanswered repeat leaves its pair undecided
+    none = prefs.score(items, key, {}, {"perfect": perfect})
+    assert none["decisive"] == 0 and not none["judges"]["perfect"]["qualifies_gate"]
+
+
+def test_the_build_refuses_a_set_that_is_not_the_rated_one(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        prefs, "_rows", lambda *a: _pool()[0] if a[2] == "flash-lite" else _pool()[1]
+    )
+    days = tmp_path / "d.json"
+    days.write_text("{}")
+    argv = [
+        "--w21",
+        str(tmp_path),
+        "--w21-days",
+        str(days),
+        "--w21c",
+        str(tmp_path),
+        "--w21c-days",
+        str(days),
+        "--items",
+        str(tmp_path / "i.json"),
+        "--key",
+        str(tmp_path / "k.json"),
+        "--expect-digest",
+        "0" * 64,
+    ]
+    with pytest.raises(SystemExit, match="not the rated set"):
+        prefs.main(argv)
+    assert not (tmp_path / "k.json").exists()
+
+
+def test_the_prefs_workflow_has_no_secret_pins_its_actions_and_checks_the_digest():
+    import re
+    from pathlib import Path
+
+    import yaml
+
+    text = (
+        Path(__file__).resolve().parents[2] / ".github/workflows/calibration-prefs.yml"
+    ).read_text()
+    wf = yaml.safe_load(text)
+    steps = wf["jobs"]["build"]["steps"]
+    for s in steps:
+        if "uses" in s:
+            assert re.fullmatch(r"[\w-]+/[\w-]+@[0-9a-f]{40}", s["uses"])
+    assert (
+        "secrets." not in text and "--expect-digest" in text and "prefs_guard" in text
+    )
+    uploads = [s["with"] for s in steps if "upload-artifact" in s.get("uses", "")]
+    assert [(u["name"], u["path"]) for u in uploads] == [
+        ("calibration-items", "out/items"),
+        ("calibration-key", "out/key"),
+    ]

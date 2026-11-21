@@ -1,0 +1,44 @@
+name: calibration-prefs # SPEC-98 P2: the judges' copy of the reader's blind preference set, rebuilt and checked
+run-name: calibration prefs items ${{ inputs.digest }}
+on:
+  workflow_dispatch:
+    inputs:
+      digest: {description: "the rated set's digest (SPEC-98 P2); the job refuses any other set", required: true}
+permissions: {contents: read, actions: read}
+concurrency: {group: calibration, cancel-in-progress: false}
+jobs:
+  build: # no LLM call and no secret: it reads wave 21's recorded reports and writes items + key
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DIGEST: ${{ inputs.digest }}
+      # Throwaway CI values, not secrets: the builder imports the harness, which loads the app's settings.
+      SECRET_KEY: ci_secret_key_minimum_32_characters_long
+      POSTGRES_PASSWORD: ci_password_12345
+    steps:
+      - {uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5} # v4.3.1
+      - {uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065, with: {python-version: '3.12', cache: pip}} # v5.6.0
+      - run: sudo apt-get update && sudo apt-get install -y libmagic1 && pip install -r requirements.txt
+      - name: Download the recorded runs (the day files name them)
+        run: |
+          set -euo pipefail
+          printf '%s' "$DIGEST" | grep -Eq '^[0-9a-f]{64}$' || { echo "::error::digest must be 64 hex characters"; exit 1; }
+          D=docs/specs/results/w21
+          for set in w21 w21c; do
+            for r in $(python3 -c "import json,sys; print(' '.join(json.load(open(sys.argv[1]))))" "$D/${set}_days.json"); do
+              gh run download "$r" -p 'eval-report-*' -D "in/$set/$r" -R "$GITHUB_REPOSITORY" || echo "run $r: no report (an availability failure has none)"
+            done
+          done
+      - name: Build and check against the rated set (prints counts only)
+        run: |
+          set -euo pipefail
+          D=docs/specs/results/w21
+          mkdir -p out/items out/key out/page
+          python -m evals.calibration.prefs --w21 in/w21 --w21-days "$D/w21_days.json" \
+            --w21c in/w21c --w21c-days "$D/w21c_days.json" --expect-digest "$DIGEST" \
+            --items out/page/items.json --key out/key/key.json --judge-items out/items/items.json \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          python -m evals.calibration.prefs_guard out/items/items.json out/key/key.json
+      - {uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02, with: {name: calibration-items, path: out/items, retention-days: 90}} # v4.6.2
+      - {uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02, with: {name: calibration-key, path: out/key, retention-days: 90}} # v4.6.2
