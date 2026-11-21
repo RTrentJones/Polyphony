@@ -31,6 +31,7 @@ python -m evals.calibration.prefs --w21 DIR --w21-days F --w21c DIR
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import re
@@ -228,6 +229,130 @@ def _key(kind: str, sides: list, scene: int, repeat_of) -> dict:
     }
 
 
+# --- the judges' items and the score (SPEC-98 P2) -----------------------------
+
+JUDGE_QUESTION = (
+    "Both passages open the same planned scene of a novel. Which is the better "
+    "writing for it: clearer, more vivid, and truer to the plan? Answer A, B, "
+    "or none for no preference."
+)
+
+
+def digest(page: dict) -> str:
+    """The reader's items, as a fingerprint: a judge run checks that it
+    answers exactly the set the reader rates."""
+    blob = json.dumps(page["items"], sort_keys=True, ensure_ascii=False).encode()
+    return hashlib.sha256(blob).hexdigest()
+
+
+def judge_items(page: dict, key: dict) -> dict:
+    """Each of the distinct pairs in both orders (`<id>-ab`, `<id>-ba`) as
+    evals.calibration.answer's pair items; the swapped repeats measure the
+    reader only and are left out. An item names its book (the judge step runs
+    per book) and nothing else from the key."""
+    from evals.calibration.answer import ITEMS_SCHEMA as JUDGE_SCHEMA
+
+    out = []
+    for it in page["items"]:
+        k = key["key"][it["id"]]
+        if k["repeat_of"]:
+            continue
+        context = (
+            f"CHAPTER: {it['context']['chapter']}\nSCENE: {it['context']['scene']}"
+        )
+        for order, (a, b) in (("ab", (it["a"], it["b"])), ("ba", (it["b"], it["a"]))):
+            out.append(
+                {
+                    "id": f"{it['id']}-{order}",
+                    "kind": "pair",
+                    "book": k["book"],
+                    "context": context,
+                    "text_a": a,
+                    "text_b": b,
+                    "question": JUDGE_QUESTION,
+                    "allow_none": True,
+                }
+            )
+    return {"schema": JUDGE_SCHEMA, "prefs_digest": digest(page), "items": out}
+
+
+_FLIP = {"A": "B", "B": "A", "none": "none"}
+
+
+def reader_picks(page: dict, key: dict, answers: dict) -> dict:
+    """{pair id: side or "none"} for the distinct pairs the reader answered,
+    and the repeats: [{pair, first, again, consistent}] with the repeat's
+    answer turned back to the first item's sides."""
+    k = key["key"]
+    picks = {i: answers[i] for i in k if not k[i]["repeat_of"] and i in answers}
+    repeats = []
+    for i, v in k.items():
+        src = v["repeat_of"]
+        if src and i in answers and src in answers:
+            again = _FLIP[answers[i]]
+            repeats.append(
+                {
+                    "pair": src,
+                    "first": answers[src],
+                    "again": again,
+                    "consistent": again == answers[src],
+                }
+            )
+    return {"picks": picks, "repeats": repeats}
+
+
+def judge_picks(page: dict, key: dict, answers: dict) -> dict:
+    """{pair id: side, "none", "inconsistent" or None (unanswered)} from a
+    judge's answers to `<id>-ab` and `<id>-ba` (the latter turned back)."""
+    out = {}
+    for i, v in key["key"].items():
+        if v["repeat_of"]:
+            continue
+        ab, ba = answers.get(f"{i}-ab"), answers.get(f"{i}-ba")
+        if ab is None or ba is None:
+            out[i] = None
+        else:
+            out[i] = ab if ab == _FLIP[ba] else "inconsistent"
+    return out
+
+
+def score(page: dict, key: dict, reader: dict, judges: dict[str, dict]) -> dict:
+    """SPEC-98 P2's qualification table: per judge, order-consistency over the
+    distinct pairs and agreement over the reader's decisive pairs (a side,
+    confirmed by its repeat where there is one), with the thresholds."""
+    r = reader_picks(page, key, reader)
+    broken = {x["pair"] for x in r["repeats"] if not x["consistent"]}
+    decisive = {
+        i: p for i, p in r["picks"].items() if p in ("A", "B") and i not in broken
+    }
+    n = len(decisive)
+    pairs = [i for i, v in key["key"].items() if not v["repeat_of"]]
+    need = -(-7 * n // 10)  # ceil(0.70 n)
+    table = {}
+    for name, answers in judges.items():
+        j = judge_picks(page, key, answers)
+        answered = [i for i in pairs if j[i] is not None]
+        consistent = sum(1 for i in answered if j[i] != "inconsistent")
+        agree = sum(1 for i, side in decisive.items() if j.get(i) == side)
+        oc_ok = consistent >= 13 and len(answered) == len(pairs)
+        table[name] = {
+            "answered": len(answered),
+            "order_consistent": consistent,
+            "agree": agree,
+            "decisive": n,
+            "qualifies_gate": bool(n) and oc_ok and agree >= need,
+            "qualifies_bulk": bool(n) and oc_ok and agree >= need - 1,
+        }
+    return {
+        "pairs": len(pairs),
+        "reader_answered": len(r["picks"]),
+        "reader_repeats": r["repeats"],
+        "decisive": n,
+        "agreement_needed": {"gate": need, "bulk": need - 1},
+        "judges": table,
+    }
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="evals.calibration.prefs")
     ap.add_argument("--w21", type=Path, required=True)
@@ -237,12 +362,26 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--seed", type=int, default=SEED)
     ap.add_argument("--items", type=Path, required=True)
     ap.add_argument("--key", type=Path, required=True)
+    ap.add_argument(
+        "--judge-items", type=Path, help="also write the judges' items (both orders)"
+    )
+    ap.add_argument(
+        "--expect-digest", help="refuse unless the items are the set being rated"
+    )
     a = ap.parse_args(argv)
     w21 = _rows(a.w21, json.loads(a.w21_days.read_text("utf-8")), "flash-lite")
     w21c = _rows(a.w21c, json.loads(a.w21c_days.read_text("utf-8")), "claude")
     items, key = build(w21, w21c, a.seed)
     a.items.write_text(json.dumps(items, indent=1, ensure_ascii=False))
+    if a.expect_digest and digest(items) != a.expect_digest:
+        raise SystemExit(
+            f"items digest {digest(items)} is not the rated set's {a.expect_digest}"
+        )
     a.key.write_text(json.dumps(key, indent=1))
+    if a.judge_items:
+        a.judge_items.write_text(
+            json.dumps(judge_items(items, key), indent=1, ensure_ascii=False)
+        )
     words = [len((it["a"] + " " + it["b"]).split()) for it in items["items"]]
     print(
         f"{len(words)} items, {sum(words)} words to read ({min(words)}-{max(words)} a pair)"

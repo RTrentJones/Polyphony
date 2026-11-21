@@ -6,7 +6,8 @@ evals/validation/export.py). Each item is put to the run's judge chain with
 the page's own question and material, and answered in the page's own shape:
 
 - r2: a candidate name per numbered line, in line order (a list);
-- pair: "A" or "B" to the panel's question;
+- pair: "A" or "B" to the panel's question ("none" too, for an item that
+  offers no preference: SPEC-98 P2's preference set);
 - chapter: an RC score on the rubric's anchors (0.0 / 0.4 / 0.7 / 1.0,
   between anchors allowed).
 
@@ -78,10 +79,17 @@ def _r2_prompt(it: dict) -> str:
 
 
 def _pair_prompt(it: dict) -> str:
+    # SPEC-98 P2's preference items also offer "no preference", as the
+    # reader's page does; every other pair item stays a forced choice.
+    form = (
+        '{"preferred": "A"}, {"preferred": "B"} or {"preferred": "none"}'
+        if it.get("allow_none")
+        else '{"preferred": "A"} or {"preferred": "B"}'
+    )
     return (
         f"{it['context']}\n\nPASSAGE A:\n{it['text_a']}\n\n"
         f"PASSAGE B:\n{it['text_b']}\n\n{it['question']}\n\n"
-        'Reply ONLY with JSON: {"preferred": "A"} or {"preferred": "B"}.'
+        f"Reply ONLY with JSON: {form}."
     )
 
 
@@ -117,6 +125,8 @@ def parse(it: dict, reply) -> object | None:
         v = v.strip().upper() if isinstance(v, str) else v
         if isinstance(v, bool) or not isinstance(v, (int, str)):
             return None  # a list or object answer is unparseable, never a crash
+        if it.get("allow_none") and v in ("NONE", "NO PREFERENCE", "TIE"):
+            return "none"
         return {"A": "A", "B": "B", 1: "A", 2: "B", "1": "A", "2": "B"}.get(v)
     if it["kind"] == "chapter":
         v = reply.get("score")

@@ -152,6 +152,12 @@ Each phase is one PR (or a short series) through the usual gate, and ends on a n
   anchored", and never blocks, the gate blocks on its guard measures alone (the fallback under Risks), and P2 is rerun
   on a larger set, weighted toward pairs expected to differ, once P6 adds corpora. The A–N and A–V answers are also a first human read on wave 18's excerpts and VOICES rule, descriptive only at
   5 pairs each. *Done when* the reader has rated the set and every judge has a recorded agreement and order-consistency.
+  **Built (2026-11-21):** the rated set's digest is `9e4dd77c775b0aed3d9209dc825d573975ac30a7050a0c964ebc53edb58b0f93`
+  (`prefs.digest`). `calibration-prefs.yml` (no secret) rebuilds the set from the runs the committed day files name,
+  refuses any set with another digest, and uploads the judges' copy, each distinct pair as `<id>-ab` and `<id>-ba`
+  offering A, B or none, as the `calibration-items` artifact the existing `calibration_answers` step reads, with the
+  key in its own artifact; `prefs_guard` refuses an item that carries anything from the key. `prefs.score` computes
+  the table above from the reader's answers and each judge's.
 - **P3 — The candidate gate (about 4 days, then 2 weeks advisory).** Frozen outlines (the three recorded in SPEC-96);
   release chapters generated once per release and cached on `eval-results`, regenerated weekly to catch provider drift;
   the first baseline, since no release exists yet, is the commit in production when P3 starts, tagged by hand as
