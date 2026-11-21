@@ -321,9 +321,13 @@ def score(page: dict, key: dict, reader: dict, judges: dict[str, dict]) -> dict:
     distinct pairs and agreement over the reader's decisive pairs (a side,
     confirmed by its repeat where there is one), with the thresholds."""
     r = reader_picks(page, key, reader)
-    broken = {x["pair"] for x in r["repeats"] if not x["consistent"]}
+    # A repeated pair is decisive only once its repeat is answered and agrees.
+    repeated = {v["repeat_of"] for v in key["key"].values() if v["repeat_of"]}
+    confirmed = {x["pair"] for x in r["repeats"] if x["consistent"]}
     decisive = {
-        i: p for i, p in r["picks"].items() if p in ("A", "B") and i not in broken
+        i: p
+        for i, p in r["picks"].items()
+        if p in ("A", "B") and (i not in repeated or i in confirmed)
     }
     n = len(decisive)
     pairs = [i for i, v in key["key"].items() if not v["repeat_of"]]

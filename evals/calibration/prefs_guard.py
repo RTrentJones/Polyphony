@@ -10,6 +10,7 @@ the schema it claims. Prints counts only.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -42,10 +43,10 @@ def leaks(items: dict, key: dict) -> list[str]:
         extra = set(it) - ITEM_FIELDS
         if extra:
             out.append(f"{it.get('id')}: unexpected fields {sorted(extra)}")
-        meta = " ".join(str(it.get(f, "")) for f in ("id", "book", "question"))
-        text = json.dumps(it).lower()
+        # Every field a judge is shown, the passages and context included.
+        text = json.dumps(it, ensure_ascii=False).lower()
         for w in WORDS:
-            if w in meta.lower():
+            if re.search(rf"(?<![a-z0-9_-]){re.escape(w)}(?![a-z0-9_-])", text):
                 out.append(f"{it.get('id')}: names {w!r}")
         for r in runs:
             if r and r in text:

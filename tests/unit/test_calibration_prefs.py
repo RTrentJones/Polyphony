@@ -142,6 +142,10 @@ def test_judges_get_each_distinct_pair_in_both_orders_and_nothing_from_the_key()
     assert parse({**one, "allow_none": False}, {"preferred": "none"}) is None
     leaked = {**j, "items": [{**one, "arm": "N"}]}
     assert prefs_guard.leaks(leaked, key)
+    told = {**j, "items": [{**one, "context": one["context"] + " (written by claude)"}]}
+    assert any("claude" in x for x in prefs_guard.leaks(told, key))
+    told = {**j, "items": [{**one, "text_b": "no_excerpts " + one["text_b"]}]}
+    assert prefs_guard.leaks(told, key)
 
 
 def test_the_score_counts_order_consistency_and_agreement_as_spec_98_says():
@@ -163,6 +167,9 @@ def test_the_score_counts_order_consistency_and_agreement_as_spec_98_says():
     assert (p["order_consistent"], p["agree"], p["qualifies_gate"]) == (16, n, True)
     assert f["order_consistent"] == 12 and not f["qualifies_gate"]
     assert not f["qualifies_bulk"]  # below 13/16 consistency
+    unconfirmed = {i: v for i, v in reader.items() if i != reps[0]}
+    u = prefs.score(items, key, unconfirmed, {"perfect": perfect})
+    assert u["decisive"] == n - 1  # an unanswered repeat leaves its pair undecided
     none = prefs.score(items, key, {}, {"perfect": perfect})
     assert none["decisive"] == 0 and not none["judges"]["perfect"]["qualifies_gate"]
 
